@@ -141,6 +141,12 @@
             "state": "translated",
             "value": "Використання: cmux claude-teams [аргументи-claude...]\n\nЗапуск Claude Code з увімкненими командами агентів.\n\nЦя команда:\n  - типово вмикає режим teammate для Claude\n  - забезпечує підтримку cmux для сеансу\n  - встановлює CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1\n  - додає приватну tmux-прокладку на початок PATH\n  - передає всі інші аргументи до claude\n\nTmux-прокладка перетворює підтримувані команди tmux вікон/панелей на операції\nробочих просторів і розділів cmux у поточному сеансі cmux.\n\nПриклади:\n  cmux claude-teams\n  cmux claude-teams --continue\n  cmux claude-teams --model sonnet"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux claude-teams [claude-args...]\n\n에이전트 팀이 활성화된 상태로 Claude Code를 실행합니다.\n\n이 명령은:\n  - Claude 팀원 모드를 auto로 설정합니다\n  - Claude auto 모드가 cmux 분할을 사용하도록 tmux 호환 환경을 설정합니다\n  - CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1을 설정합니다\n  - PATH 앞에 전용 tmux 심을 추가합니다\n  - 나머지 인자를 모두 claude에 전달합니다\n\ntmux 심은 지원되는 tmux 윈도우/패인 명령을 현재 cmux 세션의\n워크스페이스 및 분할 작업으로 변환합니다.\n\n예시:\n  cmux claude-teams\n  cmux claude-teams --continue\n  cmux claude-teams --model sonnet"
+          }
         }
       }
     },
@@ -163,6 +169,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Використання: cmux omo [аргументи-opencode...]\n\nЗапуск OpenCode з oh-my-openagent у середовищі cmux.\n\noh-my-openagent оркеструє кілька моделей ШІ як спеціалізованих агентів\nпаралельно. Ця команда налаштовує tmux-прокладку, щоб панелі агентів\nстали нативними розділами cmux з метаданими бічної панелі та сповіщеннями.\n\nЦя команда:\n  - забезпечує підтримку cmux для oh-my-openagent\n  - додає приватну tmux-прокладку на початок PATH\n  - передає всі інші аргументи до opencode\n\nTmux-прокладка перетворює команди tmux вікон/панелей на операції\nробочих просторів і розділів cmux у поточному сеансі cmux.\n\nПриклади:\n  cmux omo\n  cmux omo --continue\n  cmux omo --model claude-sonnet-4-6"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux omo [opencode-args...]\n\ncmux 호환 환경에서 oh-my-openagent와 함께 OpenCode를 실행합니다.\n\noh-my-openagent는 여러 AI 모델을 전문 에이전트로 병렬 조율합니다.\n이 명령은 에이전트 패인이 사이드바 메타데이터와 알림이 있는\n네이티브 cmux 분할이 되도록 tmux 심을 설정합니다.\n\n이 명령은:\n  - oh-my-openagent가 cmux 분할을 사용하도록 tmux 호환 환경을 설정합니다\n  - PATH 앞에 전용 tmux 심을 추가합니다\n  - 나머지 인자를 모두 opencode에 전달합니다\n\ntmux 심은 tmux 윈도우/패인 명령을 현재 cmux 세션의\n워크스페이스 및 분할 작업으로 변환합니다.\n\n예시:\n  cmux omo\n  cmux omo --continue\n  cmux omo --model claude-sonnet-4-6"
           }
         }
       }
@@ -187,6 +199,12 @@
             "state": "translated",
             "value": "AppleScript вимкнено параметром конфігурації macos-applescript."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppleScript가 macos-applescript 설정에 의해 비활성화되어 있습니다."
+          }
         }
       }
     },
@@ -209,6 +227,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося створити розділення."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할을 생성하지 못했습니다."
           }
         }
       }
@@ -233,6 +257,12 @@
             "state": "translated",
             "value": "Не вдалося створити вікно."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우를 생성하지 못했습니다."
+          }
         }
       }
     },
@@ -255,6 +285,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося створити робочу область."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스를 생성하지 못했습니다."
           }
         }
       }
@@ -279,6 +315,12 @@
             "state": "translated",
             "value": "Відсутній рядок дії."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "액션 문자열이 없습니다."
+          }
         }
       }
     },
@@ -301,6 +343,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відсутній текст введення."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 텍스트가 없습니다."
           }
         }
       }
@@ -325,6 +373,12 @@
             "state": "translated",
             "value": "Відсутній або невідомий напрямок розділення."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 방향이 없거나 올바르지 않습니다."
+          }
         }
       }
     },
@@ -347,6 +401,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відсутня ціль терміналу."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 대상이 없습니다."
           }
         }
       }
@@ -371,6 +431,12 @@
             "state": "translated",
             "value": "Термінал більше недоступний."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 더 이상 사용할 수 없습니다."
+          }
         }
       }
     },
@@ -394,6 +460,12 @@
             "state": "translated",
             "value": "Вікно більше недоступне."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우를 더 이상 사용할 수 없습니다."
+          }
         }
       }
     },
@@ -416,6 +488,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Робоча область більше недоступна."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스를 더 이상 사용할 수 없습니다."
           }
         }
       }
@@ -916,6 +994,12 @@
             "state": "translated",
             "value": "Показати банер версії для розробки"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개발 빌드 배너 표시"
+          }
         }
       }
     },
@@ -938,6 +1022,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відкрити стрес-тест робочих областей і завантажити всі термінали"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스트레스 워크스페이스 열기 및 모든 터미널 로드"
           }
         }
       }
@@ -962,6 +1052,12 @@
             "state": "translated",
             "value": "Відстань кнопок панелі інструментів браузера"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 도구 모음 버튼 간격"
+          }
         }
       }
     },
@@ -984,6 +1080,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Налагодження спливного вікна профілю браузера…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 프로필 팝오버 디버그…"
           }
         }
       }
@@ -1008,6 +1110,12 @@
             "state": "translated",
             "value": "Налагодження спливного вікна профілю браузера"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 프로필 팝오버 디버그"
+          }
         }
       }
     },
@@ -1030,6 +1138,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Спливне вікно профілю браузера"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 프로필 팝오버"
           }
         }
       }
@@ -1054,6 +1168,12 @@
             "state": "translated",
             "value": "Налаштуйте відступи спливного вікна профілю в реальному часі, порівнюючи з меню панелі інструментів браузера."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 도구 모음 메뉴와 비교하면서 프로필 팝오버 패딩을 실시간으로 조정합니다."
+          }
         }
       }
     },
@@ -1076,6 +1196,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відступи"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패딩"
           }
         }
       }
@@ -1100,6 +1226,12 @@
             "state": "translated",
             "value": "Горизонтальний"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가로"
+          }
         }
       }
     },
@@ -1122,6 +1254,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вертикальний"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세로"
           }
         }
       }
@@ -1146,6 +1284,12 @@
             "state": "translated",
             "value": "Перегляд"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리보기"
+          }
         }
       }
     },
@@ -1168,6 +1312,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Скинути"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "초기화"
           }
         }
       }
@@ -1192,6 +1342,12 @@
             "state": "translated",
             "value": "Зміни застосовуються до спливного вікна профілю браузера в реальному часі."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경 사항이 브라우저 프로필 팝오버에 실시간으로 적용됩니다."
+          }
         }
       }
     },
@@ -1214,6 +1370,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ЦЕ ВЕРСІЯ ДЛЯ РОЗРОБКИ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개발 빌드입니다"
           }
         }
       }
@@ -1238,6 +1400,12 @@
             "state": "translated",
             "value": "Довідка"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도움말"
+          }
         }
       }
     },
@@ -1260,6 +1428,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ласкаво просимо до cmux!"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에 오신 것을 환영합니다!"
           }
         }
       }
@@ -1284,6 +1458,12 @@
             "state": "translated",
             "value": "Журнал змін"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경 로그"
+          }
         }
       }
     },
@@ -1303,6 +1483,12 @@
           }
         },
         "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discord"
+          }
+        },
+        "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "Discord"
@@ -1330,6 +1516,12 @@
             "state": "translated",
             "value": "Проблеми на GitHub"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub Issues"
+          }
         }
       }
     },
@@ -1352,6 +1544,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Надіслати відгук"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백 보내기"
           }
         }
       }
@@ -1376,6 +1574,12 @@
             "state": "translated",
             "value": "Прикріпити зображення"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지 첨부"
+          }
         }
       }
     },
@@ -1398,6 +1602,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Прикріпити"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첨부"
           }
         }
       }
@@ -1422,6 +1632,12 @@
             "state": "translated",
             "value": "Прикріпити зображення"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지 첨부"
+          }
         }
       }
     },
@@ -1444,6 +1660,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "До 10 зображень."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 10장의 이미지."
           }
         }
       }
@@ -1468,6 +1690,12 @@
             "state": "translated",
             "value": "Скасувати"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
         }
       }
     },
@@ -1490,6 +1718,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося надіслати відгук. Перевірте підключення та спробуйте ще раз."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백을 보내지 못했습니다. 연결을 확인하고 다시 시도하세요."
           }
         }
       }
@@ -1514,6 +1748,12 @@
             "state": "translated",
             "value": "Готово"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료"
+          }
         }
       }
     },
@@ -1537,6 +1777,12 @@
             "state": "translated",
             "value": "Ваш email"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이메일 주소"
+          }
         }
       }
     },
@@ -1556,6 +1802,12 @@
           }
         },
         "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "you@example.com"
+          }
+        },
+        "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "you@example.com"
@@ -1583,6 +1835,12 @@
             "state": "translated",
             "value": "Введіть повідомлення перед надсиланням."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보내기 전에 메시지를 입력하세요."
+          }
         }
       }
     },
@@ -1605,6 +1863,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відгуки зараз недоступні. Напишіть на founders@manaflow.com."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 피드백을 사용할 수 없습니다. 대신 founders@manaflow.com으로 이메일을 보내주세요."
           }
         }
       }
@@ -1629,6 +1893,12 @@
             "state": "translated",
             "value": "Не вдалося надіслати відгук. Спробуйте ще раз."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백을 보내지 못했습니다. 다시 시도하세요."
+          }
         }
       }
     },
@@ -1651,6 +1921,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Кожне зображення повинно бути не більше 4 МБ."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 이미지는 4MB 이하여야 합니다."
           }
         }
       }
@@ -1675,6 +1951,12 @@
             "state": "translated",
             "value": "Введіть дійсну електронну адресу."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "올바른 이메일 주소를 입력하세요."
+          }
         }
       }
     },
@@ -1697,6 +1979,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Один з вибраних файлів не вдалося прикріпити."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 파일 중 하나를 첨부할 수 없습니다."
           }
         }
       }
@@ -1721,6 +2009,12 @@
             "state": "translated",
             "value": "Повідомлення"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지"
+          }
         }
       }
     },
@@ -1743,6 +2037,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Поділіться відгуком, пропозиціями або повідомте про проблему."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백, 기능 요청 또는 문제를 공유하세요."
           }
         }
       }
@@ -1767,6 +2067,12 @@
             "state": "translated",
             "value": "Ваше повідомлення занадто довге."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지가 너무 깁니다."
+          }
         }
       }
     },
@@ -1789,6 +2095,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ви також можете написати нам на founders@manaflow.com."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "founders@manaflow.com으로도 연락하실 수 있습니다."
           }
         }
       }
@@ -1813,6 +2125,12 @@
             "state": "translated",
             "value": "Занадто багато спроб надсилання відгуку. Спробуйте пізніше."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백 시도가 너무 많습니다. 나중에 다시 시도하세요."
+          }
         }
       }
     },
@@ -1835,6 +2153,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Видалити"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제거"
           }
         }
       }
@@ -1859,6 +2183,12 @@
             "state": "translated",
             "value": "Надіслати"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보내기"
+          }
         }
       }
     },
@@ -1881,6 +2211,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ви також можете написати нам на founders@manaflow.com."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "founders@manaflow.com으로도 연락하실 수 있습니다."
           }
         }
       }
@@ -1905,6 +2241,12 @@
             "state": "translated",
             "value": "Дякуємо за відгук."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백을 보내주셔서 감사합니다."
+          }
         }
       }
     },
@@ -1927,6 +2269,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Надіслати відгук"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백 보내기"
           }
         }
       }
@@ -1951,6 +2299,12 @@
             "state": "translated",
             "value": "Можна прикріпити до 10 зображень."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 10장의 이미지를 첨부할 수 있습니다."
+          }
         }
       }
     },
@@ -1974,6 +2328,12 @@
             "state": "translated",
             "value": "Ці зображення занадто великі для надсилання разом. Видаліть кілька та спробуйте ще раз."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지가 너무 커서 함께 보낼 수 없습니다. 몇 개를 제거하고 다시 시도하세요."
+          }
         }
       }
     },
@@ -1996,6 +2356,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перевірте повідомлення та вкладення, потім спробуйте ще раз."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지와 첨부 파일을 확인한 후 다시 시도하세요."
           }
         }
       }
@@ -5352,6 +5718,12 @@
             "state": "translated",
             "value": "Профіль браузера: %@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 프로필: %@"
+          }
         }
       }
     },
@@ -5374,6 +5746,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Стандартний"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값"
           }
         }
       }
@@ -5398,6 +5776,12 @@
             "state": "translated",
             "value": "Профілі"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필"
+          }
         }
       }
     },
@@ -5420,6 +5804,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Новий профіль..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 프로필..."
           }
         }
       }
@@ -5444,6 +5834,12 @@
             "state": "translated",
             "value": "Створити окремий профіль браузера для cookies, історії та локального сховища."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쿠키, 방문 기록, 로컬 스토리지를 위한 별도의 브라우저 프로필을 생성합니다."
+          }
         }
       }
     },
@@ -5466,6 +5862,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Назва профілю"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 이름"
           }
         }
       }
@@ -5490,6 +5892,12 @@
             "state": "translated",
             "value": "Новий профіль браузера"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 브라우저 프로필"
+          }
         }
       }
     },
@@ -5512,6 +5920,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейменувати поточний профіль..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 프로필 이름 변경..."
           }
         }
       }
@@ -5536,6 +5950,12 @@
             "state": "translated",
             "value": "Виберіть нову назву для цього профілю браузера."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 브라우저 프로필의 새 이름을 선택하세요."
+          }
         }
       }
     },
@@ -5558,6 +5978,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейменувати профіль браузера"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 프로필 이름 변경"
           }
         }
       }
@@ -5582,6 +6008,12 @@
             "state": "translated",
             "value": "Закладки, налаштування та розширення поки недоступні."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "북마크, 설정, 확장 프로그램은 아직 지원되지 않습니다."
+          }
         }
       }
     },
@@ -5604,6 +6036,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Додаткові дані (закладки, налаштування, розширення)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 데이터 (북마크, 설정, 확장 프로그램)"
           }
         }
       }
@@ -5628,6 +6066,12 @@
             "state": "translated",
             "value": "Назад"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "뒤로"
+          }
         }
       }
     },
@@ -5650,6 +6094,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Браузер: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저: %@"
           }
         }
       }
@@ -5674,6 +6124,12 @@
             "state": "translated",
             "value": "Створені профілі cmux: %@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생성된 cmux 프로필: %@"
+          }
         }
       }
     },
@@ -5696,6 +6152,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Профіль призначення: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 프로필: %@"
           }
         }
       }
@@ -5720,6 +6182,12 @@
             "state": "translated",
             "value": "Фільтр доменів: %@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 필터: %@"
+          }
         }
       }
     },
@@ -5739,6 +6207,12 @@
           }
         },
         "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ -> %@"
+          }
+        },
+        "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ -> %@"
@@ -5766,6 +6240,12 @@
             "state": "translated",
             "value": "Відповідності профілів:"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 매핑:"
+          }
         }
       }
     },
@@ -5788,6 +6268,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Імпортовано cookies: %ld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져온 쿠키: %ld"
           }
         }
       }
@@ -5812,6 +6298,12 @@
             "state": "translated",
             "value": "Імпортовано записів історії: %ld"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져온 방문 기록: %ld"
+          }
         }
       }
     },
@@ -5834,6 +6326,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Обсяг: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "범위: %@"
           }
         }
       }
@@ -5858,6 +6356,12 @@
             "state": "translated",
             "value": "Пропущено cookies: %ld"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "건너뛴 쿠키: %ld"
+          }
         }
       }
     },
@@ -5880,6 +6384,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вихідні профілі: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원본 프로필: %@"
           }
         }
       }
@@ -5904,6 +6414,12 @@
             "state": "translated",
             "value": "Імпорт даних браузера завершено"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 데이터 가져오기 완료"
+          }
         }
       }
     },
@@ -5926,6 +6442,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Попередження:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경고:"
           }
         }
       }
@@ -5950,6 +6472,12 @@
             "state": "translated",
             "value": "Cookies (авторизації на сайтах)"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쿠키 (사이트 로그인 정보)"
+          }
         }
       }
     },
@@ -5972,6 +6500,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Призначення"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상"
           }
         }
       }
@@ -5996,6 +6530,12 @@
             "state": "translated",
             "value": "Імпортувати до"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져올 위치"
+          }
         }
       }
     },
@@ -6018,6 +6558,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Створити \"%@\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" 생성"
           }
         }
       }
@@ -6042,6 +6588,12 @@
             "state": "translated",
             "value": "Імпортовані дані потрапляють у вибраний профіль cmux."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져온 데이터가 선택한 cmux 프로필에 저장됩니다."
+          }
         }
       }
     },
@@ -6064,6 +6616,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Усі вибрані вихідні профілі об'єднуються в один профіль cmux."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 모든 원본 프로필이 하나의 cmux 프로필로 합쳐집니다."
           }
         }
       }
@@ -6088,6 +6646,12 @@
             "state": "translated",
             "value": "Відсутні профілі cmux створюються під час імпорту."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "없는 cmux 프로필은 가져오기 시 자동으로 생성됩니다."
+          }
         }
       }
     },
@@ -6110,6 +6674,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Об'єднати в один"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나로 합치기"
           }
         }
       }
@@ -6134,6 +6704,12 @@
             "state": "translated",
             "value": "Окремі профілі"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 분리"
+          }
         }
       }
     },
@@ -6156,6 +6732,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Виявлено: %@."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감지됨: %@."
           }
         }
       }
@@ -6180,6 +6762,12 @@
             "state": "translated",
             "value": "Виявлено: %@, +1 інший."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감지됨: %@, +1개 더."
+          }
         }
       }
     },
@@ -6202,6 +6790,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Виявлено: %@, +%ld інших."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감지됨: %@, +%ld개 더."
           }
         }
       }
@@ -6226,6 +6820,12 @@
             "state": "translated",
             "value": "Підтримувані браузери не виявлено."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원되는 브라우저가 감지되지 않았습니다."
+          }
         }
       }
     },
@@ -6248,6 +6848,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Домени"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인"
           }
         }
       }
@@ -6272,6 +6878,12 @@
             "state": "translated",
             "value": "Необов'язкові домени, через кому"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인(선택 사항), 쉼표로 구분"
+          }
         }
       }
     },
@@ -6294,6 +6906,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux не зміг створити профіль призначення \"%@\"."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대상 프로필 \"%@\"을(를) 생성할 수 없습니다."
           }
         }
       }
@@ -6318,6 +6936,12 @@
             "state": "translated",
             "value": "Вибраний профіль браузера cmux більше не існує. Виберіть профіль призначення знову."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 cmux 브라우저 프로필이 더 이상 존재하지 않습니다. 대상 프로필을 다시 선택하세요."
+          }
         }
       }
     },
@@ -6340,6 +6964,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося розпочати імпорт"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기를 시작할 수 없습니다"
           }
         }
       }
@@ -6364,6 +6994,12 @@
             "state": "translated",
             "value": "Історія (відвідані сторінки)"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방문 기록 (방문한 페이지)"
+          }
         }
       }
     },
@@ -6386,6 +7022,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Далі"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음"
           }
         }
       }
@@ -6410,6 +7052,12 @@
             "state": "translated",
             "value": "cmux не знайшов профілів браузерів для імпорту на цьому Mac."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 가져올 수 있는 브라우저 프로필을 찾을 수 없습니다."
+          }
         }
       }
     },
@@ -6432,6 +7080,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Браузери для імпорту не знайдено"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져올 수 있는 브라우저 없음"
           }
         }
       }
@@ -6456,6 +7110,12 @@
             "state": "translated",
             "value": "Імпортування %@ з %@…"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@에서 %1$@ 가져오는 중…"
+          }
         }
       }
     },
@@ -6478,6 +7138,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Це може зайняти кілька секунд для великих профілів."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필이 큰 경우 몇 초 걸릴 수 있습니다."
           }
         }
       }
@@ -6502,6 +7168,12 @@
             "state": "translated",
             "value": "Імпорт даних браузера"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 데이터 가져오는 중"
+          }
         }
       }
     },
@@ -6524,6 +7196,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cookies + історія"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쿠키 + 방문 기록"
           }
         }
       }
@@ -6548,6 +7226,12 @@
             "state": "translated",
             "value": "Тільки cookies"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쿠키만"
+          }
         }
       }
     },
@@ -6570,6 +7254,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Усе"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체"
           }
         }
       }
@@ -6594,6 +7284,12 @@
             "state": "translated",
             "value": "Тільки історія"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방문 기록만"
+          }
         }
       }
     },
@@ -6616,6 +7312,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Браузер"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저"
           }
         }
       }
@@ -6640,6 +7342,12 @@
             "state": "translated",
             "value": "Профіль %ld"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 %ld"
+          }
         }
       }
     },
@@ -6662,6 +7370,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Профілі"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필"
           }
         }
       }
@@ -6686,6 +7400,12 @@
             "state": "translated",
             "value": "Виберіть один або кілька профілів."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 이상의 프로필을 선택하세요."
+          }
         }
       }
     },
@@ -6708,6 +7428,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вихідні профілі для %@ не виявлено."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 원본 프로필이 감지되지 않았습니다."
           }
         }
       }
@@ -6732,6 +7458,12 @@
             "state": "translated",
             "value": "Почати імпорт"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기 시작"
+          }
         }
       }
     },
@@ -6754,6 +7486,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Крок 3 з 3"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3단계 중 3단계"
           }
         }
       }
@@ -6778,6 +7516,12 @@
             "state": "translated",
             "value": "Крок 1 з 3"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3단계 중 1단계"
+          }
         }
       }
     },
@@ -6800,6 +7544,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Крок 2 з 3"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3단계 중 2단계"
           }
         }
       }
@@ -6824,6 +7574,12 @@
             "state": "translated",
             "value": "Імпорт даних браузера"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 데이터 가져오기"
+          }
         }
       }
     },
@@ -6846,6 +7602,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сховати підказку"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "힌트 숨기기"
           }
         }
       }
@@ -6870,6 +7632,12 @@
             "state": "translated",
             "value": "Імпортувати…"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기…"
+          }
         }
       }
     },
@@ -6892,6 +7660,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Налаштування браузера"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 설정"
           }
         }
       }
@@ -6916,6 +7690,12 @@
             "state": "translated",
             "value": "Ви завжди можете знайти це в Налаштуваннях > Браузер."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 > 브라우저에서 언제든 찾을 수 있습니다."
+          }
         }
       }
     },
@@ -6938,6 +7718,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Імпорт даних браузера"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 데이터 가져오기"
           }
         }
       }
@@ -6962,6 +7748,12 @@
             "state": "translated",
             "value": "Імпортувати"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기"
+          }
         }
       }
     },
@@ -6984,6 +7776,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Імпорт даних браузера"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 데이터 가져오기"
           }
         }
       }
@@ -7008,6 +7806,12 @@
             "state": "translated",
             "value": "Виберіть Cookies, Історію або обидва перед початком імпорту."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기를 시작하기 전에 쿠키, 방문 기록 또는 둘 다를 선택하세요."
+          }
         }
       }
     },
@@ -7030,6 +7834,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Виберіть принаймні один вихідний профіль для імпорту."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져올 원본 프로필을 하나 이상 선택하세요."
           }
         }
       }
@@ -7054,6 +7864,12 @@
             "state": "translated",
             "value": "Імпорт закладок, налаштувань і розширень ще недоступний. Імпортовано лише cookies та історію."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "북마크, 설정, 확장 프로그램 가져오기는 아직 지원되지 않습니다. 쿠키와 방문 기록만 가져왔습니다."
+          }
         }
       }
     },
@@ -7076,6 +7892,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося прочитати cookies %@ за адресою %@: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 쿠키를 %@에서 읽지 못했습니다: %@"
           }
         }
       }
@@ -7100,6 +7922,12 @@
             "state": "translated",
             "value": "Не вдалося прочитати історію %@ за адресою %@: %@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 방문 기록을 %@에서 읽지 못했습니다: %@"
+          }
         }
       }
     },
@@ -7122,6 +7950,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Імпорт cookies %@ ще не реалізовано."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 쿠키 가져오기는 아직 구현되지 않았습니다."
           }
         }
       }
@@ -7146,6 +7980,12 @@
             "state": "translated",
             "value": "Пропущено %ld зашифрованих cookies, які потребують дешифрування через Keychain."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키체인 복호화가 필요한 암호화된 쿠키 %ld개를 건너뛰었습니다."
+          }
         }
       }
     },
@@ -7168,6 +8008,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пропущено %ld зашифрованих cookies %@, оскільки %@ не вдалося розблокувати через Keychain."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키체인에서 %3$@을(를) 잠금 해제할 수 없어 암호화된 %2$@ 쿠키 %1$ld개를 건너뛰었습니다."
           }
         }
       }
@@ -7192,6 +8038,12 @@
             "state": "translated",
             "value": "Не вдалося прочитати cookies Firefox за адресою %@: %@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 Firefox 쿠키를 읽지 못했습니다: %@"
+          }
         }
       }
     },
@@ -7214,6 +8066,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося прочитати історію Firefox за адресою %@: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 Firefox 방문 기록을 읽지 못했습니다: %@"
           }
         }
       }
@@ -7238,6 +8096,12 @@
             "state": "translated",
             "value": "База даних історії для %@ не знайдена."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 방문 기록 데이터베이스를 찾을 수 없습니다."
+          }
         }
       }
     },
@@ -7261,6 +8125,12 @@
             "state": "translated",
             "value": "Cookies Safari зберігаються у форматі Cookies.binarycookies і поки не підтримуються цим імпортером."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari 쿠키는 Cookies.binarycookies에 저장되어 있으며 아직 이 가져오기 도구에서 지원되지 않습니다."
+          }
         }
       }
     },
@@ -7283,6 +8153,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тема браузера: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 테마: %@"
           }
         }
       }
@@ -10162,6 +11038,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Завантаження…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로딩 중…"
           }
         }
       }
@@ -17141,6 +18023,12 @@
             "state": "translated",
             "value": "Увімкнути мінімальний режим"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미니멀 모드 활성화"
+          }
         }
       }
     },
@@ -17163,6 +18051,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вимкнути мінімальний режим"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미니멀 모드 비활성화"
           }
         }
       }
@@ -19561,6 +20455,12 @@
             "state": "translated",
             "value": "VS Code インライン"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code 인라인"
+          }
         }
       }
     },
@@ -19577,6 +20477,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "フォルダを VS Code で開く（インライン）…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code에서 폴더 열기 (인라인)…"
           }
         }
       }
@@ -24837,6 +25743,12 @@
             "state": "translated",
             "value": "Браузер"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저"
+          }
         }
       }
     },
@@ -24860,6 +25772,12 @@
             "state": "translated",
             "value": "Markdown"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마크다운"
+          }
         }
       }
     },
@@ -24882,6 +25800,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Термінал"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널"
           }
         }
       }
@@ -26691,6 +27615,12 @@
             "state": "translated",
             "value": "Робочі області чи поверхні, що відповідають пошуку, не знайдено."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색과 일치하는 워크스페이스 또는 서피스가 없습니다."
+          }
         }
       }
     },
@@ -26832,6 +27762,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пошук робочих областей і поверхонь"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 및 서피스 검색"
           }
         }
       }
@@ -28045,6 +28981,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Створити"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생성"
           }
         }
       }
@@ -29729,6 +30671,12 @@
             "state": "translated",
             "value": "最新の通知をクリア"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 알림 지우기"
+          }
         }
       }
     },
@@ -29745,6 +30693,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "最新の通知をクリア"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 알림 모두 지우기"
           }
         }
       }
@@ -30840,6 +31794,12 @@
             "state": "translated",
             "value": "Копіювати помилку"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 복사"
+          }
         }
       }
     },
@@ -30863,6 +31823,12 @@
             "state": "translated",
             "value": "Копіювати помилки"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 모두 복사"
+          }
         }
       }
     },
@@ -30882,6 +31848,12 @@
           }
         },
         "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld. %@ (%@): %@"
+          }
+        },
+        "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld. %@ (%@): %@"
@@ -30909,6 +31881,12 @@
             "state": "translated",
             "value": "Помилка SSH (%@): %@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 오류 (%@): %@"
+          }
         }
       }
     },
@@ -30931,6 +31909,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Копіювати помилку SSH"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 오류 복사"
           }
         }
       }
@@ -33216,6 +34200,12 @@
             "state": "translated",
             "value": "Скасувати"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
         }
       }
     },
@@ -33357,6 +34347,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Це закриє \"%@\"."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\"을(를) 닫습니다."
           }
         }
       }
@@ -33500,6 +34496,12 @@
             "state": "translated",
             "value": "Це закриє поточне вікно та всі його робочі області."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 윈도우와 모든 워크스페이스가 닫힙니다."
+          }
         }
       }
     },
@@ -33522,6 +34524,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Закрити вікно?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우를 닫으시겠습니까?"
           }
         }
       }
@@ -33546,6 +34554,12 @@
             "state": "translated",
             "value": "Це закриє %1$lld робочих областей та всі їхні панелі:\n%2$@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld개의 워크스페이스와 모든 패널이 닫힙니다:\n%2$@"
+          }
         }
       }
     },
@@ -33568,6 +34582,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Закрити робочі області?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스를 닫으시겠습니까?"
           }
         }
       }
@@ -33592,6 +34612,12 @@
             "state": "translated",
             "value": "Це закриє поточне вікно, його %1$lld робочих областей та всі їхні панелі:\n%2$@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 윈도우, %1$lld개의 워크스페이스 및 모든 패널이 닫힙니다:\n%2$@"
+          }
         }
       }
     },
@@ -33615,6 +34641,12 @@
             "state": "translated",
             "value": "Ця робоча область закріплена. Закриття видалить робочу область та всі її панелі."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 워크스페이스는 고정되어 있습니다. 닫으면 워크스페이스와 모든 패널이 닫힙니다."
+          }
         }
       }
     },
@@ -33637,6 +34669,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Закрити закріплену робочу область?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정된 워크스페이스를 닫으시겠습니까?"
           }
         }
       }
@@ -37225,6 +38263,12 @@
             "state": "translated",
             "value": "settings.jsonを開く"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "settings.json 열기"
+          }
         }
       }
     },
@@ -38670,6 +39714,12 @@
             "state": "translated",
             "value": "フォルダを VS Code で開く（インライン）…"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code에서 폴더 열기 (인라인)…"
+          }
         }
       }
     },
@@ -38687,6 +39737,12 @@
             "state": "translated",
             "value": "VS Code で開く"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code에서 열기"
+          }
         }
       }
     },
@@ -38703,6 +39759,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "フォルダを VS Code で開く（インライン）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code에서 폴더 열기 (인라인)"
           }
         }
       }
@@ -41226,6 +42288,12 @@
             "state": "translated",
             "value": "Відкрити поточну теку в VS Code"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 디렉토리를 VS Code에서 열기"
+          }
         }
       }
     },
@@ -42676,6 +43744,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Імпортувати дані браузера…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 데이터 가져오기…"
           }
         }
       }
@@ -45591,6 +46665,12 @@
             "state": "translated",
             "value": "Перейти до останнього"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최신으로 이동"
+          }
         }
       }
     },
@@ -47161,6 +48241,12 @@
             "state": "translated",
             "value": "Показувати в рядку меню"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대에 표시"
+          }
         }
       }
     },
@@ -47183,6 +48269,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Залишати cmux у рядку меню для непрочитаних сповіщень та швидких дій."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽지 않은 알림과 빠른 작업을 위해 cmux를 메뉴 막대에 유지합니다."
           }
         }
       }
@@ -47915,6 +49007,12 @@
             "state": "translated",
             "value": "settings.jsonを開く"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "settings.json 열기"
+          }
         }
       }
     },
@@ -47937,6 +49035,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Палітра команд шукає всі поверхні"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령어 팔레트에서 모든 서피스 검색"
           }
         }
       }
@@ -47961,6 +49065,12 @@
             "state": "translated",
             "value": "Cmd+P шукає лише рядки робочих областей."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+P가 워크스페이스 행만 검색합니다."
+          }
         }
       }
     },
@@ -47983,6 +49093,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cmd+P також шукає термінали, браузери та markdown-поверхні у всіх робочих областях."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+P가 모든 워크스페이스의 터미널, 브라우저, 마크다운 서피스도 검색합니다."
           }
         }
       }
@@ -48007,6 +49123,12 @@
             "state": "translated",
             "value": "Залишати робочу область відкритою при закритті останньої поверхні"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 서피스를 닫을 때 워크스페이스 유지"
+          }
         }
       }
     },
@@ -48029,6 +49151,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Коли активна поверхня є останньою у робочій області, комбінація закриття поверхні також закриває робочу область."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 서피스가 워크스페이스의 마지막일 때, 서피스 닫기 단축키로 워크스페이스도 함께 닫힙니다."
           }
         }
       }
@@ -48053,6 +49181,12 @@
             "state": "translated",
             "value": "Коли активна поверхня є останньою у робочій області, комбінація закриття поверхні закриває лише поверхню, залишаючи робочу область відкритою. Використовуйте комбінацію закриття робочої області для явного закриття."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 서피스가 워크스페이스의 마지막일 때, 서피스 닫기 단축키로 서피스만 닫고 워크스페이스는 유지됩니다. 워크스페이스를 닫으려면 워크스페이스 닫기 단축키를 사용하세요."
+          }
         }
       }
     },
@@ -48075,6 +49209,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Фокус панелі при першому кліку"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첫 클릭으로 패인 포커스"
           }
         }
       }
@@ -48099,6 +49239,12 @@
             "state": "translated",
             "value": "Коли cmux неактивний, перший клік лише активує вікно. Клацніть ще раз, щоб сфокусувати панель."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 비활성 상태일 때, 첫 번째 클릭은 윈도우만 활성화합니다. 패인을 포커스하려면 다시 클릭하세요."
+          }
         }
       }
     },
@@ -48121,6 +49267,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Коли cmux неактивний, клік на панель активує вікно та фокусує панель одним кліком."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 비활성 상태일 때, 패인을 클릭하면 윈도우 활성화와 패인 포커스가 한 번에 이루어집니다."
           }
         }
       }
@@ -48859,6 +50011,12 @@
             "state": "translated",
             "value": "Сховати всі деталі бічної панелі"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 세부 정보 모두 숨기기"
+          }
         }
       }
     },
@@ -48882,6 +50040,12 @@
             "state": "translated",
             "value": "Показувати додаткові деталі робочої області відповідно до перемикачів нижче."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래 토글에 따라 보조 워크스페이스 세부 정보를 표시합니다."
+          }
         }
       }
     },
@@ -48904,6 +50068,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показувати лише рядок заголовка робочої області. Замінює перемикачі деталей нижче."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 제목 행만 표시합니다. 아래 세부 정보 토글보다 우선합니다."
           }
         }
       }
@@ -50237,6 +51407,12 @@
             "state": "translated",
             "value": "Показувати повідомлення сповіщення в бічній панелі"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 알림 메시지 표시"
+          }
         }
       }
     },
@@ -50259,6 +51435,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відображати останнє повідомлення сповіщення під заголовком робочої області."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 제목 아래에 최신 알림 메시지를 표시합니다."
           }
         }
       }
@@ -50402,6 +51584,12 @@
             "state": "translated",
             "value": "Показувати SSH у бічній панелі"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 SSH 표시"
+          }
         }
       }
     },
@@ -50424,6 +51612,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відображати ціль SSH для віддалених робочих областей у окремому рядку."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 워크스페이스의 SSH 대상을 별도 행으로 표시합니다."
           }
         }
       }
@@ -50805,6 +51999,12 @@
             "state": "translated",
             "value": "Показувати заголовок робочої області"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 제목 표시줄 표시"
+          }
         }
       }
     },
@@ -50827,6 +52027,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сховати теку та активний заголовок над вкладками панелей."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패인 탭 위의 폴더 및 활성 제목을 숨깁니다."
           }
         }
       }
@@ -50851,6 +52057,12 @@
             "state": "translated",
             "value": "Показувати теку та активний заголовок над вкладками панелей."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패인 탭 위에 폴더 및 활성 제목을 표시합니다."
+          }
         }
       }
     },
@@ -50873,6 +52085,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Приховування кнопок"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "버튼 페이드"
           }
         }
       }
@@ -50897,6 +52115,12 @@
             "state": "translated",
             "value": "Кнопки дій завжди видимі."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "액션 버튼을 항상 표시합니다."
+          }
         }
       }
     },
@@ -50919,6 +52143,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Кнопки дій з'являються лише при наведенні."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마우스를 올렸을 때만 액션 버튼을 표시합니다."
           }
         }
       }
@@ -50943,6 +52173,12 @@
             "state": "translated",
             "value": "Мінімальний режим"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미니멀 모드"
+          }
         }
       }
     },
@@ -50966,6 +52202,12 @@
             "state": "translated",
             "value": "Використовувати стандартний заголовок робочої області та елементи керування."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 워크스페이스 제목 표시줄과 컨트롤을 사용합니다."
+          }
         }
       }
     },
@@ -50988,6 +52230,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сховати заголовок робочої області та перемістити елементи керування в бічну панель."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 제목 표시줄을 숨기고 워크스페이스 컨트롤을 사이드바로 이동합니다."
           }
         }
       }
@@ -52678,6 +53926,12 @@
             "state": "translated",
             "value": "Вибрати..."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택..."
+          }
         }
       }
     },
@@ -52700,6 +53954,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вибрати"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택"
           }
         }
       }
@@ -52724,6 +53984,12 @@
             "state": "translated",
             "value": "Вибрати звук сповіщення"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 소리 선택"
+          }
         }
       }
     },
@@ -52746,6 +54012,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Очистити"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지우기"
           }
         }
       }
@@ -52770,6 +54042,12 @@
             "state": "translated",
             "value": "Помилка власного звуку сповіщення"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 알림 소리 오류"
+          }
         }
       }
     },
@@ -52792,6 +54070,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Файл не вибрано"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택된 파일 없음"
           }
         }
       }
@@ -52816,6 +54100,12 @@
             "state": "translated",
             "value": "Спочатку виберіть файл аудіо."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 사용자 지정 오디오 파일을 선택하세요."
+          }
         }
       }
     },
@@ -52838,6 +54128,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Файлу потрібне розширення: "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일에 확장자가 필요합니다: "
           }
         }
       }
@@ -52862,6 +54158,12 @@
             "state": "translated",
             "value": "Файл не знайдено: "
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일을 찾을 수 없습니다: "
+          }
         }
       }
     },
@@ -52884,6 +54186,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося підготувати цей файл для сповіщень. Спробуйте WAV, AIFF або CAF."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일을 알림용으로 준비할 수 없습니다. WAV, AIFF 또는 CAF를 사용해 보세요."
           }
         }
       }
@@ -52908,6 +54216,12 @@
             "state": "translated",
             "value": "Готовий для сповіщень."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 준비 완료."
+          }
         }
       }
     },
@@ -52930,6 +54244,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Підготовлений для сповіщень (конвертовано в CAF)."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 준비 완료 (CAF로 변환됨)."
           }
         }
       }
@@ -52954,6 +54274,12 @@
             "state": "translated",
             "value": "Звук, який відтворюється при надходженні сповіщення."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림이 도착했을 때 재생되는 소리입니다."
+          }
         }
       }
     },
@@ -52976,6 +54302,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показувати синє кільце навколо панелей з непрочитаними сповіщеннями."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽지 않은 알림이 있는 패인 주위에 파란색 링을 표시합니다."
           }
         }
       }
@@ -53000,6 +54332,12 @@
             "state": "translated",
             "value": "Короткочасно підсвічувати синьою рамкою панель, на яку cmux звертає увагу."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 패인을 강조할 때 파란색 테두리를 잠시 깜빡입니다."
+          }
         }
       }
     },
@@ -53022,6 +54360,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Підсвічування панелі"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패인 플래시"
           }
         }
       }
@@ -53046,6 +54390,12 @@
             "state": "translated",
             "value": "Кільце непрочитаних панелей"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽지 않은 패인 링"
+          }
         }
       }
     },
@@ -53068,6 +54418,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Звук сповіщення"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 소리"
           }
         }
       }
@@ -53205,6 +54561,12 @@
             "state": "translated",
             "value": "Claudeバイナリパス"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 바이너리 경로"
+          }
         }
       }
     },
@@ -53222,6 +54584,12 @@
             "state": "translated",
             "value": "例: /usr/local/bin/claude"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: /usr/local/bin/claude"
+          }
         }
       }
     },
@@ -53238,6 +54606,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "claudeバイナリのカスタムパス。空欄の場合はPATHを使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude 바이너리의 사용자 지정 경로입니다. PATH를 사용하려면 비워두세요."
           }
         }
       }
@@ -53613,6 +54987,12 @@
             "state": "translated",
             "value": "Cursor連携"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor 연동"
+          }
         }
       }
     },
@@ -53629,6 +55009,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "フックは`cmux cursor install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`cmux cursor install-hooks`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
           }
         }
       }
@@ -53647,6 +55033,12 @@
             "state": "translated",
             "value": "Cursorはcmux連携なしで動作します。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor가 cmux 연동 없이 실행됩니다."
+          }
         }
       }
     },
@@ -53663,6 +55055,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイドバーにCursorエージェントのステータスと通知が表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 Cursor 에이전트 상태와 알림이 표시됩니다."
           }
         }
       }
@@ -53681,6 +55079,12 @@
             "state": "translated",
             "value": "Gemini CLI連携"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini CLI 연동"
+          }
         }
       }
     },
@@ -53697,6 +55101,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "フックは`cmux gemini install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`cmux gemini install-hooks`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
           }
         }
       }
@@ -53715,6 +55125,12 @@
             "state": "translated",
             "value": "GeminiはCmux連携なしで動作します。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini가 cmux 연동 없이 실행됩니다."
+          }
         }
       }
     },
@@ -53731,6 +55147,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイドバーにGeminiセッションのステータスと通知が表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 Gemini 세션 상태와 알림이 표시됩니다."
           }
         }
       }
@@ -57206,6 +58628,12 @@
             "state": "translated",
             "value": "Вибрати, що імпортувати…"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져올 항목 선택…"
+          }
         }
       }
     },
@@ -57229,6 +58657,12 @@
             "state": "translated",
             "value": "Імпорт даних браузера"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 데이터 가져오기"
+          }
         }
       }
     },
@@ -57246,6 +58680,12 @@
             "state": "translated",
             "value": "React Grabバージョン"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab 버전"
+          }
         }
       }
     },
@@ -57262,6 +58702,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ツールバーボタン（Cmd+Shift+G）で注入されるreact-grabのnpmバージョン。既知の整合性ハッシュを持つバージョンのみ使用可能です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 모음 버튼(Cmd+Shift+G)으로 주입되는 react-grab의 고정된 npm 버전입니다. 알려진 무결성 해시가 있는 버전만 허용됩니다."
           }
         }
       }
@@ -57405,6 +58851,12 @@
             "state": "translated",
             "value": "Імпорт даних браузера"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 데이터 가져오기"
+          }
         }
       }
     },
@@ -57427,6 +58879,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вибрати…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택…"
           }
         }
       }
@@ -57451,6 +58909,12 @@
             "state": "translated",
             "value": "Оновити"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로고침"
+          }
         }
       }
     },
@@ -57473,6 +58937,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Підказка імпорту на порожній вкладці прихована. Увімкніть її тут у будь-який час."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빈 탭 가져오기 힌트가 숨겨져 있습니다. 여기서 언제든 다시 켤 수 있습니다."
           }
         }
       }
@@ -57497,6 +58967,12 @@
             "state": "translated",
             "value": "Порожні вкладки зараз використовують режим «Тільки налаштування» з вікна налагодження."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빈 탭이 현재 디버그 창의 설정 전용 모드를 사용하고 있습니다."
+          }
         }
       }
     },
@@ -57520,6 +58996,12 @@
             "state": "translated",
             "value": "Порожні вкладки браузера можуть показувати пропозицію імпорту. Сховайте або увімкніть її тут."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빈 브라우저 탭에 가져오기 제안을 표시할 수 있습니다. 여기서 숨기거나 다시 활성화하세요."
+          }
         }
       }
     },
@@ -57542,6 +59024,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показувати підказку імпорту на порожніх вкладках браузера"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빈 브라우저 탭에 가져오기 힌트 표시"
           }
         }
       }
@@ -63153,6 +64641,12 @@
             "state": "translated",
             "value": "グローバルホットキー"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "글로벌 단축키"
+          }
         }
       }
     },
@@ -63646,6 +65140,12 @@
             "state": "translated",
             "value": "システム全体のホットキーを有効にする"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 전체 단축키 활성화"
+          }
         }
       }
     },
@@ -63662,6 +65162,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "どのアプリからでも cmux のすべてのウィンドウを表示または非表示にするにはオンにします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 옵션을 켜면 어떤 앱에서든 모든 cmux 윈도우를 표시하거나 숨길 수 있습니다."
           }
         }
       }
@@ -63680,6 +65186,12 @@
             "state": "translated",
             "value": "どのアプリからでもこのショートカットで cmux のすべてのウィンドウを表示または非表示にできます。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "어떤 앱에서든 단축키를 눌러 모든 cmux 윈도우를 표시하거나 숨깁니다."
+          }
         }
       }
     },
@@ -63696,6 +65208,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Command、Option、または Control と別のキーを組み合わせてください。追加の macOS 権限は不要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command, Option 또는 Control과 다른 키를 함께 사용하세요. 추가 macOS 권한이 필요하지 않습니다."
           }
         }
       }
@@ -63714,6 +65232,12 @@
             "state": "translated",
             "value": "すべてのウィンドウを表示/非表示"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 윈도우 표시/숨기기"
+          }
         }
       }
     },
@@ -63730,6 +65254,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "settings.json で管理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "settings.json에서 관리됨"
           }
         }
       }
@@ -63748,6 +65278,12 @@
             "state": "translated",
             "value": "ショートカットコード"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키 조합"
+          }
         }
       }
     },
@@ -63765,6 +65301,12 @@
             "state": "translated",
             "value": "コードの説明"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조합 문서"
+          }
         }
       }
     },
@@ -63781,6 +65323,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "settings.json で tmux 風の2段階ショートカットを追加できます。例: [\"ctrl+b\", \"c\"]。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "settings.json에서 tmux 스타일의 다단계 단축키를 추가할 수 있습니다. 예: [\"ctrl+b\", \"c\"]."
           }
         }
       }
@@ -64870,6 +66418,12 @@
             "state": "translated",
             "value": "名前付きのパレット項目です。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름이 지정된 팔레트 항목."
+          }
         }
       }
     },
@@ -64887,6 +66441,12 @@
             "state": "translated",
             "value": "名前付きカラーの追加や削除は settings.json を編集してください。「カスタムカラーを選択…」は引き続きローカルの Custom N エントリを追加します。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "settings.json을 편집하여 이름이 지정된 색상을 추가하거나 제거하세요. \"사용자 지정 색상 선택...\"으로 로컬 Custom N 항목을 추가할 수 있습니다."
+          }
         }
       }
     },
@@ -64903,6 +66463,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "パレット項目はありません。settings.json でカラーを追加するか、ワークスペースのコンテキストメニューから「カスタムカラーを選択…」を使ってください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팔레트 항목이 없습니다. settings.json에서 색상을 추가하거나 워크스페이스 컨텍스트 메뉴의 \"사용자 지정 색상 선택...\"을 사용하세요."
           }
         }
       }
@@ -65753,6 +67319,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "組み込みパレットを復元し、追加した名前付きカラーを削除します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 팔레트를 복원하고 추가된 이름 있는 색상을 제거합니다."
           }
         }
       }
@@ -67556,6 +69128,12 @@
             "state": "translated",
             "value": "Tab"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
         }
       }
     },
@@ -67688,6 +69266,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ …"
+          }
+        },
+        "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ …"
@@ -68191,6 +69775,12 @@
             "state": "translated",
             "value": "Вибрати поверхню 1…9"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스 1…9 선택"
+          }
         }
       }
     },
@@ -68213,6 +69803,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вибрати робочу область 1…9"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 1…9 선택"
           }
         }
       }
@@ -69337,6 +70933,12 @@
             "state": "translated",
             "value": "ファイルエクスプローラーを切替"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 탐색기 토글"
+          }
         }
       }
     },
@@ -69353,6 +70955,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "フォルダが開かれていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열린 폴더 없음"
           }
         }
       }
@@ -69371,6 +70979,12 @@
             "state": "translated",
             "value": "ファイルエクスプローラーは利用できません"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 탐색기를 사용할 수 없습니다"
+          }
         }
       }
     },
@@ -69388,6 +71002,12 @@
             "state": "translated",
             "value": "ファイルエクスプローラーを切替"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 탐색기 토글"
+          }
         }
       }
     },
@@ -69404,6 +71024,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ファイルエクスプローラーの表示/非表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 탐색기 표시 또는 숨기기"
           }
         }
       }
@@ -69665,6 +71291,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Закріплена робоча область. Закриття потребує підтвердження."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정된 워크스페이스입니다. 닫으려면 확인이 필요합니다."
           }
         }
       }
@@ -70641,6 +72273,12 @@
             "state": "translated",
             "value": ":%lld"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ":%lld"
+          }
         }
       }
     },
@@ -70663,6 +72301,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відкрити localhost:%lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost:%lld 열기"
           }
         }
       }
@@ -71282,6 +72926,12 @@
             "state": "translated",
             "value": "SSH"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH"
+          }
         }
       }
     },
@@ -71304,6 +72954,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Підключено"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결됨"
           }
         }
       }
@@ -71328,6 +72984,12 @@
             "state": "translated",
             "value": "Підключення"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 중"
+          }
         }
       }
     },
@@ -71350,6 +73012,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відключено"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 해제됨"
           }
         }
       }
@@ -71374,6 +73042,12 @@
             "state": "translated",
             "value": "Помилка"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류"
+          }
         }
       }
     },
@@ -71393,6 +73067,12 @@
           }
         },
         "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH • %@"
+          }
+        },
+        "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "SSH • %@"
@@ -71420,6 +73100,12 @@
             "state": "translated",
             "value": "SSH робоча область"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 워크스페이스"
+          }
         }
       }
     },
@@ -71442,6 +73128,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "SSH підключено до %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 SSH 연결됨"
           }
         }
       }
@@ -71466,6 +73158,12 @@
             "state": "translated",
             "value": "SSH підключення до %@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 SSH 연결 중"
+          }
         }
       }
     },
@@ -71488,6 +73186,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Помилка SSH для %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 SSH 오류"
           }
         }
       }
@@ -71512,6 +73216,12 @@
             "state": "translated",
             "value": "Помилка SSH для %@: %@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 SSH 오류: %@"
+          }
         }
       }
     },
@@ -71534,6 +73244,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "SSH відключено від %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 SSH 연결 해제됨"
           }
         }
       }
@@ -71558,6 +73274,12 @@
             "state": "translated",
             "value": "віддалений хост"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트"
+          }
         }
       }
     },
@@ -71581,6 +73303,12 @@
             "state": "translated",
             "value": "Лівий рейл"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽 레일"
+          }
         }
       }
     },
@@ -71603,6 +73331,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Суцільне заповнення"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단색 채우기"
           }
         }
       }
@@ -82694,6 +84428,12 @@
             "state": "translated",
             "value": "Закріплені робочі області не можна закрити, поки вони закріплені. Спочатку відкріпіть робочу область."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정된 워크스페이스는 고정된 상태에서 닫을 수 없습니다. 먼저 워크스페이스의 고정을 해제하세요."
+          }
         }
       }
     },
@@ -83907,6 +85647,12 @@
             "state": "translated",
             "value": "Можливо, файл було переміщено або видалено."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일이 이동되었거나 삭제되었을 수 있습니다."
+          }
         }
       }
     },
@@ -83929,6 +85675,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Файл недоступний"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일을 사용할 수 없음"
           }
         }
       }
@@ -85857,6 +87609,12 @@
             "state": "translated",
             "value": "Перетягнутий елемент не є файловою URL-адресою."
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드롭한 항목이 파일 URL이 아닙니다."
+          }
         }
       }
     },
@@ -85879,6 +87637,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Віддалене перетягування недоступне."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 드롭을 사용할 수 없습니다."
           }
         }
       }
@@ -85903,6 +87667,12 @@
             "state": "translated",
             "value": "Не вдалося завантажити перетягнутий файл: %@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드롭한 파일을 업로드하지 못했습니다: %@"
+          }
         }
       }
     },
@@ -85919,6 +87689,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사"
           }
         }
       }
@@ -85937,6 +87713,12 @@
             "state": "translated",
             "value": "ペースト"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "붙여넣기"
+          }
         }
       }
     },
@@ -85953,6 +87735,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルをリセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 초기화"
           }
         }
       }
@@ -85971,6 +87759,12 @@
             "state": "translated",
             "value": "水平に分割"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가로 분할"
+          }
         }
       }
     },
@@ -85988,6 +87782,12 @@
             "state": "translated",
             "value": "垂直に分割"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세로 분할"
+          }
         }
       }
     },
@@ -86004,6 +87804,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "フラッシュを発火"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플래시 실행"
           }
         }
       }
@@ -87491,6 +89297,12 @@
             "state": "translated",
             "value": "ワークスペースの説明を編集"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 설명 편집"
+          }
         }
       }
     },
@@ -87507,6 +89319,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースの説明を編集…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 설명 편집…"
           }
         }
       }
@@ -87525,6 +89343,12 @@
             "state": "translated",
             "value": "ワークスペースの説明を編集…"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 설명 편집…"
+          }
         }
       }
     },
@@ -87541,6 +89365,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースの説明を消去"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 설명 지우기"
           }
         }
       }
@@ -87559,6 +89389,12 @@
             "state": "translated",
             "value": "ワークスペースの説明"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 설명"
+          }
         }
       }
     },
@@ -87575,6 +89411,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Enter で保存します。Shift-Enter で改行、Escape でキャンセルします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter를 눌러 저장하세요. Shift-Enter로 줄바꿈, Escape로 취소합니다."
           }
         }
       }
@@ -87593,6 +89435,12 @@
             "state": "translated",
             "value": "ワークスペースの説明を編集…"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 설명 편집…"
+          }
         }
       }
     },
@@ -87609,6 +89457,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースの説明を消去"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 설명 지우기"
           }
         }
       }
