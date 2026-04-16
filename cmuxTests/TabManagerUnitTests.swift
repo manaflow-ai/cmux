@@ -13,6 +13,33 @@ import UserNotifications
 @testable import cmux
 #endif
 
+private final class WorkspacePullRequestProbeTestURLProtocol: URLProtocol {
+    static var requestCount = 0
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.requestCount += 1
+        let response = HTTPURLResponse(
+            url: request.url ?? URL(string: "https://example.com")!,
+            statusCode: 500,
+            httpVersion: "HTTP/1.1",
+            headerFields: [:]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("{}".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 let lastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 
 func drainMainQueue() {
@@ -301,6 +328,22 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
 
 @MainActor
 final class TabManagerPullRequestProbeTests: XCTestCase {
+    private func makePullRequestProbeItem(
+        number: Int = 1888,
+        state: String = "OPEN",
+        branch: String = "feature/work",
+        url: String = "https://github.com/manaflow-ai/cmux/pull/1888",
+        updatedAt: String = "2026-03-20T18:00:00Z"
+    ) -> TabManager.GitHubPullRequestProbeItem {
+        TabManager.GitHubPullRequestProbeItem(
+            number: number,
+            state: state,
+            url: url,
+            updatedAt: updatedAt,
+            headRefName: branch
+        )
+    }
+
     func testGitHubRepositorySlugsPrioritizeUpstreamThenOriginAndDeduplicate() {
         let output = """
         origin https://github.com/austinwang/cmux.git (fetch)
@@ -416,6 +459,220 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange.followUp"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "commandHint:merge"))
+    }
+
+    func testWorkspacePullRequestHTTPFailureClassificationTreatsRetryAfterAsRateLimited() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertEqual(
+            TabManager.classifyWorkspacePullRequestHTTPFailure(
+                statusCode: 429,
+                retryAfter: "120",
+                rateLimitRemaining: nil,
+                rateLimitReset: nil,
+                body: Data(),
+                now: now
+            ),
+            .rateLimited(retryAt: now.addingTimeInterval(120))
+        )
+    }
+
+    func testWorkspacePullRequestHTTPFailureClassificationUsesRateLimitResetHeader() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let retryAt = Date(timeIntervalSince1970: 1_234)
+
+        XCTAssertEqual(
+            TabManager.classifyWorkspacePullRequestHTTPFailure(
+                statusCode: 403,
+                retryAfter: nil,
+                rateLimitRemaining: "0",
+                rateLimitReset: "1234",
+                body: Data(),
+                now: now
+            ),
+            .rateLimited(retryAt: retryAt)
+        )
+    }
+
+    func testWorkspacePullRequestHTTPFailureClassificationUsesFallbackCooldownForSecondaryRateLimitBody() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertEqual(
+            TabManager.classifyWorkspacePullRequestHTTPFailure(
+                statusCode: 403,
+                retryAfter: nil,
+                rateLimitRemaining: nil,
+                rateLimitReset: nil,
+                body: Data("You have exceeded a secondary rate limit.".utf8),
+                now: now
+            ),
+            .rateLimited(retryAt: now.addingTimeInterval(300))
+        )
+    }
+
+    func testWorkspacePullRequestHTTPFailureClassificationKeeps500AsTransientFailure() {
+        XCTAssertEqual(
+            TabManager.classifyWorkspacePullRequestHTTPFailure(
+                statusCode: 500,
+                retryAfter: nil,
+                rateLimitRemaining: nil,
+                rateLimitReset: nil,
+                body: Data("server error".utf8),
+                now: Date(timeIntervalSince1970: 1_000)
+            ),
+            .transientFailure
+        )
+    }
+
+    func testWorkspacePullRequestTransientFailureDelayUsesExponentialBackoffWithCap() {
+        XCTAssertEqual(
+            TabManager.workspacePullRequestTransientFailureDelay(baseInterval: 10, failureCount: 1),
+            10
+        )
+        XCTAssertEqual(
+            TabManager.workspacePullRequestTransientFailureDelay(baseInterval: 10, failureCount: 2),
+            20
+        )
+        XCTAssertEqual(
+            TabManager.workspacePullRequestTransientFailureDelay(baseInterval: 10, failureCount: 6),
+            300
+        )
+        XCTAssertEqual(
+            TabManager.workspacePullRequestTransientFailureDelay(baseInterval: 60, failureCount: 1),
+            60
+        )
+        XCTAssertEqual(
+            TabManager.workspacePullRequestTransientFailureDelay(baseInterval: 60, failureCount: 3),
+            240
+        )
+        XCTAssertEqual(
+            TabManager.workspacePullRequestTransientFailureDelay(baseInterval: 60, failureCount: 4),
+            300
+        )
+    }
+
+    func testWorkspacePullRequestNextPollAtUsesRetryAtForRateLimit() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let retryAt = now.addingTimeInterval(180)
+
+        XCTAssertEqual(
+            TabManager.workspacePullRequestNextPollAt(
+                now: now,
+                resolution: .rateLimited(retryAt: retryAt),
+                hasTerminalStateSweepContext: true,
+                isSelectedFocusedPanel: true,
+                transientFailureCount: 4
+            ),
+            retryAt
+        )
+    }
+
+    func testWorkspacePullRequestNextPollAtUsesBackoffForTransientFailures() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertEqual(
+            TabManager.workspacePullRequestNextPollAt(
+                now: now,
+                resolution: .transientFailure,
+                hasTerminalStateSweepContext: false,
+                isSelectedFocusedPanel: true,
+                transientFailureCount: 3
+            ),
+            now.addingTimeInterval(40)
+        )
+        XCTAssertEqual(
+            TabManager.workspacePullRequestNextPollAt(
+                now: now,
+                resolution: .transientFailure,
+                hasTerminalStateSweepContext: false,
+                isSelectedFocusedPanel: false,
+                transientFailureCount: 3
+            ),
+            now.addingTimeInterval(240)
+        )
+    }
+
+    func testWorkspacePullRequestResolutionPrefersResolvedOverRateLimitedRepo() {
+        let pullRequest = makePullRequestProbeItem()
+        let cacheEntry = TabManager.WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(timeIntervalSince1970: 1_000),
+            pullRequestsByBranch: ["feature/work": pullRequest]
+        )
+        let retryAt = Date(timeIntervalSince1970: 1_300)
+
+        let (resolution, usedCachedRepoData) = TabManager.workspacePullRequestResolution(
+            branch: "feature/work",
+            repoSlugs: ["upstream", "origin"],
+            repoResults: [
+                "upstream": .rateLimited(until: retryAt),
+                "origin": .success(
+                    cacheEntry,
+                    usedCache: true,
+                    transientBranches: [],
+                    rateLimitedBranches: [:]
+                ),
+            ]
+        )
+
+        XCTAssertEqual(
+            resolution,
+            .resolved(
+                TabManager.WorkspacePullRequestResolvedItem(
+                    number: 1888,
+                    urlString: "https://github.com/manaflow-ai/cmux/pull/1888",
+                    statusRawValue: "open",
+                    branch: "feature/work"
+                )
+            )
+        )
+        XCTAssertTrue(usedCachedRepoData)
+    }
+
+    func testWorkspacePullRequestResolutionReturnsRateLimitedWhenNoRepoMatches() {
+        let cacheEntry = TabManager.WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(timeIntervalSince1970: 1_000),
+            pullRequestsByBranch: [:]
+        )
+        let retryAt = Date(timeIntervalSince1970: 1_420)
+
+        let (resolution, usedCachedRepoData) = TabManager.workspacePullRequestResolution(
+            branch: "feature/work",
+            repoSlugs: ["origin"],
+            repoResults: [
+                "origin": .success(
+                    cacheEntry,
+                    usedCache: false,
+                    transientBranches: [],
+                    rateLimitedBranches: ["feature/work": retryAt]
+                )
+            ]
+        )
+
+        XCTAssertEqual(resolution, .rateLimited(retryAt: retryAt))
+        XCTAssertFalse(usedCachedRepoData)
+    }
+
+    func testWorkspacePullRequestRepoFetchResultReturnsCooldownWithoutRequest() async {
+        WorkspacePullRequestProbeTestURLProtocol.requestCount = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [WorkspacePullRequestProbeTestURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let now = Date(timeIntervalSince1970: 1_000)
+        let retryAt = now.addingTimeInterval(300)
+
+        let result = await TabManager.workspacePullRequestRepoFetchResult(
+            repoSlug: "manaflow-ai/cmux",
+            candidateBranches: ["feature/work"],
+            cachedEntry: nil,
+            useCachedRecentWindow: false,
+            rateLimitedUntil: retryAt,
+            now: now,
+            session: session,
+            authHeader: nil
+        )
+
+        XCTAssertEqual(result, .rateLimited(until: retryAt))
+        XCTAssertEqual(WorkspacePullRequestProbeTestURLProtocol.requestCount, 0)
     }
 
     func testWorkspacePullRequestShouldRefreshHonorsForcedRefreshForTerminalStates() {
