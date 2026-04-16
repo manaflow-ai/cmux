@@ -195,7 +195,7 @@ private struct IndexSectionView: View {
                         showMoreButton
                     }
                 }
-                Spacer(minLength: 6)
+                Spacer(minLength: 2)
             }
         }
         .opacity(store.draggedKey == section.key ? 0.45 : 1.0)
@@ -242,7 +242,7 @@ private struct IndexSectionView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 3)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -288,7 +288,7 @@ private struct SectionReorderGap: View {
         let isValid = isValidDrop
         Rectangle()
             .fill(Color.clear)
-            .frame(height: 8)
+            .frame(height: 4)
             .overlay(alignment: .center) {
                 if isDropTarget && isValid {
                     Capsule()
@@ -707,14 +707,17 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
     return try? JSONEncoder().encode(mirror)
 }
 
-/// NSItemProvider used by `.onDrag {}`. Registers two type representations:
-/// 1. `com.splittabbar.tabtransfer` — bonsplit's drop overlays light up.
-/// 2. `public.utf8-plain-text` — fallback for terminal text-drop.
+/// NSItemProvider used by `.onDrag {}`. Registers ONLY
+/// `com.splittabbar.tabtransfer` so the terminal's NSDraggingDestination
+/// (which accepts `.string` / `public.utf8-plain-text`) is not hit-tested
+/// for our drag. With the terminal out of the way, bonsplit's SwiftUI
+/// `.onDrop(of: [.tabTransfer])` overlay can render the blue insert/split
+/// zones across the entire pane (including its center).
 ///
-/// Plus also exposes the tabTransfer payload directly on the system drag
-/// pasteboard so AppKit drag-aware views in the same process see it
-/// synchronously (some SwiftUI drop delegates only consult the pasteboard
-/// during validateDrop, not the NSItemProvider).
+/// Also mirrors the encoded blob onto NSPasteboard(name: .drag) since
+/// bonsplit's external-drop decoder reads from that pasteboard directly
+/// and SwiftUI's NSItemProvider bridge doesn't always surface custom
+/// UTTypes there reliably.
 private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
     let dragId = SessionDragRegistry.shared.register(entry)
     let provider = NSItemProvider()
@@ -727,33 +730,12 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
             completion(data, nil)
             return nil
         }
-        // Mirror onto the system drag pasteboard so bonsplit's
-        // decodeTransfer(from: NSPasteboard(name: .drag)) sees it. SwiftUI's
-        // NSItemProvider bridge sometimes doesn't surface the type on the
-        // system .drag pasteboard reliably for custom UTTypes.
         DispatchQueue.main.async {
             let pb = NSPasteboard(name: .drag)
             let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
             pb.addTypes([type], owner: nil)
             pb.setData(data, forType: type)
-            #if DEBUG
-            let types = pb.types?.map(\.rawValue).joined(separator: ",") ?? "-"
-            let pbData = pb.data(forType: type)
-            dlog("session.drag.pasteboard types=\(types) tabTransferBytes=\(pbData?.count ?? -1)")
-            #endif
         }
-        #if DEBUG
-        dlog("session.drag.start id=\(dragId.uuidString.prefix(5)) bytes=\(data.count) entry=\(entry.agent.rawValue):\(entry.sessionId.prefix(8))")
-        #endif
-    }
-
-    let textData = entry.resumeCommand.data(using: .utf8) ?? Data()
-    provider.registerDataRepresentation(
-        forTypeIdentifier: "public.utf8-plain-text",
-        visibility: .all
-    ) { completion in
-        completion(textData, nil)
-        return nil
     }
 
     provider.suggestedName = entry.displayTitle
