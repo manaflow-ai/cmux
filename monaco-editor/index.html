@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' cmux-monaco:; style-src 'self' cmux-monaco: 'unsafe-inline'; font-src 'self' cmux-monaco: data:; script-src 'self' cmux-monaco: 'unsafe-eval'; worker-src 'self' cmux-monaco: blob:; connect-src 'self' cmux-monaco: blob:; img-src 'self' cmux-monaco: data: blob:;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>cmux monaco</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #111;
+        color-scheme: dark;
+        overflow: hidden;
+      }
+      #root {
+        position: absolute;
+        inset: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

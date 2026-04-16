@@ -4985,6 +4985,16 @@ class TerminalController {
         }
 
         let panelType = v2PanelType(params, "type") ?? .terminal
+        // Editor/markdown panels need a file path and are not supported by the
+        // generic surface-create socket API. Reject explicitly instead of
+        // silently creating a terminal and lying about `type` in the response.
+        if panelType != .terminal && panelType != .browser {
+            return .err(
+                code: "invalid_params",
+                message: "surface type \(panelType.rawValue) is not supported by surface.create",
+                data: nil
+            )
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
 
@@ -6309,6 +6319,16 @@ class TerminalController {
         }
 
         let panelType = v2PanelType(params, "type") ?? .terminal
+        // Editor/markdown panels need a file path and are not supported by the
+        // generic pane-create socket API. Reject explicitly instead of silently
+        // creating a terminal and misreporting `type` in the response.
+        if panelType != .terminal && panelType != .browser {
+            return .err(
+                code: "invalid_params",
+                message: "pane type \(panelType.rawValue) is not supported by pane.create",
+                data: nil
+            )
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
 

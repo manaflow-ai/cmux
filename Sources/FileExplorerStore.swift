@@ -505,6 +505,12 @@ final class FileExplorerStore: ObservableObject {
 
     /// In-flight load tasks keyed by path
     private var loadTasks: [String: Task<Void, Never>] = [:]
+    /// Monotonic token for in-flight watcher refreshes. Each call to
+    /// `refreshFromDisk` bumps it; `mergeChildren` invocations carry the
+    /// token they started with and bail if a newer refresh has superseded
+    /// them. Stops slow refreshes from clobbering fresher data.
+    private var currentRefreshToken: UInt64 = 0
+    private var refreshTask: Task<Void, Never>?
 
     /// Cache of path -> node for quick lookup
     private var nodesByPath: [String: FileExplorerNode] = [:]
@@ -568,7 +574,10 @@ final class FileExplorerStore: ObservableObject {
         if provider is LocalFileExplorerProvider, !rootPath.isEmpty {
             if directoryWatcher == nil {
                 directoryWatcher = FileExplorerDirectoryWatcher { [weak self] in
-                    self?.reload()
+                    // Prefer a non-destructive refresh so the outline view keeps
+                    // its scroll position and expansion state when files change
+                    // on disk (e.g. editor saves, bulk renames).
+                    self?.refreshFromDisk()
                     self?.refreshGitStatus()
                 }
             }
@@ -604,6 +613,112 @@ final class FileExplorerStore: ObservableObject {
             await self.loadChildren(for: nil, at: path)
         }
         loadTasks[rootPath] = task
+    }
+
+    /// Non-destructive refresh triggered by the filesystem watcher. Preserves
+    /// existing node identities so the outline view keeps its scroll position
+    /// and expansion state across edits (e.g. editor saves, bulk git operations).
+    ///
+    /// Serializes concurrent watcher fires: bursty filesystem events (rapid
+    /// rename/create) can otherwise produce multiple `mergeChildren` tasks
+    /// that complete out of order and let a stale merge overwrite a newer
+    /// one. A monotonic `currentRefreshToken` lets the newest call invalidate
+    /// older in-flight writes.
+    func refreshFromDisk() {
+        guard !rootPath.isEmpty, provider != nil else { return }
+        // If we're still loading the initial root, fall back to the canonical path.
+        if isRootLoading || rootNodes.isEmpty {
+            reload()
+            return
+        }
+        currentRefreshToken &+= 1
+        let token = currentRefreshToken
+        let path = rootPath
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            // Guard against an in-flight refresh landing after the user switched
+            // workspaces/roots OR after a newer watcher-fire bumped the token.
+            guard await self.rootPath == path,
+                  await self.currentRefreshToken == token else { return }
+            await self.mergeChildren(parent: nil, at: path, token: token)
+        }
+    }
+
+    @MainActor
+    private func mergeChildren(parent: FileExplorerNode?, at path: String, token: UInt64? = nil) async {
+        guard let provider else { return }
+        // Snapshot the root before the awaited call so we can reject a merge
+        // that lost its race against a root switch (workspace/session change).
+        let expectedRoot = rootPath
+        let entries: [FileExplorerEntry]
+        do {
+            entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
+        } catch {
+            return
+        }
+        // Root changed underneath us while listDirectory was awaiting — abort
+        // before touching rootNodes with data from the old tree.
+        guard rootPath == expectedRoot else { return }
+        if parent == nil, path != rootPath { return }
+        // Drop stale watcher refreshes: a newer `refreshFromDisk` call has
+        // already bumped the token, so applying our older diff would
+        // overwrite fresher data.
+        if let token, token != currentRefreshToken { return }
+
+        let sorted = entries.sorted { a, b in
+            if a.isDirectory != b.isDirectory { return a.isDirectory }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+
+        let existing: [FileExplorerNode] = parent?.children ?? rootNodes
+        let existingByPath: [String: FileExplorerNode] = Dictionary(
+            existing.map { ($0.path, $0) },
+            uniquingKeysWith: { lhs, _ in lhs }
+        )
+
+        var merged: [FileExplorerNode] = []
+        merged.reserveCapacity(sorted.count)
+        for entry in sorted {
+            if let reused = existingByPath[entry.path], reused.isDirectory == entry.isDirectory {
+                merged.append(reused)
+            } else {
+                let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
+                nodesByPath[entry.path] = node
+                merged.append(node)
+            }
+        }
+
+        // Drop orphaned nodes from nodesByPath.
+        let newPaths = Set(merged.map(\.path))
+        for old in existing where !newPaths.contains(old.path) {
+            nodesByPath.removeValue(forKey: old.path)
+        }
+
+        // Write merged back when either the order changed or any entry was
+        // replaced with a fresh node (e.g., a path flipped from file → directory
+        // or vice versa, which allocates a new FileExplorerNode above).
+        let structurallyChanged = existing.count != merged.count
+            || zip(existing, merged).contains { $0 !== $1 }
+        if structurallyChanged {
+            if let parent {
+                parent.children = merged
+            } else {
+                rootNodes = merged
+            }
+            objectWillChange.send()
+        }
+
+        // Recurse into every directory whose children were previously loaded,
+        // regardless of current expansion. If we only refreshed expanded
+        // directories, a user who collapsed a directory would see a stale
+        // child list when they re-expanded it (expand() only reloads when
+        // `children == nil`). Carry the refresh token so nested merges also
+        // short-circuit when a newer watcher fire supersedes this pass.
+        for child in merged where child.isDirectory && child.children != nil {
+            if let token, token != currentRefreshToken { return }
+            await mergeChildren(parent: child, at: child.path, token: token)
+        }
     }
 
     func expand(node: FileExplorerNode) {

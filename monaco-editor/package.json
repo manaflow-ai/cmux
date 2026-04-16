@@ -1,0 +1,19 @@
+{
+  "name": "cmux-monaco",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Bundled Monaco editor surface for cmux. Built with Vite; output lives in ./dist and is copied into the macOS app bundle at build time.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.52.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vite": "^5.4.10"
+  }
+}

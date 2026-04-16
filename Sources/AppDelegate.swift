@@ -10349,6 +10349,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // first stroke and leave the second one orphaned, breaking that
             // keystroke for the focused terminal/browser input.
             guard action != .showHideAllWindows else { return false }
+            // saveEditorFile is dispatched via the editor text view's
+            // performKeyEquivalent and WKWebView bridge, not through
+            // handleCustomShortcut. Arming a chord prefix here would consume
+            // the first stroke with no way to dispatch the second, so we
+            // disallow chord bindings for this action.
+            guard action != .saveEditorFile else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
     }

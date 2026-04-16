@@ -2775,7 +2775,9 @@ struct ContentView: View {
             if explorerVisible {
                 Divider()
             }
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState)
+            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState, onFileOpen: { [weak tabManager] filePath in
+                tabManager?.selectedWorkspace?.openEditor(filePath: filePath)
+            })
                 .frame(width: explorerVisible ? fileExplorerWidth : 0)
                 .clipped()
                 .allowsHitTesting(explorerVisible)
@@ -6227,6 +6229,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .editor:
+            return String(localized: "commandPalette.kind.editor", defaultValue: "Editor")
         }
     }
 
@@ -6238,6 +6242,8 @@ struct ContentView: View {
             return ["browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
+        case .editor:
+            return ["editor", "text", "file", "code"]
         }
     }
 

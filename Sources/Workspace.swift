@@ -451,6 +451,7 @@ extension Workspace {
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
+        let editorSnapshot: SessionEditorPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -474,6 +475,7 @@ extension Workspace {
             )
             browserSnapshot = nil
             markdownSnapshot = nil
+            editorSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -488,11 +490,26 @@ extension Workspace {
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
             markdownSnapshot = nil
+            editorSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            editorSnapshot = nil
+        case .editor:
+            guard let edPanel = panel as? EditorPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            editorSnapshot = SessionEditorPanelSnapshot(
+                filePath: edPanel.filePath,
+                cursorLocation: edPanel.cursorLocation,
+                cursorLength: edPanel.cursorLength,
+                scrollTopFraction: edPanel.scrollTopFraction,
+                monacoViewState: edPanel.monacoViewState,
+                lastOpenedAt: edPanel.lastOpenedAt
+            )
         }
 
         return SessionPanelSnapshot(
@@ -508,7 +525,8 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
-            markdown: markdownSnapshot
+            markdown: markdownSnapshot,
+            editor: editorSnapshot
         )
     }
 
@@ -683,6 +701,22 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
+        case .editor:
+            guard let filePath = snapshot.editor?.filePath,
+                  let edPanel = newEditorSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            if let loc = snapshot.editor?.cursorLocation { edPanel.cursorLocation = loc }
+            if let len = snapshot.editor?.cursorLength { edPanel.cursorLength = len }
+            if let frac = snapshot.editor?.scrollTopFraction { edPanel.scrollTopFraction = frac }
+            if let view = snapshot.editor?.monacoViewState { edPanel.monacoViewState = view }
+            if let openedAt = snapshot.editor?.lastOpenedAt { edPanel.lastOpenedAt = openedAt }
+            applySessionPanelMetadata(snapshot, toPanelId: edPanel.id)
+            return edPanel.id
         }
     }
 
@@ -6716,6 +6750,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
+        static let editor = "editor"
     }
 
     enum PanelShellActivityState: String {
@@ -7221,6 +7256,32 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[markdownPanel.id] = subscription
     }
 
+    private func installEditorPanelSubscription(_ editorPanel: EditorPanel) {
+        let subscription = editorPanel.$displayTitle
+            .combineLatest(editorPanel.$isDirty)
+            .removeDuplicates { $0.0 == $1.0 && $0.1 == $1.1 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak editorPanel] newTitle, newDirty in
+                guard let self,
+                      let editorPanel,
+                      let tabId = self.surfaceIdFromPanelId(editorPanel.id) else { return }
+                guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+                if self.panelTitles[editorPanel.id] != newTitle {
+                    self.panelTitles[editorPanel.id] = newTitle
+                }
+                let resolvedTitle = self.resolvedPanelTitle(panelId: editorPanel.id, fallback: newTitle)
+                guard existing.title != resolvedTitle || existing.isDirty != newDirty else { return }
+                self.bonsplitController.updateTab(
+                    tabId,
+                    title: resolvedTitle,
+                    hasCustomTitle: self.panelCustomTitles[editorPanel.id] != nil,
+                    isDirty: newDirty
+                )
+            }
+        panelSubscriptions[editorPanel.id] = subscription
+    }
+
     private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
         guard let target = remoteDisplayTarget else { return nil }
         return BrowserRemoteWorkspaceStatus(
@@ -7258,6 +7319,27 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? MarkdownPanel
     }
 
+    func editorPanel(for panelId: UUID) -> EditorPanel? {
+        panels[panelId] as? EditorPanel
+    }
+
+    /// Open an editor for the given file path in the focused pane.
+    /// If an editor for the same path is already open, selects it instead.
+    /// Falls back to the first available pane when no pane is focused (e.g. right after
+    /// a workspace switch) so the file-open intent is not silently dropped.
+    @discardableResult
+    func openEditor(filePath: String) -> EditorPanel? {
+        for (panelId, panel) in panels {
+            if let editor = panel as? EditorPanel, editor.filePath == filePath {
+                focusPanel(panelId)
+                return editor
+            }
+        }
+        let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
+        guard let paneId else { return nil }
+        return newEditorSurface(inPane: paneId, filePath: filePath, focus: true)
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -7266,6 +7348,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.browser
         case .markdown:
             return SurfaceKind.markdown
+        case .editor:
+            return SurfaceKind.editor
         }
     }
 
@@ -9313,6 +9397,53 @@ final class Workspace: Identifiable, ObservableObject {
         return markdownPanel
     }
 
+    // MARK: - Editor Panel
+
+    @discardableResult
+    func newEditorSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool? = nil
+    ) -> EditorPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let editorPanel = EditorPanel(workspaceId: id, filePath: filePath)
+        panels[editorPanel.id] = editorPanel
+        panelTitles[editorPanel.id] = editorPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: editorPanel.displayTitle,
+            icon: editorPanel.displayIcon,
+            kind: SurfaceKind.editor,
+            isDirty: editorPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: editorPanel.id)
+            panelTitles.removeValue(forKey: editorPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = editorPanel.id
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: editorPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installEditorPanelSubscription(editorPanel)
+        return editorPanel
+    }
+
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before the workspace is removed from TabManager to ensure child
     /// processes receive SIGHUP even if ARC deallocation is delayed.
@@ -9809,6 +9940,9 @@ final class Workspace: Identifiable, ObservableObject {
                 remoteStatus: browserRemoteWorkspaceStatusSnapshot()
             )
             installBrowserPanelSubscription(browserPanel)
+        } else if let editorPanel = detached.panel as? EditorPanel {
+            editorPanel.updateWorkspaceId(id)
+            installEditorPanelSubscription(editorPanel)
         }
 
         if let directory = detached.directory {
@@ -10347,6 +10481,9 @@ final class Workspace: Identifiable, ObservableObject {
         for (panelId, panel) in panels {
             if let terminalPanel = panel as? TerminalPanel,
                panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
+                return true
+            }
+            if let editorPanel = panel as? EditorPanel, editorPanel.isDirty {
                 return true
             }
         }
@@ -11203,6 +11340,97 @@ extension Workspace: BonsplitDelegate {
     }
 
     @MainActor
+    enum EditorCloseDecision {
+        case save
+        case discard
+        case cancel
+    }
+
+    private func confirmCloseEditorPanel(editorPanel: EditorPanel, tabId: TabID) async -> EditorCloseDecision {
+        let alert = NSAlert()
+        let filename = (editorPanel.filePath as NSString).lastPathComponent
+        // The localized format strings use `%@`; interpolating in the default
+        // only worked when the catalog key was missing. Always go through
+        // String(format:) so the filename substitutes for both the catalog
+        // entries (ja/uk) and the English default.
+        let closeTitleFormat = String(
+            localized: "editor.closeConfirm.title",
+            defaultValue: "Save changes to \"%@\" before closing?"
+        )
+        alert.messageText = String(format: closeTitleFormat, filename)
+        alert.informativeText = String(
+            localized: "editor.closeConfirm.message",
+            defaultValue: "Your changes will be lost if you don't save them."
+        )
+        alert.alertStyle = .warning
+
+        let saveButton = alert.addButton(withTitle: String(localized: "editor.closeConfirm.save", defaultValue: "Save"))
+        let cancelButton = alert.addButton(withTitle: String(localized: "editor.closeConfirm.cancel", defaultValue: "Cancel"))
+        let discardButton = alert.addButton(withTitle: String(localized: "editor.closeConfirm.discard", defaultValue: "Don't Save"))
+
+        saveButton.keyEquivalent = "\r"
+        cancelButton.keyEquivalent = "\u{1b}"
+        discardButton.keyEquivalent = "d"
+        discardButton.keyEquivalentModifierMask = [.command]
+
+        let response: NSApplication.ModalResponse
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            response = await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { r in
+                    continuation.resume(returning: r)
+                }
+            }
+        } else {
+            response = alert.runModal()
+        }
+
+        switch response {
+        case .alertFirstButtonReturn:
+            return .save
+        case .alertThirdButtonReturn:
+            return .discard
+        default:
+            return .cancel
+        }
+    }
+
+    /// Complete a tab close after the editor save/discard dialog. If the editor
+    /// was the last surface in this workspace, route through the workspace-close
+    /// path so the workspace (or window) closes as users expect instead of
+    /// auto-creating a replacement terminal.
+    private func finalizeEditorCloseAfterDialog(tabId: TabID) {
+        if shouldCloseWorkspaceOnLastSurface(for: tabId) {
+            let manager = owningTabManager
+                ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+                ?? AppDelegate.shared?.tabManager
+            manager?.closeWorkspaceWithConfirmation(self)
+        } else {
+            forceCloseTabIds.insert(tabId)
+            bonsplitController.closeTab(tabId)
+        }
+    }
+
+    private func showEditorSaveFailureAlert(for editorPanel: EditorPanel) {
+        let alert = NSAlert()
+        let filename = (editorPanel.filePath as NSString).lastPathComponent
+        let failedTitleFormat = String(
+            localized: "editor.saveFailed.title",
+            defaultValue: "Could not save \"%@\""
+        )
+        alert.messageText = String(format: failedTitleFormat, filename)
+        alert.informativeText = String(
+            localized: "editor.saveFailed.message",
+            defaultValue: "The file may be read-only or the disk may be full. Your changes remain in the editor."
+        )
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "editor.saveFailed.ok", defaultValue: "OK"))
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
+    }
+
     private func confirmClosePanel(for tabId: TabID) async -> Bool {
         let alert = NSAlert()
 
@@ -11666,6 +11894,62 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
+        // Editor panels need their own save/discard/cancel dialog when the buffer
+        // is dirty. This runs before the "close workspace on last surface" branch
+        // so that closing the last editor tab does not silently route through the
+        // workspace-close path and drop unsaved edits.
+        if let panelId = panelIdFromSurfaceId(tab.id),
+           let editorPanel = editorPanel(for: panelId),
+           editorPanel.isDirty {
+            if pendingCloseConfirmTabIds.contains(tab.id) {
+                return false
+            }
+            pendingCloseConfirmTabIds.insert(tab.id)
+            let tabId = tab.id
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                Task { @MainActor in
+                    defer { self.pendingCloseConfirmTabIds.remove(tabId) }
+                    guard let stillPanelId = self.panelIdFromSurfaceId(tabId),
+                          let stillEditor = self.editorPanel(for: stillPanelId) else { return }
+                    let decision = await self.confirmCloseEditorPanel(editorPanel: stillEditor, tabId: tabId)
+                    switch decision {
+                    case .cancel:
+                        return
+                    case .discard:
+                        // The user explicitly chose to drop unsaved edits.
+                        // Clear the panel's dirty flag before routing through
+                        // the workspace-close path so `needsConfirmClose()`
+                        // doesn't re-prompt via the generic confirmation
+                        // dialog when this is the last surface.
+                        stillEditor.setBackendDirty(false)
+                        self.finalizeEditorCloseAfterDialog(tabId: tabId)
+                    case .save:
+                        // Pull the live buffer from the backend (Monaco) before
+                        // writing to disk so a user who typed immediately before
+                        // closing still saves the newest characters rather than
+                        // the last debounced snapshot. `backendFlush` is only
+                        // set by backends that own the live buffer (Monaco);
+                        // `nil` means the native backend where `panel.content`
+                        // is always authoritative. `false` means the bridge is
+                        // currently unavailable (webview booting) — bail
+                        // instead of writing stale/empty content.
+                        if let flush = stillEditor.backendFlush, await flush() == false {
+                            self.showEditorSaveFailureAlert(for: stillEditor)
+                            return
+                        }
+                        if stillEditor.save() {
+                            await stillEditor.backendAfterSave?()
+                            self.finalizeEditorCloseAfterDialog(tabId: tabId)
+                        } else {
+                            self.showEditorSaveFailureAlert(for: stillEditor)
+                        }
+                    }
+                }
+            }
+            return false
+        }
+
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             owningTabManager?.closeWorkspaceWithConfirmation(self)
@@ -11973,6 +12257,16 @@ extension Workspace: BonsplitDelegate {
                let terminalPanel = terminalPanel(for: panelId),
                panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                return false
+            }
+            // Dirty editor buffers require explicit save/discard through the
+            // per-tab close flow; block the whole pane close and beep so the
+            // user closes those tabs individually and gets the dialog.
+            if let panelId = panelIdFromSurfaceId(tab.id),
+               let editorPanel = editorPanel(for: panelId),
+               editorPanel.isDirty {
+                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                NSSound.beep()
                 return false
             }
         }
