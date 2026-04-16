@@ -328,43 +328,36 @@ private struct SessionRow: View {
     @State private var isHovered: Bool = false
 
     var body: some View {
-        Button {
-            open()
-        } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(entry.displayTitle)
-                    .font(.system(size: 12))
-                    .foregroundColor(.primary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                    .multilineTextAlignment(.leading)
-                metadataLine
-                HStack(spacing: 6) {
-                    Spacer(minLength: 0)
-                    Text(relativeTime(entry.modified))
-                        .font(.system(size: 10).monospacedDigit())
-                        .foregroundColor(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 3) {
+            Text(entry.displayTitle)
+                .font(.system(size: 12))
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.leading)
+            metadataLine
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                Text(relativeTime(entry.modified))
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundColor(.secondary)
             }
-            .padding(.horizontal, 10)
-            .padding(.leading, 18)
-            .padding(.vertical, 5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
-                    .padding(.horizontal, 6)
-            )
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .padding(.leading, 18)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+                .padding(.horizontal, 6)
+        )
         .onHover { isHovered = $0 }
         .help(helpText)
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded {
-                if let onResume { onResume(entry) }
-            }
-        )
+        .onTapGesture(count: 2) {
+            if let onResume { onResume(entry) }
+        }
         .contextMenu {
             if let onResume {
                 Button {
