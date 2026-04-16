@@ -86,11 +86,11 @@ struct SessionIndexView: View {
     private var sessionsList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(store.agentOrder) { agent in
-                    let entries = store.filteredEntries(for: agent)
+                ForEach(Array(store.agentOrder.enumerated()), id: \.element) { index, agent in
+                    AgentReorderGap(insertIndex: index, store: store)
                     AgentSection(
                         agent: agent,
-                        entries: entries,
+                        entries: store.filteredEntries(for: agent),
                         isExpanded: Binding(
                             get: { expandedAgents.contains(agent) },
                             set: { newValue in
@@ -104,6 +104,7 @@ struct SessionIndexView: View {
                         store: store
                     )
                 }
+                AgentReorderGap(insertIndex: store.agentOrder.count, store: store)
             }
             .padding(.bottom, 8)
         }
@@ -115,7 +116,6 @@ private struct AgentSection: View {
     let entries: [SessionEntry]
     @Binding var isExpanded: Bool
     @ObservedObject var store: SessionIndexStore
-    @State private var isDropTarget: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -135,13 +135,7 @@ private struct AgentSection: View {
                 }
             }
         }
-        .overlay(alignment: .top) {
-            if isDropTarget {
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(height: 2)
-            }
-        }
+        .opacity(store.draggedAgent == agent ? 0.45 : 1.0)
     }
 
     private var sectionHeader: some View {
@@ -178,7 +172,8 @@ private struct AgentSection: View {
         }
         .buttonStyle(.plain)
         .onDrag {
-            NSItemProvider(object: agent.rawValue as NSString)
+            DispatchQueue.main.async { store.draggedAgent = agent }
+            return NSItemProvider(object: agent.rawValue as NSString)
         } preview: {
             HStack(spacing: 6) {
                 Image(agent.assetName)
@@ -191,49 +186,119 @@ private struct AgentSection: View {
             .padding(.vertical, 5)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
-        .onDrop(
-            of: [.text],
-            delegate: AgentSectionDropDelegate(
-                target: agent,
-                store: store,
-                isDropTarget: $isDropTarget
-            )
-        )
     }
 }
 
-private struct AgentSectionDropDelegate: DropDelegate {
-    let target: SessionAgent
+private struct AgentReorderGap: View {
+    let insertIndex: Int
+    @ObservedObject var store: SessionIndexStore
+    @State private var isDropTarget: Bool = false
+
+    var body: some View {
+        let isValid = isValidDrop
+        Rectangle()
+            .fill(Color.clear)
+            .frame(height: 8)
+            .overlay(alignment: .center) {
+                if isDropTarget && isValid {
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(height: 3)
+                        .padding(.horizontal, 10)
+                }
+            }
+            .onDrop(
+                of: [.text],
+                delegate: AgentGapDropDelegate(
+                    insertIndex: insertIndex,
+                    store: store,
+                    isDropTarget: $isDropTarget
+                )
+            )
+    }
+
+    /// A gap is invalid if the drag would be a no-op. For agent at oldIndex,
+    /// inserting at oldIndex or oldIndex+1 leaves the order unchanged.
+    private var isValidDrop: Bool {
+        guard let dragged = store.draggedAgent,
+              let oldIndex = store.agentOrder.firstIndex(of: dragged) else {
+            return true
+        }
+        return insertIndex != oldIndex && insertIndex != oldIndex + 1
+    }
+}
+
+private struct AgentGapDropDelegate: DropDelegate {
+    let insertIndex: Int
     let store: SessionIndexStore
     @Binding var isDropTarget: Bool
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [.text])
+        guard info.hasItemsConforming(to: [.text]) else { return false }
+        guard let dragged = store.draggedAgent,
+              let oldIndex = store.agentOrder.firstIndex(of: dragged) else {
+            return true
+        }
+        return insertIndex != oldIndex && insertIndex != oldIndex + 1
     }
 
-    func dropEntered(info: DropInfo) {
-        isDropTarget = true
-    }
-
-    func dropExited(info: DropInfo) {
-        isDropTarget = false
-    }
+    func dropEntered(info: DropInfo) { isDropTarget = true }
+    func dropExited(info: DropInfo) { isDropTarget = false }
 
     func performDrop(info: DropInfo) -> Bool {
         isDropTarget = false
-        guard let provider = info.itemProviders(for: [.text]).first else { return false }
+        guard let provider = info.itemProviders(for: [.text]).first else {
+            store.draggedAgent = nil
+            return false
+        }
+        let storedInsert = insertIndex
         provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let raw = object as? String,
-                  let dragged = SessionAgent(rawValue: raw),
-                  dragged != target else { return }
             DispatchQueue.main.async {
-                guard let targetIndex = store.agentOrder.firstIndex(of: target) else { return }
-                store.moveAgent(dragged, to: targetIndex)
+                defer { store.draggedAgent = nil }
+                guard let raw = object as? String,
+                      let dragged = SessionAgent(rawValue: raw),
+                      let oldIndex = store.agentOrder.firstIndex(of: dragged) else { return }
+                let target = storedInsert > oldIndex ? storedInsert - 1 : storedInsert
+                store.moveAgent(dragged, toInsertIndex: target)
             }
         }
         return true
     }
 }
+
+private struct MetadataChip: View {
+    let symbol: String
+    let text: String
+    var accent: Color? = nil
+    var onTap: (() -> Void)? = nil
+
+    var body: some View {
+        let chip = HStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.system(size: 9, weight: .medium))
+            Text(text)
+                .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .foregroundColor(accent ?? .secondary)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill((accent ?? Color.secondary).opacity(0.12))
+        )
+
+        if let onTap {
+            chip
+                .onTapGesture(perform: onTap)
+                .contentShape(Rectangle())
+        } else {
+            chip
+        }
+    }
+}
+
 
 private struct SessionRow: View {
     let entry: SessionEntry
@@ -243,25 +308,16 @@ private struct SessionRow: View {
         Button {
             open()
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(entry.displayTitle)
                     .font(.system(size: 12))
                     .foregroundColor(.primary)
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
+                metadataLine
                 HStack(spacing: 6) {
-                    if let cwdLabel = entry.cwdLabel {
-                        Image(systemName: "folder")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary)
-                        Text(folderDisplayName(cwdLabel))
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer(minLength: 4)
+                    Spacer(minLength: 0)
                     Text(relativeTime(entry.modified))
                         .font(.system(size: 10).monospacedDigit())
                         .foregroundColor(.secondary)
@@ -307,7 +363,49 @@ private struct SessionRow: View {
                     Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
                 }
             }
+            if let pr = entry.pullRequest, let url = URL(string: pr.url) {
+                Divider()
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open PR #\(pr.number)"))
+                }
+            }
         }
+    }
+
+    @ViewBuilder
+    private var metadataLine: some View {
+        let chips = metadataChips
+        if !chips.isEmpty {
+            HStack(spacing: 4) {
+                ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                    chip
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var metadataChips: [AnyView] {
+        var chips: [AnyView] = []
+        if let basename = entry.cwdBasename {
+            chips.append(AnyView(MetadataChip(symbol: "folder", text: basename)))
+        }
+        if let branch = entry.gitBranch, !branch.isEmpty {
+            chips.append(AnyView(MetadataChip(symbol: "arrow.triangle.branch", text: branch)))
+        }
+        if let pr = entry.pullRequest {
+            chips.append(AnyView(
+                MetadataChip(
+                    symbol: "arrow.triangle.pull",
+                    text: "#\(pr.number)",
+                    accent: Color.purple,
+                    onTap: { NSWorkspace.shared.open(URL(string: pr.url)!) }
+                )
+            ))
+        }
+        return chips
     }
 
     private var helpText: String {

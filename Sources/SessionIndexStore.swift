@@ -32,11 +32,19 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable {
 
 // MARK: - Session entry
 
+struct PullRequestLink: Hashable {
+    let number: Int
+    let url: String
+    let repository: String?
+}
+
 struct SessionEntry: Identifiable, Hashable {
     let id: String
     let agent: SessionAgent
     let title: String
     let cwd: String?
+    let gitBranch: String?
+    let pullRequest: PullRequestLink?
     let modified: Date
     let fileURL: URL?
 
@@ -56,6 +64,11 @@ struct SessionEntry: Identifiable, Hashable {
         }
         return cwd
     }
+
+    var cwdBasename: String? {
+        guard let cwd, !cwd.isEmpty else { return nil }
+        return (cwd as NSString).lastPathComponent
+    }
 }
 
 // MARK: - Store
@@ -72,20 +85,24 @@ final class SessionIndexStore: ObservableObject {
         didSet { Self.persistOrder(agentOrder) }
     }
 
+    /// The agent currently being dragged, if any. Drives "hide adjacent drop slots".
+    @Published var draggedAgent: SessionAgent? = nil
+
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
 
     init() {
         self.agentOrder = Self.loadOrder()
     }
 
-    func moveAgent(_ agent: SessionAgent, to newIndex: Int) {
+    /// Insert `agent` so that, after removal of its old position, it lands at `insertIndex`.
+    /// `insertIndex` is in the *post-removal* index space (0...count-1).
+    func moveAgent(_ agent: SessionAgent, toInsertIndex insertIndex: Int) {
         guard let oldIndex = agentOrder.firstIndex(of: agent) else { return }
-        var clamped = max(0, min(newIndex, agentOrder.count - 1))
-        if oldIndex == clamped { return }
         var next = agentOrder
         next.remove(at: oldIndex)
-        if clamped > oldIndex { clamped -= 1 }
-        next.insert(agent, at: min(clamped, next.count))
+        let target = max(0, min(insertIndex, next.count))
+        if target == oldIndex { return }
+        next.insert(agent, at: target)
         agentOrder = next
     }
 
@@ -145,7 +162,8 @@ final class SessionIndexStore: ObservableObject {
     // MARK: - Scanning
 
     private static let perAgentLimit = 60
-    private static let titlePreviewByteCap = 32 * 1024
+    private static let headByteCap = 64 * 1024
+    private static let tailByteCap = 32 * 1024
 
     private static func scanAll() async -> [SessionEntry] {
         async let claude = scanClaude()
@@ -185,14 +203,16 @@ final class SessionIndexStore: ObservableObject {
         var results: [SessionEntry] = []
         results.reserveCapacity(limited.count)
         for (url, mtime, dirName) in limited {
-            let preview = readFileHead(url: url, byteCap: titlePreviewByteCap)
-            let (title, cwd) = extractClaudeMetadata(jsonl: preview, projectDir: dirName)
-            let id = "claude:" + url.path
+            let head = readFileHead(url: url, byteCap: headByteCap)
+            let tail = readFileTail(url: url, byteCap: tailByteCap)
+            let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: dirName)
             results.append(SessionEntry(
-                id: id,
+                id: "claude:" + url.path,
                 agent: .claude,
-                title: title,
-                cwd: cwd,
+                title: parsed.title,
+                cwd: parsed.cwd,
+                gitBranch: parsed.branch,
+                pullRequest: parsed.pr,
                 modified: mtime,
                 fileURL: url
             ))
@@ -200,34 +220,63 @@ final class SessionIndexStore: ObservableObject {
         return results
     }
 
-    private static func extractClaudeMetadata(jsonl: String, projectDir: String) -> (String, String?) {
-        var firstUserText: String?
-        var cwd: String? = decodeClaudeProjectDir(projectDir)
-        for line in jsonl.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let data = line.data(using: .utf8) else { continue }
-            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+    private struct ClaudeParsed {
+        var title: String = ""
+        var cwd: String?
+        var branch: String?
+        var pr: PullRequestLink?
+    }
+
+    private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
+        var out = ClaudeParsed()
+        out.cwd = decodeClaudeProjectDir(projectDir)
+
+        for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
-                cwd = cwdField
+                out.cwd = cwdField
             }
-            if firstUserText == nil,
+            if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
+                out.branch = branchField
+            }
+            if out.title.isEmpty,
                (obj["type"] as? String) == "user",
                let message = obj["message"] as? [String: Any],
                (message["role"] as? String) == "user" {
                 if let content = message["content"] as? String, !content.isEmpty {
-                    firstUserText = content
+                    out.title = content
                 } else if let parts = message["content"] as? [[String: Any]] {
                     for part in parts {
                         if (part["type"] as? String) == "text",
                            let text = part["text"] as? String, !text.isEmpty {
-                            firstUserText = text
+                            out.title = text
                             break
                         }
                     }
                 }
             }
-            if firstUserText != nil { break }
+            if out.title.isEmpty == false && out.branch != nil { break }
         }
-        return (firstUserText ?? "", cwd)
+
+        // Tail scan: pr-link tends to live at end; also catches branch updates.
+        for line in tail.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            let type = obj["type"] as? String
+            if type == "pr-link", let number = obj["prNumber"] as? Int,
+               let url = obj["prUrl"] as? String {
+                out.pr = PullRequestLink(
+                    number: number,
+                    url: url,
+                    repository: obj["prRepository"] as? String
+                )
+            }
+            if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
+                out.branch = branchField
+            }
+        }
+        return out
     }
 
     private static func decodeClaudeProjectDir(_ raw: String) -> String? {
@@ -268,14 +317,15 @@ final class SessionIndexStore: ObservableObject {
         var results: [SessionEntry] = []
         results.reserveCapacity(limited.count)
         for (url, mtime) in limited {
-            let preview = readFileHead(url: url, byteCap: titlePreviewByteCap)
-            let (title, cwd) = extractCodexMetadata(jsonl: preview)
-            let id = "codex:" + url.path
+            let head = readFileHead(url: url, byteCap: headByteCap)
+            let parsed = extractCodexMetadata(jsonl: head)
             results.append(SessionEntry(
-                id: id,
+                id: "codex:" + url.path,
                 agent: .codex,
-                title: title,
-                cwd: cwd,
+                title: parsed.title,
+                cwd: parsed.cwd,
+                gitBranch: parsed.branch,
+                pullRequest: nil,
                 modified: mtime,
                 fileURL: url
             ))
@@ -283,25 +333,34 @@ final class SessionIndexStore: ObservableObject {
         return results
     }
 
-    private static func extractCodexMetadata(jsonl: String) -> (String, String?) {
+    private struct CodexParsed {
+        var title: String = ""
         var cwd: String?
-        var firstUserMessage: String?
+        var branch: String?
+    }
+
+    private static func extractCodexMetadata(jsonl: String) -> CodexParsed {
+        var out = CodexParsed()
         for line in jsonl.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let data = line.data(using: .utf8) else { continue }
-            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let type = obj["type"] as? String
             let payload = obj["payload"] as? [String: Any]
-            if type == "session_meta", let p = payload, let c = p["cwd"] as? String, !c.isEmpty {
-                cwd = c
+            if type == "session_meta", let p = payload {
+                if let c = p["cwd"] as? String, !c.isEmpty { out.cwd = c }
+                if let git = p["git"] as? [String: Any],
+                   let branch = git["branch"] as? String, !branch.isEmpty {
+                    out.branch = branch
+                }
             }
-            if firstUserMessage == nil, type == "event_msg", let p = payload,
+            if out.title.isEmpty, type == "event_msg", let p = payload,
                (p["type"] as? String) == "user_message",
                let msg = p["message"] as? String, !msg.isEmpty {
-                firstUserMessage = msg
+                out.title = msg
             }
-            if firstUserMessage != nil && cwd != nil { break }
+            if !out.title.isEmpty && out.cwd != nil && out.branch != nil { break }
         }
-        return (firstUserMessage ?? "", cwd)
+        return out
     }
 
     // MARK: OpenCode
@@ -362,6 +421,8 @@ final class SessionIndexStore: ObservableObject {
                 agent: .opencode,
                 title: title,
                 cwd: directory,
+                gitBranch: nil,
+                pullRequest: nil,
                 modified: modified,
                 fileURL: nil
             ))
@@ -387,5 +448,29 @@ final class SessionIndexStore: ObservableObject {
             data = handle.readData(ofLength: byteCap)
         }
         return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+    }
+
+    /// Read up to `byteCap` bytes from the end of the file as UTF-8.
+    /// Used to find late-arriving events like pr-link without scanning the whole file.
+    private static func readFileTail(url: URL, byteCap: Int) -> String {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? handle.close() }
+        let size: UInt64
+        do { size = try handle.seekToEnd() } catch { return "" }
+        if size == 0 { return "" }
+        let cap = UInt64(byteCap)
+        let offset: UInt64 = size > cap ? size - cap : 0
+        do { try handle.seek(toOffset: offset) } catch { return "" }
+        let data: Data
+        if #available(macOS 10.15.4, *) {
+            data = (try? handle.read(upToCount: byteCap)) ?? Data()
+        } else {
+            data = handle.readData(ofLength: byteCap)
+        }
+        // Trim leading partial line (we likely cut mid-record).
+        if offset > 0, let nl = data.firstIndex(of: 0x0a) {
+            return String(data: data[(nl + 1)...], encoding: .utf8) ?? ""
+        }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 }

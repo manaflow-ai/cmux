@@ -89958,6 +89958,23 @@
           }
         }
       }
+    },
+    "sessionIndex.row.openPR": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Pull Request"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プルリクエストを開く"
+          }
+        }
+      }
     }
   }
 }
