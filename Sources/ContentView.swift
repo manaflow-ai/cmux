@@ -1844,6 +1844,7 @@ struct ContentView: View {
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
+    @StateObject private var sessionIndexStore = SessionIndexStore()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
@@ -2775,7 +2776,11 @@ struct ContentView: View {
             if explorerVisible {
                 Divider()
             }
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState)
+            RightSidebarPanelView(
+                fileExplorerStore: fileExplorerStore,
+                fileExplorerState: fileExplorerState,
+                sessionIndexStore: sessionIndexStore
+            )
                 .frame(width: explorerVisible ? fileExplorerWidth : 0)
                 .clipped()
                 .allowsHitTesting(explorerVisible)
@@ -2974,6 +2979,11 @@ struct ContentView: View {
         guard !dir.isEmpty else { return }
 
         fileExplorerStore.showHiddenFiles = true
+        if !tab.isRemoteWorkspace {
+            sessionIndexStore.currentDirectory = dir
+        } else {
+            sessionIndexStore.currentDirectory = nil
+        }
 
         if tab.isRemoteWorkspace {
             let config = tab.remoteConfiguration
