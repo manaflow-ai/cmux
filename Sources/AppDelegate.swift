@@ -7811,12 +7811,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager else { return }
         let tab = tabManager.addTab()
         let config = GhosttyConfig.load()
-        let bytesPerLine = "scrollback 000000\n".utf8.count
         let minimumTargetBytes = 2_000_000
         let maximumTargetBytes = 200_000_000
-        let doubledLimit = min(config.scrollbackLimit, maximumTargetBytes / 2) * 2
+        let effectiveLimit = max(config.scrollbackLimit, 0)
+        let doubledLimit = min(effectiveLimit, maximumTargetBytes / 2) * 2
         let targetBytes = min(max(doubledLimit, minimumTargetBytes), maximumTargetBytes)
-        let lineCount = max((targetBytes + bytesPerLine - 1) / bytesPerLine, 2000)
+        let baseBytesPerLine = "scrollback \n".utf8.count
+        var digitCount = 6
+        var lineCount = 2000
+
+        while true {
+            let bytesPerLine = baseBytesPerLine + digitCount
+            let nextLineCount = max((targetBytes + bytesPerLine - 1) / bytesPerLine, 2000)
+            let nextDigitCount = max(6, String(nextLineCount).count)
+            lineCount = nextLineCount
+            if nextDigitCount == digitCount {
+                break
+            }
+            digitCount = nextDigitCount
+        }
+
         let command = #"awk 'BEGIN { for (i = 1; i <= \#(lineCount); ++i) printf "scrollback %06d\n", i }'"# + "\n"
         sendTextWhenReady(command, to: tab)
     }

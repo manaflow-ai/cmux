@@ -318,8 +318,13 @@ struct GhosttyConfig {
     }
 
     private static func parseIntegerLiteral(_ value: String) -> Int? {
+        // Strip digit-group separators (for example 10_000_000).
+        // Hex and float literals are intentionally unsupported here.
         let normalized = value.replacingOccurrences(of: "_", with: "")
-        return Int(normalized)
+        guard let parsed = Int(normalized), parsed > 0 else {
+            return nil
+        }
+        return parsed
     }
 
     mutating func loadTheme(_ name: String) {
