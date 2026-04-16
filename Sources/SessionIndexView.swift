@@ -604,7 +604,10 @@ private struct SectionPopoverView: View {
             .frame(maxHeight: 420)
         }
         .frame(width: 360)
-        .onAppear { searchFocused = true }
+        .onAppear {
+            // Defer one runloop turn so the popover's window is fully key.
+            DispatchQueue.main.async { searchFocused = true }
+        }
     }
 
     @ViewBuilder
