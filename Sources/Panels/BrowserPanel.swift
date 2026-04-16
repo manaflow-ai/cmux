@@ -2238,7 +2238,6 @@ final class BrowserPanel: Panel, ObservableObject {
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
-    private var webAuthnCoordinator: BrowserWebAuthnCoordinator?
     private var webViewObservers: [NSKeyValueObservation] = []
     private var activeDownloadCount: Int = 0
 
@@ -2549,17 +2548,6 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: true
             )
         )
-        // WebAuthn can originate from same-origin child frames. The native
-        // bridge rejects first-time authorization requests from cross-origin
-        // subframes before touching the shared browser authorization state.
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: BrowserWebAuthnBridgeContract.scriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false,
-                in: .page
-            )
-        )
         // Keep a native cache of whether the focused page element can currently accept
         // plain-text paste so Cmd+Shift+V is only consumed when the browser can use it.
         configuration.userContentController.addUserScript(
@@ -2587,9 +2575,6 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
-        let webAuthnCoordinator = BrowserWebAuthnCoordinator()
-        webAuthnCoordinator.install(on: webView)
-        self.webAuthnCoordinator = webAuthnCoordinator
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -2881,8 +2866,6 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask = nil
         faviconRefreshGeneration &+= 1
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
-        webAuthnCoordinator?.uninstall(from: previousWebView)
-        webAuthnCoordinator = nil
         previousWebView.stopLoading()
         previousWebView.navigationDelegate = nil
         previousWebView.uiDelegate = nil
@@ -3232,8 +3215,6 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask = nil
         faviconRefreshGeneration &+= 1
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        webAuthnCoordinator?.uninstall(from: oldWebView)
-        webAuthnCoordinator = nil
         oldWebView.stopLoading()
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
@@ -3375,8 +3356,6 @@ final class BrowserPanel: Panel, ObservableObject {
             popup.closePopup()
         }
 
-        webAuthnCoordinator?.uninstall(from: webView)
-        webAuthnCoordinator = nil
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -3900,10 +3879,15 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func shouldBlockInsecureHTTPNavigation(to url: URL) -> Bool {
-        if browserShouldConsumeOneTimeInsecureHTTPBypass(url, bypassHostOnce: &insecureHTTPBypassHostOnce) {
+        if consumeOneTimeInsecureHTTPBypassIfNeeded(for: url) {
             return false
         }
         return browserShouldBlockInsecureHTTPURL(url)
+    }
+
+    @discardableResult
+    private func consumeOneTimeInsecureHTTPBypassIfNeeded(for url: URL) -> Bool {
+        browserShouldConsumeOneTimeInsecureHTTPBypass(url, bypassHostOnce: &insecureHTTPBypassHostOnce)
     }
 
     private func requestNavigation(_ request: URLRequest, intent: BrowserInsecureHTTPNavigationIntent) {
@@ -3916,7 +3900,7 @@ final class BrowserPanel: Panel, ObservableObject {
         case .currentTab:
             navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false)
         case .newTab:
-            openLinkInNewTab(url: url)
+            openNavigationRequestInNewTab(request)
         }
     }
 
@@ -3982,7 +3966,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 insecureHTTPBypassHostOnce = host
                 navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
             case .newTab:
-                openLinkInNewTab(url: url, bypassInsecureHTTPHostOnce: host)
+                openNavigationRequestInNewTab(
+                    request,
+                    bypassInsecureHTTPHostOnce: host
+                )
             }
         default:
             return
@@ -4001,11 +3988,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
-        let webAuthnCoordinator = webAuthnCoordinator
-        self.webAuthnCoordinator = nil
         let webView = webView
         Task { @MainActor in
-            webAuthnCoordinator?.uninstall(from: webView)
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
     }
@@ -4096,8 +4080,6 @@ extension BrowserPanel {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        webAuthnCoordinator?.uninstall(from: oldWebView)
-        webAuthnCoordinator = nil
         oldWebView.stopLoading()
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
@@ -4229,7 +4211,7 @@ extension BrowserPanel {
 #if DEBUG
         dlog(
             "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(url.absoluteString) " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(browserNavigationDebugURL(url)) " +
             "bypass=\(bypassInsecureHTTPHostOnce ?? "nil")"
         )
 #endif
@@ -4264,6 +4246,64 @@ extension BrowserPanel {
 #if DEBUG
         dlog(
             "browser.newTab.open.done panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5))"
+        )
+#endif
+    }
+
+    private func openNavigationRequestInNewTab(
+        _ request: URLRequest,
+        bypassInsecureHTTPHostOnce: String? = nil
+    ) {
+        guard let url = request.url else { return }
+#if DEBUG
+        dlog(
+            "browser.newTab.openRequest.begin panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) method=\(request.httpMethod ?? "GET") " +
+            "url=\(browserNavigationDebugURL(url)) bypass=\(bypassInsecureHTTPHostOnce ?? "nil")"
+        )
+#endif
+        guard let app = AppDelegate.shared else {
+#if DEBUG
+            dlog("browser.newTab.openRequest.abort panel=\(id.uuidString.prefix(5)) reason=missingAppDelegate")
+#endif
+            return
+        }
+        guard let workspace = app.workspaceContainingPanel(
+            panelId: id,
+            preferredWorkspaceId: workspaceId
+        )?.workspace else {
+#if DEBUG
+            dlog("browser.newTab.openRequest.abort panel=\(id.uuidString.prefix(5)) reason=workspaceMissing")
+#endif
+            return
+        }
+        guard let paneId = workspace.paneId(forPanelId: id) else {
+#if DEBUG
+            dlog("browser.newTab.openRequest.abort panel=\(id.uuidString.prefix(5)) reason=paneMissing")
+#endif
+            return
+        }
+        guard let panel = workspace.newBrowserSurface(
+            inPane: paneId,
+            focus: true,
+            preferredProfileID: profileID,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        ) else {
+#if DEBUG
+            dlog("browser.newTab.openRequest.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")
+#endif
+            return
+        }
+        if bypassInsecureHTTPHostOnce != nil {
+            // Request-based new-tab navigations bypass shouldBlockInsecureHTTPNavigation,
+            // so consume the one-shot allowance here after the destination panel exists.
+            _ = panel.consumeOneTimeInsecureHTTPBypassIfNeeded(for: url)
+        }
+        panel.navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false)
+#if DEBUG
+        dlog(
+            "browser.newTab.openRequest.done panel=\(id.uuidString.prefix(5)) " +
             "workspace=\(workspace.id.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5))"
         )
 #endif
@@ -5971,6 +6011,139 @@ func browserNavigationShouldFallbackNilTargetToNewTab(
     navigationType != .other
 }
 
+func browserNavigationHasSimpleUserActivation(
+    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type
+) -> Bool {
+    switch currentEventType {
+    case .keyDown, .keyUp, .leftMouseDown, .leftMouseUp:
+        return true
+    default:
+        return false
+    }
+}
+
+func browserNavigationPopupFeaturesWereSpecified(
+    x: NSNumber?,
+    y: NSNumber?,
+    width: NSNumber?,
+    height: NSNumber?,
+    menuBarVisibility: NSNumber?,
+    statusBarVisibility: NSNumber?,
+    toolbarsVisibility: NSNumber?,
+    allowsResizing: NSNumber?
+) -> Bool {
+    x != nil ||
+        y != nil ||
+        width != nil ||
+        height != nil ||
+        menuBarVisibility != nil ||
+        statusBarVisibility != nil ||
+        toolbarsVisibility != nil ||
+        allowsResizing != nil
+}
+
+// Keep popup retargeting intentionally narrow. Explicit cross-host alias groups
+// preserve known first-party search flows without guessing at the public suffix
+// list for arbitrary hosted tenants, while same-host scripted popups stay on
+// the popup path so opener-dependent browser flows keep working.
+private let browserNavigationSimpleUserGesturePopupRetargetHostAliases: [Set<String>] = [
+    [
+        "bilibili.com",
+        "search.bilibili.com",
+        "www.bilibili.com",
+    ],
+]
+
+private func browserNavigationDefaultPort(for scheme: String) -> Int? {
+    switch scheme {
+    case "http":
+        return 80
+    case "https":
+        return 443
+    default:
+        return nil
+    }
+}
+
+private func browserNavigationShouldRetargetSimpleUserGesturePopup(
+    requestURL: URL?,
+    openerURL: URL?
+) -> Bool {
+    guard let requestURL,
+          let openerURL,
+          let requestScheme = requestURL.scheme?.lowercased(), !requestScheme.isEmpty,
+          let openerScheme = openerURL.scheme?.lowercased(), !openerScheme.isEmpty,
+          requestScheme == openerScheme,
+          (requestURL.port ?? browserNavigationDefaultPort(for: requestScheme))
+            == (openerURL.port ?? browserNavigationDefaultPort(for: openerScheme)),
+          let requestHost = BrowserInsecureHTTPSettings.normalizeHost(requestURL.host ?? ""),
+          let openerHost = BrowserInsecureHTTPSettings.normalizeHost(openerURL.host ?? "") else {
+        return false
+    }
+    for aliases in browserNavigationSimpleUserGesturePopupRetargetHostAliases {
+        if requestHost != openerHost,
+           aliases.contains(requestHost),
+           aliases.contains(openerHost) {
+            return true
+        }
+    }
+    return false
+}
+
+private func browserNavigationDebugURL(_ url: URL?) -> String {
+    guard let url,
+          var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+        return "nil"
+    }
+    components.query = nil
+    components.fragment = nil
+    return components.string ?? "\(url.scheme ?? "unknown")://\(url.host ?? "")"
+}
+
+func browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+    navigationType: WKNavigationType,
+    requestMethod: String?,
+    requestURL: URL?,
+    openerURL: URL?,
+    modifierFlags: NSEvent.ModifierFlags = [],
+    buttonNumber: Int = 0,
+    hasRecentMiddleClickIntent: Bool = false,
+    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
+    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber,
+    popupFeaturesWereSpecified: Bool
+) -> Bool {
+    guard navigationType == .other else {
+        return false
+    }
+    // Some sites use `window.open()` for plain same-site searches triggered by a
+    // direct keyboard submit or left-click, without requesting popup chrome or
+    // opener-style geometry. Route those to a normal tab while keeping
+    // cross-site/OAuth-style popups on the popup path.
+    guard browserNavigationHasSimpleUserActivation(currentEventType: currentEventType) else {
+        return false
+    }
+    guard !browserNavigationShouldOpenInNewTab(
+        navigationType: navigationType,
+        modifierFlags: modifierFlags,
+        buttonNumber: buttonNumber,
+        hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
+        currentEventType: currentEventType,
+        currentEventButtonNumber: currentEventButtonNumber
+    ) else {
+        return false
+    }
+    guard (requestMethod ?? "GET").uppercased() == "GET" else {
+        return false
+    }
+    guard !popupFeaturesWereSpecified else {
+        return false
+    }
+    return browserNavigationShouldRetargetSimpleUserGesturePopup(
+        requestURL: requestURL,
+        openerURL: openerURL
+    )
+}
+
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
@@ -6152,9 +6325,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
         let navType = String(describing: navigationAction.navigationType)
+        let requestMethod = navigationAction.request.httpMethod ?? "nil"
+        let requestURL = browserNavigationDebugURL(navigationAction.request.url)
+        let targetMainFrame = navigationAction.targetFrame.map { $0.isMainFrame ? "1" : "0" } ?? "nil"
         dlog(
             "browser.nav.decidePolicy navType=\(navType) button=\(navigationAction.buttonNumber) " +
             "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
+            "targetMain=\(targetMainFrame) method=\(requestMethod) url=\(requestURL) " +
             "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
             "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
             "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
@@ -6341,10 +6518,25 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
         let navType = String(describing: navigationAction.navigationType)
+        let requestMethod = navigationAction.request.httpMethod ?? "nil"
+        let requestURL = navigationAction.request.url?.absoluteString ?? "nil"
+        let targetMainFrame = navigationAction.targetFrame.map { $0.isMainFrame ? "1" : "0" } ?? "nil"
+        let windowFeaturesSummary = [
+            "x=\(windowFeatures.x?.stringValue ?? "nil")",
+            "y=\(windowFeatures.y?.stringValue ?? "nil")",
+            "w=\(windowFeatures.width?.stringValue ?? "nil")",
+            "h=\(windowFeatures.height?.stringValue ?? "nil")",
+            "toolbars=\(windowFeatures.toolbarsVisibility?.stringValue ?? "nil")",
+            "resizable=\(windowFeatures.allowsResizing?.stringValue ?? "nil")",
+            "status=\(windowFeatures.statusBarVisibility?.stringValue ?? "nil")",
+            "menu=\(windowFeatures.menuBarVisibility?.stringValue ?? "nil")"
+        ].joined(separator: ",")
         dlog(
             "browser.nav.createWebView navType=\(navType) button=\(navigationAction.buttonNumber) " +
             "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
-            "eventType=\(currentEventType) eventButton=\(currentEventButton)"
+            "targetMain=\(targetMainFrame) method=\(requestMethod) url=\(requestURL) " +
+            "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
+            "windowFeatures={\(windowFeaturesSummary)}"
         )
 #endif
         // External URL schemes → hand off to macOS, don't create a popup
@@ -6355,8 +6547,47 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
             }
             #if DEBUG
-            dlog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+            dlog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(browserNavigationDebugURL(url))")
             #endif
+            return nil
+        }
+
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        let popupFeaturesWereSpecified = browserNavigationPopupFeaturesWereSpecified(
+            x: windowFeatures.x,
+            y: windowFeatures.y,
+            width: windowFeatures.width,
+            height: windowFeatures.height,
+            menuBarVisibility: windowFeatures.menuBarVisibility,
+            statusBarVisibility: windowFeatures.statusBarVisibility,
+            toolbarsVisibility: windowFeatures.toolbarsVisibility,
+            allowsResizing: windowFeatures.allowsResizing
+        )
+        let shouldOpenSimpleUserGesturePopupInCurrentTab = browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            navigationType: navigationAction.navigationType,
+            requestMethod: navigationAction.request.httpMethod,
+            requestURL: navigationAction.request.url,
+            openerURL: webView.url,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
+            popupFeaturesWereSpecified: popupFeaturesWereSpecified
+        )
+
+        if shouldOpenSimpleUserGesturePopupInCurrentTab {
+            if let url = navigationAction.request.url {
+#if DEBUG
+                dlog(
+                    "browser.nav.createWebView.action kind=requestNavigationSimpleUserGesture intent=currentTab " +
+                    "url=\(browserNavigationDebugURL(url))"
+                )
+#endif
+                if let requestNavigation {
+                    requestNavigation(navigationAction.request, .currentTab)
+                } else {
+                    browserLoadRequest(navigationAction.request, in: webView)
+                }
+            }
             return nil
         }
 
@@ -6371,7 +6602,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
-            hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
 
         if isScriptedPopup, let popupWebView = openPopup?(configuration, windowFeatures) {
@@ -6388,7 +6619,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 #if DEBUG
                 dlog(
                     "browser.nav.createWebView.action kind=requestNavigation intent=newTab " +
-                    "url=\(url.absoluteString)"
+                    "url=\(browserNavigationDebugURL(url))"
                 )
 #endif
                 requestNavigation(navigationAction.request, intent)
