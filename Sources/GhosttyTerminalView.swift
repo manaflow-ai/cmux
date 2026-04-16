@@ -8618,6 +8618,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         dlog("terminal.draggingEntered surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
+        // Defer to bonsplit when a tab/session drag is in flight: bonsplit's pane
+        // drop overlays should win over the terminal's text/file drop handling.
+        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+            return []
+        }
         if Set(types).isDisjoint(with: Self.dropTypes) {
             return []
         }
@@ -8630,6 +8635,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         dlog("terminal.draggingUpdated surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
+        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+            return []
+        }
         if Set(types).isDisjoint(with: Self.dropTypes) {
             return []
         }
@@ -8637,6 +8645,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let types = sender.draggingPasteboard.types ?? []
+        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+            return false
+        }
         #if DEBUG
         dlog("terminal.fileDrop surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
         #endif

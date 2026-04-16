@@ -596,13 +596,20 @@ final class SessionIndexStore: ObservableObject {
 
     private struct CodexParsed {
         var sessionId: String = ""
-        var title: String = ""
+        /// First user message — used only if Codex never assigns a thread_name.
+        var firstUserMessage: String = ""
+        /// Codex-generated session title (`event_msg.thread_name_updated`). Wins over firstUserMessage.
+        var threadName: String = ""
         var cwd: String?
         var branch: String?
         var model: String?
         var approvalPolicy: String?
         var sandboxMode: String?
         var effort: String?
+
+        var title: String {
+            threadName.isEmpty ? firstUserMessage : threadName
+        }
     }
 
     /// Stream lines from `url` until we have everything we need. The first user_message
@@ -631,12 +638,17 @@ final class SessionIndexStore: ObservableObject {
                 }
                 if let e = p["effort"] as? String, !e.isEmpty { out.effort = e }
             }
-            if out.title.isEmpty, type == "event_msg", let p = payload,
+            if type == "event_msg", let p = payload,
+               (p["type"] as? String) == "thread_name_updated",
+               let name = p["thread_name"] as? String, !name.isEmpty {
+                out.threadName = name
+            }
+            if out.firstUserMessage.isEmpty, type == "event_msg", let p = payload,
                (p["type"] as? String) == "user_message",
                let msg = p["message"] as? String, !msg.isEmpty {
-                out.title = msg
+                out.firstUserMessage = msg
             }
-            if out.title.isEmpty, type == "response_item", let p = payload,
+            if out.firstUserMessage.isEmpty, type == "response_item", let p = payload,
                (p["type"] as? String) == "message",
                (p["role"] as? String) == "user",
                let content = p["content"] as? [[String: Any]] {
@@ -647,12 +659,16 @@ final class SessionIndexStore: ObservableObject {
                        !text.hasPrefix("# AGENTS.md"),
                        !text.hasPrefix("<user_instructions>"),
                        !text.hasPrefix("<permissions") {
-                        out.title = text
+                        out.firstUserMessage = text
                         break
                     }
                 }
             }
-            return !out.title.isEmpty
+            // Stop early once we have a real thread name + the launch metadata. If no
+            // thread name appears we keep streaming until we at least have a user
+            // message — Codex emits thread_name_updated late in newer versions but it's
+            // still typically within the first few KB of events.
+            return !out.threadName.isEmpty
                 && out.cwd != nil
                 && out.branch != nil
                 && !out.sessionId.isEmpty
