@@ -3508,6 +3508,7 @@ final class WorkspaceRemoteSessionController {
         )
         connectionAttemptStartedAt = Date()
         debugLog("remote.session.connect.begin retry=\(reconnectRetryCount) \(debugConfigSummary())")
+        cleanStaleControlMasterIfNeeded()
         reconnectWorkItem = nil
         bootstrapRemoteTTYRetryWorkItem?.cancel()
         bootstrapRemoteTTYRetryWorkItem = nil
@@ -5103,6 +5104,28 @@ final class WorkspaceRemoteSessionController {
                 return parsed.pid
             }
             .sorted()
+    }
+
+    private func cleanStaleControlMasterIfNeeded() {
+        var checkArgs = sshCommonArguments(batchMode: true)
+        checkArgs += ["-O", "check", configuration.destination]
+        do {
+            let result = try sshExec(arguments: checkArgs, timeout: 3)
+            if result.status == 0 {
+                debugLog("remote.controlmaster.check ok \(debugConfigSummary())")
+                return
+            }
+        } catch {
+            // Timeout or failure means the ControlMaster is stale
+        }
+        debugLog("remote.controlmaster.stale cleaning up \(debugConfigSummary())")
+        var exitArgs = sshCommonArguments(batchMode: true)
+        exitArgs += ["-O", "exit", configuration.destination]
+        do {
+            _ = try sshExec(arguments: exitArgs, timeout: 3)
+        } catch {
+            // Best-effort cleanup; if this also fails the socket is already gone
+        }
     }
 
     private static func killOrphanedRemoteSSHProcesses(destination: String, relayPort: Int? = nil) {
