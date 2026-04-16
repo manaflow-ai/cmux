@@ -8,6 +8,7 @@
 
 		/* Begin PBXBuildFile section */
 		FE001101 /* FileExplorerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001001 /* FileExplorerStore.swift */; };
+		CEF00200 /* CefDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF00201 /* CefDebugWindow.swift */; };
 		FE001102 /* FileExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001002 /* FileExplorerView.swift */; };
 		FE002101 /* FileExplorerRootResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002001 /* FileExplorerRootResolverTests.swift */; };
 		FE002102 /* FileExplorerStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002002 /* FileExplorerStoreTests.swift */; };
@@ -212,6 +213,7 @@
 
 		/* Begin PBXFileReference section */
 		FE001001 /* FileExplorerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStore.swift; sourceTree = "<group>"; };
+		CEF00201 /* CefDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CefDebugWindow.swift; sourceTree = "<group>"; };
 		FE001002 /* FileExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerView.swift; sourceTree = "<group>"; };
 		FE002001 /* FileExplorerRootResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootResolverTests.swift; sourceTree = "<group>"; };
 		FE002002 /* FileExplorerStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStoreTests.swift; sourceTree = "<group>"; };
@@ -533,6 +535,7 @@
 				A5001655 /* CmuxDirectoryTrust.swift */,
 				FE001001 /* FileExplorerStore.swift */,
 				FE001002 /* FileExplorerView.swift */,
+				CEF00201 /* CefDebugWindow.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -661,6 +664,7 @@
 					A5001271 /* PostHog */,
 					A5001261 /* Bonsplit */,
 					A5001291 /* MarkdownUI */,
+					CEF00101 /* CEFWebView */,
 				);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
@@ -781,6 +785,7 @@
 					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 					A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
+					CEF00100 /* XCLocalSwiftPackageReference "CEFWebView" */,
 				);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -864,6 +869,7 @@
 				A5001654 /* CmuxDirectoryTrust.swift in Sources */,
 				FE001101 /* FileExplorerStore.swift in Sources */,
 				FE001102 /* FileExplorerView.swift in Sources */,
+				CEF00200 /* CefDebugWindow.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1047,10 +1053,18 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/CEFWebView/Frameworks",
+				);
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/CEFWebView/Frameworks",
 				);
 				MARKETING_VERSION = 0.63.2;
 				OTHER_LDFLAGS = (
@@ -1086,10 +1100,18 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/CEFWebView/Frameworks",
+				);
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/CEFWebView/Frameworks",
 				);
 				MARKETING_VERSION = 0.63.2;
 				OTHER_LDFLAGS = (
@@ -1312,6 +1334,10 @@
 				isa = XCLocalSwiftPackageReference;
 				relativePath = vendor/bonsplit;
 			};
+			CEF00100 /* XCLocalSwiftPackageReference "CEFWebView" */ = {
+				isa = XCLocalSwiftPackageReference;
+				relativePath = vendor/CEFWebView;
+			};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1339,6 +1365,11 @@
 				isa = XCSwiftPackageProductDependency;
 				package = A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
 				productName = MarkdownUI;
+			};
+			CEF00101 /* CEFWebView */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = CEF00100 /* XCLocalSwiftPackageReference "CEFWebView" */;
+				productName = CEFWebView;
 			};
 /* End XCSwiftPackageProductDependency section */
 

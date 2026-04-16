@@ -1,0 +1,11 @@
+.DS_Store
+default.profraw
+build/
+.build/
+xcuserdata/
+logs/
+
+# CEF
+CEF/
+Frameworks
+build_cef_dll/

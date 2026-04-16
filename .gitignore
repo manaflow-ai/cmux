@@ -36,6 +36,11 @@ __pycache__/
 .zig-cache/
 zig-out/
 
+# CEFWebView vendored package: CEF binary distribution + built frameworks
+vendor/CEFWebView/CEF/
+vendor/CEFWebView/Frameworks/
+vendor/CEFWebView/.build/
+
 # Node
 node_modules/
 .next/

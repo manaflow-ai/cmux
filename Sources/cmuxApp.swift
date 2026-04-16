@@ -488,6 +488,9 @@ struct cmuxApp: App {
                     Button("Background Debug…") {
                         BackgroundDebugWindowController.shared.show()
                     }
+                    Button("Chromium (CEF)…") {
+                        CefDebugWindowController.shared.show()
+                    }
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
