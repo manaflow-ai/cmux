@@ -1655,6 +1655,7 @@ private struct CollapsedWorkspaceTabItem: View {
             }
             .buttonStyle(.plain)
             .opacity(isHovering && canClose ? 1 : 0)
+            .allowsHitTesting(isHovering && canClose)
             .frame(width: 20, alignment: .center)
             .padding(.trailing, 4)
         }
@@ -3013,7 +3014,7 @@ struct ContentView: View {
         }
     }
 
-    @State private var collapsedTabDragMonitor: Any?
+    @StateObject private var collapsedTabDragFailsafe = SidebarDragFailsafeMonitor()
 
     private var collapsedWorkspaceTabs: some View {
         let tabs = tabManager.tabs
@@ -3037,26 +3038,18 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .onDisappear {
+            collapsedTabDragFailsafe.stop()
+            collapsedTabDraggedId = nil
+        }
         .onChange(of: collapsedTabDraggedId) { newValue in
             if newValue != nil {
-                // Install failsafe monitor for drag cancel (Escape key or mouse-up outside targets).
-                // After a short delay, if draggedTabId is still set, clear it to reset cursor state.
-                let escapeKeyCode: UInt16 = 53
-                collapsedTabDragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .keyDown]) { event in
-                    let shouldClear = event.type == .leftMouseUp || (event.type == .keyDown && event.keyCode == escapeKeyCode)
-                    if shouldClear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                            collapsedTabDraggedId = nil
-                        }
-                    }
-                    return event
+                collapsedTabDragFailsafe.start { _ in
+                    collapsedTabDraggedId = nil
                 }
-            } else {
-                if let monitor = collapsedTabDragMonitor {
-                    NSEvent.removeMonitor(monitor)
-                    collapsedTabDragMonitor = nil
-                }
+                return
             }
+            collapsedTabDragFailsafe.stop()
         }
     }
 

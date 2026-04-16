@@ -118,6 +118,8 @@ final class CollapsedWorkspaceTabsColorTests: XCTestCase {
             return
         }
         XCTAssertEqual(srgb.redComponent, expectedSrgb.redComponent, accuracy: 0.001)
+        XCTAssertEqual(srgb.greenComponent, expectedSrgb.greenComponent, accuracy: 0.001)
+        XCTAssertEqual(srgb.blueComponent, expectedSrgb.blueComponent, accuracy: 0.001)
         XCTAssertEqual(srgb.alphaComponent, expectedSrgb.alphaComponent, accuracy: 0.001)
     }
 
@@ -132,6 +134,7 @@ final class CollapsedWorkspaceTabsColorTests: XCTestCase {
         XCTAssertEqual(srgb.redComponent, expectedSrgb.redComponent, accuracy: 0.001)
         XCTAssertEqual(srgb.greenComponent, expectedSrgb.greenComponent, accuracy: 0.001)
         XCTAssertEqual(srgb.blueComponent, expectedSrgb.blueComponent, accuracy: 0.001)
+        XCTAssertEqual(srgb.alphaComponent, expectedSrgb.alphaComponent, accuracy: 0.001)
     }
 
     func testInactiveBackgroundIsClear() {
