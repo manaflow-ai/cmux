@@ -325,8 +325,8 @@
       "fieldKeywords": "Termini di ricerca aggiuntivi per la palette dei comandi",
       "fieldCommand": "Comando shell da eseguire nel terminale attivo",
       "fieldConfirm": "Mostra una finestra di conferma prima dell'esecuzione",
-      "simpleCommandCwdNote": "I comandi semplici vengono eseguiti nella directory di lavoro corrente del terminale focalizzato. Se il comando dipende da percorsi relativi al progetto, aggiungi il prefisso",
-      "simpleCommandCwdRepoRoot": "per eseguire dalla radice del repository, o",
+      "simpleCommandCwdNote": "I comandi semplici vengono eseguiti per impostazione predefinita nella directory di lavoro corrente del terminale attivo. Imposta",
+      "simpleCommandCwdRepoRoot": "per eseguirlo dalla radice del repository git dell'area di lavoro corrente quando disponibile, oppure anteponi al comando",
       "simpleCommandCwdCustomPath": "per qualsiasi directory specifica.",
       "workspaceCommands": "Comandi workspace",
       "workspaceCommandsDesc": "Un comando workspace crea un nuovo workspace con un layout personalizzato di divisioni, terminali e pannelli browser:",
@@ -364,7 +364,8 @@
       "cwdHome": "espansa alla directory home",
       "absolutePath": "Percorso assoluto",
       "cwdAbsolute": "usato così com'è",
-      "fullExample": "Esempio completo"
+      "fullExample": "Esempio completo",
+      "fieldRepoRoot": "Esegui il comando dalla radice del repository git dell'area di lavoro corrente quando disponibile"
     },
     "keyboardShortcuts": {
       "title": "Scorciatoie da tastiera",

@@ -14,6 +14,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
     var workspace: CmuxWorkspaceDefinition?
     var command: String?
     var confirm: Bool?
+    var repoRoot: Bool?
 
     var id: String {
         "cmux.config.command." + (name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? name)
@@ -26,7 +27,8 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         restart: CmuxRestartBehavior? = nil,
         workspace: CmuxWorkspaceDefinition? = nil,
         command: String? = nil,
-        confirm: Bool? = nil
+        confirm: Bool? = nil,
+        repoRoot: Bool? = nil
     ) {
         self.name = name
         self.description = description
@@ -35,10 +37,12 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         self.workspace = workspace
         self.command = command
         self.confirm = confirm
+        self.repoRoot = repoRoot
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let hasRepoRootKey = container.contains(.repoRoot)
         name = try container.decode(String.self, forKey: .name)
         description = try container.decodeIfPresent(String.self, forKey: .description)
         keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
@@ -46,6 +50,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         workspace = try container.decodeIfPresent(CmuxWorkspaceDefinition.self, forKey: .workspace)
         command = try container.decodeIfPresent(String.self, forKey: .command)
         confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
+        repoRoot = try container.decodeIfPresent(Bool.self, forKey: .repoRoot)
 
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw DecodingError.dataCorrupted(
@@ -78,6 +83,14 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
                     debugDescription: "Command '\(name)' must define either 'workspace' or 'command'"
+                )
+            )
+        }
+        if workspace != nil && hasRepoRootKey {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Command '\(name)' must not define 'repoRoot' for a workspace command"
                 )
             )
         }
@@ -600,7 +613,22 @@ final class CmuxConfigStore: ObservableObject {
 }
 
 extension CmuxConfigStore {
-    static func resolveCwd(_ cwd: String?, relativeTo baseCwd: String) -> String {
+    nonisolated static func findGitRoot(from directory: String) -> String? {
+        let fm = FileManager.default
+        var current = directory
+        while true {
+            let gitPath = (current as NSString).appendingPathComponent(".git")
+            if fm.fileExists(atPath: gitPath) {
+                return current
+            }
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current { break }
+            current = parent
+        }
+        return nil
+    }
+
+    nonisolated static func resolveCwd(_ cwd: String?, relativeTo baseCwd: String) -> String {
         guard let cwd, !cwd.isEmpty, cwd != "." else {
             return baseCwd
         }

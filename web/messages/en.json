@@ -373,8 +373,8 @@
       "fieldKeywords": "Extra search terms for the command palette",
       "fieldCommand": "Shell command to run in the focused terminal",
       "fieldConfirm": "Show a confirmation dialog before running",
-      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory. If your command relies on project-relative paths, prefix it with",
-      "simpleCommandCwdRepoRoot": "to run from the repo root, or",
+      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
+      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
       "simpleCommandCwdCustomPath": "for any specific directory.",
       "workspaceCommands": "Workspace commands",
       "workspaceCommandsDesc": "A workspace command creates a new workspace with a custom layout of splits, terminals, and browser panes:",
@@ -412,7 +412,8 @@
       "cwdHome": "expanded to home directory",
       "absolutePath": "Absolute path",
       "cwdAbsolute": "used as-is",
-      "fullExample": "Full example"
+      "fullExample": "Full example",
+      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
     },
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",

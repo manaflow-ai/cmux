@@ -325,9 +325,9 @@
       "fieldKeywords": "مصطلحات بحث إضافية للوحة الأوامر",
       "fieldCommand": "أمر shell للتشغيل في الطرفية المحددة",
       "fieldConfirm": "عرض مربع حوار للتأكيد قبل التشغيل",
-      "simpleCommandCwdNote": "تعمل الأوامر البسيطة في دليل العمل الحالي للطرفية المحددة. إذا كان أمرك يعتمد على مسارات نسبية للمشروع، أضف قبله",
-      "simpleCommandCwdRepoRoot": "للتشغيل من جذر المستودع، أو",
-      "simpleCommandCwdCustomPath": "لأي دليل محدد.",
+      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
+      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
+      "simpleCommandCwdCustomPath": "for any specific directory.",
       "workspaceCommands": "أوامر مساحة العمل",
       "workspaceCommandsDesc": "يُنشئ أمر مساحة العمل مساحة عمل جديدة بتخطيط مخصص من الانقسامات والطرفيات وألواح المتصفح:",
       "workspaceFields": "حقول مساحة العمل",
@@ -364,7 +364,8 @@
       "cwdHome": "موسّع إلى الدليل الرئيسي",
       "absolutePath": "مسار مطلق",
       "cwdAbsolute": "يُستخدم كما هو",
-      "fullExample": "مثال كامل"
+      "fullExample": "مثال كامل",
+      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
     },
     "keyboardShortcuts": {
       "title": "اختصارات لوحة المفاتيح",

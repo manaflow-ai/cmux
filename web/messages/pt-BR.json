@@ -325,8 +325,8 @@
       "fieldKeywords": "Termos de pesquisa extras para a paleta de comandos",
       "fieldCommand": "Comando shell para executar no terminal focado",
       "fieldConfirm": "Mostrar um diálogo de confirmação antes de executar",
-      "simpleCommandCwdNote": "Comandos simples são executados no diretório de trabalho atual do terminal focado. Se seu comando depende de caminhos relativos ao projeto, prefixe com",
-      "simpleCommandCwdRepoRoot": "para executar a partir da raiz do repositório, ou",
+      "simpleCommandCwdNote": "Comandos simples são executados por padrão no diretório de trabalho atual do terminal em foco. Defina",
+      "simpleCommandCwdRepoRoot": "para executá-lo a partir da raiz do repositório git do espaço de trabalho atual quando disponível, ou prefixe seu comando com",
       "simpleCommandCwdCustomPath": "para qualquer diretório específico.",
       "workspaceCommands": "Comandos de workspace",
       "workspaceCommandsDesc": "Um comando de workspace cria um novo workspace com um layout personalizado de divisões, terminais e painéis do navegador:",
@@ -364,7 +364,8 @@
       "cwdHome": "expandido para o diretório home",
       "absolutePath": "Caminho absoluto",
       "cwdAbsolute": "usado como está",
-      "fullExample": "Exemplo completo"
+      "fullExample": "Exemplo completo",
+      "fieldRepoRoot": "Executar o comando a partir da raiz do repositório git do espaço de trabalho atual quando disponível"
     },
     "keyboardShortcuts": {
       "title": "Atalhos de Teclado",

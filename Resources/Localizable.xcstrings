@@ -89686,6 +89686,482 @@
           }
         }
       }
+    },
+    "dialog.cmuxConfig.repoRootFallback.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git Repository Not Found"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git Repository Not Found"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git Repository Not Found"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git-Repository nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git Repository Not Found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró el repositorio git"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dépôt git introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository git non trovato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git リポジトリが見つかりません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git 저장소를 찾을 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke git-repositoriet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git Repository Not Found"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repositório git não encontrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git-репозиторий не найден"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git Repository Not Found"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git deposu bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git-репозиторій не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到 git 仓库"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到 git 儲存庫"
+          }
+        }
+      }
+    },
+    "dialog.cmuxConfig.repoRootFallback.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This command is configured to run from the project repo root, but the current workspace is not inside a git repository. Run it in the current terminal directory instead?"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This command is configured to run from the project repo root, but the current workspace is not inside a git repository. Run it in the current terminal directory instead?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This command is configured to run from the project repo root, but the current workspace is not inside a git repository. Run it in the current terminal directory instead?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Befehl ist so konfiguriert, dass er vom Projekt-Repository-Stamm ausgeführt wird, aber der aktuelle Workspace befindet sich nicht in einem Git-Repository. Stattdessen im aktuellen Terminalverzeichnis ausführen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This command is configured to run from the project repo root, but the current workspace is not inside a git repository. Run it in the current terminal directory instead?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este comando está configurado para ejecutarse desde la raíz del repositorio del proyecto, pero el espacio de trabajo actual no está dentro de un repositorio git. ¿Quieres ejecutarlo en su lugar en el directorio actual del terminal?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette commande est configurée pour s'exécuter depuis la racine du dépôt du projet, mais l'espace de travail actuel n'est pas dans un dépôt git. L'exécuter à la place dans le répertoire actuel du terminal ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo comando è configurato per essere eseguito dalla radice del repository del progetto, ma l'area di lavoro corrente non si trova all'interno di un repository git. Eseguirlo invece nella directory corrente del terminale?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコマンドはプロジェクトのリポジトリルートから実行するよう設定されていますが、現在のワークスペースは git リポジトリ内にありません。代わりに現在のターミナルディレクトリで実行しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 명령은 프로젝트 저장소 루트에서 실행되도록 설정되어 있지만, 현재 워크스페이스는 git 저장소 안에 있지 않습니다. 대신 현재 터미널 디렉터리에서 실행할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne kommandoen er satt opp til å kjøre fra roten av prosjektets git-repositorium, men det gjeldende arbeidsområdet er ikke inne i et git-repositorium. Vil du kjøre den i den gjeldende terminalkatalogen i stedet?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This command is configured to run from the project repo root, but the current workspace is not inside a git repository. Run it in the current terminal directory instead?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este comando está configurado para ser executado a partir da raiz do repositório do projeto, mas o espaço de trabalho atual não está dentro de um repositório git. Deseja executá-lo no diretório atual do terminal em vez disso?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта команда настроена на запуск из корня репозитория проекта, но текущее рабочее пространство находится вне git-репозитория. Запустить её вместо этого в текущем каталоге терминала?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This command is configured to run from the project repo root, but the current workspace is not inside a git repository. Run it in the current terminal directory instead?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu komut proje deposunun kökünden çalışacak şekilde ayarlanmış, ancak mevcut çalışma alanı bir git deposunun içinde değil. Bunun yerine geçerli terminal dizininde çalıştırılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цю команду налаштовано на запуск з кореня репозиторію проєкту, але поточний робочий простір не знаходиться всередині git-репозиторію. Запустити її натомість у поточному каталозі термінала?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此命令已配置为从项目仓库根目录运行，但当前工作区不在 git 仓库中。要改为在当前终端目录中运行吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此命令已設定為從專案儲存庫根目錄執行，但目前工作區不在 git 儲存庫中。要改為在目前終端機目錄中執行嗎？"
+          }
+        }
+      }
+    },
+    "dialog.cmuxConfig.repoRootFallback.runHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run in Current Directory"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run in Current Directory"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run in Current Directory"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im aktuellen Verzeichnis ausführen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run in Current Directory"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejecutar en el directorio actual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exécuter dans le répertoire actuel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esegui nella directory corrente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のディレクトリで実行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 디렉터리에서 실행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjør i gjeldende katalog"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run in Current Directory"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Executar no diretório atual"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запустить в текущем каталоге"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run in Current Directory"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçerli dizinde çalıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запустити в поточному каталозі"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在当前目录中运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在目前目錄中執行"
+          }
+        }
+      }
+    },
+    "dialog.cmuxConfig.confirmCommand.repoRootNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It will run from the current workspace's git repo root:\n\n%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It will run from the current workspace's git repo root:\n\n%@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It will run from the current workspace's git repo root:\n\n%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er wird vom Git-Repository-Stamm des aktuellen Workspace ausgeführt:\n\n%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It will run from the current workspace's git repo root:\n\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se ejecutará desde la raíz del repositorio git del espacio de trabajo actual:\n\n%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elle s'exécutera depuis la racine du dépôt git de l'espace de travail actuel :\n\n%@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verrà eseguito dalla radice del repository git dell'area di lavoro corrente:\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のワークスペースの git リポジトリルートから実行されます:\n\n%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 워크스페이스의 git 저장소 루트에서 실행됩니다:\n\n%@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den vil kjøre fra git-rotmappen til det gjeldende arbeidsområdet:\n\n%@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It will run from the current workspace's git repo root:\n\n%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ele será executado a partir da raiz do repositório git do espaço de trabalho atual:\n\n%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда будет запущена из корня git-репозитория текущего рабочего пространства:\n\n%@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It will run from the current workspace's git repo root:\n\n%@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçerli çalışma alanının git depo kökünden çalıştırılacaktır:\n\n%@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команду буде виконано з кореня git-репозиторію поточного робочого простору:\n\n%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它将从当前工作区的 git 仓库根目录运行：\n\n%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它將從目前工作區的 git 儲存庫根目錄執行：\n\n%@"
+          }
+        }
+      }
     }
   }
 }
