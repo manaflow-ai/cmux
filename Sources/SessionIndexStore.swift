@@ -41,12 +41,27 @@ struct PullRequestLink: Hashable {
 struct SessionEntry: Identifiable, Hashable {
     let id: String
     let agent: SessionAgent
+    /// Native session identifier for the agent's CLI (used to build the resume command).
+    let sessionId: String
     let title: String
     let cwd: String?
     let gitBranch: String?
     let pullRequest: PullRequestLink?
     let modified: Date
     let fileURL: URL?
+
+    /// Shell command that resumes this session in a new terminal.
+    /// Bare resume — let each CLI restore its own per-session settings.
+    var resumeCommand: String {
+        switch agent {
+        case .claude:
+            return "claude --resume \(sessionId)"
+        case .codex:
+            return "codex resume \(sessionId)"
+        case .opencode:
+            return "opencode --session \(sessionId)"
+        }
+    }
 
     var displayTitle: String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,6 +88,50 @@ struct SessionEntry: Identifiable, Hashable {
 
 // MARK: - Store
 
+enum SessionGrouping: String, CaseIterable, Identifiable, Codable {
+    case directory
+    case agent
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .directory: return String(localized: "sessionIndex.group.directory", defaultValue: "By folder")
+        case .agent: return String(localized: "sessionIndex.group.agent", defaultValue: "By agent")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .directory: return "folder"
+        case .agent: return "person.2"
+        }
+    }
+}
+
+/// Identifier for a section in the index. For agent grouping, raw value is `agent:<rawValue>`;
+/// for directory grouping, `dir:<absolute path>` (or `dir:` for unknown).
+struct SectionKey: Hashable {
+    let raw: String
+
+    static func agent(_ a: SessionAgent) -> SectionKey { SectionKey(raw: "agent:" + a.rawValue) }
+    static func directory(_ path: String?) -> SectionKey { SectionKey(raw: "dir:" + (path ?? "")) }
+}
+
+struct IndexSection: Identifiable {
+    let key: SectionKey
+    let title: String
+    let icon: SectionIcon
+    let entries: [SessionEntry]
+
+    var id: SectionKey { key }
+}
+
+enum SectionIcon {
+    case agent(SessionAgent)
+    case folder
+}
+
 @MainActor
 final class SessionIndexStore: ObservableObject {
     @Published private(set) var entries: [SessionEntry] = []
@@ -80,47 +139,154 @@ final class SessionIndexStore: ObservableObject {
     @Published var scopeToCurrentDirectory: Bool = false
     @Published var currentDirectory: String? = nil
 
-    /// User-visible order of agent sections. Persisted across launches.
-    @Published var agentOrder: [SessionAgent] {
-        didSet { Self.persistOrder(agentOrder) }
+    @Published var grouping: SessionGrouping {
+        didSet { UserDefaults.standard.set(grouping.rawValue, forKey: Self.groupingKey) }
     }
 
-    /// The agent currently being dragged, if any. Drives "hide adjacent drop slots".
-    @Published var draggedAgent: SessionAgent? = nil
+    /// Persisted order for agent sections.
+    @Published var agentOrder: [SessionAgent] {
+        didSet { Self.persistAgentOrder(agentOrder) }
+    }
 
+    /// Persisted order for directory sections (absolute paths; "" means "no folder").
+    @Published var directoryOrder: [String] {
+        didSet { Self.persistDirectoryOrder(directoryOrder) }
+    }
+
+    /// The section currently being dragged, if any. Drives "hide adjacent drop slots".
+    @Published var draggedKey: SectionKey? = nil
+
+    private static let groupingKey = "sessionIndex.grouping"
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
+    private static let directoryOrderDefaultsKey = "sessionIndex.directoryOrder"
 
     init() {
-        self.agentOrder = Self.loadOrder()
+        self.agentOrder = Self.loadAgentOrder()
+        self.directoryOrder = Self.loadDirectoryOrder()
+        let storedGrouping = UserDefaults.standard.string(forKey: Self.groupingKey)
+        self.grouping = SessionGrouping(rawValue: storedGrouping ?? "") ?? .directory
     }
 
-    /// Insert `agent` so that, after removal of its old position, it lands at `insertIndex`.
-    /// `insertIndex` is in the *post-removal* index space (0...count-1).
-    func moveAgent(_ agent: SessionAgent, toInsertIndex insertIndex: Int) {
-        guard let oldIndex = agentOrder.firstIndex(of: agent) else { return }
-        var next = agentOrder
-        next.remove(at: oldIndex)
-        let target = max(0, min(insertIndex, next.count))
-        if target == oldIndex { return }
-        next.insert(agent, at: target)
-        agentOrder = next
+    /// Returns the sections for the current grouping mode, in the user-saved order.
+    func sectionsForCurrentGrouping() -> [IndexSection] {
+        let visible = filteredEntriesForCurrentScope()
+        switch grouping {
+        case .agent:
+            return agentOrder.map { agent in
+                IndexSection(
+                    key: .agent(agent),
+                    title: agent.displayName,
+                    icon: .agent(agent),
+                    entries: visible.filter { $0.agent == agent }
+                )
+            }
+        case .directory:
+            let buckets = Dictionary(grouping: visible) { $0.cwd ?? "" }
+            // Discover any directories not yet in saved order; append by most-recent activity.
+            let knownPaths = Set(directoryOrder)
+            let unknownSorted = buckets.keys
+                .filter { !knownPaths.contains($0) }
+                .sorted { lhs, rhs in
+                    let lMax = buckets[lhs]?.map(\.modified).max() ?? .distantPast
+                    let rMax = buckets[rhs]?.map(\.modified).max() ?? .distantPast
+                    return lMax > rMax
+                }
+            if !unknownSorted.isEmpty {
+                let nextOrder = directoryOrder + unknownSorted
+                Task { @MainActor in self.directoryOrder = nextOrder }
+            }
+            return (directoryOrder + unknownSorted)
+                .filter { buckets[$0] != nil }
+                .map { path in
+                    IndexSection(
+                        key: .directory(path.isEmpty ? nil : path),
+                        title: directoryDisplayName(path),
+                        icon: .folder,
+                        entries: buckets[path] ?? []
+                    )
+                }
+        }
     }
 
-    private static func loadOrder() -> [SessionAgent] {
-        let defaults = UserDefaults.standard
-        let stored = defaults.array(forKey: agentOrderDefaultsKey) as? [String] ?? []
+    private func filteredEntriesForCurrentScope() -> [SessionEntry] {
+        guard scopeToCurrentDirectory, let dir = normalizedDirectory(currentDirectory) else {
+            return entries
+        }
+        return entries.filter { entry in
+            guard let cwd = normalizedDirectory(entry.cwd) else { return false }
+            return cwd == dir || cwd.hasPrefix(dir + "/")
+        }
+    }
+
+    private func directoryDisplayName(_ path: String) -> String {
+        if path.isEmpty {
+            return String(localized: "sessionIndex.directory.unknown", defaultValue: "(no folder)")
+        }
+        return (path as NSString).lastPathComponent
+    }
+
+    /// Insert `key` so that, after removing its old position, it lands at `insertIndex`.
+    /// `insertIndex` is in the *post-removal* index space.
+    func moveSection(_ key: SectionKey, toInsertIndex insertIndex: Int) {
+        switch grouping {
+        case .agent:
+            guard key.raw.hasPrefix("agent:"),
+                  let agent = SessionAgent(rawValue: String(key.raw.dropFirst("agent:".count))) else { return }
+            guard let oldIndex = agentOrder.firstIndex(of: agent) else { return }
+            var next = agentOrder
+            next.remove(at: oldIndex)
+            let target = max(0, min(insertIndex, next.count))
+            if target == oldIndex { return }
+            next.insert(agent, at: target)
+            agentOrder = next
+        case .directory:
+            guard key.raw.hasPrefix("dir:") else { return }
+            let path = String(key.raw.dropFirst("dir:".count))
+            guard let oldIndex = directoryOrder.firstIndex(of: path) else { return }
+            var next = directoryOrder
+            next.remove(at: oldIndex)
+            let target = max(0, min(insertIndex, next.count))
+            if target == oldIndex { return }
+            next.insert(path, at: target)
+            directoryOrder = next
+        }
+    }
+
+    /// Pre-removal index of the dragged key in the active grouping order, or nil if unknown.
+    func currentIndex(of key: SectionKey) -> Int? {
+        switch grouping {
+        case .agent:
+            guard key.raw.hasPrefix("agent:"),
+                  let agent = SessionAgent(rawValue: String(key.raw.dropFirst("agent:".count))) else { return nil }
+            return agentOrder.firstIndex(of: agent)
+        case .directory:
+            guard key.raw.hasPrefix("dir:") else { return nil }
+            let path = String(key.raw.dropFirst("dir:".count))
+            return directoryOrder.firstIndex(of: path)
+        }
+    }
+
+    private static func loadAgentOrder() -> [SessionAgent] {
+        let stored = UserDefaults.standard.array(forKey: agentOrderDefaultsKey) as? [String] ?? []
         var ordered: [SessionAgent] = stored.compactMap { SessionAgent(rawValue: $0) }
         for agent in SessionAgent.allCases where !ordered.contains(agent) {
             ordered.append(agent)
         }
-        // Drop any duplicates while preserving first occurrence
         var seen = Set<SessionAgent>()
         ordered = ordered.filter { seen.insert($0).inserted }
         return ordered
     }
 
-    private static func persistOrder(_ order: [SessionAgent]) {
+    private static func loadDirectoryOrder() -> [String] {
+        UserDefaults.standard.array(forKey: directoryOrderDefaultsKey) as? [String] ?? []
+    }
+
+    private static func persistAgentOrder(_ order: [SessionAgent]) {
         UserDefaults.standard.set(order.map { $0.rawValue }, forKey: agentOrderDefaultsKey)
+    }
+
+    private static func persistDirectoryOrder(_ order: [String]) {
+        UserDefaults.standard.set(order, forKey: directoryOrderDefaultsKey)
     }
 
     private var loadTask: Task<Void, Never>?
@@ -136,17 +302,6 @@ final class SessionIndexStore: ObservableObject {
                 self.entries = scanned
                 self.isLoading = false
             }
-        }
-    }
-
-    func filteredEntries(for agent: SessionAgent) -> [SessionEntry] {
-        let base = entries.filter { $0.agent == agent }
-        guard scopeToCurrentDirectory, let dir = normalizedDirectory(currentDirectory) else {
-            return base
-        }
-        return base.filter { entry in
-            guard let cwd = normalizedDirectory(entry.cwd) else { return false }
-            return cwd == dir || cwd.hasPrefix(dir + "/")
         }
     }
 
@@ -206,9 +361,12 @@ final class SessionIndexStore: ObservableObject {
             let head = readFileHead(url: url, byteCap: headByteCap)
             let tail = readFileTail(url: url, byteCap: tailByteCap)
             let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: dirName)
+            // Claude session id is the .jsonl basename
+            let sid = url.deletingPathExtension().lastPathComponent
             results.append(SessionEntry(
                 id: "claude:" + url.path,
                 agent: .claude,
+                sessionId: sid,
                 title: parsed.title,
                 cwd: parsed.cwd,
                 gitBranch: parsed.branch,
@@ -322,6 +480,7 @@ final class SessionIndexStore: ObservableObject {
             results.append(SessionEntry(
                 id: "codex:" + url.path,
                 agent: .codex,
+                sessionId: parsed.sessionId,
                 title: parsed.title,
                 cwd: parsed.cwd,
                 gitBranch: parsed.branch,
@@ -334,6 +493,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     private struct CodexParsed {
+        var sessionId: String = ""
         var title: String = ""
         var cwd: String?
         var branch: String?
@@ -348,6 +508,7 @@ final class SessionIndexStore: ObservableObject {
             let payload = obj["payload"] as? [String: Any]
             if type == "session_meta", let p = payload {
                 if let c = p["cwd"] as? String, !c.isEmpty { out.cwd = c }
+                if let id = p["id"] as? String, !id.isEmpty { out.sessionId = id }
                 if let git = p["git"] as? [String: Any],
                    let branch = git["branch"] as? String, !branch.isEmpty {
                     out.branch = branch
@@ -358,7 +519,9 @@ final class SessionIndexStore: ObservableObject {
                let msg = p["message"] as? String, !msg.isEmpty {
                 out.title = msg
             }
-            if !out.title.isEmpty && out.cwd != nil && out.branch != nil { break }
+            if !out.title.isEmpty && out.cwd != nil && out.branch != nil && !out.sessionId.isEmpty {
+                break
+            }
         }
         return out
     }
@@ -419,6 +582,7 @@ final class SessionIndexStore: ObservableObject {
             results.append(SessionEntry(
                 id: "opencode:" + sid,
                 agent: .opencode,
+                sessionId: sid,
                 title: title,
                 cwd: directory,
                 gitBranch: nil,

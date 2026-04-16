@@ -26,6 +26,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
+    let onResumeSession: ((SessionEntry) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,7 +71,7 @@ struct RightSidebarPanelView: View {
         case .files:
             FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState)
         case .sessions:
-            SessionIndexView(store: sessionIndexStore)
+            SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
                 .onAppear {
                     sessionIndexStore.currentDirectory = fileExplorerStore.rootPath.isEmpty
                         ? nil

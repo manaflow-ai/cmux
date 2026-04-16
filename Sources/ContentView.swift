@@ -2779,7 +2779,13 @@ struct ContentView: View {
             RightSidebarPanelView(
                 fileExplorerStore: fileExplorerStore,
                 fileExplorerState: fileExplorerState,
-                sessionIndexStore: sessionIndexStore
+                sessionIndexStore: sessionIndexStore,
+                onResumeSession: { entry in
+                    tabManager.addWorkspace(
+                        workingDirectory: entry.cwd,
+                        initialTerminalCommand: entry.resumeCommand
+                    )
+                }
             )
                 .frame(width: explorerVisible ? fileExplorerWidth : 0)
                 .clipped()

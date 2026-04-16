@@ -3,7 +3,8 @@ import SwiftUI
 
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
-    @State private var expandedAgents: Set<SessionAgent> = Set(SessionAgent.allCases)
+    @State private var collapsedSections: Set<SectionKey> = []
+    let onResume: ((SessionEntry) -> Void)?
 
     static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -31,7 +32,20 @@ struct SessionIndexView: View {
     }
 
     private var controlBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
+            ForEach(SessionGrouping.allCases) { mode in
+                GroupingButton(
+                    mode: mode,
+                    isSelected: store.grouping == mode
+                ) {
+                    if store.grouping != mode {
+                        store.grouping = mode
+                    }
+                }
+            }
+
+            Spacer(minLength: 4)
+
             Toggle(isOn: $store.scopeToCurrentDirectory) {
                 Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
                     .font(.system(size: 11))
@@ -40,8 +54,6 @@ struct SessionIndexView: View {
             .toggleStyle(.checkbox)
             .controlSize(.small)
             .disabled(store.currentDirectory == nil)
-
-            Spacer(minLength: 4)
 
             Button {
                 store.reload()
@@ -53,9 +65,9 @@ struct SessionIndexView: View {
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload sessions"))
             .disabled(store.isLoading)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .frame(height: 28)
+        .frame(height: 32)
     }
 
     private var loadingView: some View {
@@ -84,58 +96,90 @@ struct SessionIndexView: View {
     }
 
     private var sessionsList: some View {
-        ScrollView {
+        let sections = store.sectionsForCurrentGrouping()
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(store.agentOrder.enumerated()), id: \.element) { index, agent in
-                    AgentReorderGap(insertIndex: index, store: store)
-                    AgentSection(
-                        agent: agent,
-                        entries: store.filteredEntries(for: agent),
+                ForEach(Array(sections.enumerated()), id: \.element.key) { index, section in
+                    SectionReorderGap(insertIndex: index, store: store)
+                    IndexSectionView(
+                        section: section,
+                        showsAgentChips: store.grouping == .directory,
                         isExpanded: Binding(
-                            get: { expandedAgents.contains(agent) },
+                            get: { !collapsedSections.contains(section.key) },
                             set: { newValue in
                                 if newValue {
-                                    expandedAgents.insert(agent)
+                                    collapsedSections.remove(section.key)
                                 } else {
-                                    expandedAgents.remove(agent)
+                                    collapsedSections.insert(section.key)
                                 }
                             }
                         ),
-                        store: store
+                        store: store,
+                        onResume: onResume
                     )
                 }
-                AgentReorderGap(insertIndex: store.agentOrder.count, store: store)
+                SectionReorderGap(insertIndex: sections.count, store: store)
             }
             .padding(.bottom, 8)
         }
     }
 }
 
-private struct AgentSection: View {
-    let agent: SessionAgent
-    let entries: [SessionEntry]
+private struct GroupingButton: View {
+    let mode: SessionGrouping
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: mode.symbolName)
+                    .font(.system(size: 10, weight: .medium))
+                Text(mode.label)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundColor(isSelected ? .primary : .secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(isSelected ? Color.primary.opacity(0.10)
+                          : (isHovered ? Color.primary.opacity(0.05) : Color.clear))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(mode.label)
+    }
+}
+
+private struct IndexSectionView: View {
+    let section: IndexSection
+    let showsAgentChips: Bool
     @Binding var isExpanded: Bool
     @ObservedObject var store: SessionIndexStore
+    let onResume: ((SessionEntry) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader
-
             if isExpanded {
-                if entries.isEmpty {
+                if section.entries.isEmpty {
                     Text(String(localized: "sessionIndex.section.empty", defaultValue: "No sessions"))
                         .font(.system(size: 11))
                         .foregroundColor(.secondary.opacity(0.7))
                         .padding(.horizontal, 30)
                         .padding(.vertical, 4)
                 } else {
-                    ForEach(entries) { entry in
-                        SessionRow(entry: entry)
+                    ForEach(section.entries) { entry in
+                        SessionRow(entry: entry, showsAgentChip: showsAgentChips, onResume: onResume)
                     }
                 }
             }
         }
-        .opacity(store.draggedAgent == agent ? 0.45 : 1.0)
+        .opacity(store.draggedKey == section.key ? 0.45 : 1.0)
     }
 
     private var sectionHeader: some View {
@@ -147,16 +191,14 @@ private struct AgentSection: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(.secondary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                Image(agent.assetName)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 14, height: 14)
-                Text(agent.displayName)
+                sectionIconView
+                Text(section.title)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.primary)
-                Spacer()
-                Text("\(entries.count)")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Text("\(section.entries.count)")
                     .font(.system(size: 10, weight: .medium).monospacedDigit())
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 6)
@@ -172,14 +214,12 @@ private struct AgentSection: View {
         }
         .buttonStyle(.plain)
         .onDrag {
-            DispatchQueue.main.async { store.draggedAgent = agent }
-            return NSItemProvider(object: agent.rawValue as NSString)
+            DispatchQueue.main.async { store.draggedKey = section.key }
+            return NSItemProvider(object: section.key.raw as NSString)
         } preview: {
             HStack(spacing: 6) {
-                Image(agent.assetName)
-                    .resizable()
-                    .frame(width: 14, height: 14)
-                Text(agent.displayName)
+                sectionIconView
+                Text(section.title)
                     .font(.system(size: 12, weight: .semibold))
             }
             .padding(.horizontal, 10)
@@ -187,9 +227,26 @@ private struct AgentSection: View {
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
     }
+
+    @ViewBuilder
+    private var sectionIconView: some View {
+        switch section.icon {
+        case .agent(let agent):
+            Image(agent.assetName)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 14, height: 14)
+        case .folder:
+            Image(systemName: "folder.fill")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(.secondary)
+                .frame(width: 14, height: 14)
+        }
+    }
 }
 
-private struct AgentReorderGap: View {
+private struct SectionReorderGap: View {
     let insertIndex: Int
     @ObservedObject var store: SessionIndexStore
     @State private var isDropTarget: Bool = false
@@ -209,7 +266,7 @@ private struct AgentReorderGap: View {
             }
             .onDrop(
                 of: [.text],
-                delegate: AgentGapDropDelegate(
+                delegate: SectionGapDropDelegate(
                     insertIndex: insertIndex,
                     store: store,
                     isDropTarget: $isDropTarget
@@ -217,26 +274,24 @@ private struct AgentReorderGap: View {
             )
     }
 
-    /// A gap is invalid if the drag would be a no-op. For agent at oldIndex,
-    /// inserting at oldIndex or oldIndex+1 leaves the order unchanged.
     private var isValidDrop: Bool {
-        guard let dragged = store.draggedAgent,
-              let oldIndex = store.agentOrder.firstIndex(of: dragged) else {
+        guard let dragged = store.draggedKey,
+              let oldIndex = store.currentIndex(of: dragged) else {
             return true
         }
         return insertIndex != oldIndex && insertIndex != oldIndex + 1
     }
 }
 
-private struct AgentGapDropDelegate: DropDelegate {
+private struct SectionGapDropDelegate: DropDelegate {
     let insertIndex: Int
     let store: SessionIndexStore
     @Binding var isDropTarget: Bool
 
     func validateDrop(info: DropInfo) -> Bool {
         guard info.hasItemsConforming(to: [.text]) else { return false }
-        guard let dragged = store.draggedAgent,
-              let oldIndex = store.agentOrder.firstIndex(of: dragged) else {
+        guard let dragged = store.draggedKey,
+              let oldIndex = store.currentIndex(of: dragged) else {
             return true
         }
         return insertIndex != oldIndex && insertIndex != oldIndex + 1
@@ -248,60 +303,28 @@ private struct AgentGapDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         isDropTarget = false
         guard let provider = info.itemProviders(for: [.text]).first else {
-            store.draggedAgent = nil
+            store.draggedKey = nil
             return false
         }
         let storedInsert = insertIndex
         provider.loadObject(ofClass: NSString.self) { object, _ in
             DispatchQueue.main.async {
-                defer { store.draggedAgent = nil }
-                guard let raw = object as? String,
-                      let dragged = SessionAgent(rawValue: raw),
-                      let oldIndex = store.agentOrder.firstIndex(of: dragged) else { return }
+                defer { store.draggedKey = nil }
+                guard let raw = object as? String else { return }
+                let key = SectionKey(raw: raw)
+                guard let oldIndex = store.currentIndex(of: key) else { return }
                 let target = storedInsert > oldIndex ? storedInsert - 1 : storedInsert
-                store.moveAgent(dragged, toInsertIndex: target)
+                store.moveSection(key, toInsertIndex: target)
             }
         }
         return true
     }
 }
 
-private struct MetadataChip: View {
-    let symbol: String
-    let text: String
-    var accent: Color? = nil
-    var onTap: (() -> Void)? = nil
-
-    var body: some View {
-        let chip = HStack(spacing: 3) {
-            Image(systemName: symbol)
-                .font(.system(size: 9, weight: .medium))
-            Text(text)
-                .font(.system(size: 10, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .foregroundColor(accent ?? .secondary)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 1)
-        .background(
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill((accent ?? Color.secondary).opacity(0.12))
-        )
-
-        if let onTap {
-            chip
-                .onTapGesture(perform: onTap)
-                .contentShape(Rectangle())
-        } else {
-            chip
-        }
-    }
-}
-
-
 private struct SessionRow: View {
     let entry: SessionEntry
+    let showsAgentChip: Bool
+    let onResume: ((SessionEntry) -> Void)?
     @State private var isHovered: Bool = false
 
     var body: some View {
@@ -337,7 +360,20 @@ private struct SessionRow: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .help(helpText)
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                if let onResume { onResume(entry) }
+            }
+        )
         .contextMenu {
+            if let onResume {
+                Button {
+                    onResume(entry)
+                } label: {
+                    Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
+                }
+                Divider()
+            }
             if entry.fileURL != nil {
                 Button {
                     open()
@@ -356,6 +392,11 @@ private struct SessionRow: View {
                     Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
                 }
             }
+            Button {
+                copyResumeCommand()
+            } label: {
+                Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
+            }
             if let cwd = entry.cwd, !cwd.isEmpty {
                 Button {
                     NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
@@ -368,7 +409,7 @@ private struct SessionRow: View {
                 Button {
                     NSWorkspace.shared.open(url)
                 } label: {
-                    Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open PR #\(pr.number)"))
+                    Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
                 }
             }
         }
@@ -389,6 +430,9 @@ private struct SessionRow: View {
 
     private var metadataChips: [AnyView] {
         var chips: [AnyView] = []
+        if showsAgentChip {
+            chips.append(AnyView(AgentChip(agent: entry.agent)))
+        }
         if let basename = entry.cwdBasename {
             chips.append(AnyView(MetadataChip(symbol: "folder", text: basename)))
         }
@@ -401,7 +445,11 @@ private struct SessionRow: View {
                     symbol: "arrow.triangle.pull",
                     text: "#\(pr.number)",
                     accent: Color.purple,
-                    onTap: { NSWorkspace.shared.open(URL(string: pr.url)!) }
+                    onTap: {
+                        if let url = URL(string: pr.url) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
                 )
             ))
         }
@@ -417,13 +465,8 @@ private struct SessionRow: View {
         return lines.joined(separator: "\n")
     }
 
-    private func folderDisplayName(_ path: String) -> String {
-        (path as NSString).lastPathComponent
-    }
-
     private func open() {
         guard let url = entry.fileURL else {
-            // OpenCode entries have no file URL — fall back to opening cwd
             if let cwd = entry.cwd, !cwd.isEmpty {
                 NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
             }
@@ -444,6 +487,12 @@ private struct SessionRow: View {
         pb.setString(url.path, forType: .string)
     }
 
+    private func copyResumeCommand() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(entry.resumeCommand, forType: .string)
+    }
+
     private func relativeTime(_ date: Date) -> String {
         SessionIndexView.relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
@@ -453,5 +502,61 @@ private struct SessionRow: View {
         f.dateStyle = .medium
         f.timeStyle = .short
         return f.string(from: date)
+    }
+}
+
+private struct AgentChip: View {
+    let agent: SessionAgent
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(agent.assetName)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 10, height: 10)
+            Text(agent.displayName)
+                .font(.system(size: 10, weight: .medium))
+        }
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(Color.secondary.opacity(0.12))
+        )
+    }
+}
+
+private struct MetadataChip: View {
+    let symbol: String
+    let text: String
+    var accent: Color? = nil
+    var onTap: (() -> Void)? = nil
+
+    var body: some View {
+        let chip = HStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.system(size: 9, weight: .medium))
+            Text(text)
+                .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .foregroundColor(accent ?? .secondary)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill((accent ?? Color.secondary).opacity(0.12))
+        )
+
+        if let onTap {
+            chip
+                .onTapGesture(perform: onTap)
+                .contentShape(Rectangle())
+        } else {
+            chip
+        }
     }
 }
