@@ -5,8 +5,8 @@ struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
     /// Sections the user has explicitly collapsed (default is expanded).
     @State private var collapsedSections: Set<SectionKey> = []
-    /// Sections with "Show more" tapped (default shows up to `rowLimit` rows).
-    @State private var showAllSections: Set<SectionKey> = []
+    /// Section whose "Show more" popover is currently open.
+    @State private var openPopoverSection: SectionKey? = nil
     let onResume: ((SessionEntry) -> Void)?
 
     /// Rows shown per section before "Show more" is tapped.
@@ -120,14 +120,10 @@ struct SessionIndexView: View {
                                 }
                             }
                         ),
-                        showAll: Binding(
-                            get: { showAllSections.contains(section.key) },
+                        isPopoverOpen: Binding(
+                            get: { openPopoverSection == section.key },
                             set: { newValue in
-                                if newValue {
-                                    showAllSections.insert(section.key)
-                                } else {
-                                    showAllSections.remove(section.key)
-                                }
+                                openPopoverSection = newValue ? section.key : nil
                             }
                         ),
                         store: store,
@@ -175,7 +171,7 @@ private struct IndexSectionView: View {
     let section: IndexSection
     let rowLimit: Int
     @Binding var isCollapsed: Bool
-    @Binding var showAll: Bool
+    @Binding var isPopoverOpen: Bool
     @ObservedObject var store: SessionIndexStore
     let onResume: ((SessionEntry) -> Void)?
 
@@ -190,32 +186,40 @@ private struct IndexSectionView: View {
                         .padding(.leading, 32)
                         .padding(.vertical, 4)
                 } else {
-                    let visible = showAll
-                        ? section.entries
-                        : Array(section.entries.prefix(rowLimit))
-                    ForEach(visible) { entry in
+                    ForEach(Array(section.entries.prefix(rowLimit))) { entry in
                         SessionRow(entry: entry, onResume: onResume)
                     }
                     if section.entries.count > rowLimit {
-                        Button {
-                            showAll.toggle()
-                        } label: {
-                            Text(showAll
-                                 ? String(localized: "sessionIndex.section.showLess", defaultValue: "Show less")
-                                 : String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.secondary.opacity(0.7))
-                                .padding(.leading, 32)
-                                .padding(.vertical, 4)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                        showMoreButton
                     }
                 }
                 Spacer(minLength: 6)
             }
         }
         .opacity(store.draggedKey == section.key ? 0.45 : 1.0)
+    }
+
+    private var showMoreButton: some View {
+        let extra = section.entries.count - rowLimit
+        let template = String(localized: "sessionIndex.section.showMoreCount",
+                              defaultValue: "Show %lld more")
+        let label = String(format: template, extra)
+        return Button {
+            isPopoverOpen = true
+        } label: {
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.secondary.opacity(0.7))
+                .padding(.leading, 32)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPopoverOpen, arrowEdge: .leading) {
+            SectionPopoverView(section: section, onResume: onResume) {
+                isPopoverOpen = false
+            }
+        }
     }
 
     private var sectionHeader: some View {
@@ -381,6 +385,27 @@ private struct SessionRow: View {
         .onTapGesture(count: 2) {
             if let onResume { onResume(entry) }
         }
+        .onDrag {
+            // Provide the resume command as plain text. Dropping on a terminal
+            // surface inserts it; right-click → Resume in New Tab still works
+            // for the create-tab path.
+            NSItemProvider(object: entry.resumeCommand as NSString)
+        } preview: {
+            HStack(spacing: 6) {
+                Image(entry.agent.assetName)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 12, height: 12)
+                Text(entry.displayTitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
         .contextMenu {
             if let onResume {
                 Button {
@@ -480,3 +505,160 @@ private struct SessionRow: View {
     }
 }
 
+
+// MARK: - "Show more" popover with search
+
+private struct SectionPopoverView: View {
+    let section: IndexSection
+    let onResume: ((SessionEntry) -> Void)?
+    let onDismiss: () -> Void
+
+    @State private var query: String = ""
+    @FocusState private var searchFocused: Bool
+
+    private var filtered: [SessionEntry] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return section.entries }
+        let needle = trimmed.lowercased()
+        return section.entries.filter { entry in
+            entry.displayTitle.lowercased().contains(needle)
+                || (entry.cwd ?? "").lowercased().contains(needle)
+                || (entry.gitBranch ?? "").lowercased().contains(needle)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                sectionIconView
+                Text(section.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Text("\(section.entries.count)")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                TextField(
+                    String(localized: "sessionIndex.popover.searchPlaceholder",
+                           defaultValue: "Search sessions"),
+                    text: $query
+                )
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($searchFocused)
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+            )
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if filtered.isEmpty {
+                        Text(String(localized: "sessionIndex.popover.noMatches",
+                                    defaultValue: "No matches"))
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ForEach(filtered) { entry in
+                            PopoverRow(entry: entry) {
+                                onResume?(entry)
+                                onDismiss()
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 420)
+        }
+        .frame(width: 360)
+        .onAppear { searchFocused = true }
+    }
+
+    @ViewBuilder
+    private var sectionIconView: some View {
+        switch section.icon {
+        case .agent(let agent):
+            Image(agent.assetName)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 14, height: 14)
+        case .folder:
+            Image(systemName: "folder")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(.secondary)
+                .frame(width: 14, height: 14)
+        }
+    }
+}
+
+private struct PopoverRow: View {
+    let entry: SessionEntry
+    let onActivate: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(entry.displayTitle)
+                .font(.system(size: 12))
+                .foregroundColor(.primary.opacity(0.92))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            Text(Self.relativeFormatter.localizedString(for: entry.modified, relativeTo: Date()))
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundColor(.secondary.opacity(0.7))
+                .fixedSize()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .background(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+        .onHover { isHovered = $0 }
+        .onTapGesture(count: 2) { onActivate() }
+        .onDrag {
+            NSItemProvider(object: entry.resumeCommand as NSString)
+        }
+        .help(entry.cwdLabel ?? entry.displayTitle)
+    }
+}
