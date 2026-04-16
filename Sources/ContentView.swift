@@ -1588,6 +1588,7 @@ private struct CollapsedWorkspaceTabItem: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
     @State private var didPushCursor = false
+    @State private var workspaceObservationGeneration: UInt64 = 0
 
     private var tabCount: Int { tabManager.tabs.count }
 
@@ -1612,6 +1613,7 @@ private struct CollapsedWorkspaceTabItem: View {
     }
 
     var body: some View {
+        let _ = workspaceObservationGeneration
         HStack(spacing: 0) {
             if let shortcutLabel {
                 Text(shortcutLabel)
@@ -1679,6 +1681,12 @@ private struct CollapsedWorkspaceTabItem: View {
             }
         }
         .contextMenu { collapsedTabContextMenu }
+        .onReceive(
+            tab.sidebarImmediateObservationPublisher
+                .receive(on: RunLoop.main)
+        ) { _ in
+            workspaceObservationGeneration &+= 1
+        }
     }
 
     // MARK: - Context Menu
