@@ -14460,7 +14460,26 @@ private extension NSWindow {
         // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
         // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
         // events directly to the main menu. This avoids the broken SwiftUI focus path.
-        if firstResponderGhosttyView != nil,
+        //
+        // When the first responder is the window itself (focus transition after
+        // a clipboard-manager overlay like Raycast/Tuna dismisses), restore the
+        // terminal as first responder before dispatching. Without this, the main
+        // menu can't validate items (no responder handles paste:/copy:) and the
+        // original performKeyEquivalent walks the broken SwiftUI focus path.
+        var menuBypassGhosttyView = firstResponderGhosttyView
+        if menuBypassGhosttyView == nil, self.firstResponder is NSWindow {
+            if let terminalPanel = AppDelegate.shared?.tabManager?.selectedWorkspace?.focusedTerminalPanel,
+               let ghosttyNSView = Self.findGhosttyNSView(in: terminalPanel.hostedView),
+               ghosttyNSView.window === self,
+               self.makeFirstResponder(ghosttyNSView) {
+                menuBypassGhosttyView = ghosttyNSView
+#if DEBUG
+                dlog("  → focus-transition recovery: restored terminal as firstResponder")
+#endif
+            }
+        }
+
+        if menuBypassGhosttyView != nil,
            shouldRouteCommandEquivalentDirectlyToMainMenu(event),
            let mainMenu = NSApp.mainMenu {
             let consumedByMenu = mainMenu.performKeyEquivalent(with: event)
@@ -14477,9 +14496,7 @@ private extension NSWindow {
                 )
             }
 #endif
-            if !consumedByMenu {
-                // Fall through to the original performKeyEquivalent path below.
-            } else {
+            if consumedByMenu {
 #if DEBUG
                 dlog("  → consumed by mainMenu (bypassed SwiftUI)")
 #endif
@@ -14492,6 +14509,18 @@ private extension NSWindow {
         if result { dlog("  → consumed by original performKeyEquivalent") }
 #endif
         return result
+    }
+
+    /// Walk the subview tree downward to find the GhosttyNSView inside a hosted view.
+    /// Unlike `cmuxOwningGhosttyView(for:)` which walks upward through superviews,
+    /// this walks downward — needed when starting from the GhosttySurfaceScrollView
+    /// container whose surfaceView property is private.
+    static func findGhosttyNSView(in view: NSView) -> GhosttyNSView? {
+        if let ghosttyView = view as? GhosttyNSView { return ghosttyView }
+        for subview in view.subviews {
+            if let found = findGhosttyNSView(in: subview) { return found }
+        }
+        return nil
     }
 
     static func keyDescription(_ event: NSEvent) -> String {
