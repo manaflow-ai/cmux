@@ -217,11 +217,13 @@ private struct IndexSectionView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .popover(isPresented: $isPopoverOpen, arrowEdge: .leading) {
-            SectionPopoverView(section: section, onResume: onResume) {
-                isPopoverOpen = false
-            }
-        }
+        .background(
+            SectionPopoverHost(
+                isPresented: $isPopoverOpen,
+                section: section,
+                onResume: onResume
+            )
+        )
     }
 
     private var sectionHeader: some View {
@@ -740,4 +742,122 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 
     provider.suggestedName = entry.displayTitle
     return provider
+}
+
+// MARK: - NSPopover host
+
+/// Hosts SectionPopoverView in a real NSPopover. SwiftUI's native `.popover()`
+/// doesn't reliably let the embedded TextField become first responder in cmux's
+/// focus-managed environment — the terminal keeps grabbing focus back.
+private struct SectionPopoverHost: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    let section: IndexSection
+    let onResume: ((SessionEntry) -> Void)?
+
+    func makeCoordinator() -> Coordinator { Coordinator(isPresented: $isPresented) }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        context.coordinator.anchorView = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.anchorView = nsView
+        coordinator.update(
+            section: section,
+            onResume: onResume
+        )
+        if isPresented {
+            coordinator.present()
+        } else {
+            coordinator.dismiss()
+        }
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.dismiss()
+    }
+
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        @Binding var isPresented: Bool
+        weak var anchorView: NSView?
+
+        private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
+        private var popover: NSPopover?
+        private var currentSection: IndexSection?
+        private var currentOnResume: ((SessionEntry) -> Void)?
+
+        init(isPresented: Binding<Bool>) {
+            _isPresented = isPresented
+        }
+
+        func update(section: IndexSection, onResume: ((SessionEntry) -> Void)?) {
+            currentSection = section
+            currentOnResume = onResume
+            refreshContent()
+        }
+
+        private func refreshContent() {
+            guard let section = currentSection else { return }
+            let onResume = currentOnResume
+            hostingController.rootView = AnyView(
+                SectionPopoverView(section: section, onResume: onResume) { [weak self] in
+                    self?.closeFromContent()
+                }
+            )
+            hostingController.view.invalidateIntrinsicContentSize()
+            hostingController.view.layoutSubtreeIfNeeded()
+            updateContentSize()
+        }
+
+        func present() {
+            guard let anchorView, anchorView.window != nil else {
+                isPresented = false
+                return
+            }
+            anchorView.superview?.layoutSubtreeIfNeeded()
+            let popover = popover ?? makePopover()
+            updateContentSize()
+            guard !popover.isShown else { return }
+            popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxX)
+        }
+
+        func dismiss() {
+            popover?.performClose(nil)
+        }
+
+        func closeFromContent() {
+            isPresented = false
+            dismiss()
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            popover = nil
+            if isPresented {
+                isPresented = false
+            }
+        }
+
+        private func makePopover() -> NSPopover {
+            let p = NSPopover()
+            p.behavior = .transient
+            p.animates = true
+            p.contentViewController = hostingController
+            p.delegate = self
+            self.popover = p
+            return p
+        }
+
+        private func updateContentSize() {
+            let fitting = hostingController.view.fittingSize
+            guard fitting.width > 0, fitting.height > 0 else { return }
+            popover?.contentSize = NSSize(
+                width: ceil(max(fitting.width, 360)),
+                height: ceil(min(fitting.height, 480))
+            )
+        }
+    }
 }
