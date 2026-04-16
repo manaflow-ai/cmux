@@ -321,7 +321,7 @@ struct GhosttyConfig {
         // Strip digit-group separators (for example 10_000_000).
         // Hex and float literals are intentionally unsupported here.
         let normalized = value.replacingOccurrences(of: "_", with: "")
-        guard let parsed = Int(normalized), parsed > 0 else {
+        guard let parsed = Int(normalized), parsed >= 0 else {
             return nil
         }
         return parsed

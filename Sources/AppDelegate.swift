@@ -7813,23 +7813,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let config = GhosttyConfig.load()
         let minimumTargetBytes = 2_000_000
         let maximumTargetBytes = 200_000_000
+        let minimumLineCount = 2000
         let effectiveLimit = max(config.scrollbackLimit, 0)
         let doubledLimit = min(effectiveLimit, maximumTargetBytes / 2) * 2
         let targetBytes = min(max(doubledLimit, minimumTargetBytes), maximumTargetBytes)
-        let baseBytesPerLine = "scrollback \n".utf8.count
-        var digitCount = 6
-        var lineCount = 2000
-
-        while true {
-            let bytesPerLine = baseBytesPerLine + digitCount
-            let nextLineCount = max((targetBytes + bytesPerLine - 1) / bytesPerLine, 2000)
-            let nextDigitCount = max(6, String(nextLineCount).count)
-            lineCount = nextLineCount
-            if nextDigitCount == digitCount {
-                break
-            }
-            digitCount = nextDigitCount
-        }
+        // `%06d` guarantees at least a 6-digit field width. Any lines beyond
+        // 999,999 only get wider, so this conservative floor always emits at
+        // least `targetBytes` without oscillating at digit-count boundaries.
+        let baseBytesPerLine = "scrollback 000000\n".utf8.count
+        let lineCount = max((targetBytes + baseBytesPerLine - 1) / baseBytesPerLine, minimumLineCount)
 
         let command = #"awk 'BEGIN { for (i = 1; i <= \#(lineCount); ++i) printf "scrollback %06d\n", i }'"# + "\n"
         sendTextWhenReady(command, to: tab)
