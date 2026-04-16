@@ -38,6 +38,13 @@ struct PullRequestLink: Hashable {
     let repository: String?
 }
 
+/// Agent-specific fields used to build the resume command with appropriate flags.
+enum AgentSpecifics: Hashable {
+    case claude(model: String?, permissionMode: String?)
+    case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
+    case opencode(providerModel: String?, agentName: String?)
+}
+
 struct SessionEntry: Identifiable, Hashable {
     let id: String
     let agent: SessionAgent
@@ -49,18 +56,55 @@ struct SessionEntry: Identifiable, Hashable {
     let pullRequest: PullRequestLink?
     let modified: Date
     let fileURL: URL?
+    let specifics: AgentSpecifics
 
-    /// Shell command that resumes this session in a new terminal.
-    /// Bare resume — let each CLI restore its own per-session settings.
+    /// Shell command that resumes this session in a new terminal, with the agent's
+    /// known per-session settings injected as CLI flags.
     var resumeCommand: String {
-        switch agent {
-        case .claude:
-            return "claude --resume \(sessionId)"
-        case .codex:
-            return "codex resume \(sessionId)"
-        case .opencode:
-            return "opencode --session \(sessionId)"
+        switch specifics {
+        case let .claude(model, permissionMode):
+            var parts = ["claude --resume \(sessionId)"]
+            if let model, !model.isEmpty {
+                parts.append("--model \(Self.shellQuote(model))")
+            }
+            if let permissionMode, !permissionMode.isEmpty {
+                parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
+            }
+            return parts.joined(separator: " ")
+        case let .codex(model, approval, sandbox, effort):
+            var parts = ["codex resume \(sessionId)"]
+            if let model, !model.isEmpty {
+                parts.append("-m \(Self.shellQuote(model))")
+            }
+            if let approval, !approval.isEmpty {
+                parts.append("-a \(Self.shellQuote(approval))")
+            }
+            if let sandbox, !sandbox.isEmpty {
+                parts.append("-s \(Self.shellQuote(sandbox))")
+            }
+            if let effort, !effort.isEmpty {
+                parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
+            }
+            return parts.joined(separator: " ")
+        case let .opencode(providerModel, agentName):
+            var parts = ["opencode --session \(sessionId)"]
+            if let providerModel, !providerModel.isEmpty {
+                parts.append("-m \(Self.shellQuote(providerModel))")
+            }
+            if let agentName, !agentName.isEmpty {
+                parts.append("--agent \(Self.shellQuote(agentName))")
+            }
+            return parts.joined(separator: " ")
         }
+    }
+
+    /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
+    private static func shellQuote(_ value: String) -> String {
+        if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
+            return value
+        }
+        let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
+        return "'\(escaped)'"
     }
 
     var displayTitle: String {
@@ -361,7 +405,6 @@ final class SessionIndexStore: ObservableObject {
             let head = readFileHead(url: url, byteCap: headByteCap)
             let tail = readFileTail(url: url, byteCap: tailByteCap)
             let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: dirName)
-            // Claude session id is the .jsonl basename
             let sid = url.deletingPathExtension().lastPathComponent
             results.append(SessionEntry(
                 id: "claude:" + url.path,
@@ -372,7 +415,8 @@ final class SessionIndexStore: ObservableObject {
                 gitBranch: parsed.branch,
                 pullRequest: parsed.pr,
                 modified: mtime,
-                fileURL: url
+                fileURL: url,
+                specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
             ))
         }
         return results
@@ -383,6 +427,8 @@ final class SessionIndexStore: ObservableObject {
         var cwd: String?
         var branch: String?
         var pr: PullRequestLink?
+        var model: String?
+        var permissionMode: String?
     }
 
     private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
@@ -397,6 +443,14 @@ final class SessionIndexStore: ObservableObject {
             }
             if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
                 out.branch = branchField
+            }
+            if let mode = obj["permissionMode"] as? String, !mode.isEmpty {
+                out.permissionMode = mode
+            }
+            if (obj["type"] as? String) == "assistant",
+               let message = obj["message"] as? [String: Any],
+               let model = message["model"] as? String, !model.isEmpty {
+                out.model = model
             }
             if out.title.isEmpty,
                (obj["type"] as? String) == "user",
@@ -414,10 +468,8 @@ final class SessionIndexStore: ObservableObject {
                     }
                 }
             }
-            if out.title.isEmpty == false && out.branch != nil { break }
         }
 
-        // Tail scan: pr-link tends to live at end; also catches branch updates.
         for line in tail.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
@@ -433,6 +485,18 @@ final class SessionIndexStore: ObservableObject {
             if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
                 out.branch = branchField
             }
+            if let mode = obj["permissionMode"] as? String, !mode.isEmpty {
+                out.permissionMode = mode
+            }
+            if (obj["type"] as? String) == "assistant",
+               let message = obj["message"] as? [String: Any],
+               let model = message["model"] as? String, !model.isEmpty {
+                out.model = model
+            }
+        }
+        // Strip the [1m] suffix some Claude internal model IDs carry (claude-opus-4-7[1m]).
+        if let m = out.model, let bracket = m.firstIndex(of: "[") {
+            out.model = String(m[..<bracket])
         }
         return out
     }
@@ -485,7 +549,13 @@ final class SessionIndexStore: ObservableObject {
                 gitBranch: parsed.branch,
                 pullRequest: nil,
                 modified: mtime,
-                fileURL: url
+                fileURL: url,
+                specifics: .codex(
+                    model: parsed.model,
+                    approvalPolicy: parsed.approvalPolicy,
+                    sandboxMode: parsed.sandboxMode,
+                    effort: parsed.effort
+                )
             ))
         }
         return results
@@ -496,6 +566,10 @@ final class SessionIndexStore: ObservableObject {
         var title: String = ""
         var cwd: String?
         var branch: String?
+        var model: String?
+        var approvalPolicy: String?
+        var sandboxMode: String?
+        var effort: String?
     }
 
     /// Stream lines from `url` until we have everything we need. The first user_message
@@ -515,12 +589,20 @@ final class SessionIndexStore: ObservableObject {
                     out.branch = branch
                 }
             }
+            if type == "turn_context", let p = payload {
+                if let m = p["model"] as? String, !m.isEmpty { out.model = m }
+                if let a = p["approval_policy"] as? String, !a.isEmpty { out.approvalPolicy = a }
+                if let sandbox = p["sandbox_policy"] as? [String: Any],
+                   let s = sandbox["type"] as? String, !s.isEmpty {
+                    out.sandboxMode = s
+                }
+                if let e = p["effort"] as? String, !e.isEmpty { out.effort = e }
+            }
             if out.title.isEmpty, type == "event_msg", let p = payload,
                (p["type"] as? String) == "user_message",
                let msg = p["message"] as? String, !msg.isEmpty {
                 out.title = msg
             }
-            // Fallback: response_item with role=user and input_text content
             if out.title.isEmpty, type == "response_item", let p = payload,
                (p["type"] as? String) == "message",
                (p["role"] as? String) == "user",
@@ -537,7 +619,11 @@ final class SessionIndexStore: ObservableObject {
                     }
                 }
             }
-            return !out.title.isEmpty && out.cwd != nil && out.branch != nil && !out.sessionId.isEmpty
+            return !out.title.isEmpty
+                && out.cwd != nil
+                && out.branch != nil
+                && !out.sessionId.isEmpty
+                && out.model != nil
         }
         return out
     }
@@ -618,7 +704,18 @@ final class SessionIndexStore: ObservableObject {
         }
         defer { sqlite3_close(db) }
 
-        let sql = "SELECT id, title, directory, time_updated FROM session ORDER BY time_updated DESC LIMIT \(perAgentLimit)"
+        // Pull the latest assistant message per session in one query so we can carry
+        // model + agent forward into the resume command.
+        let sql = """
+            SELECT s.id, s.title, s.directory, s.time_updated, (
+                SELECT data FROM message
+                WHERE session_id = s.id AND data LIKE '%"role":"assistant"%'
+                ORDER BY time_created DESC LIMIT 1
+            ) AS last_assistant
+            FROM session s
+            ORDER BY s.time_updated DESC
+            LIMIT \(perAgentLimit)
+            """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
             sqlite3_finalize(stmt)
@@ -633,6 +730,8 @@ final class SessionIndexStore: ObservableObject {
             let directory = sqliteText(stmt, 2)
             let updatedMs = sqlite3_column_int64(stmt, 3)
             let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
+            let lastJSON = sqliteText(stmt, 4)
+            let (providerModel, agentName) = parseOpenCodeAssistant(lastJSON)
             results.append(SessionEntry(
                 id: "opencode:" + sid,
                 agent: .opencode,
@@ -642,10 +741,29 @@ final class SessionIndexStore: ObservableObject {
                 gitBranch: nil,
                 pullRequest: nil,
                 modified: modified,
-                fileURL: nil
+                fileURL: nil,
+                specifics: .opencode(providerModel: providerModel, agentName: agentName)
             ))
         }
         return results
+    }
+
+    private static func parseOpenCodeAssistant(_ raw: String?) -> (String?, String?) {
+        guard let raw, let data = raw.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (nil, nil)
+        }
+        let modelID = obj["modelID"] as? String
+        let providerID = obj["providerID"] as? String
+        let agentName = obj["agent"] as? String
+        let providerModel: String? = {
+            switch (providerID, modelID) {
+            case let (p?, m?) where !p.isEmpty && !m.isEmpty: return "\(p)/\(m)"
+            case let (_, m?) where !m.isEmpty: return m
+            default: return nil
+            }
+        }()
+        return (providerModel, agentName?.isEmpty == false ? agentName : nil)
     }
 
     private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
