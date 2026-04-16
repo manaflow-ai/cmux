@@ -1587,6 +1587,7 @@ private struct CollapsedWorkspaceTabItem: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
+    @State private var didPushCursor = false
 
     private var tabCount: Int { tabManager.tabs.count }
 
@@ -1662,6 +1663,7 @@ private struct CollapsedWorkspaceTabItem: View {
         .onHover { isHovering = $0 }
         .onDrag {
             NSCursor.closedHand.push()
+            didPushCursor = true
             draggedTabId = tab.id
             return SidebarTabDragPayload.provider(for: tab.id)
         } preview: {
@@ -1671,8 +1673,9 @@ private struct CollapsedWorkspaceTabItem: View {
             targetTabId: tab.id, tabManager: tabManager, draggedTabId: $draggedTabId
         ))
         .onChange(of: draggedTabId) { newValue in
-            if newValue == nil {
+            if newValue == nil && didPushCursor {
                 NSCursor.pop()
+                didPushCursor = false
             }
         }
         .contextMenu { collapsedTabContextMenu }
@@ -3002,6 +3005,8 @@ struct ContentView: View {
         }
     }
 
+    @State private var collapsedTabDragMonitor: Any?
+
     private var collapsedWorkspaceTabs: some View {
         let tabs = tabManager.tabs
         let selectedId = tabManager.selectedTabId
@@ -3022,6 +3027,27 @@ struct ContentView: View {
                     onClose: { tabManager.closeWorkspaceWithConfirmation(tab) }
                 )
                 .frame(maxWidth: .infinity)
+            }
+        }
+        .onChange(of: collapsedTabDraggedId) { newValue in
+            if newValue != nil {
+                // Install failsafe monitor for drag cancel (Escape key or mouse-up outside targets).
+                // After a short delay, if draggedTabId is still set, clear it to reset cursor state.
+                let escapeKeyCode: UInt16 = 53
+                collapsedTabDragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .keyDown]) { event in
+                    let shouldClear = event.type == .leftMouseUp || (event.type == .keyDown && event.keyCode == escapeKeyCode)
+                    if shouldClear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            collapsedTabDraggedId = nil
+                        }
+                    }
+                    return event
+                }
+            } else {
+                if let monitor = collapsedTabDragMonitor {
+                    NSEvent.removeMonitor(monitor)
+                    collapsedTabDragMonitor = nil
+                }
             }
         }
     }
