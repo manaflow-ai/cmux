@@ -347,7 +347,7 @@
       "settingsFile": "settings.json",
       "settingsFileDesc": "cmux는 cmux 소유 단축키를 위한 사용자 설정 파일도 읽습니다. 현재 파일은 shortcuts 섹션을 지원합니다.",
       "settingsFilePrecedence": "settings.json에 정의된 단축키는 인앱 설정 값을 덮어씁니다. 관리되는 단축키는 설정에서 계속 표시되지만 읽기 전용으로 표시됩니다.",
-      "settingsFileChords": "단일 단축키는 문자열로, 코드 단축키는 두 항목 배열로 지정합니다. 예: [\"ctrl+b\", \"c\"]는 Ctrl+B를 누른 후 C를 누르는 것을 의미합니다.",
+      "settingsFileChords": "단일 단축키는 문자열로, 2단계 단축키(chord)는 두 항목 배열로 지정합니다. 예: [\"ctrl+b\", \"c\"]는 Ctrl+B를 누른 후 C를 누르는 것을 의미합니다.",
       "exampleConfig": "예시 설정"
     },
     "customCommands": {
@@ -423,7 +423,7 @@
       "chordsIntro": "cmux는 <settingsFile>~/.config/cmux/settings.json</settingsFile>에서 두 단계 단축키 코드를 지원합니다. 전체 설정 파일 스키마는 <configurationLink>설정 문서</configurationLink>를 참조하세요.",
       "chordsCallout": "설정에서 단축키를 직접 수정할 수 있습니다. 정확한 tmux 스타일 프리픽스 바인딩이 필요하거나 닷파일에서 단축키를 관리하는 경우 settings.json을 사용하세요.",
       "chordsRuleSingle": "한 단계 단축키는 일반 문자열을 사용합니다.",
-      "chordsRuleArray": "코드 단축키는 두 항목 배열을 사용합니다. 첫 번째 항목은 프리픽스 키스트로크, 두 번째는 그 다음에 올 키입니다.",
+      "chordsRuleArray": "2단계 단축키(chord)는 두 항목 배열을 사용합니다. 첫 번째 항목은 프리픽스 키스트로크, 두 번째는 그 다음에 올 키입니다.",
       "chordsRuleSyntax": "각 항목은 일반 바인딩과 동일한 문법을 사용합니다. 예: cmd+b, ctrl+b, shift+/, ctrl+1.",
       "searchPlaceholder": "단축키 검색...",
       "searchLabel": "키보드 단축키 검색",
@@ -867,7 +867,7 @@
       "browserAutomation": "브라우저 자동화",
       "notifications": "알림",
       "ssh": "SSH",
-      "agentIntegrations": "Agent Integrations",
+      "agentIntegrations": "에이전트 통합",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "ohMyCodex": "oh-my-codex",
