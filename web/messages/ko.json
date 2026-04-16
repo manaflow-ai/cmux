@@ -85,6 +85,8 @@
   "community": {
     "title": "커뮤니티",
     "description": "다른 cmux 사용자 및 개발팀과 소통하세요.",
+    "metaTitle": "커뮤니티 — cmux",
+    "metaDescription": "Discord, Twitter, GitHub 등에서 cmux 커뮤니티에 참여하세요",
     "discord": "Discord",
     "discordAction": "Discord 참여하기",
     "discordDesc": "커뮤니티와 대화하고, 도움을 받고, 피드백을 공유하세요",
@@ -98,9 +100,7 @@
     "youtubeDesc": "데모, 튜토리얼, 워크스루",
     "linkedin": "LinkedIn",
     "linkedinAction": "팔로우하기",
-    "linkedinDesc": "회사 소식 및 엔지니어링 업데이트",
-    "metaTitle": "커뮤니티 — cmux",
-    "metaDescription": "Discord, Twitter, GitHub 등에서 cmux 커뮤니티에 참여하세요"
+    "linkedinDesc": "회사 소식 및 엔지니어링 업데이트"
   },
   "blog": {
     "title": "블로그",
@@ -108,7 +108,67 @@
     "metaTitle": "블로그",
     "metaDescription": "cmux 팀의 뉴스와 업데이트",
     "description": "cmux 팀의 뉴스와 업데이트",
+    "zenOfCmux": {
+      "metaTitle": "cmux의 선",
+      "metaDescription": "cmux는 솔루션이 아닌 프리미티브입니다. 조합 가능한 조각을 제공하며 워크플로는 여러분에게 달려 있습니다."
+    },
+    "cmuxClaudeTeams": {
+      "metaTitle": "Claude Code 팀 에이전트를 네이티브 cmux 패널로",
+      "metaDescription": "Claude Code의 팀 모드는 tmux가 필요합니다. cmux는 이를 에뮬레이션하여 팀 에이전트를 사이드바 메타데이터와 알림이 있는 네이티브 분할 패널로 만듭니다."
+    },
+    "cmuxOmo": {
+      "metaTitle": "oh-my-openagent 서브에이전트를 네이티브 cmux 패널로",
+      "metaDescription": "oh-my-openagent(구 oh-my-opencode)는 Claude, GPT, Gemini 등의 전문 에이전트를 병렬로 오케스트레이션합니다. cmux omo는 tmux 패널을 네이티브 분할 패널로 전환합니다."
+    },
+    "gpl": {
+      "metaTitle": "cmux가 이제 GPL 라이선스로",
+      "metaDescription": "cmux가 AGPL-3.0에서 GPL-3.0으로 라이선스를 변경했습니다."
+    },
+    "cmuxSsh": {
+      "metaTitle": "cmux SSH",
+      "metaDescription": "하나의 명령으로 영구적인 원격 세션, 원격 포트에 접근하는 브라우저 패널, 로컬로 전달되는 에이전트 알림을 제공합니다."
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "cmux와의 상호작용을 바꾸는 새로운 키보드 단축키."
+    },
+    "showHnLaunch": {
+      "metaTitle": "Show HN에서 cmux 출시",
+      "metaDescription": "Hacker News에서 cmux를 출시한 이야기."
+    },
+    "introducingCmux": {
+      "metaTitle": "cmux를 소개합니다",
+      "metaDescription": "macOS용 새 터미널 cmux를 만든 이유."
+    },
     "posts": {
+      "cmuxClaudeTeams": {
+        "title": "Claude Code 팀 에이전트를 네이티브 cmux 패널로",
+        "summary": "Claude Code의 팀 모드는 tmux가 필요합니다. cmux는 이를 에뮬레이션하여 팀 에이전트를 사이드바 메타데이터와 알림이 있는 네이티브 분할 패널로 만듭니다.",
+        "date": "2026년 3월 30일",
+        "p1": "Claude Code에는 서브에이전트를 병렬로 생성하는 실험적인 <agentTeamsLink>팀 모드</agentTeamsLink>가 있습니다. tmux와 <code>CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1</code> 환경 변수 설정이 필요합니다. <code>cmux claude-teams</code>가 이 모든 것을 처리합니다. 환경 변수를 설정하고, 모든 tmux 명령(<code>split-window</code>, <code>send-keys</code>, <code>capture-pane</code>)을 cmux의 네이티브 분할/워크스페이스 API로 변환하는 tmux 심을 PATH에 배치한 뒤 <code>claude --teammate-mode auto</code>로 실행합니다. 명령 하나로 모든 것이 해결됩니다.",
+        "p2": "심은 <code>split-window</code>를 <code>surface.split</code>으로, <code>send-keys</code>를 <code>surface.send_text</code>로, <code>capture-pane</code>을 <code>surface.read_text</code>로 변환합니다. 팀 에이전트는 오른쪽 열에 수직으로 쌓이며, 에이전트가 생성되고 종료될 때 자동으로 균등하게 배치됩니다. 모든 패널이 알림과 함께 사이드바에 표시됩니다. Go 릴레이 데몬을 통해 SSH에서도 동작합니다.",
+        "p3": "동일한 심이 oh-my-openagent(구 oh-my-opencode)를 위한 <omoLink><code>cmux omo</code></omoLink>에도 사용됩니다."
+      },
+      "cmuxOmo": {
+        "title": "oh-my-openagent 서브에이전트를 네이티브 cmux 패널로",
+        "summary": "oh-my-openagent(구 oh-my-opencode)는 Claude, GPT, Gemini 등의 전문 에이전트를 병렬로 오케스트레이션합니다. cmux omo는 tmux 패널을 네이티브 분할 패널로 전환합니다.",
+        "date": "2026년 3월 30일",
+        "p1": "<code>cmux omo</code>는 oh-my-openagent(구 oh-my-opencode)와 통합됩니다. oh-my-openagent는 Claude, GPT, Gemini를 전문 에이전트로 병렬 오케스트레이션하는 OpenCode 플러그인으로, 각 에이전트는 자체 tmux 패널에서 실행됩니다. <code>cmux omo</code>는 <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>와 동일한 tmux 심을 사용합니다. <code>TMUX</code> 환경 변수를 가짜로 설정하고 모든 tmux 명령을 cmux 분할로 변환합니다. 플러그인을 섀도우 설정에 자동으로 설치하므로 <code>~/.config/opencode</code>는 변경되지 않습니다.",
+        "p2": "심은 <code>terminal-notifier</code> 호출도 가로채어 <code>cmux notify</code>로 라우팅합니다. Go 릴레이 데몬을 통해 SSH에서도 동작합니다."
+      },
+      "gpl": {
+        "title": "cmux가 이제 GPL 라이선스로",
+        "summary": "cmux가 AGPL-3.0에서 GPL-3.0으로 라이선스를 변경했습니다.",
+        "date": "2026년 3월 30일",
+        "p1": "cmux가 AGPL-3.0에서 GPL-3.0으로 라이선스를 변경했습니다. AGPL의 네트워크 사용 조항은 데스크톱 앱에는 적용되지 않지만, 많은 기업이 AGPL 자체를 금지하고 있습니다. GPL은 해당 조항을 제거하면서도 포크가 오픈 소스를 유지하도록 요구합니다. GPL + 상업 라이선스의 이중 라이선스 체계는 그대로 유지됩니다."
+      },
+      "cmuxSsh": {
+        "title": "cmux SSH",
+        "summary": "하나의 명령으로 영구적인 원격 세션, 원격 포트에 접근하는 브라우저 패널, 로컬로 전달되는 에이전트 알림을 제공합니다.",
+        "date": "2026년 3월 30일",
+        "p1": "<code>cmux ssh user@remote</code>는 원격 머신을 위한 워크스페이스를 생성합니다. 원격 Claude Code 세션에 이미지를 드래그하면 자동으로 업로드됩니다. 브라우저 패널은 원격 네트워크를 통해 트래픽을 라우팅하므로 localhost가 그대로 동작합니다. <code>~/.ssh/config</code>를 사용하며 연결이 끊겨도 자동으로 재연결됩니다.",
+        "features": "브라우저 패널은 원격 네트워크를 통해 트래픽을 라우팅하므로 -L 플래그 없이 localhost:3000에서 원격 개발 서버에 접근할 수 있습니다. 원격 머신의 코딩 에이전트가 로컬 사이드바로 알림을 전송합니다. cmux claude-teams와 cmux omo가 SSH에서도 동작하여, 연산은 원격에서 실행되면서 팀 에이전트 패널은 로컬에 생성됩니다. 파일을 원격 터미널에 드래그하면 scp로 업로드됩니다. 사이드바에 연결 상태와 감지된 리스닝 포트가 표시됩니다."
+      },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
         "summary": "cmux에서 Cmd+Shift+U가 워크스페이스 간에 완료된 에이전트를 탐색하는 방법.",
@@ -152,8 +212,6 @@
         "whyTitle": "왜 cmux인가?",
         "whyP": "현대 개발 워크플로는 여러 에이전트를 동시에 실행하는 경우가 많습니다. Claude Code, Codex 등 각 도구가 자체 터미널에서 실행됩니다. 어떤 에이전트가 주의를 필요로 하는지 추적하고 빠르게 전환하는 것이 cmux가 해결하는 문제입니다.",
         "featuresTitle": "주요 기능",
-        "getStartedTitle": "시작하기",
-        "getStartedP": "Homebrew로 cmux를 설치하거나 <link>시작 가이드</link>에서 DMG를 다운로드하세요.",
         "featureVerticalTabsLabel": "세로 탭",
         "featureVerticalTabsDesc": "사이드바에서 모든 터미널을 한눈에 확인",
         "featureNotificationsLabel": "알림 링",
@@ -163,30 +221,17 @@
         "featureSocketApiLabel": "소켓 API",
         "featureSocketApiDesc": "탭 생성 및 입력 전송을 위한 프로그래밍 방식 제어",
         "featureGpuLabel": "GPU 가속",
-        "featureGpuDesc": "libghostty로 부드러운 렌더링"
+        "featureGpuDesc": "libghostty로 부드러운 렌더링",
+        "getStartedTitle": "시작하기",
+        "getStartedP": "Homebrew로 cmux를 설치하거나 <link>시작 가이드</link>에서 DMG를 다운로드하세요."
       }
-    },
-    "zenOfCmux": {
-      "metaTitle": "cmux의 선",
-      "metaDescription": "cmux는 솔루션이 아닌 프리미티브입니다. 조합 가능한 조각을 제공하며 워크플로는 여러분에게 달려 있습니다."
-    },
-    "cmdShiftU": {
-      "metaTitle": "Cmd+Shift+U",
-      "metaDescription": "cmux와의 상호작용을 바꾸는 새로운 키보드 단축키."
-    },
-    "showHnLaunch": {
-      "metaTitle": "Show HN에서 cmux 출시",
-      "metaDescription": "Hacker News에서 cmux를 출시한 이야기."
-    },
-    "introducingCmux": {
-      "metaTitle": "cmux를 소개합니다",
-      "metaDescription": "macOS용 새 터미널 cmux를 만든 이유."
     }
   },
   "docs": {
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "시작하기",
+      "metaTitle": "시작하기",
       "metaDescription": "AI 코딩 에이전트를 위한 네이티브 macOS 터미널 cmux를 설치하세요. Homebrew, DMG 다운로드, CLI 설정, Sparkle을 통한 자동 업데이트.",
       "intro": "cmux는 여러 AI 코딩 에이전트를 관리하기 위해 Ghostty 기반으로 구축된 경량 네이티브 macOS 터미널입니다. 세로 탭, 알림 패널, 소켓 기반 제어 API를 제공합니다.",
       "install": "설치",
@@ -214,11 +259,11 @@
       "sessionCallout": "cmux는 아직 라이브 프로세스 상태를 복원하지 않습니다. Claude Code, tmux, vim 등의 활성 터미널 앱 세션은 앱 재시작 후 복원되지 않습니다.",
       "requirements": "요구 사항",
       "reqItem1": "macOS 14.0 이상",
-      "reqItem2": "Apple Silicon 또는 Intel Mac",
-      "metaTitle": "시작하기"
+      "reqItem2": "Apple Silicon 또는 Intel Mac"
     },
     "concepts": {
       "title": "개념",
+      "metaTitle": "개념",
       "metaDescription": "cmux가 터미널을 구성하는 방법: 창, 워크스페이스, 패널, 서피스. 사이드바, 분할, 소켓 API 뒤의 계층 구조.",
       "intro": "cmux는 터미널을 4단계 계층 구조로 구성합니다. 이 단계를 이해하면 소켓 API, CLI, 키보드 단축키를 사용할 때 도움이 됩니다.",
       "hierarchy": "계층 구조",
@@ -266,11 +311,11 @@
       "terminalOrBrowser": "터미널 또는 브라우저",
       "automatic": "자동",
       "paneIdSocket": "패널 ID (소켓 API)",
-      "panelIdInternal": "패널 ID (내부)",
-      "metaTitle": "개념"
+      "panelIdInternal": "패널 ID (내부)"
     },
     "configuration": {
       "title": "설정",
+      "metaTitle": "설정",
       "metaDescription": "Ghostty 설정 파일을 통해 cmux를 구성합니다. 글꼴, 테마, 색상, 분할 패널 스타일, 스크롤백, 자동화 모드의 앱 설정.",
       "intro": "cmux는 Ghostty 설정 파일에서 구성을 읽어오므로, Ghostty에서 이전하는 경우 익숙한 옵션을 사용할 수 있습니다.",
       "configLocations": "설정 파일 위치",
@@ -299,8 +344,11 @@
       "browserLinkDesc": "설정 > 브라우저에서 cmux는 서로 다른 목적의 두 가지 호스트 목록을 제공합니다:",
       "browserHostsEmbed": "내장 브라우저에서 열 호스트: 터미널 출력에서 클릭한 링크에 적용됩니다. 이 목록의 호스트는 cmux에서 열리고, 다른 호스트는 기본 브라우저에서 열립니다. 줄당 하나의 호스트 또는 와일드카드를 지원합니다(예: example.com, *.internal.example).",
       "browserHostsHttp": "내장 브라우저에서 허용되는 HTTP 호스트: HTTP(비 HTTPS) URL에만 적용됩니다. 이 목록의 호스트는 경고 프롬프트 없이 cmux에서 열 수 있습니다. 기본값에는 localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me가 포함됩니다.",
-      "exampleConfig": "예시 설정",
-      "metaTitle": "설정"
+      "settingsFile": "settings.json",
+      "settingsFileDesc": "cmux는 cmux 소유 단축키를 위한 사용자 설정 파일도 읽습니다. 현재 파일은 shortcuts 섹션을 지원합니다.",
+      "settingsFilePrecedence": "settings.json에 정의된 단축키는 인앱 설정 값을 덮어씁니다. 관리되는 단축키는 설정에서 계속 표시되지만 읽기 전용으로 표시됩니다.",
+      "settingsFileChords": "단일 단축키는 문자열로, 코드 단축키는 두 항목 배열로 지정합니다. 예: [\"ctrl+b\", \"c\"]는 Ctrl+B를 누른 후 C를 누르는 것을 의미합니다.",
+      "exampleConfig": "예시 설정"
     },
     "customCommands": {
       "title": "사용자 정의 명령어",
@@ -369,12 +417,21 @@
     "keyboardShortcuts": {
       "title": "키보드 단축키",
       "description": "카테고리별로 정리된 cmux의 모든 키보드 단축키.",
+      "metaTitle": "키보드 단축키",
       "metaDescription": "워크스페이스, 서피스, 분할 패널, 브라우저, 알림, 검색, 창 관리를 위한 cmux의 모든 macOS 키보드 단축키.",
+      "chordsTitle": "단축키 코드",
+      "chordsIntro": "cmux는 <settingsFile>~/.config/cmux/settings.json</settingsFile>에서 두 단계 단축키 코드를 지원합니다. 전체 설정 파일 스키마는 <configurationLink>설정 문서</configurationLink>를 참조하세요.",
+      "chordsCallout": "설정에서 단축키를 직접 수정할 수 있습니다. 정확한 tmux 스타일 프리픽스 바인딩이 필요하거나 닷파일에서 단축키를 관리하는 경우 settings.json을 사용하세요.",
+      "chordsRuleSingle": "한 단계 단축키는 일반 문자열을 사용합니다.",
+      "chordsRuleArray": "코드 단축키는 두 항목 배열을 사용합니다. 첫 번째 항목은 프리픽스 키스트로크, 두 번째는 그 다음에 올 키입니다.",
+      "chordsRuleSyntax": "각 항목은 일반 바인딩과 동일한 문법을 사용합니다. 예: cmd+b, ctrl+b, shift+/, ctrl+1.",
       "searchPlaceholder": "단축키 검색...",
       "searchLabel": "키보드 단축키 검색",
       "noResults": "단축키를 찾을 수 없습니다",
       "noResultsHint": "다른 검색어를 사용해 보세요",
       "cat": {
+        "app": "앱",
+        "appBlurb": "애플리케이션, 창, 최상위 수준 명령 단축키.",
         "workspaces": "워크스페이스",
         "workspacesBlurb": "워크스페이스는 사이드바에 있습니다. 각 워크스페이스에는 자체 패널과 서피스가 있습니다.",
         "surfaces": "서피스",
@@ -426,11 +483,11 @@
         "wn-settings": "설정",
         "wn-reload": "설정 새로고침",
         "wn-quit": "종료"
-      },
-      "metaTitle": "키보드 단축키"
+      }
     },
     "api": {
       "title": "API 레퍼런스",
+      "metaTitle": "API 레퍼런스",
       "metaDescription": "cmux CLI 및 Unix 소켓 API 레퍼런스. 워크스페이스 관리, 분할 패널, 입력 제어, 알림, 사이드바 메타데이터, 환경 변수, 감지 방법.",
       "intro": "cmux는 프로그래밍 방식 제어를 위한 CLI 도구와 Unix 소켓을 모두 제공합니다. 모든 명령은 두 인터페이스를 통해 사용할 수 있습니다.",
       "socket": "소켓",
@@ -508,11 +565,11 @@
       "examples": "예시",
       "pythonClient": "Python 클라이언트",
       "shellScript": "셸 스크립트",
-      "buildScriptNotification": "알림이 포함된 빌드 스크립트",
-      "metaTitle": "API 레퍼런스"
+      "buildScriptNotification": "알림이 포함된 빌드 스크립트"
     },
     "notifications": {
       "title": "알림",
+      "metaTitle": "알림",
       "metaDescription": "cmux에서 AI 에이전트와 스크립트의 데스크톱 알림을 전송합니다. CLI, OSC 99/777 이스케이프 시퀀스, Claude Code hooks 통합.",
       "intro": "cmux는 데스크톱 알림을 지원하여 AI 에이전트와 스크립트가 주의가 필요할 때 알려줄 수 있습니다.",
       "lifecycle": "생명주기",
@@ -541,6 +598,7 @@
       "envTitle": "알림 제목 (워크스페이스 이름 또는 앱 이름)",
       "envSubtitle": "알림 부제목",
       "envBody": "알림 본문 텍스트",
+      "featureHeader": "기능",
       "cmpTitleBody": "제목 + 본문",
       "cmpSubtitle": "부제목",
       "cmpNotificationId": "알림 ID",
@@ -549,7 +607,6 @@
       "cmpNo": "아니오",
       "cmpHigher": "높음",
       "cmpLower": "낮음",
-      "featureHeader": "기능",
       "comparisonCallout": "간단한 알림에는 OSC 777을 사용하세요. 부제목이나 알림 ID가 필요한 경우 OSC 99를 사용하세요. 가장 쉬운 통합을 위해 CLI(cmux notify)를 사용하세요.",
       "claudeCodeHooks": "Claude Code hooks",
       "claudeCodeHooksDesc": "cmux는 hooks를 통해 <link>Claude Code</link>와 통합하여 작업이 완료되면 알려줍니다.",
@@ -564,11 +621,11 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux 패스스루",
-      "tmuxDesc": "cmux 내에서 tmux를 사용하는 경우 패스스루를 활성화하세요:",
-      "metaTitle": "알림"
+      "tmuxDesc": "cmux 내에서 tmux를 사용하는 경우 패스스루를 활성화하세요:"
     },
     "browserAutomation": {
       "title": "브라우저 자동화",
+      "metaTitle": "브라우저 자동화",
       "metaDescription": "내비게이션, DOM 상호작용, 대기, 검사, JavaScript 평가, 탭, 다이얼로그, 프레임, 다운로드, 브라우저 상태를 위한 cmux 브라우저 명령 레퍼런스.",
       "intro": "cmux 브라우저 명령 그룹은 cmux 브라우저 서피스에 대한 브라우저 자동화를 제공합니다. 내비게이션, DOM 엘리먼트 상호작용, 페이지 상태 검사, JavaScript 평가, 브라우저 세션 데이터 관리에 사용합니다.",
       "commandIndex": "명령 인덱스",
@@ -604,13 +661,201 @@
       "patternNavigate": "내비게이션, 대기, 검사",
       "patternForm": "폼 작성 및 성공 텍스트 확인",
       "patternDebug": "실패 시 디버그 아티팩트 캡처",
-      "patternSession": "브라우저 세션 저장 및 복원",
-      "metaTitle": "브라우저 자동화"
+      "patternSession": "브라우저 세션 저장 및 복원"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "cmux ssh로 원격 머신에 연결합니다. 브라우저 패널은 원격 네트워크를 통해 라우팅되고, 이미지는 scp로 드래그 앤 드롭되며, 에이전트 알림이 로컬로 전달됩니다.",
+      "intro": "cmux ssh는 원격 머신을 위한 워크스페이스를 생성합니다. 브라우저 패널은 원격 네트워크를 통해 라우팅되고, 파일은 scp로 드래그 앤 드롭되며, 코딩 에이전트가 로컬 사이드바로 알림을 전송하고, 연결이 끊겨도 세션이 재연결됩니다.",
+      "usage": "사용법",
+      "usageDesc": "cmux ssh는 호스트 별칭, ID 파일, 프록시 설정을 위해 ~/.ssh/config를 읽습니다. 모든 플래그는 ssh와 동일합니다.",
+      "flagsTitle": "플래그",
+      "flagName": "플래그",
+      "flagDesc": "설명",
+      "flagNameVal": "워크스페이스 제목 설정",
+      "flagPort": "SSH 포트 (기본값 22)",
+      "flagIdentity": "ID 파일 경로",
+      "flagSshOption": "임의의 SSH 옵션 전달 (예: -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "전환하지 않고 워크스페이스 생성",
+      "browserTitle": "브라우저 패널",
+      "browserDesc": "원격 워크스페이스의 브라우저 패널은 모든 HTTP 및 WebSocket 트래픽을 원격 머신의 네트워크를 통해 라우팅합니다. localhost:3000을 입력하면 원격 머신에서 실행 중인 개발 서버가 표시됩니다. -L 플래그나 수동 포트 포워딩이 필요 없습니다. 각 원격 워크스페이스는 격리된 쿠키 저장소를 갖추어 세션이 연결별로 분리됩니다.",
+      "dragDropTitle": "드래그 앤 드롭",
+      "dragDropDesc": "이미지나 파일을 원격 터미널에 드래그하면 cmux가 기존 SSH 연결을 통해 scp로 업로드합니다. cmux는 TTY로 포그라운드 SSH 프로세스를 감지하고 ControlMaster 멀티플렉싱을 통해 업로드를 라우팅합니다.",
+      "notificationsTitle": "알림",
+      "notificationsDesc": "원격 머신의 프로세스가 로컬 인스턴스에서 실행되는 cmux 명령을 호출할 수 있습니다. 코딩 에이전트가 원격 머신에서 cmux notify를 호출하면 알림이 로컬 사이드바에 표시됩니다. 워크스페이스 탭에 파란 링이 켜지고, Cmd+Shift+U로 바로 이동할 수 있습니다. 불안정한 연결로 인한 알림 스팸은 호스트별 쿨다운으로 억제됩니다.",
+      "agentsTitle": "SSH를 통한 코딩 에이전트",
+      "agentsDesc": "cmux claude-teams와 cmux omo 모두 SSH 세션 내에서 동작합니다. 원격 호스트의 Go 릴레이 데몬이 로컬 Swift CLI와 동일한 tmux 호환 변환을 처리합니다. 팀 에이전트는 연산이 원격 머신에서 실행되는 동안 로컬 cmux 분할 패널로 생성됩니다.",
+      "reconnectTitle": "재연결",
+      "reconnectDesc": "연결이 끊어지면 cmux가 지수 백오프(3초, 6초, 12초, 최대 60초)로 재연결합니다. 원격 세션은 유지되며 재연결 시 cmux가 다시 연결하고 최소 화면 크기 기준으로 크기를 조정합니다. 설정에서 이미 설정하지 않은 경우 기본 킵얼라이브 옵션(ServerAliveInterval=20, ServerAliveCountMax=2)이 자동으로 적용됩니다.",
+      "daemonTitle": "릴레이 데몬",
+      "daemonDesc": "첫 연결 시 cmux가 원격 호스트를 탐색(uname -s, uname -m)하고 버전이 지정된 cmuxd-remote 바이너리를 업로드합니다. 바이너리는 stdio를 통해 JSON-RPC를 사용하며 세 가지 기능을 담당합니다:",
+      "daemonFeature": "기능",
+      "daemonHow": "동작 방식",
+      "daemonProxy": "브라우저 트래픽 프록시",
+      "daemonProxyHow": "데몬의 stdio 채널을 통한 SOCKS5 및 HTTP CONNECT",
+      "daemonRelay": "CLI 릴레이",
+      "daemonRelayHow": "HMAC-SHA256 인증을 사용하는 역방향 TCP 터널로 원격 프로세스가 로컬에서 cmux 명령을 호출할 수 있게 함",
+      "daemonSession": "세션 관리",
+      "daemonSessionHow": "재연결 간 세션 유지, 다중 연결에서 PTY 크기 조정 조율",
+      "daemonPath": "데몬 바이너리는 원격 호스트의 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote에 저장되며 앱에 내장된 SHA-256 매니페스트로 검증됩니다."
     },
     "changelog": {
       "title": "변경 로그",
-      "metaDescription": "cmux 릴리스 노트 및 버전 히스토리. 네이티브 macOS 터미널의 새로운 기능, 버그 수정, 변경 사항.",
-      "metaTitle": "변경 내역"
+      "metaTitle": "변경 내역",
+      "metaDescription": "cmux 릴리스 노트 및 버전 히스토리. 네이티브 macOS 터미널의 새로운 기능, 버그 수정, 변경 사항."
+    },
+    "claudeCodeTeams": {
+      "title": "Claude Code Teams",
+      "metaTitle": "Claude Code Teams - cmux",
+      "metaDescription": "cmux 내에서 에이전트 팀과 함께 Claude Code를 실행합니다. 팀 에이전트는 tmux 패널 대신 네이티브 cmux 분할 패널로 생성됩니다.",
+      "nightlyWarning": "<nightly>나이틀리 빌드</nightly>에서만 사용 가능합니다.",
+      "intro": "cmux claude-teams는 에이전트 팀이 활성화된 상태로 Claude Code를 실행합니다. Claude가 팀 에이전트를 생성하면 tmux 패널 대신 전체 사이드바 메타데이터와 알림이 있는 네이티브 cmux 분할 패널로 표시됩니다.",
+      "usage": "사용법",
+      "usageDesc": "claude-teams 이후의 모든 인수는 Claude Code로 전달됩니다. 명령은 기본적으로 팀 모드를 auto로 설정하고 Claude가 cmux 분할을 사용하도록 환경을 구성합니다.",
+      "howItWorks": "동작 방식",
+      "howItWorksDesc": "cmux claude-teams는 tmux 심 스크립트를 생성하고 Claude Code가 tmux 내에서 실행되고 있다고 인식하도록 환경을 구성합니다. Claude가 팀 패널을 관리하기 위해 tmux 명령을 실행하면 심이 이를 cmux 소켓 API 호출로 변환합니다.",
+      "shimStep1": "cmux __tmux-compat으로 리다이렉트하는 tmux 심을 ~/.cmuxterm/claude-teams-bin/tmux에 생성합니다",
+      "shimStep2": "tmux 세션을 시뮬레이션하기 위해 TMUX 및 TMUX_PANE 환경 변수를 설정합니다",
+      "shimStep3": "Claude가 실제 tmux보다 먼저 심을 찾도록 심 디렉토리를 PATH 앞에 추가합니다",
+      "shimStep4": "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1을 활성화하고 팀 모드를 auto로 설정합니다",
+      "envVars": "환경 변수",
+      "envVarName": "변수",
+      "envVarPurpose": "용도",
+      "envTmux": "현재 cmux 워크스페이스와 패널을 인코딩하는 가짜 tmux 소켓 경로",
+      "envTmuxPane": "현재 cmux 패널에 매핑된 가짜 tmux 패널 식별자",
+      "envTeams": "Claude Code 에이전트 팀 기능 활성화",
+      "envSocket": "심이 연결할 cmux 제어 소켓 경로",
+      "directories": "디렉토리",
+      "dirPath": "경로",
+      "dirPurpose": "용도",
+      "dirShim": "tmux 명령을 cmux API 호출로 변환하는 tmux 심 스크립트가 있는 디렉토리",
+      "dirStore": "tmux 호환 버퍼 및 훅을 위한 영구 저장소",
+      "tmuxCommands": "지원되는 tmux 명령",
+      "tmuxCommandsDesc": "심이 다음 tmux 명령을 cmux 작업으로 변환합니다:",
+      "mapWorkspace": "새 cmux 워크스페이스를 생성합니다",
+      "mapSplit": "현재 cmux 패널을 분할합니다",
+      "mapSendText": "cmux 서피스로 텍스트를 전송합니다",
+      "mapReadText": "cmux 서피스에서 터미널 텍스트를 읽습니다",
+      "mapFocus": "cmux 패널 또는 워크스페이스에 포커스를 맞춥니다",
+      "mapClose": "cmux 서피스 또는 워크스페이스를 닫습니다",
+      "mapList": "cmux 패널 또는 워크스페이스를 나열합니다"
+    },
+    "ohMyOpenCode": {
+      "title": "oh-my-opencode",
+      "metaTitle": "oh-my-opencode - cmux",
+      "metaDescription": "cmux 내에서 oh-my-openagent를 사용하여 OpenCode를 실행합니다. 네이티브 cmux 분할 패널을 통한 멀티모델 에이전트 오케스트레이션.",
+      "nightlyWarning": "<nightly>나이틀리 빌드</nightly>에서만 사용 가능합니다.",
+      "intro": "cmux omo는 cmux 환경에서 oh-my-openagent 플러그인과 함께 OpenCode를 실행합니다. oh-my-openagent는 Claude, GPT, Gemini, Grok 등 여러 AI 모델을 전문 에이전트로 병렬 오케스트레이션합니다. 에이전트 패널이 생성되면 네이티브 cmux 분할 패널이 됩니다.",
+      "usage": "사용법",
+      "usageDesc": "omo 이후의 모든 인수는 OpenCode로 전달됩니다.",
+      "whatYouGet": "제공되는 기능",
+      "whatYouGetDesc": "oh-my-openagent의 TmuxSessionManager는 각 백그라운드 에이전트를 자체 패널에 생성합니다. cmux omo를 사용하면 해당 패널이 tmux 패널 대신 네이티브 cmux 분할 패널이 됩니다:",
+      "whatYouGet1": "각 서브에이전트(Hephaestus, Atlas, Oracle 등)가 워크스페이스에 표시되는 자체 cmux 분할을 갖습니다",
+      "whatYouGet2": "자동 레이아웃 관리: 에이전트가 추가되거나 제거됨에 따라 그리드(기본값: main-vertical)로 배열되고 크기가 조정됩니다",
+      "whatYouGet3": "3회 연속 유휴 폴링 후 새 메시지가 없는 유휴 에이전트는 자동으로 정리됩니다",
+      "whatYouGet4": "새 에이전트 패널을 위한 공간이 부족하면 대기열에 추가되어 2초마다 공간이 생길 때까지 재시도합니다",
+      "whatYouGet5": "메인 세션은 기본 패널에 유지되고 에이전트가 옆에서 작업합니다",
+      "firstRun": "첫 실행",
+      "firstRunDesc": "첫 실행 시 cmux omo가 모든 것을 자동으로 설정합니다:",
+      "firstRunStep1": "플러그인 배열에 oh-my-opencode가 등록된 섀도우 설정을 ~/.cmuxterm/omo-config/에 생성합니다",
+      "firstRunStep2": "oh-my-opencode npm 패키지가 없으면 bun 또는 npm을 사용하여 설치합니다",
+      "firstRunStep3": "원본 ~/.config/opencode/ 디렉토리에서 node_modules, package.json, 플러그인 설정을 심볼릭 링크로 연결합니다",
+      "firstRunStep4": "oh-my-opencode 설정에서 tmux 모드를 활성화합니다(tmux.enabled 기본값은 false이며 cmux omo가 이를 켭니다)",
+      "firstRunSafe": "원본 ~/.config/opencode/ 설정은 절대 수정되지 않습니다. 일반 opencode 실행은 이전과 동일하게 작동합니다.",
+      "howItWorks": "동작 방식",
+      "howItWorksDesc": "cmux claude-teams와 동일한 방식입니다. tmux 심이 oh-my-openagent의 TmuxSessionManager에서 나오는 tmux 명령을 가로채어 cmux API 호출로 변환합니다.",
+      "shimStep1": "cmux __tmux-compat으로 리다이렉트하는 tmux 심을 ~/.cmuxterm/omo-bin/tmux에 생성합니다",
+      "shimStep2": "tmux 세션을 시뮬레이션하기 위해 TMUX 및 TMUX_PANE을 설정합니다",
+      "shimStep3": "oh-my-opencode 설정에서 tmux.enabled를 활성화합니다(시각적 패널 생성에 필요)",
+      "shimStep4": "OPENCODE_CONFIG_DIR을 섀도우 설정 디렉토리로 지정합니다",
+      "shimStep5": "심 디렉토리를 PATH 앞에 추가하고 opencode를 실행합니다",
+      "directories": "디렉토리",
+      "dirPath": "경로",
+      "dirPurpose": "용도",
+      "dirShim": "tmux 심 스크립트가 있는 디렉토리",
+      "dirShadow": "oh-my-opencode 플러그인이 등록되고 tmux가 활성화된 섀도우 OpenCode 설정(원본 설정에 심볼릭 링크)",
+      "dirStore": "tmux 호환 버퍼 및 훅을 위한 영구 저장소",
+      "shadowConfig": "섀도우 설정",
+      "shadowConfigDesc": "cmux omo는 섀도우 설정 디렉토리를 사용하므로 원본 OpenCode 설정에 영향을 주지 않습니다:",
+      "shadowStep1": "플러그인 배열에 oh-my-opencode가 추가된 ~/.config/opencode/opencode.json 사본을 생성합니다",
+      "shadowStep2": "원본 디렉토리에서 node_modules, package.json, bun.lock을 심볼릭 링크로 연결합니다",
+      "shadowStep3": "tmux.enabled가 true로 설정된 oh-my-opencode.json을 작성합니다",
+      "shadowStep4": "opencode를 실행하기 전에 OPENCODE_CONFIG_DIR을 섀도우 디렉토리로 설정합니다",
+      "envVars": "환경 변수",
+      "envVarName": "변수",
+      "envVarPurpose": "용도",
+      "envTmux": "현재 cmux 워크스페이스와 패널을 인코딩하는 가짜 tmux 소켓 경로",
+      "envTmuxPane": "현재 cmux 패널에 매핑된 가짜 tmux 패널 식별자",
+      "envConfigDir": "oh-my-opencode가 활성화된 섀도우 설정 디렉토리를 가리킵니다",
+      "envSocket": "심이 연결할 cmux 제어 소켓 경로"
+    },
+    "ohMyCodex": {
+      "title": "oh-my-codex",
+      "metaTitle": "oh-my-codex - cmux",
+      "metaDescription": "팀 모드와 에이전트 오케스트레이션을 위한 네이티브 분할 패널 통합과 함께 cmux 내에서 Oh My Codex(OMX)를 실행합니다.",
+      "intro": "cmux omx는 cmux 환경에서 Oh My Codex(OMX)를 실행합니다. OMX는 30개 이상의 전문 에이전트 역할, 워크플로 스킬, tmux 기반 병렬 팀 실행을 갖춘 OpenAI Codex CLI용 멀티에이전트 오케스트레이션 레이어입니다. OMX가 팀 패널이나 HUD 디스플레이를 생성하면 네이티브 cmux 분할 패널이 됩니다.",
+      "usage": "사용법",
+      "usageDesc": "omx 이후의 모든 인수는 omx CLI로 전달됩니다.",
+      "whatYouGet": "제공되는 기능",
+      "whatYouGetDesc": "OMX의 팀 모드와 HUD는 패널 관리에 tmux를 사용합니다. cmux omx를 사용하면 해당 패널이 네이티브 cmux 분할 패널이 됩니다:",
+      "whatYouGet1": "팀 워커 패널(Codex/Claude 세션)이 워크스페이스의 cmux 분할로 표시됩니다",
+      "whatYouGet2": "HUD 상태 표시에 분할 패널에서 모델, 브랜치, 컨텍스트, 토큰 사용량이 표시됩니다",
+      "whatYouGet3": "자동 레이아웃 관리로 에이전트 패널이 main-vertical 그리드에 배열됩니다",
+      "whatYouGet4": "메인 세션은 기본 패널에 유지되고 워커가 옆에서 작업합니다",
+      "prerequisites": "사전 요구 사항",
+      "prerequisitesDesc": "OMX는 OpenAI Codex CLI와 Codex 인증 설정이 필요합니다. omx doctor로 설치 상태를 확인하세요.",
+      "howItWorks": "동작 방식",
+      "howItWorksDesc": "다른 cmux 에이전트 통합과 동일한 방식입니다. tmux 심이 OMX의 tmux 명령을 가로채어 cmux API 호출로 변환합니다.",
+      "shimStep1": "cmux __tmux-compat으로 리다이렉트하는 tmux 심을 ~/.cmuxterm/omx-bin/tmux에 생성합니다",
+      "shimStep2": "tmux 세션을 시뮬레이션하기 위해 TMUX 및 TMUX_PANE을 설정합니다",
+      "shimStep3": "심 디렉토리를 PATH 앞에 추가합니다",
+      "shimStep4": "나머지 모든 인수를 전달하면서 omx를 실행합니다",
+      "directories": "디렉토리",
+      "dirPath": "경로",
+      "dirPurpose": "용도",
+      "dirShim": "tmux 심 스크립트가 있는 디렉토리",
+      "dirStore": "tmux 호환 버퍼 및 훅을 위한 영구 저장소",
+      "envVars": "환경 변수",
+      "envVarName": "변수",
+      "envVarPurpose": "용도",
+      "envTmux": "현재 cmux 워크스페이스와 패널을 인코딩하는 가짜 tmux 소켓 경로",
+      "envTmuxPane": "현재 cmux 패널에 매핑된 가짜 tmux 패널 식별자",
+      "envSocket": "심이 연결할 cmux 제어 소켓 경로"
+    },
+    "ohMyClaudeCode": {
+      "title": "oh-my-claudecode",
+      "metaTitle": "oh-my-claudecode - cmux",
+      "metaDescription": "멀티에이전트 오케스트레이션을 위한 네이티브 분할 패널 통합과 함께 cmux 내에서 Oh My Claude Code(OMC)를 실행합니다.",
+      "intro": "cmux omc는 cmux 환경에서 Oh My Claude Code(OMC)를 실행합니다. OMC는 19개의 전문 에이전트, 스마트 모델 라우팅, tmux 기반 팀 파이프라인을 갖춘 Claude Code용 멀티에이전트 오케스트레이션 시스템입니다. OMC가 팀 패널을 생성하면 네이티브 cmux 분할 패널이 됩니다.",
+      "usage": "사용법",
+      "usageDesc": "omc 이후의 모든 인수는 omc CLI로 전달됩니다.",
+      "whatYouGet": "제공되는 기능",
+      "whatYouGetDesc": "OMC의 팀 모드는 패널 관리에 tmux를 사용합니다. cmux omc를 사용하면 해당 패널이 네이티브 cmux 분할 패널이 됩니다:",
+      "whatYouGet1": "팀 워커 패널(Claude/Codex/Gemini 세션)이 워크스페이스의 cmux 분할로 표시됩니다",
+      "whatYouGet2": "HUD 모니터링 디스플레이에 분할 패널에서 실시간 상태가 표시됩니다",
+      "whatYouGet3": "자동 레이아웃 관리로 에이전트 패널이 main-vertical 그리드에 배열됩니다",
+      "whatYouGet4": "메인 세션은 기본 패널에 유지되고 에이전트가 옆에서 작업합니다",
+      "prerequisites": "사전 요구 사항",
+      "prerequisitesDesc": "OMC는 Claude Code CLI가 설치되어 있고 인증되어 있어야 합니다.",
+      "howItWorks": "동작 방식",
+      "howItWorksDesc": "cmux claude-teams와 동일한 방식입니다. tmux 심이 OMC의 tmux 명령을 가로채어 cmux API 호출로 변환합니다.",
+      "shimStep1": "cmux __tmux-compat으로 리다이렉트하는 tmux 심을 ~/.cmuxterm/omc-bin/tmux에 생성합니다",
+      "shimStep2": "tmux 세션을 시뮬레이션하기 위해 TMUX 및 TMUX_PANE을 설정합니다",
+      "shimStep3": "심 디렉토리를 PATH 앞에 추가합니다",
+      "shimStep4": "Claude Code 호환성을 위한 NODE_OPTIONS 복원 모듈을 주입합니다",
+      "shimStep5": "나머지 모든 인수를 전달하면서 omc를 실행합니다",
+      "directories": "디렉토리",
+      "dirPath": "경로",
+      "dirPurpose": "용도",
+      "dirShim": "tmux 심 스크립트가 있는 디렉토리",
+      "dirStore": "tmux 호환 버퍼 및 훅을 위한 영구 저장소",
+      "envVars": "환경 변수",
+      "envVarName": "변수",
+      "envVarPurpose": "용도",
+      "envTmux": "현재 cmux 워크스페이스와 패널을 인코딩하는 가짜 tmux 소켓 경로",
+      "envTmuxPane": "현재 cmux 패널에 매핑된 가짜 tmux 패널 식별자",
+      "envSocket": "심이 연결할 cmux 제어 소켓 경로"
     },
     "navItems": {
       "gettingStarted": "시작하기",
@@ -621,12 +866,13 @@
       "apiReference": "API 레퍼런스",
       "browserAutomation": "브라우저 자동화",
       "notifications": "알림",
+      "ssh": "SSH",
       "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
-      "changelog": "변경 로그",
       "ohMyCodex": "oh-my-codex",
-      "ohMyClaudeCode": "oh-my-claudecode"
+      "ohMyClaudeCode": "oh-my-claudecode",
+      "changelog": "변경 로그"
     }
   },
   "legal": {
@@ -636,7 +882,9 @@
   },
   "wallOfLove": {
     "title": "사랑의 벽",
-    "description": "사람들이 cmux에 대해 말하는 것."
+    "description": "사람들이 cmux에 대해 말하는 것.",
+    "metaTitle": "사랑의 벽 — cmux",
+    "metaDescription": "멀티태스킹을 위한 터미널 cmux에 대해 사람들이 하는 이야기."
   },
   "testimonials": {
     "mitchellh": "또 하나의 libghostty 기반 프로젝트. 이번엔 세로 탭이 있는 macOS 터미널로, 터미널 기반 AI 에이전트 워크플로를 많이 쓰는 사람을 위해 정리/알림 기능과 내장 스크립팅 가능한 브라우저를 탑재.",
