@@ -130,6 +130,39 @@ struct SessionEntry: Identifiable, Hashable {
     }
 }
 
+// MARK: - Drag registry
+
+/// Process-wide registry that pairs a synthetic drag UUID with a SessionEntry.
+/// Used to forward sessions through bonsplit's external-tab-drop hook (which only
+/// carries UUIDs in its payload). Workspace.handleExternalTabDrop consults this
+/// to decide whether a drop should spawn a brand new terminal vs. move an existing tab.
+final class SessionDragRegistry {
+    static let shared = SessionDragRegistry()
+
+    private let lock = NSLock()
+    private var pending: [UUID: SessionEntry] = [:]
+
+    func register(_ entry: SessionEntry) -> UUID {
+        let id = UUID()
+        lock.lock()
+        pending[id] = entry
+        lock.unlock()
+        // Auto-expire so a cancelled drag doesn't leak forever.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 60) { [weak self] in
+            self?.lock.lock()
+            self?.pending.removeValue(forKey: id)
+            self?.lock.unlock()
+        }
+        return id
+    }
+
+    func consume(id: UUID) -> SessionEntry? {
+        lock.lock()
+        defer { lock.unlock() }
+        return pending.removeValue(forKey: id)
+    }
+}
+
 // MARK: - Store
 
 enum SessionGrouping: String, CaseIterable, Identifiable, Codable {

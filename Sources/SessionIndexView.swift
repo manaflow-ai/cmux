@@ -386,10 +386,7 @@ private struct SessionRow: View {
             if let onResume { onResume(entry) }
         }
         .onDrag {
-            // Provide the resume command as plain text. Dropping on a terminal
-            // surface inserts it; right-click → Resume in New Tab still works
-            // for the create-tab path.
-            NSItemProvider(object: entry.resumeCommand as NSString)
+            sessionDragItemProvider(for: entry)
         } preview: {
             HStack(spacing: 6) {
                 Image(entry.agent.assetName)
@@ -657,8 +654,64 @@ private struct PopoverRow: View {
         .onHover { isHovered = $0 }
         .onTapGesture(count: 2) { onActivate() }
         .onDrag {
-            NSItemProvider(object: entry.resumeCommand as NSString)
+            sessionDragItemProvider(for: entry)
         }
         .help(entry.cwdLabel ?? entry.displayTitle)
     }
+}
+
+// MARK: - Drag payload
+
+/// Build the NSItemProvider used when dragging a session row.
+///
+/// Two type representations:
+/// 1. `com.splittabbar.tabtransfer` — bonsplit's drop overlays light up so the
+///    user can pick insert / split-left / split-right / etc. The synthetic UUID
+///    embedded as the tab id is registered in `SessionDragRegistry` so
+///    `Workspace.handleExternalTabDrop` can look up the original SessionEntry
+///    and create a brand new terminal at the chosen destination.
+/// 2. `public.utf8-plain-text` — fallback for terminal text-drop. Inserts the
+///    resume command into an existing terminal surface.
+private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
+    let dragId = SessionDragRegistry.shared.register(entry)
+    let provider = NSItemProvider()
+
+    // tabTransfer JSON. Field names mirror Bonsplit.TabTransferData / TabItem
+    // CodingKeys. UUIDs are encoded as uppercased hyphenated strings (Swift's
+    // default UUID Codable representation).
+    let tabPayload: [String: Any] = [
+        "id": dragId.uuidString,
+        "title": entry.displayTitle,
+        "hasCustomTitle": false,
+        "icon": "terminal.fill",
+        "kind": "terminal",
+        "isDirty": false,
+        "showsNotificationBadge": false,
+        "isLoading": false,
+        "isPinned": false,
+    ]
+    let transferPayload: [String: Any] = [
+        "tab": tabPayload,
+        "sourcePaneId": UUID().uuidString,
+        "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: transferPayload) {
+        provider.registerDataRepresentation(
+            forTypeIdentifier: "com.splittabbar.tabtransfer",
+            visibility: .ownProcess
+        ) { completion in
+            completion(data, nil)
+            return nil
+        }
+    }
+
+    let textData = entry.resumeCommand.data(using: .utf8) ?? Data()
+    provider.registerDataRepresentation(
+        forTypeIdentifier: "public.utf8-plain-text",
+        visibility: .all
+    ) { completion in
+        completion(textData, nil)
+        return nil
+    }
+    return provider
 }
