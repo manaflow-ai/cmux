@@ -411,10 +411,11 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll.followUp"))
         XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer"))
         XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer.followUp"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt.followUp"))
 
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange.followUp"))
-        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "commandHint:merge"))
     }
 
