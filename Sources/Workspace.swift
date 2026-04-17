@@ -10958,6 +10958,42 @@ final class Workspace: Identifiable, ObservableObject {
         runRefreshPass(0.03)
     }
 
+    func scheduleInitialSelectedTerminalRenderRefresh(reason: String = "workspace.create.initialSelection") {
+        guard let terminalPanel = focusedTerminalPanel else { return }
+        let panelId = terminalPanel.id
+
+        // New-workspace insertion can saturate the current layout turn before the freshly
+        // selected terminal gets the same portal sync/reveal path that a tab re-present does.
+        terminalPanel.requestViewReattach()
+        scheduleTerminalGeometryReconcile()
+
+        let runRefreshPass: (TimeInterval) -> Void = { [weak self] delay in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard let self,
+                      self.owningTabManager?.selectedTabId == self.id,
+                      self.focusedPanelId == panelId,
+                      let panel = self.terminalPanel(for: panelId) else { return }
+
+                if let window = panel.hostedView.window {
+                    TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+                } else {
+                    TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+                }
+
+                panel.hostedView.reconcileGeometryNow()
+                if panel.surface.surface != nil {
+                    panel.hostedView.refreshSurfaceNow(reason: reason)
+                } else {
+                    panel.surface.requestBackgroundSurfaceStartIfNeeded()
+                }
+                panel.hostedView.requestVisibleSurfaceDisplayIfNeeded()
+            }
+        }
+
+        runRefreshPass(0)
+        runRefreshPass(0.03)
+    }
+
     private func closeTabs(_ tabIds: [TabID], skipPinned: Bool = true) {
         for tabId in tabIds {
             if skipPinned,
