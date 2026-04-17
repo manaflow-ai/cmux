@@ -190,6 +190,7 @@ private struct IndexSectionView: View {
                 } else {
                     ForEach(Array(section.entries.prefix(rowLimit))) { entry in
                         SessionRow(entry: entry, onResume: onResume)
+                            .equatable()
                     }
                     if section.entries.count > rowLimit {
                         showMoreButton
@@ -356,10 +357,16 @@ private struct SectionGapDropDelegate: DropDelegate {
     }
 }
 
-private struct SessionRow: View {
+private struct SessionRow: View, Equatable {
     let entry: SessionEntry
     let onResume: ((SessionEntry) -> Void)?
     @State private var isHovered: Bool = false
+
+    static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
+        // Skip body re-eval during scroll when the entry is unchanged.
+        // The closure isn't compared (it comes from stable parent state).
+        lhs.entry == rhs.entry
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -592,6 +599,7 @@ private struct SectionPopoverView: View {
                                 onResume?(entry)
                                 onDismiss()
                             }
+                            .equatable()
                         }
                     }
                 }
@@ -670,11 +678,15 @@ private struct SectionPopoverView: View {
     }
 }
 
-private struct PopoverRow: View {
+private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
+
+    static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
+        lhs.entry == rhs.entry
+    }
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
