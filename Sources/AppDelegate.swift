@@ -2301,6 +2301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserAddressBarFocusedPanelId: UUID?
     private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
+    private var screenChangeSnapshotWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatKeyCode: UInt16?
     private var browserOmnibarRepeatDelta: Int = 0
     private var browserAddressBarFocusObserver: NSObjectProtocol?
@@ -2628,6 +2629,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         NSWindow.allowsAutomaticWindowTabbing = false
+        // Disable macOS system window restoration to prevent duplicate windows
+        // when external displays are disconnected/reconnected (#1802).
+        // The app uses its own SessionPersistenceStore for window state.
+        // Uses register(defaults:) so we set the app default without overwriting
+        // a user-level preference if one exists.
+        UserDefaults.standard.register(defaults: ["NSQuitAlwaysKeepsWindows": false])
         disableNativeTabbingShortcut()
         if !isRunningUnderXCTest {
             ensureApplicationIcon()
@@ -2950,6 +2957,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         isTerminatingApp = true
+        screenChangeSnapshotWorkItem?.cancel()
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
@@ -4383,6 +4391,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+
+        // When an external display is disconnected/reconnected, macOS can trigger
+        // window restoration that creates duplicate windows (#1802). Save a snapshot
+        // so the session state stays consistent after the display topology change.
+        // Debounced because this notification can fire many times in rapid succession
+        // during a single display reconfiguration event.
+        let screenChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleScreenChangeSnapshot()
+        }
+        lifecycleSnapshotObservers.append(screenChangeObserver)
+    }
+
+    private func scheduleScreenChangeSnapshot() {
+        screenChangeSnapshotWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isTerminatingApp else { return }
+                _ = self.saveSessionSnapshot(includeScrollback: false)
+            }
+        }
+        screenChangeSnapshotWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
@@ -4815,6 +4849,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarSelectionState: SidebarSelectionState
     ) {
         tabManager.window = window
+        // Prevent macOS from restoring this window on display reconfiguration (#1802).
+        window.isRestorable = false
 
         let key = ObjectIdentifier(window)
         #if DEBUG
