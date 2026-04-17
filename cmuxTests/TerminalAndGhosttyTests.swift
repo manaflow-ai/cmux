@@ -4079,6 +4079,62 @@ final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
     }
 }
 
+final class GhosttyFlagsChangedDecisionTests: XCTestCase {
+    // Baseline: with no marked text the decision must mirror the existing helper.
+    func testForwardsLeftShiftPressWhenNoMarkedText() {
+        let decision = cmuxFlagsChangedDecision(
+            keyCode: 0x38,
+            modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK),
+            hasMarkedText: false
+        )
+        XCTAssertEqual(decision?.action, GHOSTTY_ACTION_PRESS)
+        XCTAssertEqual(decision?.composing, false)
+    }
+
+    func testForwardsLeftShiftReleaseWhenNoMarkedText() {
+        let decision = cmuxFlagsChangedDecision(
+            keyCode: 0x38,
+            modifierFlagsRawValue: 0,
+            hasMarkedText: false
+        )
+        XCTAssertEqual(decision?.action, GHOSTTY_ACTION_RELEASE)
+        XCTAssertEqual(decision?.composing, false)
+    }
+
+    // Issue #2949: while marked text is active the modifier release must
+    // still reach Ghostty so it does not retain a phantom held modifier
+    // after `unmarkText` commits the composition.
+    func testForwardsLeftShiftReleaseWhileMarkedTextActive() {
+        let decision = cmuxFlagsChangedDecision(
+            keyCode: 0x38,
+            modifierFlagsRawValue: 0,
+            hasMarkedText: true
+        )
+        XCTAssertEqual(decision?.action, GHOSTTY_ACTION_RELEASE)
+        XCTAssertEqual(decision?.composing, true)
+    }
+
+    func testForwardsLeftShiftPressWhileMarkedTextActive() {
+        let decision = cmuxFlagsChangedDecision(
+            keyCode: 0x38,
+            modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK),
+            hasMarkedText: true
+        )
+        XCTAssertEqual(decision?.action, GHOSTTY_ACTION_PRESS)
+        XCTAssertEqual(decision?.composing, true)
+    }
+
+    func testNonModifierKeyReturnsNilEvenWithMarkedText() {
+        XCTAssertNil(
+            cmuxFlagsChangedDecision(
+                keyCode: 0x00,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue,
+                hasMarkedText: true
+            )
+        )
+    }
+}
+
 
 final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     func testStableSocketBindPermissionFailureFallsBackToUserScopedSocket() {

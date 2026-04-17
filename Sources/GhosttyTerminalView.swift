@@ -100,6 +100,33 @@ func cmuxGhosttyModifierActionForFlagsChanged(
 
     return sidePressed ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE
 }
+
+// Decision wrapper around `cmuxGhosttyModifierActionForFlagsChanged` that
+// captures the IME composition state so `flagsChanged(with:)` does not have
+// to make policy decisions inline. Tests target this seam directly because
+// `flagsChanged(with:)` itself requires a live `GhosttyNSView` + Ghostty
+// surface that cannot be constructed in a unit test harness.
+struct CmuxFlagsChangedDecision: Equatable {
+    let action: ghostty_input_action_e
+    let composing: Bool
+}
+
+func cmuxFlagsChangedDecision(
+    keyCode: UInt16,
+    modifierFlagsRawValue: UInt,
+    hasMarkedText: Bool
+) -> CmuxFlagsChangedDecision? {
+    // BUG #2949: while marked text is active the modifier action is dropped
+    // entirely, so a Shift release during an IME composition leaves Ghostty
+    // with a phantom held Shift after `unmarkText`. Mirrors the current
+    // call-site behaviour; the next commit fixes it.
+    guard !hasMarkedText else { return nil }
+    guard let action = cmuxGhosttyModifierActionForFlagsChanged(
+        keyCode: keyCode,
+        modifierFlagsRawValue: modifierFlagsRawValue
+    ) else { return nil }
+    return CmuxFlagsChangedDecision(action: action, composing: false)
+}
 #endif
 
 private func cmuxRuntimeReadClipboardCallback(
@@ -7081,22 +7108,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        if !hasMarkedText(),
-           let action = cmuxGhosttyModifierActionForFlagsChanged(
+        if let decision = cmuxFlagsChangedDecision(
             keyCode: event.keyCode,
-            modifierFlagsRawValue: event.modifierFlags.rawValue
-           ) {
+            modifierFlagsRawValue: event.modifierFlags.rawValue,
+            hasMarkedText: hasMarkedText()
+        ) {
             // `flagsChanged` carries modifier-only state, not textual key input.
             // Building this via `ghosttyKeyEvent(for:surface:)` would fall through
             // to `unshiftedCodepointFromEvent`, which probes AppKit character APIs
             // that are not safe for modifier-only events.
             var keyEvent = ghostty_input_key_s()
-            keyEvent.action = action
+            keyEvent.action = decision.action
             keyEvent.keycode = UInt32(event.keyCode)
             keyEvent.mods = modsFromEvent(event)
             keyEvent.consumed_mods = GHOSTTY_MODS_NONE
             keyEvent.text = nil
-            keyEvent.composing = false
+            keyEvent.composing = decision.composing
             keyEvent.unshifted_codepoint = 0
             _ = sendGhosttyKey(surface, keyEvent)
         }
