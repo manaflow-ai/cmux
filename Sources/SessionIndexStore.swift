@@ -953,8 +953,145 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Returns Codex session entries paginated by mtime desc.
-    /// Same shape as `loadClaudeEntries` — see that doc comment for the empty/needle/rg paths.
+    /// Primary path: query Codex's own `~/.codex/state_5.sqlite` (`threads`
+    /// table) — Codex pre-extracts cwd, title, model, branch, approval, sandbox,
+    /// effort, and rollout_path so we don't need to read jsonl files at all.
+    /// Fallback (DB missing): the file-scan path below.
     nonisolated private static func loadCodexEntries(
+        needle: String, cwdFilter: String?, offset: Int, limit: Int
+    ) async -> [SessionEntry] {
+        if let viaSQL = loadCodexEntriesViaSQL(
+            needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit
+        ) {
+            return viaSQL
+        }
+        return await loadCodexEntriesFromDisk(
+            needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit
+        )
+    }
+
+    /// SQL-backed Codex loader. Returns nil if `state_5.sqlite` doesn't exist or
+    /// can't be opened, signaling caller to fall back to the disk scan.
+    nonisolated private static func loadCodexEntriesViaSQL(
+        needle: String, cwdFilter: String?, offset: Int, limit: Int
+    ) -> [SessionEntry]? {
+        let dbPath = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dbPath) else { return nil }
+
+        // Snapshot DB + WAL/SHM to avoid contention with a running Codex.
+        let snapshotDir = fm.temporaryDirectory.appendingPathComponent(
+            "cmux-codex-search-\(UUID().uuidString)", isDirectory: true
+        )
+        do { try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true) } catch { return nil }
+        defer { try? fm.removeItem(at: snapshotDir) }
+        let snapshotDB = snapshotDir.appendingPathComponent("state.db")
+        do { try fm.copyItem(atPath: dbPath, toPath: snapshotDB.path) } catch { return nil }
+        for sidecar in ["-wal", "-shm"] {
+            let src = dbPath + sidecar
+            let dst = snapshotDB.path + sidecar
+            if fm.fileExists(atPath: src) { try? fm.copyItem(atPath: src, toPath: dst) }
+        }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return nil
+        }
+        defer { sqlite3_close(db) }
+
+        var sql = """
+            SELECT id, rollout_path, cwd, title, model, git_branch,
+                   approval_mode, sandbox_policy, reasoning_effort,
+                   first_user_message, updated_at_ms
+            FROM threads
+            WHERE archived = 0
+            """
+        var conditions: [String] = []
+        if !needle.isEmpty {
+            // Match against title, first_user_message, cwd, and git_branch.
+            conditions.append("(LOWER(title) LIKE ?1 OR LOWER(first_user_message) LIKE ?1 OR LOWER(cwd) LIKE ?1 OR LOWER(git_branch) LIKE ?1)")
+        }
+        if cwdFilter != nil {
+            conditions.append("cwd = ?\(needle.isEmpty ? 1 : 2)")
+        }
+        if !conditions.isEmpty {
+            sql += " AND " + conditions.joined(separator: " AND ")
+        }
+        sql += " ORDER BY updated_at_ms DESC LIMIT \(limit) OFFSET \(offset)"
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        if !needle.isEmpty {
+            sqlite3_bind_text(stmt, 1, "%\(needle)%", -1, SQLITE_TRANSIENT_FN)
+        }
+        if let cwdFilter {
+            sqlite3_bind_text(stmt, needle.isEmpty ? 1 : 2, cwdFilter, -1, SQLITE_TRANSIENT_FN)
+        }
+
+        var results: [SessionEntry] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let sid = sqliteText(stmt, 0) ?? ""
+            let rollout = sqliteText(stmt, 1) ?? ""
+            let cwd = sqliteText(stmt, 2)
+            let titleField = sqliteText(stmt, 3) ?? ""
+            let model = sqliteText(stmt, 4)
+            let branch = sqliteText(stmt, 5)
+            let approval = sqliteText(stmt, 6)
+            let sandboxJSON = sqliteText(stmt, 7)
+            let effort = sqliteText(stmt, 8)
+            let firstMsg = sqliteText(stmt, 9) ?? ""
+            let updatedMs = sqlite3_column_int64(stmt, 10)
+            let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
+
+            // Codex stores sandbox_policy as JSON like {"type":"danger-full-access"}.
+            let sandboxMode = sandboxJSON
+                .flatMap { $0.data(using: .utf8) }
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                .flatMap { $0["type"] as? String }
+
+            // Prefer Codex's curated `title`. Fall back to first_user_message,
+            // skipping envelope wrappers (<environment_context>, etc.).
+            let displayTitle: String
+            if !titleField.isEmpty {
+                displayTitle = titleField
+            } else if let real = realCodexUserMessage(firstMsg) {
+                displayTitle = real
+            } else {
+                displayTitle = ""
+            }
+
+            let fileURL: URL? = rollout.isEmpty ? nil : URL(fileURLWithPath: rollout)
+            results.append(SessionEntry(
+                id: "codex:" + (fileURL?.path ?? sid),
+                agent: .codex,
+                sessionId: sid,
+                title: displayTitle,
+                cwd: cwd,
+                gitBranch: branch?.isEmpty == false ? branch : nil,
+                pullRequest: nil,
+                modified: modified,
+                fileURL: fileURL,
+                specifics: .codex(
+                    model: model?.isEmpty == false ? model : nil,
+                    approvalPolicy: approval?.isEmpty == false ? approval : nil,
+                    sandboxMode: sandboxMode,
+                    effort: effort?.isEmpty == false ? effort : nil
+                )
+            ))
+        }
+        return results
+    }
+
+    /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old
+    /// Codex installs, or non-default config). Same shape as the original loader.
+    nonisolated private static func loadCodexEntriesFromDisk(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
         let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
