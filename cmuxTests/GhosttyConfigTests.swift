@@ -4082,4 +4082,27 @@ final class GhosttyConfigScrollbackLimitParseTests: XCTestCase {
         let defaultLimit = GhosttyConfig().scrollbackLimit
         XCTAssertEqual(parsedScrollbackLimit(from: "abc"), defaultLimit)
     }
+
+    func testAcceptsTerabyteSuffix() {
+        XCTAssertEqual(parsedScrollbackLimit(from: "1T"), 1 << 40)
+    }
+
+    func testAcceptsTerabyteSuffixWithB() {
+        XCTAssertEqual(parsedScrollbackLimit(from: "1TB"), 1 << 40)
+    }
+
+    func testAcceptsBareByteSuffix() {
+        // `1024B` should be treated as 1024 bytes — `B` is a unit marker only,
+        // never a multiplier, so the parser must not collapse it onto the
+        // K/M/G/T branches.
+        XCTAssertEqual(parsedScrollbackLimit(from: "1024B"), 1024)
+    }
+
+    func testRejectsOverflowingSuffixedValueKeepsDefault() {
+        // multipliedReportingOverflow must short-circuit pathological inputs
+        // such as `9999999999G` (≈ 10⁻¹⁹ × 2⁶⁴) instead of wrapping to a
+        // negative byte count.
+        let defaultLimit = GhosttyConfig().scrollbackLimit
+        XCTAssertEqual(parsedScrollbackLimit(from: "9999999999G"), defaultLimit)
+    }
 }
