@@ -116,16 +116,19 @@ func cmuxFlagsChangedDecision(
     modifierFlagsRawValue: UInt,
     hasMarkedText: Bool
 ) -> CmuxFlagsChangedDecision? {
-    // BUG #2949: while marked text is active the modifier action is dropped
-    // entirely, so a Shift release during an IME composition leaves Ghostty
-    // with a phantom held Shift after `unmarkText`. Mirrors the current
-    // call-site behaviour; the next commit fixes it.
-    guard !hasMarkedText else { return nil }
+    // Always forward modifier press/release events. macOS does not deliver
+    // `keyUp` for modifier-only events, so dropping them while an IME
+    // composition is active leaves Ghostty with a phantom held modifier
+    // after `unmarkText` commits the composition (#2949).
+    //
+    // The IME composition state is forwarded as `composing` so Ghostty can
+    // suppress side effects on its side if it wants, while the modifier
+    // edge itself is never lost.
     guard let action = cmuxGhosttyModifierActionForFlagsChanged(
         keyCode: keyCode,
         modifierFlagsRawValue: modifierFlagsRawValue
     ) else { return nil }
-    return CmuxFlagsChangedDecision(action: action, composing: false)
+    return CmuxFlagsChangedDecision(action: action, composing: hasMarkedText)
 }
 #endif
 
