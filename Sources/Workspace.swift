@@ -763,10 +763,23 @@ extension Workspace {
 extension Workspace {
 
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) {
-        guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
+        _ = applyCustomLayoutChecked(layout, baseCwd: baseCwd)
+    }
+
+    /// Applies a layout and reports any structural failures encountered while
+    /// building the split tree. Used by callers (the V2 socket
+    /// `workspace.create` path) that need to roll back the workspace when the
+    /// layout cannot be fully realized; the existing `applyCustomLayout`
+    /// signature stays unchanged for the cmux.json executor path.
+    @discardableResult
+    func applyCustomLayoutChecked(_ layout: CmuxLayoutNode, baseCwd: String) -> [String] {
+        guard let rootPaneId = bonsplitController.allPaneIds.first else {
+            return ["no root pane available to apply layout into"]
+        }
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
-        buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
+        var failures: [String] = []
+        buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves, failures: &failures)
 
         // First leaf reuses the initial terminal created by addWorkspace;
         // subsequent leaves were created via newTerminalSplit which also seeds
@@ -782,12 +795,15 @@ extension Workspace {
         if let focusPanelId {
             focusPanel(focusPanelId)
         }
+
+        return failures
     }
 
     private func buildCustomLayoutTree(
         _ node: CmuxLayoutNode,
         inPane paneId: PaneID,
-        leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])]
+        leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])],
+        failures: inout [String]
     ) {
         switch node {
         case .pane(let pane):
@@ -795,7 +811,9 @@ extension Workspace {
 
         case .split(let split):
             guard split.children.count == 2 else {
-                NSLog("[CmuxConfig] split node requires exactly 2 children, got %d", split.children.count)
+                let message = "split node requires exactly 2 children, got \(split.children.count)"
+                NSLog("[CmuxConfig] %@", message)
+                failures.append(message)
                 leaves.append((paneId: paneId, surfaces: []))
                 return
             }
@@ -817,12 +835,13 @@ extension Workspace {
                       focus: false
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
+                failures.append("could not create split for pane \(paneId)")
                 leaves.append((paneId: paneId, surfaces: []))
                 return
             }
 
-            buildCustomLayoutTree(split.children[0], inPane: paneId, leaves: &leaves)
-            buildCustomLayoutTree(split.children[1], inPane: secondPaneId, leaves: &leaves)
+            buildCustomLayoutTree(split.children[0], inPane: paneId, leaves: &leaves, failures: &failures)
+            buildCustomLayoutTree(split.children[1], inPane: secondPaneId, leaves: &leaves, failures: &failures)
         }
     }
 
