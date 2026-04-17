@@ -763,16 +763,28 @@ extension Workspace {
 extension Workspace {
 
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) {
-        _ = applyCustomLayoutChecked(layout, baseCwd: baseCwd)
+        // Legacy best-effort path used by the cmux.json executor. Build
+        // failures are NSLog'd by `buildCustomLayoutTree` and a partial
+        // layout is rendered for whatever leaves succeeded. The transactional
+        // counterpart is `applyCustomLayoutChecked` below.
+        _ = applyCustomLayoutImpl(layout, baseCwd: baseCwd, shortCircuitOnFailure: false)
     }
 
     /// Applies a layout and reports any structural failures encountered while
-    /// building the split tree. Used by callers (the V2 socket
-    /// `workspace.create` path) that need to roll back the workspace when the
-    /// layout cannot be fully realized; the existing `applyCustomLayout`
-    /// signature stays unchanged for the cmux.json executor path.
+    /// building the split tree. Short-circuits before any pane is populated
+    /// when build failures are present so a transactional caller (the V2
+    /// socket `workspace.create` path) can roll back without first having
+    /// spawned terminal processes.
     @discardableResult
     func applyCustomLayoutChecked(_ layout: CmuxLayoutNode, baseCwd: String) -> [String] {
+        return applyCustomLayoutImpl(layout, baseCwd: baseCwd, shortCircuitOnFailure: true)
+    }
+
+    private func applyCustomLayoutImpl(
+        _ layout: CmuxLayoutNode,
+        baseCwd: String,
+        shortCircuitOnFailure: Bool
+    ) -> [String] {
         guard let rootPaneId = bonsplitController.allPaneIds.first else {
             return ["no root pane available to apply layout into"]
         }
@@ -780,6 +792,10 @@ extension Workspace {
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
         var failures: [String] = []
         buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves, failures: &failures)
+
+        if shortCircuitOnFailure, !failures.isEmpty {
+            return failures
+        }
 
         // First leaf reuses the initial terminal created by addWorkspace;
         // subsequent leaves were created via newTerminalSplit which also seeds
