@@ -595,7 +595,8 @@ private struct SectionPopoverView: View {
                         }
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.top, 4)
+                .padding(.bottom, 10)
             }
             .frame(maxHeight: 420)
         }
