@@ -436,9 +436,13 @@ final class SessionIndexStore: ObservableObject {
     private static let searchMaxFiles = 1500
 
     private static func scanAll() async -> [SessionEntry] {
+        // Initial scan errors are silently ignored — UI just shows the cached
+        // entries we did get. Errors get surfaced when the user actively
+        // searches via the popover.
+        let bag = ErrorBag()
         async let claude = loadClaudeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
-        async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
-        async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
+        async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
+        async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
         let combined = await claude + codex + opencode
         return combined.sorted { $0.modified > $1.modified }
     }
@@ -723,12 +727,42 @@ final class SessionIndexStore: ObservableObject {
         return String(cString: cString)
     }
 
+    nonisolated private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
+        guard let db, let cString = sqlite3_errmsg(db) else { return nil }
+        return String(cString: cString)
+    }
+
     // MARK: - Deep search (popover "Show more")
 
     enum SearchScope {
         case agent(SessionAgent)
         /// Filter by absolute cwd; nil/"" = unknown-folder bucket.
         case directory(String?)
+    }
+
+    /// What the popover gets back. `errors` is non-empty when one or more
+    /// agents failed to read their data source (schema mismatch, file missing,
+    /// SQL error). UI should surface them so users see why the list looks
+    /// short or empty rather than thinking nothing matched.
+    struct SearchOutcome: Sendable {
+        var entries: [SessionEntry]
+        var errors: [String]
+    }
+
+    /// Thread-safe accumulator passed down to per-agent helpers so they can
+    /// report failures (e.g. SQL prepare errors when an agent bumps its
+    /// schema) without requiring the helpers to throw across actor boundaries.
+    final class ErrorBag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var messages: [String] = []
+        func add(_ msg: String) {
+            lock.lock(); defer { lock.unlock() }
+            messages.append(msg)
+        }
+        func snapshot() -> [String] {
+            lock.lock(); defer { lock.unlock() }
+            return messages
+        }
     }
 
     /// Paginated on-demand search across the full filesystem (Claude/Codex) and
@@ -741,21 +775,23 @@ final class SessionIndexStore: ObservableObject {
         scope: SearchScope,
         offset: Int,
         limit: Int
-    ) async -> [SessionEntry] {
+    ) async -> SearchOutcome {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let needle = trimmed.lowercased()
+        let bag = ErrorBag()
         #if DEBUG
         let totalStart = ProcessInfo.processInfo.systemUptime
         defer {
             let totalMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000
-            dlog("session.search.total ms=\(String(format: "%.0f", totalMs)) needle=\"\(trimmed.prefix(20))\" offset=\(offset) limit=\(limit)")
+            dlog("session.search.total ms=\(String(format: "%.0f", totalMs)) needle=\"\(trimmed.prefix(20))\" offset=\(offset) limit=\(limit) errors=\(bag.snapshot().count)")
         }
         #endif
+        let entries: [SessionEntry]
         switch scope {
         case .agent(let a):
-            return await Self.searchAgent(
+            entries = await Self.searchAgent(
                 needle: needle, agent: a, cwdFilter: nil,
-                offset: offset, limit: limit
+                offset: offset, limit: limit, errorBag: bag
             )
         case .directory(let path):
             let cwdFilter = (path?.isEmpty == false) ? path : nil
@@ -764,45 +800,46 @@ final class SessionIndexStore: ObservableObject {
             let target = offset + limit
             async let c = Self.timedAgent(
                 needle: needle, agent: .claude, cwdFilter: cwdFilter,
-                offset: 0, limit: target
+                offset: 0, limit: target, errorBag: bag
             )
             async let x = Self.timedAgent(
                 needle: needle, agent: .codex, cwdFilter: cwdFilter,
-                offset: 0, limit: target
+                offset: 0, limit: target, errorBag: bag
             )
             async let o = Self.timedAgent(
                 needle: needle, agent: .opencode, cwdFilter: cwdFilter,
-                offset: 0, limit: target
+                offset: 0, limit: target, errorBag: bag
             )
             let merged = (await c) + (await x) + (await o)
             let sorted = merged.sorted { $0.modified > $1.modified }
-            return Array(sorted.dropFirst(offset).prefix(limit))
+            entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
+        return SearchOutcome(entries: entries, errors: bag.snapshot())
     }
 
     nonisolated private static func timedAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
-        offset: Int, limit: Int
+        offset: Int, limit: Int, errorBag: ErrorBag
     ) async -> [SessionEntry] {
         #if DEBUG
         let start = ProcessInfo.processInfo.systemUptime
-        let result = await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        let result = await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
         dlog("session.search.agent agent=\(agent.rawValue) ms=\(String(format: "%.0f", ms)) results=\(result.count) cwd=\(cwdFilter?.suffix(40) ?? "nil")")
         return result
         #else
-        return await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        return await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         #endif
     }
 
     nonisolated private static func searchAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
-        offset: Int, limit: Int
+        offset: Int, limit: Int, errorBag: ErrorBag
     ) async -> [SessionEntry] {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
-        case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
-        case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         }
     }
 
@@ -1031,10 +1068,12 @@ final class SessionIndexStore: ObservableObject {
     /// effort, and rollout_path so we don't need to read jsonl files at all.
     /// Fallback (DB missing): the file-scan path below.
     nonisolated private static func loadCodexEntries(
-        needle: String, cwdFilter: String?, offset: Int, limit: Int
+        needle: String, cwdFilter: String?, offset: Int, limit: Int,
+        errorBag: ErrorBag
     ) async -> [SessionEntry] {
         if let viaSQL = loadCodexEntriesViaSQL(
-            needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit
+            needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit,
+            errorBag: errorBag
         ) {
             return viaSQL
         }
@@ -1043,10 +1082,13 @@ final class SessionIndexStore: ObservableObject {
         )
     }
 
-    /// SQL-backed Codex loader. Returns nil if `state_5.sqlite` doesn't exist or
-    /// can't be opened, signaling caller to fall back to the disk scan.
+    /// SQL-backed Codex loader. Returns nil if `state_5.sqlite` doesn't exist
+    /// (signaling caller to fall back to the disk scan). On schema mismatch or
+    /// other SQL errors, appends a user-facing message to `errorBag` and still
+    /// returns nil so the caller can fall back.
     nonisolated private static func loadCodexEntriesViaSQL(
-        needle: String, cwdFilter: String?, offset: Int, limit: Int
+        needle: String, cwdFilter: String?, offset: Int, limit: Int,
+        errorBag: ErrorBag
     ) -> [SessionEntry]? {
         let dbPath = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath
         let fm = FileManager.default
@@ -1068,6 +1110,7 @@ final class SessionIndexStore: ObservableObject {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            errorBag.add("Codex: cannot open state_5.sqlite (\(sqliteMessage(db) ?? "unknown error"))")
             sqlite3_close(db)
             return nil
         }
@@ -1095,6 +1138,7 @@ final class SessionIndexStore: ObservableObject {
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            errorBag.add("Codex: schema unsupported — \(sqliteMessage(db) ?? "prepare failed"). Falling back to file scan.")
             sqlite3_finalize(stmt)
             return nil
         }
@@ -1244,7 +1288,8 @@ final class SessionIndexStore: ObservableObject {
     /// Sync because the SQL pass is fast and SQLite's API is sync; the caller
     /// awaits the wrapping `searchSessions`/`scanAll` boundaries.
     nonisolated private static func loadOpenCodeEntries(
-        needle: String, cwdFilter: String?, offset: Int, limit: Int
+        needle: String, cwdFilter: String?, offset: Int, limit: Int,
+        errorBag: ErrorBag
     ) -> [SessionEntry] {
         let dbPath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
         let fm = FileManager.default
@@ -1261,6 +1306,7 @@ final class SessionIndexStore: ObservableObject {
         }
         var db: OpaquePointer?
         guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            errorBag.add("OpenCode: cannot open opencode.db (\(sqliteMessage(db) ?? "unknown error"))")
             sqlite3_close(db)
             return []
         }
@@ -1288,6 +1334,7 @@ final class SessionIndexStore: ObservableObject {
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            errorBag.add("OpenCode: schema unsupported — \(sqliteMessage(db) ?? "prepare failed")")
             sqlite3_finalize(stmt)
             return []
         }

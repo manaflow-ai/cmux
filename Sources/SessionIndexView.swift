@@ -534,6 +534,7 @@ private struct SectionPopoverView: View {
     @State private var isLoading: Bool = false
     @State private var activeQuery: String = ""
     @State private var loadTask: Task<Void, Never>?
+    @State private var errorMessages: [String] = []
     /// Bumped on each query reset so an in-flight task knows it's been superseded
     /// even if cancellation hasn't propagated yet.
     @State private var loadGeneration: Int = 0
@@ -589,6 +590,24 @@ private struct SectionPopoverView: View {
 
             Divider()
 
+            if !errorMessages.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(errorMessages, id: \.self) { msg in
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.orange)
+                            Text(msg)
+                                .font(.system(size: 11))
+                                .foregroundColor(.primary.opacity(0.85))
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.10))
+            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if isLoading && loaded.isEmpty {
@@ -672,24 +691,27 @@ private struct SectionPopoverView: View {
             // discover the truth and flip hasMore off if a fetch returns nothing.
             hasMore = !section.entries.isEmpty
             isLoading = false
+            errorMessages = []
             return
         }
 
         loaded = []
         hasMore = true
         isLoading = true
+        errorMessages = []
         let scope = sectionSearchScope
         let store = self.store
         loadTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 200_000_000)
             if Task.isCancelled || generation != loadGeneration { return }
-            let page = await store.searchSessions(
+            let outcome = await store.searchSessions(
                 query: trimmed, scope: scope,
                 offset: 0, limit: Self.pageSize
             )
             if Task.isCancelled || generation != loadGeneration { return }
-            loaded = page
-            hasMore = page.count >= Self.pageSize
+            loaded = outcome.entries
+            hasMore = outcome.entries.count >= Self.pageSize
+            errorMessages = outcome.errors
             isLoading = false
         }
     }
@@ -704,13 +726,14 @@ private struct SectionPopoverView: View {
         let query = activeQuery
         let offset = loaded.count
         loadTask = Task { @MainActor in
-            let page = await store.searchSessions(
+            let outcome = await store.searchSessions(
                 query: query, scope: scope,
                 offset: offset, limit: Self.pageSize
             )
             if Task.isCancelled || generation != loadGeneration { return }
-            loaded.append(contentsOf: page)
-            hasMore = page.count >= Self.pageSize
+            loaded.append(contentsOf: outcome.entries)
+            hasMore = outcome.entries.count >= Self.pageSize
+            errorMessages = outcome.errors
             isLoading = false
         }
     }
