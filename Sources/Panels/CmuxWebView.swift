@@ -266,7 +266,13 @@ final class CmuxWebView: WKWebView {
         document.addEventListener("focusin", (ev) => {
           publishForElement(ev && ev.target ? ev.target : document.activeElement);
         }, true);
-        document.addEventListener("focusout", () => {
+        document.addEventListener("focusout", (ev) => {
+          const nextTarget = ev && ev.relatedTarget ? ev.relatedTarget : null;
+          if (__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(nextTarget)) {
+            publish(true);
+            return;
+          }
+          publish(false);
           requestAnimationFrame(() => publishForElement(document.activeElement));
         }, true);
         document.addEventListener("selectionchange", () => {
