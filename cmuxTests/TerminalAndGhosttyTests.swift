@@ -4124,6 +4124,30 @@ final class GhosttyFlagsChangedDecisionTests: XCTestCase {
         XCTAssertEqual(decision?.composing, true)
     }
 
+    // The bug class in #2949 hits IME users hardest on right-side modifiers
+    // (right-Option for AltGr-style IME selectors on macOS). Cover the
+    // side-aware release path explicitly so a regression there is not
+    // masked by the left-shift cases above.
+    func testForwardsRightOptionReleaseWhileMarkedTextActive() {
+        let decision = cmuxFlagsChangedDecision(
+            keyCode: 0x3D,
+            modifierFlagsRawValue: 0,
+            hasMarkedText: true
+        )
+        XCTAssertEqual(decision?.action, GHOSTTY_ACTION_RELEASE)
+        XCTAssertEqual(decision?.composing, true)
+    }
+
+    func testForwardsRightOptionPressWhileMarkedTextActive() {
+        let decision = cmuxFlagsChangedDecision(
+            keyCode: 0x3D,
+            modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK),
+            hasMarkedText: true
+        )
+        XCTAssertEqual(decision?.action, GHOSTTY_ACTION_PRESS)
+        XCTAssertEqual(decision?.composing, true)
+    }
+
     func testNonModifierKeyReturnsNilEvenWithMarkedText() {
         XCTAssertNil(
             cmuxFlagsChangedDecision(
