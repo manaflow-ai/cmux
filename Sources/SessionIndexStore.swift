@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Combine
 import Foundation
 import SQLite3
@@ -517,6 +518,13 @@ final class SessionIndexStore: ObservableObject {
         return candidate
     }
 
+    /// Inverse of `decodeClaudeProjectDir`. Used as a fast path: when filtering
+    /// by cwd we can skip enumerating other project dirs entirely.
+    nonisolated private static func encodeClaudeProjectDir(_ path: String) -> String {
+        // "/Users/x/y" -> "-Users-x-y"
+        return path.replacingOccurrences(of: "/", with: "-")
+    }
+
     // MARK: Codex
 
     private struct CodexParsed {
@@ -535,6 +543,24 @@ final class SessionIndexStore: ObservableObject {
         var title: String {
             threadName.isEmpty ? firstUserMessage : threadName
         }
+    }
+
+    /// Cheap cwd peek for Codex rollouts. `session_meta` is always the first line
+    /// of the file, but the line itself can be 30+ KB (it embeds the full system
+    /// prompt). Read up to 64 KB to cover that, parse the JSON, return cwd.
+    nonisolated private static func peekCodexSessionMetaCwd(url: URL) -> String? {
+        let head = readFileHead(url: url, byteCap: headByteCap)
+        guard let nl = head.firstIndex(of: "\n") else { return nil }
+        let firstLine = head[..<nl]
+        guard let data = firstLine.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (obj["type"] as? String) == "session_meta",
+              let payload = obj["payload"] as? [String: Any],
+              let cwd = payload["cwd"] as? String,
+              !cwd.isEmpty else {
+            return nil
+        }
+        return cwd
     }
 
     /// Stream lines from `url` until we have everything we need. The first user_message
@@ -683,6 +709,13 @@ final class SessionIndexStore: ObservableObject {
     ) async -> [SessionEntry] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let needle = trimmed.lowercased()
+        #if DEBUG
+        let totalStart = ProcessInfo.processInfo.systemUptime
+        defer {
+            let totalMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000
+            dlog("session.search.total ms=\(String(format: "%.0f", totalMs)) needle=\"\(trimmed.prefix(20))\" offset=\(offset) limit=\(limit)")
+        }
+        #endif
         switch scope {
         case .agent(let a):
             return await Self.searchAgent(
@@ -694,15 +727,15 @@ final class SessionIndexStore: ObservableObject {
             // Multi-agent merge: fetch the union of (offset+limit) per agent so the
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
-            async let c = Self.searchAgent(
+            async let c = Self.timedAgent(
                 needle: needle, agent: .claude, cwdFilter: cwdFilter,
                 offset: 0, limit: target
             )
-            async let x = Self.searchAgent(
+            async let x = Self.timedAgent(
                 needle: needle, agent: .codex, cwdFilter: cwdFilter,
                 offset: 0, limit: target
             )
-            async let o = Self.searchAgent(
+            async let o = Self.timedAgent(
                 needle: needle, agent: .opencode, cwdFilter: cwdFilter,
                 offset: 0, limit: target
             )
@@ -710,6 +743,21 @@ final class SessionIndexStore: ObservableObject {
             let sorted = merged.sorted { $0.modified > $1.modified }
             return Array(sorted.dropFirst(offset).prefix(limit))
         }
+    }
+
+    nonisolated private static func timedAgent(
+        needle: String, agent: SessionAgent, cwdFilter: String?,
+        offset: Int, limit: Int
+    ) async -> [SessionEntry] {
+        #if DEBUG
+        let start = ProcessInfo.processInfo.systemUptime
+        let result = await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
+        dlog("session.search.agent agent=\(agent.rawValue) ms=\(String(format: "%.0f", ms)) results=\(result.count) cwd=\(cwdFilter?.suffix(40) ?? "nil")")
+        return result
+        #else
+        return await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        #endif
     }
 
     nonisolated private static func searchAgent(
@@ -837,6 +885,22 @@ final class SessionIndexStore: ObservableObject {
                 let dirName = url.deletingLastPathComponent().lastPathComponent
                 candidates.append((url, mtime, dirName))
             }
+        } else if let cwdFilter {
+            // Fast path: the project directory name encodes the cwd. We can skip
+            // enumerating every other project entirely.
+            let dirName = encodeClaudeProjectDir(cwdFilter)
+            let dirPath = (projectsRoot as NSString).appendingPathComponent(dirName)
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue,
+               let contents = try? fm.contentsOfDirectory(atPath: dirPath) {
+                for name in contents where name.hasSuffix(".jsonl") {
+                    let filePath = (dirPath as NSString).appendingPathComponent(name)
+                    let url = URL(fileURLWithPath: filePath)
+                    guard let attrs = try? fm.attributesOfItem(atPath: filePath),
+                          let mtime = attrs[.modificationDate] as? Date else { continue }
+                    candidates.append((url, mtime, dirName))
+                }
+            }
         } else {
             guard let projectDirs = try? fm.contentsOfDirectory(atPath: projectsRoot) else { return [] }
             for dirName in projectDirs {
@@ -933,6 +997,14 @@ final class SessionIndexStore: ObservableObject {
             if !needle.isEmpty && !rgFiltered {
                 let head = readFileHead(url: url, byteCap: headByteCap)
                 guard head.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
+            }
+            // Fast cwd reject: session_meta is the FIRST line of every Codex
+            // rollout. Pull just that line and bail before streaming the
+            // (potentially MB-sized) rest of the file looking for title/branch.
+            if let cwdFilter,
+               let firstLineCwd = peekCodexSessionMetaCwd(url: url),
+               firstLineCwd != cwdFilter {
+                continue
             }
             let parsed = extractCodexMetadata(url: url)
             if let cwdFilter, parsed.cwd != cwdFilter { continue }
