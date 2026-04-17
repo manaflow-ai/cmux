@@ -12171,6 +12171,59 @@ extension GhosttyNSView: NSTextInputClient {
     }
 }
 
+// MARK: - Services
+
+extension GhosttyNSView: NSServicesMenuRequestor {
+    override func validRequestor(
+        forSendType sendType: NSPasteboard.PasteboardType?,
+        returnType: NSPasteboard.PasteboardType?
+    ) -> Any? {
+        let supportedTypes: [NSPasteboard.PasteboardType] = [
+            .string,
+            .init("public.utf8-plain-text")
+        ]
+
+        if (returnType == nil || supportedTypes.contains(returnType!)) &&
+            (sendType == nil || supportedTypes.contains(sendType!)) {
+            if let sendType, supportedTypes.contains(sendType) {
+                guard let surface, ghostty_surface_has_selection(surface) else {
+                    return super.validRequestor(forSendType: sendType, returnType: returnType)
+                }
+            }
+
+            return self
+        }
+
+        return super.validRequestor(forSendType: sendType, returnType: returnType)
+    }
+
+    func writeSelection(
+        to pboard: NSPasteboard,
+        types: [NSPasteboard.PasteboardType]
+    ) -> Bool {
+        guard let snapshot = readSelectionSnapshot() else { return false }
+
+        pboard.declareTypes([.string], owner: nil)
+        pboard.setString(snapshot.string, forType: .string)
+        return true
+    }
+
+    func readSelection(from pboard: NSPasteboard) -> Bool {
+        guard ensureSurfaceReadyForInput() != nil else { return false }
+        guard let string = GhosttyPasteboardHelper.stringContents(from: pboard) else { return false }
+        guard !string.isEmpty else { return true }
+
+        // Services can return multiline payloads. Route them through the text/paste path
+        // so Ghostty handles them as pasted text instead of synthesizing Return/Tab keys.
+        if let terminalSurface {
+            terminalSurface.sendText(string)
+            return true
+        }
+
+        return false
+    }
+}
+
 // MARK: - SwiftUI Wrapper
 
 struct GhosttyTerminalView: NSViewRepresentable {

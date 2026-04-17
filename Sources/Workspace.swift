@@ -6791,41 +6791,39 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
-        let nextHex = Self.bonsplitChromeHex(
-            backgroundColor: config.backgroundColor,
-            backgroundOpacity: config.backgroundOpacity
-        )
-        let nextTabTitleFontSize = config.surfaceTabBarFontSize
+        let nextAppearance = Self.bonsplitAppearance(from: config)
         let currentAppearance = bonsplitController.configuration.appearance
+        let nextBackgroundHex = nextAppearance.chromeColors.backgroundHex
         let currentBackgroundHex = currentAppearance.chromeColors.backgroundHex
-        let currentTabTitleFontSize = currentAppearance.tabTitleFontSize
-        let backgroundChanged = currentBackgroundHex != nextHex
-        let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
+        let backgroundChanged = currentBackgroundHex != nextBackgroundHex
+        let fontSizeChanged = abs(currentAppearance.tabTitleFontSize - nextAppearance.tabTitleFontSize) > 0.001
         let isNoOp = !backgroundChanged && !fontSizeChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme apply workspace=\(id.uuidString) reason=\(reason) " +
-                "currentBg=\(currentBackgroundHex ?? "nil") nextBg=\(nextHex) " +
-                "currentTabFont=\(String(format: "%.3f", currentTabTitleFontSize)) " +
-                "nextTabFont=\(String(format: "%.3f", nextTabTitleFontSize)) noop=\(isNoOp)"
+                "currentBg=\(currentBackgroundHex ?? "nil") nextBg=\(nextBackgroundHex ?? "nil") " +
+                "currentTabFont=\(String(format: "%.2f", currentAppearance.tabTitleFontSize)) " +
+                "nextTabFont=\(String(format: "%.2f", nextAppearance.tabTitleFontSize)) " +
+                "noop=\(isNoOp)"
             )
         }
 
         guard !isNoOp else { return }
 
         if backgroundChanged {
-            bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+            bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextBackgroundHex
         }
+
         if fontSizeChanged {
-            bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
+            bonsplitController.configuration.appearance.tabTitleFontSize = nextAppearance.tabTitleFontSize
         }
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme applied workspace=\(id.uuidString) reason=\(reason) " +
                 "resultingBg=\(bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil") " +
-                "resultingTabFont=\(String(format: "%.3f", bonsplitController.configuration.appearance.tabTitleFontSize))"
+                "resultingTabFont=\(String(format: "%.2f", bonsplitController.configuration.appearance.tabTitleFontSize))"
             )
         }
     }
@@ -6879,9 +6877,8 @@ final class Workspace: Identifiable, ObservableObject {
             : FileManager.default.homeDirectoryForCurrentUser.path
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
-        // and keep split entry instantaneous.
-        // Use the cached Ghostty config so new workspaces inherit tab-strip sizing
-        // without paying repeated parse costs on the workspace-creation hot path.
+        // and keep split entry instantaneous. Use the cached Ghostty config so
+        // new workspaces inherit tab-strip sizing before the first onAppear refresh.
         let initialSurfaceTabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
