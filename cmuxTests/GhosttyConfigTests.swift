@@ -4040,3 +4040,46 @@ final class BrowserImportScopeTests: XCTestCase {
         XCTAssertNil(scope)
     }
 }
+
+final class GhosttyConfigScrollbackLimitParseTests: XCTestCase {
+    private func parsedScrollbackLimit(from value: String) -> Int {
+        var config = GhosttyConfig()
+        config.parse("scrollback-limit = \(value)\n")
+        return config.scrollbackLimit
+    }
+
+    func testAcceptsPlainIntegerValue() {
+        XCTAssertEqual(parsedScrollbackLimit(from: "12345"), 12345)
+    }
+
+    func testAcceptsUnderscoreSeparatedInteger() {
+        XCTAssertEqual(parsedScrollbackLimit(from: "10_000_000"), 10_000_000)
+    }
+
+    func testAcceptsKilobyteSuffix() {
+        XCTAssertEqual(parsedScrollbackLimit(from: "256K"), 256 * 1024)
+    }
+
+    func testAcceptsKilobyteSuffixWithB() {
+        XCTAssertEqual(parsedScrollbackLimit(from: "256KB"), 256 * 1024)
+    }
+
+    func testAcceptsMegabyteSuffix() {
+        XCTAssertEqual(parsedScrollbackLimit(from: "10M"), 10 * 1024 * 1024)
+    }
+
+    func testAcceptsMegabyteSuffixCaseInsensitive() {
+        XCTAssertEqual(parsedScrollbackLimit(from: "10mb"), 10 * 1024 * 1024)
+    }
+
+    func testAcceptsGigabyteSuffix() {
+        XCTAssertEqual(parsedScrollbackLimit(from: "1G"), 1024 * 1024 * 1024)
+    }
+
+    func testRejectsGibberishKeepsDefault() {
+        // Default `scrollbackLimit` is 10_000_000 (#2927). An unparseable value
+        // must not zero the limit out — it should leave the default in place.
+        let defaultLimit = GhosttyConfig().scrollbackLimit
+        XCTAssertEqual(parsedScrollbackLimit(from: "abc"), defaultLimit)
+    }
+}
