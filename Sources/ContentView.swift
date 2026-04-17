@@ -1844,6 +1844,7 @@ struct ContentView: View {
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
+    @StateObject private var sessionIndexStore = SessionIndexStore()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
@@ -2775,7 +2776,14 @@ struct ContentView: View {
             if explorerVisible {
                 Divider()
             }
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState)
+            RightSidebarPanelView(
+                fileExplorerStore: fileExplorerStore,
+                fileExplorerState: fileExplorerState,
+                sessionIndexStore: sessionIndexStore,
+                onResumeSession: { entry in
+                    resumeSession(entry: entry)
+                }
+            )
                 .frame(width: explorerVisible ? fileExplorerWidth : 0)
                 .clipped()
                 .allowsHitTesting(explorerVisible)
@@ -2964,16 +2972,69 @@ struct ContentView: View {
         )
     }
 
+    private func resumeSession(entry: SessionEntry) {
+        let inputWithReturn = entry.resumeCommand + "\n"
+        let targetCwd = entry.cwd
+
+        // Smart placement: if the focused workspace's tracked cwd matches, open a
+        // new tab inside that workspace. Otherwise create a new workspace.
+        // Remote workspaces are excluded from cwd-match: a session indexed from
+        // the local filesystem must not be resumed inside a remote shell just
+        // because the path string happens to coincide.
+        let selected = tabManager.selectedWorkspace
+        let selectedTab = tabManager.selectedTabId.flatMap { id in
+            tabManager.tabs.first(where: { $0.id == id })
+        }
+        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
+        let workspaceCwd = selected?.currentDirectory
+        let pwdMatches: Bool = {
+            guard !isRemoteSelection,
+                  let targetCwd, !targetCwd.isEmpty,
+                  let workspaceCwd, !workspaceCwd.isEmpty else { return false }
+            let lhs = (targetCwd as NSString).standardizingPath
+            let rhs = (workspaceCwd as NSString).standardizingPath
+            return lhs == rhs
+        }()
+
+        if pwdMatches,
+           let workspace = selected,
+           let paneId = workspace.bonsplitController.focusedPaneId {
+            workspace.newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                workingDirectory: targetCwd,
+                initialInput: inputWithReturn
+            )
+            return
+        }
+
+        tabManager.addWorkspace(
+            workingDirectory: targetCwd,
+            initialTerminalInput: inputWithReturn
+        )
+    }
+
     private func syncFileExplorerDirectory() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+            // No selection means we have no local cwd to scope by; clear so the
+            // sessions panel doesn't keep filtering by a stale previous tab.
+            sessionIndexStore.currentDirectory = nil
             return
         }
 
         let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !dir.isEmpty else { return }
+        guard !dir.isEmpty else {
+            sessionIndexStore.currentDirectory = nil
+            return
+        }
 
         fileExplorerStore.showHiddenFiles = true
+        if !tab.isRemoteWorkspace {
+            sessionIndexStore.currentDirectory = dir
+        } else {
+            sessionIndexStore.currentDirectory = nil
+        }
 
         if tab.isRemoteWorkspace {
             let config = tab.remoteConfiguration

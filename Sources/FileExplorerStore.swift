@@ -440,6 +440,11 @@ final class FileExplorerState: ObservableObject {
         didSet { UserDefaults.standard.set(showHiddenFiles, forKey: "fileExplorer.showHidden") }
     }
 
+    /// Active mode for the right sidebar (file tree or session index).
+    @Published var mode: RightSidebarMode {
+        didSet { UserDefaults.standard.set(mode.rawValue, forKey: "rightSidebar.mode") }
+    }
+
     init() {
         let defaults = UserDefaults.standard
         self.isVisible = defaults.bool(forKey: "fileExplorer.isVisible")
@@ -449,6 +454,8 @@ final class FileExplorerState: ObservableObject {
         self.dividerPosition = storedPosition > 0 ? CGFloat(storedPosition) : 0.6
         let storedShowHidden = defaults.object(forKey: "fileExplorer.showHidden")
         self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: "fileExplorer.showHidden")
+        let storedMode = defaults.string(forKey: "rightSidebar.mode") ?? RightSidebarMode.files.rawValue
+        self.mode = RightSidebarMode(rawValue: storedMode) ?? .files
     }
 
     func toggle() {

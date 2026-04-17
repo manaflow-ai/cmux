@@ -3611,6 +3611,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let configTemplate: CmuxSurfaceConfigTemplate?
     private let workingDirectory: String?
     private let initialCommand: String?
+    private let initialInput: String?
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
     private var additionalEnvironment: [String: String]
@@ -3703,6 +3704,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
+        initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:]
     ) {
@@ -3713,6 +3715,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
+        let trimmedInput = initialInput?.isEmpty == false ? initialInput : nil
+        self.initialInput = trimmedInput
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
@@ -4462,7 +4466,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
             return baseConfig.command
         }()
-        let resolvedInitialInput = baseConfig.initialInput
+        let resolvedInitialInput: String? = {
+            if let initialInput, !initialInput.isEmpty {
+                return initialInput
+            }
+            return baseConfig.initialInput
+        }()
         func withOptionalCString<T>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {
             guard let value else {
                 return body(nil)
@@ -8609,6 +8618,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         dlog("terminal.draggingEntered surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
+        // Defer to bonsplit when a tab/session drag is in flight: bonsplit's pane
+        // drop overlays should win over the terminal's text/file drop handling.
+        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+            return []
+        }
         if Set(types).isDisjoint(with: Self.dropTypes) {
             return []
         }
@@ -8621,6 +8635,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         dlog("terminal.draggingUpdated surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
+        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+            return []
+        }
         if Set(types).isDisjoint(with: Self.dropTypes) {
             return []
         }
@@ -8628,6 +8645,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let types = sender.draggingPasteboard.types ?? []
+        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+            return false
+        }
         #if DEBUG
         dlog("terminal.fileDrop surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
         #endif
@@ -10857,6 +10878,17 @@ final class GhosttySurfaceScrollView: NSView {
         if let fr = window.firstResponder, isSearchOverlayOrDescendant(fr) {
 #if DEBUG
             dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=searchOverlayFocused")
+#endif
+            return
+        }
+        // Don't steal focus from an active text editor (NSTextField/NSTextView/field editor).
+        // The terminal surface uses its own GhosttyNSView for input, never NSText, so this is
+        // safe. Without this guard, a popover (e.g. session-index search) loses its text-field
+        // focus instantly because applyFirstResponderIfNeeded runs on a deferred async tick and
+        // sees the field editor as a "foreign" responder to clobber.
+        if window.firstResponder is NSText {
+#if DEBUG
+            dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=textEditorFocused")
 #endif
             return
         }
