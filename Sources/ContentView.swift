@@ -10887,6 +10887,12 @@ private struct TabItemView: View, Equatable {
                     .onAppear {
                         isWorkspaceNameFieldFocused = true
                     }
+                    .onChange(of: isWorkspaceNameFieldFocused) { focused in
+                        if !focused {
+                            tabManager.setCustomTitle(tabId: tab.id, title: editingWorkspaceName)
+                            isEditingWorkspaceName = false
+                        }
+                    }
                 } else {
                     Text(tab.title)
                         .font(.system(size: 12.5, weight: titleFontWeight))
