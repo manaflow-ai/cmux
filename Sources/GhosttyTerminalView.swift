@@ -107,7 +107,10 @@ private func cmuxRuntimeReadClipboardCallback(
     _ location: ghostty_clipboard_e,
     _ state: UnsafeMutableRawPointer?
 ) -> Bool {
-    GhosttyApp.runtimeReadClipboardCallback(userdata, location, state)
+#if DEBUG
+    dlog("paste.readClipboard.cShim location=\(cmuxClipboardLocationTag(location)) state=\(state != nil ? "nonNil" : "nil")")
+#endif
+    return GhosttyApp.runtimeReadClipboardCallback(userdata, location, state)
 }
 
 #if DEBUG
@@ -149,6 +152,39 @@ private func cmuxScalarHex(_ value: String?) -> String {
         .map { String(format: "%04X", $0.value) }
         .joined(separator: ",")
 }
+
+private func cmuxClipboardLocationTag(_ location: ghostty_clipboard_e) -> String {
+    switch location {
+    case GHOSTTY_CLIPBOARD_STANDARD: return "std"
+    case GHOSTTY_CLIPBOARD_SELECTION: return "sel"
+    default: return "raw\(location.rawValue)"
+    }
+}
+
+private func cmuxClipboardPreview(_ string: String, limit: Int = 40) -> String {
+    var out = ""
+    var count = 0
+    for ch in string {
+        if count >= limit { break }
+        if ch == "\n" { out += "\\n" }
+        else if ch == "\r" { out += "\\r" }
+        else if ch == "\t" { out += "\\t" }
+        else if let scalar = ch.unicodeScalars.first, scalar.value < 0x20 || scalar.value == 0x7F {
+            out += String(format: "\\x%02X", scalar.value)
+        } else {
+            out.append(ch)
+        }
+        count += 1
+    }
+    let suffix = string.count > limit ? "…" : ""
+    return "\"\(out)\(suffix)\""
+}
+
+private func cmuxPasteboardTypesSummary(_ pasteboard: NSPasteboard) -> String {
+    let types = pasteboard.types ?? []
+    if types.isEmpty { return "none" }
+    return types.map { $0.rawValue }.joined(separator: "|")
+}
 #endif
 
 enum GhosttyPasteboardHelper {
@@ -180,11 +216,18 @@ enum GhosttyPasteboardHelper {
     }
 
     static func stringContents(from pasteboard: NSPasteboard) -> String? {
+#if DEBUG
+        dlog("paste.stringContents.begin types=\(cmuxPasteboardTypesSummary(pasteboard))")
+#endif
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
            !urls.isEmpty {
-            return urls
+            let joined = urls
                 .map { $0.isFileURL ? escapeForShell($0.path) : $0.absoluteString }
                 .joined(separator: " ")
+#if DEBUG
+            dlog("paste.stringContents.urls count=\(urls.count) preview=\(cmuxClipboardPreview(joined))")
+#endif
+            return joined
         }
 
         let htmlText = attributedStringContents(from: pasteboard, type: .html, documentType: .html)
@@ -194,19 +237,31 @@ enum GhosttyPasteboardHelper {
         if hasImageData(in: pasteboard),
            let html = pasteboard.string(forType: .html),
            htmlHasNoVisibleText(html) {
+#if DEBUG
+            dlog("paste.stringContents.imageNoText")
+#endif
             return nil
         }
 
         if hasImageData(in: pasteboard) {
+#if DEBUG
+            dlog("paste.stringContents.imageWithText html=\(htmlText != nil) rtf=\(rtfText != nil) rtfd=\(rtfdText != nil)")
+#endif
             if let htmlText { return htmlText }
             if let rtfText { return rtfText }
             return rtfdText
         }
 
         if let value = plainTextContents(from: pasteboard) {
+#if DEBUG
+            dlog("paste.stringContents.plain len=\(value.utf8.count) preview=\(cmuxClipboardPreview(value))")
+#endif
             return value
         }
 
+#if DEBUG
+        dlog("paste.stringContents.richFallback html=\(htmlText != nil) rtf=\(rtfText != nil) rtfd=\(rtfdText != nil)")
+#endif
         if let htmlText { return htmlText }
         if let rtfText { return rtfText }
         return rtfdText
@@ -222,9 +277,20 @@ enum GhosttyPasteboardHelper {
     }
 
     static func writeString(_ string: String, to location: ghostty_clipboard_e) {
-        guard let pasteboard = pasteboard(for: location) else { return }
+        guard let pasteboard = pasteboard(for: location) else {
+#if DEBUG
+            dlog("paste.writeString.noPasteboard location=\(cmuxClipboardLocationTag(location))")
+#endif
+            return
+        }
+#if DEBUG
+        dlog("paste.writeString location=\(cmuxClipboardLocationTag(location)) len=\(string.utf8.count) preview=\(cmuxClipboardPreview(string)) typesBefore=\(cmuxPasteboardTypesSummary(pasteboard))")
+#endif
         pasteboard.clearContents()
         pasteboard.setString(string, forType: .string)
+#if DEBUG
+        dlog("paste.writeString.done location=\(cmuxClipboardLocationTag(location)) typesAfter=\(cmuxPasteboardTypesSummary(pasteboard))")
+#endif
     }
 
     static func escapeForShell(_ value: String) -> String {
@@ -1398,15 +1464,33 @@ class GhosttyApp {
         _ state: UnsafeMutableRawPointer?
     ) -> Bool {
         guard let callbackContext = Self.callbackContext(from: userdata),
-              let requestSurface = callbackContext.runtimeSurface else { return false }
+              let requestSurface = callbackContext.runtimeSurface else {
+#if DEBUG
+            dlog("paste.readClipboard.begin location=\(cmuxClipboardLocationTag(location)) surface=nil result=dropNoContext")
+#endif
+            return false
+        }
+
+#if DEBUG
+        let surfaceTag = callbackContext.surfaceId.uuidString.prefix(5)
+        dlog("paste.readClipboard.begin location=\(cmuxClipboardLocationTag(location)) surface=\(surfaceTag)")
+#endif
 
         DispatchQueue.main.async {
             func completeClipboardRequest(with text: String) {
                 let finish = {
-                    guard callbackContext.runtimeSurface == requestSurface else { return }
+                    guard callbackContext.runtimeSurface == requestSurface else {
+#if DEBUG
+                        dlog("paste.readClipboard.complete.dropStale surface=\(surfaceTag) len=\(text.utf8.count)")
+#endif
+                        return
+                    }
                     text.withCString { ptr in
                         ghostty_surface_complete_clipboard_request(requestSurface, ptr, state, false)
                     }
+#if DEBUG
+                    dlog("paste.readClipboard.complete surface=\(surfaceTag) len=\(text.utf8.count) preview=\(cmuxClipboardPreview(text))")
+#endif
                 }
                 if Thread.isMainThread {
                     finish()
@@ -1416,9 +1500,16 @@ class GhosttyApp {
             }
 
             guard let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location) else {
+#if DEBUG
+                dlog("paste.readClipboard.noPasteboard location=\(cmuxClipboardLocationTag(location)) surface=\(surfaceTag)")
+#endif
                 completeClipboardRequest(with: "")
                 return
             }
+
+#if DEBUG
+            dlog("paste.readClipboard.pasteboard location=\(cmuxClipboardLocationTag(location)) surface=\(surfaceTag) types=\(cmuxPasteboardTypesSummary(pasteboard))")
+#endif
 
             let preparedContent = TerminalImageTransferPlanner.prepare(
                 pasteboard: pasteboard,
@@ -1427,10 +1518,19 @@ class GhosttyApp {
 
             switch preparedContent {
             case .reject:
+#if DEBUG
+                dlog("paste.readClipboard.prepared case=reject surface=\(surfaceTag)")
+#endif
                 completeClipboardRequest(with: "")
             case .insertText(let text):
+#if DEBUG
+                dlog("paste.readClipboard.prepared case=insertText surface=\(surfaceTag) len=\(text.utf8.count) preview=\(cmuxClipboardPreview(text))")
+#endif
                 completeClipboardRequest(with: text)
             case .fileURLs(let fileURLs):
+#if DEBUG
+                dlog("paste.readClipboard.prepared case=fileURLs surface=\(surfaceTag) count=\(fileURLs.count)")
+#endif
                 let operation = TerminalImageTransferOperation()
                 MainActor.assumeIsolated {
                     callbackContext.terminalSurface?.hostedView.beginImageTransferIndicator(
@@ -1695,26 +1795,56 @@ class GhosttyApp {
             to: ghostty_runtime_read_clipboard_cb.self
         )
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
+#if DEBUG
+            let preview = content.map { cmuxClipboardPreview(String(cString: $0)) } ?? "\"\""
+            let previewLen = content.map { strlen($0) } ?? 0
+            dlog("paste.confirmRead.cb len=\(previewLen) preview=\(preview)")
+#endif
             guard let content else { return }
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
-                  let surface = callbackContext.runtimeSurface else { return }
+                  let surface = callbackContext.runtimeSurface else {
+#if DEBUG
+                dlog("paste.confirmRead.dropNoContext")
+#endif
+                return
+            }
 
             ghostty_surface_complete_clipboard_request(surface, content, state, true)
         }
         runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
             // Write clipboard
+#if DEBUG
+            dlog("paste.writeClipboard.cb location=\(cmuxClipboardLocationTag(location)) items=\(len) hasContent=\(content != nil)")
+#endif
             guard let content = content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
 
             var fallback: String?
-            for item in buffer {
-                guard let dataPtr = item.data else { continue }
+            for (idx, item) in buffer.enumerated() {
+                guard let dataPtr = item.data else {
+#if DEBUG
+                    dlog("paste.writeClipboard.item idx=\(idx) skipped=nilData")
+#endif
+                    continue
+                }
                 let value = String(cString: dataPtr)
+                let mimeTag: String
+                if let mimePtr = item.mime {
+                    mimeTag = String(cString: mimePtr)
+                } else {
+                    mimeTag = "<none>"
+                }
+#if DEBUG
+                dlog("paste.writeClipboard.item idx=\(idx) mime=\(mimeTag) len=\(value.utf8.count) preview=\(cmuxClipboardPreview(value))")
+#endif
 
                 if let mimePtr = item.mime {
                     let mime = String(cString: mimePtr)
                     if mime.hasPrefix("text/plain") {
                         GhosttyPasteboardHelper.writeString(value, to: location)
+#if DEBUG
+                        dlog("paste.writeClipboard.selected idx=\(idx) reason=textPlain")
+#endif
                         return
                     }
                 }
@@ -1725,7 +1855,14 @@ class GhosttyApp {
             }
 
             if let fallback {
+#if DEBUG
+                dlog("paste.writeClipboard.selected idx=fallback len=\(fallback.utf8.count)")
+#endif
                 GhosttyPasteboardHelper.writeString(fallback, to: location)
+            } else {
+#if DEBUG
+                dlog("paste.writeClipboard.noSelection")
+#endif
             }
         }
         runtimeConfig.close_surface_cb = { userdata, needsConfirmClose in
@@ -6143,17 +6280,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Input Handling
 
     @IBAction func copy(_ sender: Any?) {
+#if DEBUG
+        dlog("paste.menu.copy")
+#endif
         _ = performBindingAction("copy_to_clipboard")
     }
 
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
+#if DEBUG
+        dlog("paste.menu.paste types=\(cmuxPasteboardTypesSummary(NSPasteboard.general))")
+#endif
         _ = performBindingAction("paste_from_clipboard")
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
+#if DEBUG
+        dlog("paste.menu.pasteAsPlainText types=\(cmuxPasteboardTypesSummary(NSPasteboard.general))")
+#endif
         _ = performBindingAction("paste_from_clipboard")
     }
 
