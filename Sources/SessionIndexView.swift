@@ -653,25 +653,36 @@ private struct SectionPopoverView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Reset the page and load page 0. Empty query loads instantly; non-empty
-    /// query waits 200ms first to debounce keystrokes.
+    /// Reset the page and load page 0.
+    /// - Empty query: synchronous fast path. Show the cached top-N from
+    ///   `section.entries` immediately so opening the popover never flashes a
+    ///   loading spinner. The sentinel row's loadMore will then fetch any
+    ///   additional pages from disk/SQL when the user scrolls past them.
+    /// - Non-empty query: 200ms debounce then deep search via the store.
     private func resetAndLoad(query newValue: String) {
         loadTask?.cancel()
         loadGeneration += 1
         let generation = loadGeneration
         let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        activeQuery = trimmed
+
+        if trimmed.isEmpty {
+            loaded = section.entries
+            // Optimistic: assume there might be more on disk; loadMore will
+            // discover the truth and flip hasMore off if a fetch returns nothing.
+            hasMore = !section.entries.isEmpty
+            isLoading = false
+            return
+        }
+
         loaded = []
         hasMore = true
-        activeQuery = trimmed
         isLoading = true
         let scope = sectionSearchScope
         let store = self.store
-        let needsDebounce = !trimmed.isEmpty
         loadTask = Task { @MainActor in
-            if needsDebounce {
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                if Task.isCancelled || generation != loadGeneration { return }
-            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            if Task.isCancelled || generation != loadGeneration { return }
             let page = await store.searchSessions(
                 query: trimmed, scope: scope,
                 offset: 0, limit: Self.pageSize
