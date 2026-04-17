@@ -566,4 +566,12 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
     func restoreSession(_ snapshot: SessionWindowSnapshot) {
         pendingSessionSnapshot = snapshot
     }
+
+    /// Return a queued quick-terminal snapshot when the visor hasn't been
+    /// recreated yet in the current process. Autosave must carry this forward
+    /// or a crash/force-quit will overwrite the last good visor state.
+    func pendingSessionSnapshotForPersistence() -> SessionWindowSnapshot? {
+        guard window == nil else { return nil }
+        return pendingSessionSnapshot
+    }
 }

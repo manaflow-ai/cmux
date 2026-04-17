@@ -3440,12 +3440,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
 
-        guard !windows.isEmpty else { return nil }
+        let windowsWithPendingQuickTerminal = Self.includingPendingQuickTerminalSnapshot(
+            windows,
+            pendingQuickTerminalSnapshot: QuickTerminalController.shared.pendingSessionSnapshotForPersistence()
+        )
+
+        guard !windowsWithPendingQuickTerminal.isEmpty else { return nil }
         return AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: Date().timeIntervalSince1970,
-            windows: windows
+            windows: windowsWithPendingQuickTerminal
         )
+    }
+
+    nonisolated static func includingPendingQuickTerminalSnapshot(
+        _ windows: [SessionWindowSnapshot],
+        pendingQuickTerminalSnapshot: SessionWindowSnapshot?
+    ) -> [SessionWindowSnapshot] {
+        guard let pendingQuickTerminalSnapshot else { return windows }
+        guard !windows.contains(where: { $0.isQuickTerminal == true }) else { return windows }
+
+        var merged = windows
+        if merged.count >= SessionPersistencePolicy.maxWindowsPerSnapshot {
+            merged.removeLast()
+        }
+        merged.append(pendingQuickTerminalSnapshot)
+        return merged
     }
 
 #if DEBUG

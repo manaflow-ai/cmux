@@ -399,6 +399,41 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testIncludingPendingQuickTerminalSnapshotPreservesDeferredVisorState() {
+        let primaryWindow = makeSnapshot(version: SessionSnapshotSchema.currentVersion).windows[0]
+        var pendingQuickTerminal = primaryWindow
+        pendingQuickTerminal.isQuickTerminal = true
+        pendingQuickTerminal.sidebar.isVisible = false
+        pendingQuickTerminal.tabManager.workspaces[0].processTitle = "visor-workspace"
+
+        let merged = AppDelegate.includingPendingQuickTerminalSnapshot(
+            [primaryWindow],
+            pendingQuickTerminalSnapshot: pendingQuickTerminal
+        )
+
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(merged.last?.isQuickTerminal, true)
+        XCTAssertEqual(merged.last?.sidebar.isVisible, false)
+        XCTAssertEqual(merged.last?.tabManager.workspaces.first?.processTitle, "visor-workspace")
+    }
+
+    func testIncludingPendingQuickTerminalSnapshotDoesNotDuplicateExistingQuickTerminal() {
+        let primaryWindow = makeSnapshot(version: SessionSnapshotSchema.currentVersion).windows[0]
+        var existingQuickTerminal = primaryWindow
+        existingQuickTerminal.isQuickTerminal = true
+        var pendingQuickTerminal = primaryWindow
+        pendingQuickTerminal.isQuickTerminal = true
+        pendingQuickTerminal.tabManager.workspaces[0].processTitle = "pending-visor"
+
+        let merged = AppDelegate.includingPendingQuickTerminalSnapshot(
+            [primaryWindow, existingQuickTerminal],
+            pendingQuickTerminalSnapshot: pendingQuickTerminal
+        )
+
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(merged.last?.tabManager.workspaces.first?.processTitle, primaryWindow.tabManager.workspaces.first?.processTitle)
+    }
+
     func testUnchangedAutosaveFingerprintSkipsWithinStalenessWindow() {
         let now = Date()
         XCTAssertTrue(
