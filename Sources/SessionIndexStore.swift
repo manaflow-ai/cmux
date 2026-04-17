@@ -393,7 +393,7 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: - Scanning
 
-    private static let perAgentLimit = 60
+    private static let perAgentLimit = 200
     private static let headByteCap = 64 * 1024
     private static let tailByteCap = 32 * 1024
 
