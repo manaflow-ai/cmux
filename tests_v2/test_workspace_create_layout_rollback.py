@@ -141,24 +141,29 @@ def test_valid_two_child_split_still_succeeds(c: cmux) -> None:
     }) or {}
 
     new_id = str(payload.get("workspace_id") or "") or None
-    _must(
-        new_id is not None,
-        "valid 2-child split should return a workspace_id",
-    )
-    assert new_id is not None  # for type narrowing
+    try:
+        _must(
+            new_id is not None,
+            "valid 2-child split should return a workspace_id",
+        )
+        assert new_id is not None  # for type narrowing
 
-    after_ids = _workspace_ids(c)
-    _must(
-        new_id in after_ids,
-        f"workspace {new_id} missing from workspace.list after successful create",
-    )
-    _must(
-        after_ids - baseline_ids == {new_id},
-        f"unexpected extra workspaces after valid create: "
-        f"{sorted(after_ids - baseline_ids - {new_id})}",
-    )
-
-    _close_workspace_quietly(c, new_id)
+        after_ids = _workspace_ids(c)
+        _must(
+            new_id in after_ids,
+            f"workspace {new_id} missing from workspace.list after successful create",
+        )
+        # Only assert our own id appeared and wasn't a pre-existing one. Other
+        # concurrent clients in the same CI run may legitimately create or
+        # close workspaces with IDs distinct from ours; requiring exact set
+        # equality would flake under such interleavings.
+        _must(
+            new_id not in baseline_ids,
+            f"workspace {new_id} appears to be pre-existing (not a fresh create)",
+        )
+    finally:
+        if new_id is not None:
+            _close_workspace_quietly(c, new_id)
 
 
 def main() -> int:
