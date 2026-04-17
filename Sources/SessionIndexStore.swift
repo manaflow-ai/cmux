@@ -119,7 +119,12 @@ struct SessionEntry: Identifiable, Hashable {
     var cwdLabel: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
         let home = NSHomeDirectory()
-        if cwd.hasPrefix(home) {
+        // Compare on a path boundary so /Users/al doesn't get matched by a
+        // home of /Users/alice (would render as "~ice/foo").
+        if cwd == home {
+            return "~"
+        }
+        if cwd.hasPrefix(home + "/") {
             return "~" + cwd.dropFirst(home.count)
         }
         return cwd
@@ -338,9 +343,12 @@ final class SessionIndexStore: ObservableObject {
         return (path as NSString).lastPathComponent
     }
 
-    /// Insert `key` so that, after removing its old position, it lands at `insertIndex`.
-    /// `insertIndex` is in the *post-removal* index space.
-    func moveSection(_ key: SectionKey, toInsertIndex insertIndex: Int) {
+    /// Move `key` so it lands immediately before `referenceKey` in the
+    /// persisted order (or at the end if `referenceKey` is nil). Anchoring
+    /// to a neighbor key (rather than a positional index) means scope filters
+    /// can hide some sections without corrupting reorders: hidden sections
+    /// keep their relative position to their visible neighbors.
+    func moveSection(_ key: SectionKey, before referenceKey: SectionKey?) {
         switch grouping {
         case .agent:
             guard key.raw.hasPrefix("agent:"),
@@ -348,34 +356,33 @@ final class SessionIndexStore: ObservableObject {
             guard let oldIndex = agentOrder.firstIndex(of: agent) else { return }
             var next = agentOrder
             next.remove(at: oldIndex)
-            let target = max(0, min(insertIndex, next.count))
-            if target == oldIndex { return }
-            next.insert(agent, at: target)
-            agentOrder = next
+            if let referenceKey,
+               referenceKey.raw.hasPrefix("agent:"),
+               let refAgent = SessionAgent(rawValue: String(referenceKey.raw.dropFirst("agent:".count))),
+               let refIndex = next.firstIndex(of: refAgent) {
+                next.insert(agent, at: refIndex)
+            } else {
+                next.append(agent)
+            }
+            if next != agentOrder { agentOrder = next }
         case .directory:
             guard key.raw.hasPrefix("dir:") else { return }
             let path = String(key.raw.dropFirst("dir:".count))
             guard let oldIndex = directoryOrder.firstIndex(of: path) else { return }
             var next = directoryOrder
             next.remove(at: oldIndex)
-            let target = max(0, min(insertIndex, next.count))
-            if target == oldIndex { return }
-            next.insert(path, at: target)
-            directoryOrder = next
-        }
-    }
-
-    /// Pre-removal index of the dragged key in the active grouping order, or nil if unknown.
-    func currentIndex(of key: SectionKey) -> Int? {
-        switch grouping {
-        case .agent:
-            guard key.raw.hasPrefix("agent:"),
-                  let agent = SessionAgent(rawValue: String(key.raw.dropFirst("agent:".count))) else { return nil }
-            return agentOrder.firstIndex(of: agent)
-        case .directory:
-            guard key.raw.hasPrefix("dir:") else { return nil }
-            let path = String(key.raw.dropFirst("dir:".count))
-            return directoryOrder.firstIndex(of: path)
+            if let referenceKey,
+               referenceKey.raw.hasPrefix("dir:") {
+                let refPath = String(referenceKey.raw.dropFirst("dir:".count))
+                if let refIndex = next.firstIndex(of: refPath) {
+                    next.insert(path, at: refIndex)
+                } else {
+                    next.append(path)
+                }
+            } else {
+                next.append(path)
+            }
+            if next != directoryOrder { directoryOrder = next }
         }
     }
 
@@ -549,11 +556,20 @@ final class SessionIndexStore: ObservableObject {
 
     nonisolated private static func decodeClaudeProjectDir(_ raw: String) -> String? {
         // Claude encodes cwd by replacing "/" with "-" and prefixing "-"
-        // e.g. "-Users-lawrence-fun-cmuxterm-hq" -> "/Users/lawrence/fun/cmuxterm-hq"
-        // This is lossy (cannot distinguish original "-" from "/"), so try as a hint only.
+        // e.g. "-Users-lawrence-fun-cmuxterm-hq" -> "/Users/lawrence/fun/cmuxterm-hq".
+        // The encoding is lossy: a real path segment containing "-"
+        // (e.g. "my-cool-project") collapses to multiple segments
+        // ("/my/cool/project") on decode, which is wrong. Only return the
+        // candidate if it actually exists on disk; otherwise let the caller
+        // fall back to the JSONL `cwd` field.
         guard !raw.isEmpty else { return nil }
         let stripped = raw.hasPrefix("-") ? String(raw.dropFirst()) : raw
         let candidate = "/" + stripped.replacingOccurrences(of: "-", with: "/")
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDir),
+              isDir.boolValue else {
+            return nil
+        }
         return candidate
     }
 
@@ -1245,6 +1261,7 @@ final class SessionIndexStore: ObservableObject {
         var matches: [SessionEntry] = []
         var scanned = 0
         for (url, mtime) in candidates {
+            if Task.isCancelled { break }
             if matches.count >= target { break }
             if scanned >= searchMaxFiles { break }
             scanned += 1

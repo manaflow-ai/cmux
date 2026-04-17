@@ -20,6 +20,13 @@ struct SessionIndexView: View {
         return f
     }()
 
+    static let absoluteFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
+    }()
+
     var body: some View {
         VStack(spacing: 0) {
             controlBar
@@ -33,7 +40,10 @@ struct SessionIndexView: View {
             }
         }
         .onAppear {
-            if store.entries.isEmpty {
+            // RightSidebarPanelView's mode toggle also kicks reload() when
+            // entries are empty, so guard against the double-reload that
+            // would otherwise cancel and restart the in-flight scan.
+            if store.entries.isEmpty && !store.isLoading {
                 store.reload()
             }
         }
@@ -108,7 +118,8 @@ struct SessionIndexView: View {
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(sections.enumerated()), id: \.element.key) { index, section in
-                    SectionReorderGap(insertIndex: index, store: store)
+                    // Drop above this row → insert dragged section BEFORE this section's key.
+                    SectionReorderGap(beforeKey: section.key, store: store)
                     IndexSectionView(
                         section: section,
                         rowLimit: Self.collapsedRowLimit,
@@ -131,8 +142,10 @@ struct SessionIndexView: View {
                         store: store,
                         onResume: onResume
                     )
+                    let _ = index
                 }
-                SectionReorderGap(insertIndex: sections.count, store: store)
+                // Trailing gap → append.
+                SectionReorderGap(beforeKey: nil, store: store)
             }
             .padding(.bottom, 8)
         }
@@ -280,7 +293,9 @@ private struct IndexSectionView: View {
 }
 
 private struct SectionReorderGap: View {
-    let insertIndex: Int
+    /// Section the dragged item should land BEFORE if dropped here. `nil` for
+    /// the trailing gap (drop appends to the end of persisted order).
+    let beforeKey: SectionKey?
     @ObservedObject var store: SessionIndexStore
     @State private var isDropTarget: Bool = false
 
@@ -300,7 +315,7 @@ private struct SectionReorderGap: View {
             .onDrop(
                 of: [.text],
                 delegate: SectionGapDropDelegate(
-                    insertIndex: insertIndex,
+                    beforeKey: beforeKey,
                     store: store,
                     isDropTarget: $isDropTarget
                 )
@@ -308,26 +323,23 @@ private struct SectionReorderGap: View {
     }
 
     private var isValidDrop: Bool {
-        guard let dragged = store.draggedKey,
-              let oldIndex = store.currentIndex(of: dragged) else {
-            return true
-        }
-        return insertIndex != oldIndex && insertIndex != oldIndex + 1
+        guard let dragged = store.draggedKey else { return true }
+        // Skip no-op drops: dropping on the gap immediately above yourself, or
+        // the trailing gap when you're already last.
+        if dragged == beforeKey { return false }
+        return true
     }
 }
 
 private struct SectionGapDropDelegate: DropDelegate {
-    let insertIndex: Int
+    let beforeKey: SectionKey?
     let store: SessionIndexStore
     @Binding var isDropTarget: Bool
 
     func validateDrop(info: DropInfo) -> Bool {
         guard info.hasItemsConforming(to: [.text]) else { return false }
-        guard let dragged = store.draggedKey,
-              let oldIndex = store.currentIndex(of: dragged) else {
-            return true
-        }
-        return insertIndex != oldIndex && insertIndex != oldIndex + 1
+        guard let dragged = store.draggedKey else { return true }
+        return dragged != beforeKey
     }
 
     func dropEntered(info: DropInfo) { isDropTarget = true }
@@ -339,15 +351,13 @@ private struct SectionGapDropDelegate: DropDelegate {
             store.draggedKey = nil
             return false
         }
-        let storedInsert = insertIndex
+        let beforeKey = self.beforeKey
         provider.loadObject(ofClass: NSString.self) { object, _ in
             DispatchQueue.main.async {
                 defer { store.draggedKey = nil }
                 guard let raw = object as? String else { return }
                 let key = SectionKey(raw: raw)
-                guard let oldIndex = store.currentIndex(of: key) else { return }
-                let target = storedInsert > oldIndex ? storedInsert - 1 : storedInsert
-                store.moveSection(key, toInsertIndex: target)
+                store.moveSection(key, before: beforeKey)
             }
         }
         return true
@@ -417,52 +427,7 @@ private struct SessionRow: View, Equatable {
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .contextMenu {
-            if let onResume {
-                Button {
-                    onResume(entry)
-                } label: {
-                    Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
-                }
-                Divider()
-            }
-            if entry.fileURL != nil {
-                Button {
-                    open()
-                } label: {
-                    Text(String(localized: "sessionIndex.row.open", defaultValue: "Open"))
-                }
-                Button {
-                    revealInFinder()
-                } label: {
-                    Text(String(localized: "sessionIndex.row.reveal", defaultValue: "Reveal in Finder"))
-                }
-                Divider()
-                Button {
-                    copyPath()
-                } label: {
-                    Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
-                }
-            }
-            Button {
-                copyResumeCommand()
-            } label: {
-                Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
-            }
-            if let cwd = entry.cwd, !cwd.isEmpty {
-                Button {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
-                } label: {
-                    Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
-                }
-            }
-            if let pr = entry.pullRequest, let url = URL(string: pr.url) {
-                Divider()
-                Button {
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
-                }
-            }
+            sessionRowMenuItems(entry: entry, onResume: onResume)
         }
     }
 
@@ -475,43 +440,71 @@ private struct SessionRow: View, Equatable {
         return lines.joined(separator: "\n")
     }
 
-    private func open() {
-        guard let url = entry.fileURL else {
-            if let cwd = entry.cwd, !cwd.isEmpty {
-                NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
-            }
-            return
-        }
-        NSWorkspace.shared.open(url)
-    }
-
-    private func revealInFinder() {
-        guard let url = entry.fileURL else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
-
-    private func copyPath() {
-        guard let url = entry.fileURL else { return }
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(url.path, forType: .string)
-    }
-
-    private func copyResumeCommand() {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(entry.resumeCommand, forType: .string)
-    }
-
     private func relativeTime(_ date: Date) -> String {
         SessionIndexView.relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
     private func absoluteTime(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f.string(from: date)
+        SessionIndexView.absoluteFormatter.string(from: date)
+    }
+}
+
+// MARK: - Shared row actions
+
+/// Right-click menu items for any session row (full or popover). Built as a
+/// free `@ViewBuilder` so SessionRow and PopoverRow both attach the same set
+/// without duplicating the button list or the action helpers.
+@ViewBuilder
+private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
+    if let onResume {
+        Button {
+            onResume(entry)
+        } label: {
+            Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
+        }
+        Divider()
+    }
+    if let url = entry.fileURL {
+        Button {
+            NSWorkspace.shared.open(url)
+        } label: {
+            Text(String(localized: "sessionIndex.row.open", defaultValue: "Open"))
+        }
+        Button {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } label: {
+            Text(String(localized: "sessionIndex.row.reveal", defaultValue: "Reveal in Finder"))
+        }
+        Divider()
+        Button {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(url.path, forType: .string)
+        } label: {
+            Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
+        }
+    }
+    Button {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(entry.resumeCommand, forType: .string)
+    } label: {
+        Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
+    }
+    if let cwd = entry.cwd, !cwd.isEmpty {
+        Button {
+            NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
+        } label: {
+            Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
+        }
+    }
+    if let pr = entry.pullRequest, let url = URL(string: pr.url) {
+        Divider()
+        Button {
+            NSWorkspace.shared.open(url)
+        } label: {
+            Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
+        }
     }
 }
 
@@ -807,12 +800,6 @@ private struct PopoverRow: View, Equatable {
         lhs.entry == rhs.entry
     }
 
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .abbreviated
-        return f
-    }()
-
     var body: some View {
         HStack(spacing: 6) {
             Image(entry.agent.assetName)
@@ -826,7 +813,7 @@ private struct PopoverRow: View, Equatable {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
-            Text(Self.relativeFormatter.localizedString(for: entry.modified, relativeTo: Date()))
+            Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: Date()))
                 .font(.system(size: 11).monospacedDigit())
                 .foregroundColor(.secondary.opacity(0.7))
                 .fixedSize()
@@ -842,6 +829,9 @@ private struct PopoverRow: View, Equatable {
             sessionDragItemProvider(for: entry)
         }
         .help(entry.cwdLabel ?? entry.displayTitle)
+        .contextMenu {
+            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+        }
     }
 }
 
