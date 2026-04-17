@@ -961,10 +961,14 @@ private struct SectionPopoverHost: NSViewRepresentable {
             }
             anchorView.superview?.layoutSubtreeIfNeeded()
             let popover = popover ?? makePopover()
-            // Bump identity + refresh BEFORE showing so the SwiftUI tree mounts
-            // with the new id (= reset @State) on this open.
-            presentationCount += 1
-            refreshContent()
+            // Only bump identity on a hidden→shown transition. Bumping on every
+            // updateNSView (which fires on parent re-renders, e.g. ObservedObject
+            // store changes) would reset SectionPopoverView's @State on every
+            // tick — typed query gone, loaded reset, looks like infinite loading.
+            if !popover.isShown {
+                presentationCount += 1
+                refreshContent()
+            }
             updateContentSize()
             guard !popover.isShown else { return }
             popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxX)
