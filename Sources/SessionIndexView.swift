@@ -601,46 +601,36 @@ private struct SectionPopoverView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.orange.opacity(0.10))
             }
-            if isLoading && loaded.isEmpty {
-                loadingRow
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 6)
-            } else if loaded.isEmpty {
-                Text(String(localized: "sessionIndex.popover.noMatches",
-                            defaultValue: "No matches"))
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                // NSTableView-backed virtualization: List recycles row cells so
-                // a long result set only realizes the visible window. Default
-                // List chrome (separators, insets, background, min row height)
-                // is stripped so rows render identically to the previous
-                // LazyVStack. List requires a concrete height to render on
-                // macOS, so we set 420 directly here instead of relying on
-                // a parent maxHeight.
-                List {
-                    ForEach(loaded) { entry in
-                        PopoverRow(entry: entry) {
-                            onResume?(entry)
-                            onDismiss()
-                        }
-                        .equatable()
-                        .modifier(PopoverListRow())
-                    }
-                    if hasMore {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if isLoading && loaded.isEmpty {
                         loadingRow
-                            .onAppear { loadMore() }
-                            .modifier(PopoverListRow())
+                    } else if loaded.isEmpty {
+                        Text(String(localized: "sessionIndex.popover.noMatches",
+                                    defaultValue: "No matches"))
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ForEach(loaded) { entry in
+                            PopoverRow(entry: entry) {
+                                onResume?(entry)
+                                onDismiss()
+                            }
+                            .equatable()
+                        }
+                        if hasMore {
+                            loadingRow
+                                .onAppear { loadMore() }
+                        }
                     }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .environment(\.defaultMinListRowHeight, 0)
-                .frame(height: 420)
+                .padding(.top, 4)
+                .padding(.bottom, 10)
             }
+            .frame(maxHeight: 420)
         }
         .frame(width: 360)
         .background(
@@ -776,17 +766,6 @@ private struct SectionPopoverView: View {
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         }
-    }
-}
-
-/// Strips default `List` row chrome so popover rows render flush with our
-/// custom padding and hover background.
-private struct PopoverListRow: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .listRowInsets(EdgeInsets())
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
     }
 }
 
