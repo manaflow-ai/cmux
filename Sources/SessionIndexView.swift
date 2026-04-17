@@ -74,8 +74,8 @@ struct SessionIndexView: View {
             .disabled(store.isLoading)
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .frame(height: 32)
+        .padding(.vertical, 3)
+        .frame(height: 29)
     }
 
     private var loadingView: some View {
@@ -604,6 +604,9 @@ private struct SectionPopoverView: View {
             .frame(maxHeight: 420)
         }
         .frame(width: 360)
+        .background(
+            EscapeKeyCatcher { onDismiss() }
+        )
         .onAppear {
             // Defer one runloop turn so the popover's window is fully key.
             DispatchQueue.main.async { searchFocused = true }
@@ -861,6 +864,51 @@ private struct SectionPopoverHost: NSViewRepresentable {
                 width: ceil(max(fitting.width, 360)),
                 height: ceil(min(fitting.height, 480))
             )
+        }
+    }
+}
+
+// MARK: - Escape key catcher
+
+/// Invisible AppKit view that fires `onEscape` when Escape is pressed while
+/// the popover content is key. Lives in the popover's view tree so it inherits
+/// the popover's responder chain.
+private struct EscapeKeyCatcher: NSViewRepresentable {
+    let onEscape: () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = EscapeMonitorView()
+        view.onEscape = onEscape
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? EscapeMonitorView)?.onEscape = onEscape
+    }
+
+    private final class EscapeMonitorView: NSView {
+        var onEscape: (() -> Void)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, let win = self.window, win.isKeyWindow else { return event }
+                if event.keyCode == 53 { // kVK_Escape
+                    self.onEscape?()
+                    return nil
+                }
+                return event
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
         }
     }
 }
