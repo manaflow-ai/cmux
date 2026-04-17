@@ -31,9 +31,13 @@ def _must(cond: bool, msg: str) -> None:
         raise cmuxError(msg)
 
 
-def _workspace_count(c: cmux) -> int:
+def _workspace_ids(c: cmux) -> set[str]:
     payload = c._call("workspace.list") or {}
-    return len(payload.get("workspaces") or [])
+    return {
+        str(w.get("id"))
+        for w in (payload.get("workspaces") or [])
+        if w.get("id")
+    }
 
 
 def _close_workspace_quietly(c: cmux, workspace_id: str) -> None:
@@ -45,7 +49,11 @@ def _close_workspace_quietly(c: cmux, workspace_id: str) -> None:
 
 def _assert_layout_rollback(c: cmux, label: str, layout: dict) -> None:
     print(f"  -> {label}")
-    baseline_count = _workspace_count(c)
+    # Capture the baseline as a set of IDs instead of a count so unrelated
+    # concurrent create/close activity (e.g. from other socket clients in
+    # the same CI run) cannot produce a false "orphan" signal as long as
+    # the IDs it touches are distinct from ours.
+    baseline_ids = _workspace_ids(c)
 
     rejected = False
     spurious_id: str | None = None
@@ -73,10 +81,11 @@ def _assert_layout_rollback(c: cmux, label: str, layout: dict) -> None:
             f"expected invalid_layout error for {label}, but workspace.create returned ok"
         )
 
-    after_count = _workspace_count(c)
+    after_ids = _workspace_ids(c)
+    new_ids = after_ids - baseline_ids
     _must(
-        after_count == baseline_count,
-        f"layout {label} left an orphan workspace: {baseline_count} -> {after_count}",
+        not new_ids,
+        f"layout {label} left orphan workspace(s): {sorted(new_ids)}",
     )
 
 
@@ -107,11 +116,57 @@ def test_split_with_three_children_rolls_back(c: cmux) -> None:
     })
 
 
+def test_valid_two_child_split_still_succeeds(c: cmux) -> None:
+    """A well-formed 2-child split must still create a workspace.
+
+    This is the positive-path companion to the rollback tests: if
+    `applyCustomLayoutChecked` over-reports failures (e.g. a future refactor
+    of the short-circuit in `buildCustomLayoutTree` incorrectly returns
+    failures for valid layouts), this test catches it by asserting the
+    happy path still produces a workspace and that the transactional
+    short-circuit does not regress the legitimate create flow.
+    """
+    print("  -> valid_two_child_split")
+    baseline_ids = _workspace_ids(c)
+
+    payload = c._call("workspace.create", {
+        "title": f"layout_positive_{int(time.time() * 1000)}",
+        "layout": {
+            "direction": "horizontal",
+            "children": [
+                {"pane": {"surfaces": [{"type": "terminal"}]}},
+                {"pane": {"surfaces": [{"type": "terminal"}]}},
+            ],
+        },
+    }) or {}
+
+    new_id = str(payload.get("workspace_id") or "") or None
+    _must(
+        new_id is not None,
+        "valid 2-child split should return a workspace_id",
+    )
+    assert new_id is not None  # for type narrowing
+
+    after_ids = _workspace_ids(c)
+    _must(
+        new_id in after_ids,
+        f"workspace {new_id} missing from workspace.list after successful create",
+    )
+    _must(
+        after_ids - baseline_ids == {new_id},
+        f"unexpected extra workspaces after valid create: "
+        f"{sorted(after_ids - baseline_ids - {new_id})}",
+    )
+
+    _close_workspace_quietly(c, new_id)
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         print("test_workspace_create_layout_rollback:")
         test_split_with_one_child_rolls_back(c)
         test_split_with_three_children_rolls_back(c)
+        test_valid_two_child_split_still_succeeds(c)
     print("PASS: workspace.create rejects partially-failing layouts and rolls back")
     return 0
 
