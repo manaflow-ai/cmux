@@ -41,12 +41,13 @@ func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() st
 	focused := getFocusedContext(rc)
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:        shimDir,
-		socketPath:     socketPath,
-		focused:        focused,
-		tmuxPathPrefix: "cmux-claude-teams",
-		cmuxBinEnvVar:  "CMUX_CLAUDE_TEAMS_CMUX_BIN",
-		termEnvVar:     "CMUX_CLAUDE_TEAMS_TERM",
+		shimDir:          shimDir,
+		socketPath:       socketPath,
+		focused:          focused,
+		tmuxPathPrefix:   "cmux-claude-teams",
+		cmuxBinEnvVar:    "CMUX_CLAUDE_TEAMS_CMUX_BIN",
+		termEnvVar:       "CMUX_CLAUDE_TEAMS_TERM",
+		unsetTermProgram: false,
 		extraEnv: map[string]string{
 			"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
 		},
@@ -95,13 +96,14 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 	focused := getFocusedContext(rc)
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:        shimDir,
-		socketPath:     socketPath,
-		focused:        focused,
-		tmuxPathPrefix: "cmux-omo",
-		cmuxBinEnvVar:  "CMUX_OMO_CMUX_BIN",
-		termEnvVar:     "CMUX_OMO_TERM",
-		extraEnv:       map[string]string{},
+		shimDir:          shimDir,
+		socketPath:       socketPath,
+		focused:          focused,
+		tmuxPathPrefix:   "cmux-omo",
+		cmuxBinEnvVar:    "CMUX_OMO_CMUX_BIN",
+		termEnvVar:       "CMUX_OMO_TERM",
+		unsetTermProgram: true,
+		extraEnv:         map[string]string{},
 	})
 
 	// Set OPENCODE_PORT if not already set
@@ -153,13 +155,14 @@ func runOMXRelay(socketPath string, args []string, refreshAddr func() string) in
 	focused := getFocusedContext(rc)
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:        shimDir,
-		socketPath:     socketPath,
-		focused:        focused,
-		tmuxPathPrefix: "cmux-omx",
-		cmuxBinEnvVar:  "CMUX_OMX_CMUX_BIN",
-		termEnvVar:     "CMUX_OMX_TERM",
-		extraEnv:       map[string]string{},
+		shimDir:          shimDir,
+		socketPath:       socketPath,
+		focused:          focused,
+		tmuxPathPrefix:   "cmux-omx",
+		cmuxBinEnvVar:    "CMUX_OMX_CMUX_BIN",
+		termEnvVar:       "CMUX_OMX_TERM",
+		unsetTermProgram: true,
+		extraEnv:         map[string]string{},
 	})
 
 	launchPath, launchArgv := resolveNodeScriptExec(omxPath, args, originalPath, shimDir)
@@ -189,13 +192,14 @@ func runOMCRelay(socketPath string, args []string, refreshAddr func() string) in
 	focused := getFocusedContext(rc)
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:        shimDir,
-		socketPath:     socketPath,
-		focused:        focused,
-		tmuxPathPrefix: "cmux-omc",
-		cmuxBinEnvVar:  "CMUX_OMC_CMUX_BIN",
-		termEnvVar:     "CMUX_OMC_TERM",
-		extraEnv:       map[string]string{},
+		shimDir:          shimDir,
+		socketPath:       socketPath,
+		focused:          focused,
+		tmuxPathPrefix:   "cmux-omc",
+		cmuxBinEnvVar:    "CMUX_OMC_CMUX_BIN",
+		termEnvVar:       "CMUX_OMC_TERM",
+		unsetTermProgram: true,
+		extraEnv:         map[string]string{},
 	})
 
 	// omc wraps Claude Code, so configure NODE_OPTIONS restore module
@@ -431,13 +435,14 @@ func stringFromAny(values ...any) string {
 // --- Environment configuration ---
 
 type agentConfig struct {
-	shimDir        string
-	socketPath     string
-	focused        *focusedContext
-	tmuxPathPrefix string
-	cmuxBinEnvVar  string
-	termEnvVar     string
-	extraEnv       map[string]string
+	shimDir          string
+	socketPath       string
+	focused          *focusedContext
+	tmuxPathPrefix   string
+	cmuxBinEnvVar    string
+	termEnvVar       string
+	extraEnv         map[string]string
+	unsetTermProgram bool
 }
 
 func configureAgentEnvironment(cfg agentConfig) {
@@ -470,9 +475,12 @@ func configureAgentEnvironment(cfg agentConfig) {
 	// Terminal settings
 	fakeTerm := os.Getenv(cfg.termEnvVar)
 	if fakeTerm == "" {
-		fakeTerm = "screen-256color"
+		fakeTerm = "xterm-ghostty"
 	}
 	os.Setenv("TERM", fakeTerm)
+	if os.Getenv("COLORTERM") == "" {
+		os.Setenv("COLORTERM", "truecolor")
+	}
 
 	// Socket path
 	os.Setenv("CMUX_SOCKET_PATH", cfg.socketPath)
@@ -481,11 +489,10 @@ func configureAgentEnvironment(cfg agentConfig) {
 	// Unset TERM_PROGRAM so apps don't detect the host terminal and
 	// override tmux-compatible behavior (e.g. opencode switches to
 	// light theme when it sees TERM_PROGRAM=ghostty).
-	os.Unsetenv("TERM_PROGRAM")
-
-	// Preserve COLORTERM for truecolor support in subagent panes.
-	if os.Getenv("COLORTERM") == "" {
-		os.Setenv("COLORTERM", "truecolor")
+	// Only unset for OMO/OMX/OMC; claude-teams must preserve it
+	// so Claude Code can detect Ghostty for proper color support.
+	if cfg.unsetTermProgram {
+		os.Unsetenv("TERM_PROGRAM")
 	}
 
 	// Set workspace/surface IDs from focused context
