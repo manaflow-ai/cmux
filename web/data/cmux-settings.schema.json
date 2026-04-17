@@ -502,7 +502,7 @@
         },
         "reactGrabVersion": {
           "type": "string",
-          "default": "0.1.29",
+          "default": "0.1.31",
           "description": "Pinned react-grab version for the browser toolbar helper."
         }
       }

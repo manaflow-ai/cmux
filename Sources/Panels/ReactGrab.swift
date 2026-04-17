@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import WebKit
 
@@ -10,22 +9,11 @@ import Bonsplit
 
 enum ReactGrabSettings {
     static let versionKey = "reactGrabVersion"
-    static let defaultVersion = "0.1.29"
 
-    /// Known versions and their SHA-256 integrity hashes.
-    /// Add new entries when bumping the default or to allow user-selected versions.
-    static let knownHashes: [String: String] = [
-        "0.1.29": "4a1e71090e8ad8bb6049de80ccccdc0f5bb147b9f8fb88886d871612ac7ca04b",
-    ]
-
-    static func scriptURL(for version: String) -> URL {
-        URL(string: "https://unpkg.com/react-grab@\(version)/dist/index.global.js")!
-    }
-
-    static var configuredVersion: String {
-        let stored = UserDefaults.standard.string(forKey: versionKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return stored.isEmpty ? defaultVersion : stored
-    }
+    /// Built from https://github.com/aidenybai/react-grab (v0.1.31) with
+    /// PREVIEW_TEXT_MAX_LENGTH increased to 50000 so element text is not
+    /// truncated to 100 chars.
+    static let defaultVersion = "0.1.31"
 }
 
 struct ReactGrabShortcutPanelSnapshot: Equatable {
@@ -86,56 +74,32 @@ private enum ReactGrabPastebackContentFilter {
 
 // MARK: - Script Loader
 
-/// Fetches, integrity-checks, and caches the react-grab script.
+/// Loads the bundled react-grab script from app resources.
 /// Shared across all BrowserPanel instances.
 enum ReactGrabScriptLoader {
     private static var cachedScript: String?
-    private static var cachedVersion: String?
-    private static var prefetchTask: Task<String?, Never>?
 
     static func prefetch() {
-        let version = ReactGrabSettings.configuredVersion
-        // Invalidate cache if version changed.
-        if cachedVersion != version {
-            cachedScript = nil
-            cachedVersion = nil
-        }
         guard cachedScript == nil else { return }
-        guard prefetchTask == nil else { return }
-        prefetchTask = Task.detached(priority: .low) {
-            let result = await doFetch(version: version)
-            await MainActor.run { prefetchTask = nil }
-            return result
-        }
+        cachedScript = loadFromBundle()
     }
 
     static func fetch() async -> String? {
-        let version = ReactGrabSettings.configuredVersion
-        if cachedVersion == version, let cached = cachedScript { return cached }
-        prefetch()
-        return await prefetchTask?.value
+        if let cached = cachedScript { return cached }
+        let script = loadFromBundle()
+        cachedScript = script
+        return script
     }
 
-    private static func doFetch(version: String) async -> String? {
-        let url = ReactGrabSettings.scriptURL(for: version)
+    private static func loadFromBundle() -> String? {
+        guard let url = Bundle.main.url(forResource: "react-grab", withExtension: "js") else {
+            NSLog("ReactGrab: react-grab.js not found in bundle")
+            return nil
+        }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            if let expectedHash = ReactGrabSettings.knownHashes[version] {
-                let hash = SHA256.hash(data: data)
-                let hex = hash.compactMap { String(format: "%02x", $0) }.joined()
-                guard hex == expectedHash else {
-                    NSLog("ReactGrab: integrity mismatch for v%@ (got %@)", version, hex)
-                    return nil
-                }
-            }
-            guard let script = String(data: data, encoding: .utf8) else { return nil }
-            await MainActor.run {
-                cachedScript = script
-                cachedVersion = version
-            }
-            return script
+            return try String(contentsOf: url, encoding: .utf8)
         } catch {
-            NSLog("ReactGrab: fetch failed for v%@: %@", version, error.localizedDescription)
+            NSLog("ReactGrab: failed to read bundled script: %@", error.localizedDescription)
             return nil
         }
     }
