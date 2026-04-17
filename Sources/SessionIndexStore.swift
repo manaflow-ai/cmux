@@ -396,67 +396,15 @@ final class SessionIndexStore: ObservableObject {
     private static let perAgentLimit = 30
     private static let headByteCap = 64 * 1024
     private static let tailByteCap = 32 * 1024
-    /// Limits for the on-demand deep search (popover "Show more").
-    private static let searchMaxResults = 200
+    /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     private static let searchMaxFiles = 1500
-    private static let searchFileByteCap = 128 * 1024
 
     private static func scanAll() async -> [SessionEntry] {
-        async let claude = scanClaude()
-        async let codex = scanCodex()
-        async let opencode = scanOpenCode()
+        async let claude = loadClaudeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
+        async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
+        async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
         let combined = await claude + codex + opencode
         return combined.sorted { $0.modified > $1.modified }
-    }
-
-    // MARK: Claude
-
-    private static func scanClaude() async -> [SessionEntry] {
-        let projectsRoot = ("~/.claude/projects" as NSString).expandingTildeInPath
-        let fm = FileManager.default
-        guard let projectDirs = try? fm.contentsOfDirectory(atPath: projectsRoot) else {
-            return []
-        }
-
-        var candidates: [(URL, Date, String)] = []
-        for dirName in projectDirs {
-            let dirPath = (projectsRoot as NSString).appendingPathComponent(dirName)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
-            guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { continue }
-            for name in contents where name.hasSuffix(".jsonl") {
-                let filePath = (dirPath as NSString).appendingPathComponent(name)
-                let url = URL(fileURLWithPath: filePath)
-                guard let attrs = try? fm.attributesOfItem(atPath: filePath),
-                      let mtime = attrs[.modificationDate] as? Date else { continue }
-                candidates.append((url, mtime, dirName))
-            }
-        }
-
-        candidates.sort { $0.1 > $1.1 }
-        let limited = candidates.prefix(perAgentLimit)
-
-        var results: [SessionEntry] = []
-        results.reserveCapacity(limited.count)
-        for (url, mtime, dirName) in limited {
-            let head = readFileHead(url: url, byteCap: headByteCap)
-            let tail = readFileTail(url: url, byteCap: tailByteCap)
-            let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: dirName)
-            let sid = url.deletingPathExtension().lastPathComponent
-            results.append(SessionEntry(
-                id: "claude:" + url.path,
-                agent: .claude,
-                sessionId: sid,
-                title: parsed.title,
-                cwd: parsed.cwd,
-                gitBranch: parsed.branch,
-                pullRequest: parsed.pr,
-                modified: mtime,
-                fileURL: url,
-                specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
-            ))
-        }
-        return results
     }
 
     private struct ClaudeParsed {
@@ -549,54 +497,6 @@ final class SessionIndexStore: ObservableObject {
     }
 
     // MARK: Codex
-
-    private static func scanCodex() async -> [SessionEntry] {
-        let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
-        let fm = FileManager.default
-        let rootURL = URL(fileURLWithPath: root)
-        guard let enumerator = fm.enumerator(
-            at: rootURL,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        var candidates: [(URL, Date)] = []
-        for case let url as URL in enumerator {
-            guard url.pathExtension == "jsonl" else { continue }
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true,
-                  let mtime = values?.contentModificationDate else { continue }
-            candidates.append((url, mtime))
-        }
-        candidates.sort { $0.1 > $1.1 }
-        let limited = candidates.prefix(perAgentLimit)
-
-        var results: [SessionEntry] = []
-        results.reserveCapacity(limited.count)
-        for (url, mtime) in limited {
-            let parsed = extractCodexMetadata(url: url)
-            results.append(SessionEntry(
-                id: "codex:" + url.path,
-                agent: .codex,
-                sessionId: parsed.sessionId,
-                title: parsed.title,
-                cwd: parsed.cwd,
-                gitBranch: parsed.branch,
-                pullRequest: nil,
-                modified: mtime,
-                fileURL: url,
-                specifics: .codex(
-                    model: parsed.model,
-                    approvalPolicy: parsed.approvalPolicy,
-                    sandboxMode: parsed.sandboxMode,
-                    effort: parsed.effort
-                )
-            ))
-        }
-        return results
-    }
 
     private struct CodexParsed {
         var sessionId: String = ""
@@ -721,86 +621,6 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: OpenCode
 
-    private static func scanOpenCode() async -> [SessionEntry] {
-        let dbPath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: dbPath) else { return [] }
-
-        // Snapshot DB + WAL/SHM into a temp directory to avoid contention with a running OpenCode.
-        let snapshotDir = fm.temporaryDirectory.appendingPathComponent("cmux-opencode-snap-\(UUID().uuidString)", isDirectory: true)
-        do {
-            try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
-        } catch {
-            return []
-        }
-        defer { try? fm.removeItem(at: snapshotDir) }
-
-        let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
-        do {
-            try fm.copyItem(atPath: dbPath, toPath: snapshotDB.path)
-        } catch {
-            return []
-        }
-        for sidecar in ["-wal", "-shm"] {
-            let src = dbPath + sidecar
-            let dst = snapshotDB.path + sidecar
-            if fm.fileExists(atPath: src) {
-                try? fm.copyItem(atPath: src, toPath: dst)
-            }
-        }
-
-        var db: OpaquePointer?
-        let openCode = sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil)
-        guard openCode == SQLITE_OK, let db else {
-            sqlite3_close(db)
-            return []
-        }
-        defer { sqlite3_close(db) }
-
-        // Pull the latest assistant message per session in one query so we can carry
-        // model + agent forward into the resume command.
-        let sql = """
-            SELECT s.id, s.title, s.directory, s.time_updated, (
-                SELECT data FROM message
-                WHERE session_id = s.id AND data LIKE '%"role":"assistant"%'
-                ORDER BY time_created DESC LIMIT 1
-            ) AS last_assistant
-            FROM session s
-            ORDER BY s.time_updated DESC
-            LIMIT \(perAgentLimit)
-            """
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            sqlite3_finalize(stmt)
-            return []
-        }
-        defer { sqlite3_finalize(stmt) }
-
-        var results: [SessionEntry] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let sid = sqliteText(stmt, 0) ?? ""
-            let title = sqliteText(stmt, 1) ?? ""
-            let directory = sqliteText(stmt, 2)
-            let updatedMs = sqlite3_column_int64(stmt, 3)
-            let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
-            let lastJSON = sqliteText(stmt, 4)
-            let (providerModel, agentName) = parseOpenCodeAssistant(lastJSON)
-            results.append(SessionEntry(
-                id: "opencode:" + sid,
-                agent: .opencode,
-                sessionId: sid,
-                title: title,
-                cwd: directory,
-                gitBranch: nil,
-                pullRequest: nil,
-                modified: modified,
-                fileURL: nil,
-                specifics: .opencode(providerModel: providerModel, agentName: agentName)
-            ))
-        }
-        return results
-    }
-
     nonisolated private static func parseOpenCodeAssistant(_ raw: String?) -> (String?, String?) {
         guard let raw, let data = raw.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -879,9 +699,9 @@ final class SessionIndexStore: ObservableObject {
         offset: Int, limit: Int
     ) async -> [SessionEntry] {
         switch agent {
-        case .claude: return await searchClaudeOnDisk(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
-        case .codex: return await searchCodexOnDisk(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
-        case .opencode: return searchOpenCodeInDB(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         }
     }
 
@@ -969,7 +789,14 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    nonisolated private static func searchClaudeOnDisk(
+    /// Returns Claude session entries paginated by mtime desc.
+    /// - When `needle` is empty: fast path. Skips rg, enumerates `~/.claude/projects`,
+    ///   takes the top `offset+limit` by mtime, parses metadata, returns the slice.
+    /// - When `needle` is non-empty and rg is on PATH: rg pre-filters the candidate
+    ///   set; we only parse files that actually contain the needle.
+    /// - When `needle` is non-empty and rg is missing/failed: falls back to the
+    ///   Foundation enumeration + 64 KB head + 32 KB tail substring scan.
+    nonisolated private static func loadClaudeEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
         let projectsRoot = ("~/.claude/projects" as NSString).expandingTildeInPath
@@ -1014,7 +841,7 @@ final class SessionIndexStore: ObservableObject {
             if matches.count >= target { break }
             if scanned >= searchMaxFiles { break }
             scanned += 1
-            let head = readFileHead(url: url, byteCap: searchFileByteCap)
+            let head = readFileHead(url: url, byteCap: headByteCap)
             let tail = readFileTail(url: url, byteCap: tailByteCap)
             // Skip the substring re-check when rg already confirmed the file matches.
             if !needle.isEmpty && !rgFiltered {
@@ -1040,7 +867,9 @@ final class SessionIndexStore: ObservableObject {
         return Array(matches.dropFirst(offset).prefix(limit))
     }
 
-    nonisolated private static func searchCodexOnDisk(
+    /// Returns Codex session entries paginated by mtime desc.
+    /// Same shape as `loadClaudeEntries` — see that doc comment for the empty/needle/rg paths.
+    nonisolated private static func loadCodexEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
         let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
@@ -1081,7 +910,7 @@ final class SessionIndexStore: ObservableObject {
             if scanned >= searchMaxFiles { break }
             scanned += 1
             if !needle.isEmpty && !rgFiltered {
-                let head = readFileHead(url: url, byteCap: searchFileByteCap)
+                let head = readFileHead(url: url, byteCap: headByteCap)
                 guard head.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
             }
             let parsed = extractCodexMetadata(url: url)
@@ -1107,7 +936,11 @@ final class SessionIndexStore: ObservableObject {
         return Array(matches.dropFirst(offset).prefix(limit))
     }
 
-    nonisolated private static func searchOpenCodeInDB(
+    /// Returns OpenCode session entries paginated by `time_updated` desc.
+    /// Empty needle skips the `LIKE` clause entirely so it's just `ORDER BY … LIMIT/OFFSET`.
+    /// Sync because the SQL pass is fast and SQLite's API is sync; the caller
+    /// awaits the wrapping `searchSessions`/`scanAll` boundaries.
+    nonisolated private static func loadOpenCodeEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) -> [SessionEntry] {
         let dbPath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
