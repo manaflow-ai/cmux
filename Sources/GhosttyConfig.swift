@@ -318,13 +318,39 @@ struct GhosttyConfig {
     }
 
     private static func parseIntegerLiteral(_ value: String) -> Int? {
-        // Strip digit-group separators (for example 10_000_000).
-        // Hex and float literals are intentionally unsupported here.
-        let normalized = value.replacingOccurrences(of: "_", with: "")
-        guard let parsed = Int(normalized), parsed >= 0 else {
+        // Accept the same shapes Ghostty's own parser does for byte-typed
+        // values: plain integers, digit-group separators (10_000_000), and
+        // K/M/G/T size suffixes with an optional trailing B (case-insensitive).
+        // Hex and float literals are intentionally unsupported.
+        var normalized = value
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+
+        if normalized.hasSuffix("b") {
+            normalized.removeLast()
+        }
+
+        let multiplier: Int
+        switch normalized.last {
+        case "k": multiplier = 1 << 10
+        case "m": multiplier = 1 << 20
+        case "g": multiplier = 1 << 30
+        case "t": multiplier = 1 << 40
+        default:  multiplier = 1
+        }
+        if multiplier > 1 {
+            normalized.removeLast()
+        }
+
+        guard !normalized.isEmpty,
+              let magnitude = Int(normalized),
+              magnitude >= 0 else {
             return nil
         }
-        return parsed
+
+        let (scaled, overflow) = magnitude.multipliedReportingOverflow(by: multiplier)
+        return overflow ? nil : scaled
     }
 
     mutating func loadTheme(_ name: String) {
