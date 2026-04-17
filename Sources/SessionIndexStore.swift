@@ -931,15 +931,23 @@ final class SessionIndexStore: ObservableObject {
             root,
         ]
         let outPipe = Pipe()
-        let errPipe = Pipe()
         process.standardOutput = outPipe
-        process.standardError = errPipe
+        // Discard stderr to /dev/null so its pipe can never deadlock either.
+        if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
+            process.standardError = nullDev
+        }
         do { try process.run() } catch { return nil }
+        // Drain stdout BEFORE waitUntilExit. With many matches rg writes more
+        // than the ~64 KB pipe buffer can hold, blocks on the next write, and
+        // process.waitUntilExit() then deadlocks (rg can't exit until stdout
+        // drains, we won't drain until rg exits). readDataToEndOfFile reads
+        // until EOF (= rg closes its stdout when it finishes), so the order
+        // matters: read, then wait.
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         // rg exit codes: 0 = matches, 1 = no matches, 2 = error.
         switch process.terminationStatus {
         case 0:
-            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             guard let str = String(data: data, encoding: .utf8) else { return nil }
             return str.split(separator: "\n", omittingEmptySubsequences: true)
                 .map { URL(fileURLWithPath: String($0)) }
