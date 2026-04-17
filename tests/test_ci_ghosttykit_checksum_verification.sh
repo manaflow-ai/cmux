@@ -9,6 +9,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 WORKFLOWS=(
   "$ROOT_DIR/.github/workflows/ci.yml"
+  "$ROOT_DIR/.github/workflows/test-depot.yml"
   "$ROOT_DIR/.github/workflows/nightly.yml"
   "$ROOT_DIR/.github/workflows/release.yml"
 )

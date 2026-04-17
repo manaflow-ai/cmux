@@ -191,6 +191,7 @@ The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use i
 
 **Never run tests locally.** All tests (E2E, UI, python socket tests) run via GitHub Actions or on the VM.
 
+- **Fork PR workflow safety:** do not use `pull_request_target` to check out or execute fork code. If a workflow needs `pull_request_target`, limit it to metadata-only actions such as labels or comments.
 - **E2E / UI tests:** trigger via `gh workflow run test-e2e.yml` (see cmuxterm-hq CLAUDE.md for details)
 - **Unit tests:** `xcodebuild -scheme cmux-unit` is safe (no app launch), but prefer CI
 - **Python socket tests (tests_v2/):** these connect to a running cmux instance's socket. Never launch an untagged `cmux DEV.app` to run them. If you must test locally, use a tagged build's socket (`/tmp/cmux-debug-<tag>.sock`) with `CMUX_SOCKET=/tmp/cmux-debug-<tag>.sock`
