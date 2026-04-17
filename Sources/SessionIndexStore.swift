@@ -845,44 +845,42 @@ final class SessionIndexStore: ObservableObject {
     ) async -> [SessionEntry] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let needle = trimmed.lowercased()
-        return await Task.detached(priority: .userInitiated) {
-            switch scope {
-            case .agent(let a):
-                return Self.searchAgent(
-                    needle: needle, agent: a, cwdFilter: nil,
-                    offset: offset, limit: limit
-                )
-            case .directory(let path):
-                let cwdFilter = (path?.isEmpty == false) ? path : nil
-                // Multi-agent merge: fetch the union of (offset+limit) per agent so the
-                // merge-sort can produce a stable global ordering, then slice.
-                let target = offset + limit
-                async let c = Self.searchAgent(
-                    needle: needle, agent: .claude, cwdFilter: cwdFilter,
-                    offset: 0, limit: target
-                )
-                async let x = Self.searchAgent(
-                    needle: needle, agent: .codex, cwdFilter: cwdFilter,
-                    offset: 0, limit: target
-                )
-                async let o = Self.searchAgent(
-                    needle: needle, agent: .opencode, cwdFilter: cwdFilter,
-                    offset: 0, limit: target
-                )
-                let merged = (await c) + (await x) + (await o)
-                let sorted = merged.sorted { $0.modified > $1.modified }
-                return Array(sorted.dropFirst(offset).prefix(limit))
-            }
-        }.value
+        switch scope {
+        case .agent(let a):
+            return await Self.searchAgent(
+                needle: needle, agent: a, cwdFilter: nil,
+                offset: offset, limit: limit
+            )
+        case .directory(let path):
+            let cwdFilter = (path?.isEmpty == false) ? path : nil
+            // Multi-agent merge: fetch the union of (offset+limit) per agent so the
+            // merge-sort can produce a stable global ordering, then slice.
+            let target = offset + limit
+            async let c = Self.searchAgent(
+                needle: needle, agent: .claude, cwdFilter: cwdFilter,
+                offset: 0, limit: target
+            )
+            async let x = Self.searchAgent(
+                needle: needle, agent: .codex, cwdFilter: cwdFilter,
+                offset: 0, limit: target
+            )
+            async let o = Self.searchAgent(
+                needle: needle, agent: .opencode, cwdFilter: cwdFilter,
+                offset: 0, limit: target
+            )
+            let merged = (await c) + (await x) + (await o)
+            let sorted = merged.sorted { $0.modified > $1.modified }
+            return Array(sorted.dropFirst(offset).prefix(limit))
+        }
     }
 
     nonisolated private static func searchAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int
-    ) -> [SessionEntry] {
+    ) async -> [SessionEntry] {
         switch agent {
-        case .claude: return searchClaudeOnDisk(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
-        case .codex: return searchCodexOnDisk(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        case .claude: return await searchClaudeOnDisk(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        case .codex: return await searchCodexOnDisk(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .opencode: return searchOpenCodeInDB(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         }
     }
@@ -912,9 +910,15 @@ final class SessionIndexStore: ObservableObject {
     /// Run `rg --files-with-matches --ignore-case --fixed-strings` for `needle`
     /// under `root`, restricted to `glob` (e.g. `*.jsonl`). Returns matched file
     /// URLs, or nil if rg isn't available or the run failed (caller falls back).
+    ///
+    /// Async by design so we can wire cancellation: when the awaiting Task is
+    /// cancelled (e.g. user types another key), `onCancel` calls
+    /// `process.terminate()`, killing the in-flight rg instead of letting it
+    /// grind to completion. Wait is also async (via `terminationHandler`) so we
+    /// don't tie up a cooperative-pool thread on `waitUntilExit`.
     nonisolated private static func ripgrepMatchingPaths(
         needle: String, root: String, fileGlob: String
-    ) -> [URL]? {
+    ) async -> [URL]? {
         guard let rg = cachedRipgrepPath else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: rg)
@@ -936,31 +940,38 @@ final class SessionIndexStore: ObservableObject {
         if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
             process.standardError = nullDev
         }
-        do { try process.run() } catch { return nil }
-        // Drain stdout BEFORE waitUntilExit. With many matches rg writes more
-        // than the ~64 KB pipe buffer can hold, blocks on the next write, and
-        // process.waitUntilExit() then deadlocks (rg can't exit until stdout
-        // drains, we won't drain until rg exits). readDataToEndOfFile reads
-        // until EOF (= rg closes its stdout when it finishes), so the order
-        // matters: read, then wait.
-        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        // rg exit codes: 0 = matches, 1 = no matches, 2 = error.
-        switch process.terminationStatus {
-        case 0:
-            guard let str = String(data: data, encoding: .utf8) else { return nil }
-            return str.split(separator: "\n", omittingEmptySubsequences: true)
-                .map { URL(fileURLWithPath: String($0)) }
-        case 1:
-            return []
-        default:
-            return nil
+
+        return await withTaskCancellationHandler {
+            do { try process.run() } catch { return nil as [URL]? }
+            // Drain stdout BEFORE awaiting exit. With many matches rg writes
+            // more than the ~64 KB pipe buffer; reading until EOF lets rg
+            // make progress, and EOF arrives when rg closes its stdout on exit.
+            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            // Async wait via terminationHandler — no blocked cooperative-pool thread.
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                process.terminationHandler = { _ in cont.resume() }
+            }
+            // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
+            switch process.terminationStatus {
+            case 0:
+                guard let str = String(data: data, encoding: .utf8) else { return nil as [URL]? }
+                return str.split(separator: "\n", omittingEmptySubsequences: true)
+                    .map { URL(fileURLWithPath: String($0)) }
+            case 1:
+                return []
+            default:
+                return nil
+            }
+        } onCancel: {
+            // Fires synchronously when the awaiting Task is cancelled. Safe to
+            // call before/after run(); a not-yet-running process just no-ops.
+            process.terminate()
         }
     }
 
     nonisolated private static func searchClaudeOnDisk(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
-    ) -> [SessionEntry] {
+    ) async -> [SessionEntry] {
         let projectsRoot = ("~/.claude/projects" as NSString).expandingTildeInPath
         let fm = FileManager.default
 
@@ -970,7 +981,7 @@ final class SessionIndexStore: ObservableObject {
         var rgFiltered = false
         var candidates: [(URL, Date, String)] = []
         if !needle.isEmpty,
-           let rgPaths = ripgrepMatchingPaths(needle: needle, root: projectsRoot, fileGlob: "*.jsonl") {
+           let rgPaths = await ripgrepMatchingPaths(needle: needle, root: projectsRoot, fileGlob: "*.jsonl") {
             rgFiltered = true
             for url in rgPaths {
                 guard let attrs = try? fm.attributesOfItem(atPath: url.path),
@@ -1031,14 +1042,14 @@ final class SessionIndexStore: ObservableObject {
 
     nonisolated private static func searchCodexOnDisk(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
-    ) -> [SessionEntry] {
+    ) async -> [SessionEntry] {
         let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
         let fm = FileManager.default
 
         var rgFiltered = false
         var candidates: [(URL, Date)] = []
         if !needle.isEmpty,
-           let rgPaths = ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") {
+           let rgPaths = await ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") {
             rgFiltered = true
             for url in rgPaths {
                 guard let attrs = try? fm.attributesOfItem(atPath: url.path),
