@@ -203,14 +203,10 @@ private struct IndexSectionView: View {
     }
 
     private var showMoreButton: some View {
-        let extra = section.entries.count - rowLimit
-        let template = String(localized: "sessionIndex.section.showMoreCount",
-                              defaultValue: "Show %lld more")
-        let label = String(format: template, extra)
-        return Button {
+        Button {
             isPopoverOpen = true
         } label: {
-            Text(label)
+            Text(String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.secondary.opacity(0.7))
                 .padding(.leading, 32)
@@ -222,6 +218,7 @@ private struct IndexSectionView: View {
             SectionPopoverHost(
                 isPresented: $isPopoverOpen,
                 section: section,
+                store: store,
                 onResume: onResume
             )
         )
@@ -523,18 +520,18 @@ private struct SessionRow: View, Equatable {
 
 private struct SectionPopoverView: View {
     let section: IndexSection
+    let store: SessionIndexStore
     let onResume: ((SessionEntry) -> Void)?
     let onDismiss: () -> Void
 
     @State private var query: String = ""
     @FocusState private var searchFocused: Bool
 
-    /// Pre-lowercased searchable text per entry (computed once on appear).
-    /// Avoids re-allocating lowercased strings on every keystroke.
-    @State private var searchablePairs: [(SessionEntry, String)] = []
-    /// Latest filtered result. Updated asynchronously off-main so typing isn't blocked.
+    /// Latest filtered/search result. Empty query → cached entries; non-empty query →
+    /// async on-disk/SQL deep search via SessionIndexStore.searchSessions.
     @State private var filtered: [SessionEntry] = []
     @State private var filterTask: Task<Void, Never>?
+    @State private var isSearching: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -590,7 +587,18 @@ private struct SectionPopoverView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if filtered.isEmpty {
+                    if isSearching && filtered.isEmpty {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text(String(localized: "sessionIndex.popover.searching",
+                                        defaultValue: "Searching…"))
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if filtered.isEmpty {
                         Text(String(localized: "sessionIndex.popover.noMatches",
                                     defaultValue: "No matches"))
                             .font(.system(size: 12))
@@ -618,51 +626,56 @@ private struct SectionPopoverView: View {
             EscapeKeyCatcher { onDismiss() }
         )
         .onAppear {
-            // Pre-lowercase the searchable text once. Typing then only does a
-            // cheap substring scan over the cached strings.
-            let entries = section.entries
-            searchablePairs = entries.map { entry in
-                let combined = (entry.displayTitle + " "
-                                + (entry.cwd ?? "") + " "
-                                + (entry.gitBranch ?? "")).lowercased()
-                return (entry, combined)
-            }
-            filtered = entries
-            // Defer one runloop turn so the popover's window is fully key.
+            filtered = section.entries
             DispatchQueue.main.async { searchFocused = true }
         }
         .onChange(of: query) { newValue in
-            scheduleFilter(query: newValue)
+            scheduleSearch(query: newValue)
         }
         .onDisappear {
             filterTask?.cancel()
             filterTask = nil
+            isSearching = false
         }
     }
 
-    /// Cancel the in-flight filter, debounce briefly, then run the substring scan
-    /// on a detached task. Empty queries skip the task entirely so the full list
-    /// shows instantly.
-    private func scheduleFilter(query newValue: String) {
+    /// Empty query → cached top-N entries (instant). Non-empty query → debounced
+    /// on-demand deep search via SessionIndexStore.searchSessions, which scans the
+    /// full filesystem (Claude/Codex) or the OpenCode SQLite database.
+    private func scheduleSearch(query newValue: String) {
         filterTask?.cancel()
-        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             filtered = section.entries
+            isSearching = false
             return
         }
-        let pairs = searchablePairs
+        let scope = sectionSearchScope
+        let store = self.store
+        isSearching = true
         filterTask = Task { @MainActor in
-            // Tiny debounce: collapse a flurry of keystrokes into one filter pass.
-            try? await Task.sleep(nanoseconds: 30_000_000)
+            // 200ms debounce: deep search hits disk/SQL, more expensive than the
+            // in-memory pass — collapse rapid keystrokes into one query.
+            try? await Task.sleep(nanoseconds: 200_000_000)
             if Task.isCancelled { return }
-            let result = await Task.detached(priority: .userInitiated) {
-                pairs.compactMap { (entry, text) -> SessionEntry? in
-                    text.contains(trimmed) ? entry : nil
-                }
-            }.value
+            let result = await store.searchSessions(query: trimmed, scope: scope)
             if Task.isCancelled { return }
             filtered = result
+            isSearching = false
         }
+    }
+
+    private var sectionSearchScope: SessionIndexStore.SearchScope {
+        let raw = section.key.raw
+        if raw.hasPrefix("agent:"),
+           let agent = SessionAgent(rawValue: String(raw.dropFirst("agent:".count))) {
+            return .agent(agent)
+        }
+        if raw.hasPrefix("dir:") {
+            let path = String(raw.dropFirst("dir:".count))
+            return .directory(path.isEmpty ? nil : path)
+        }
+        return .directory(nil)
     }
 
     @ViewBuilder
@@ -819,6 +832,7 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 private struct SectionPopoverHost: NSViewRepresentable {
     @Binding var isPresented: Bool
     let section: IndexSection
+    let store: SessionIndexStore
     let onResume: ((SessionEntry) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(isPresented: $isPresented) }
@@ -835,6 +849,7 @@ private struct SectionPopoverHost: NSViewRepresentable {
         coordinator.anchorView = nsView
         coordinator.update(
             section: section,
+            store: store,
             onResume: onResume
         )
         if isPresented {
@@ -855,23 +870,25 @@ private struct SectionPopoverHost: NSViewRepresentable {
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
         private var popover: NSPopover?
         private var currentSection: IndexSection?
+        private var currentStore: SessionIndexStore?
         private var currentOnResume: ((SessionEntry) -> Void)?
 
         init(isPresented: Binding<Bool>) {
             _isPresented = isPresented
         }
 
-        func update(section: IndexSection, onResume: ((SessionEntry) -> Void)?) {
+        func update(section: IndexSection, store: SessionIndexStore, onResume: ((SessionEntry) -> Void)?) {
             currentSection = section
+            currentStore = store
             currentOnResume = onResume
             refreshContent()
         }
 
         private func refreshContent() {
-            guard let section = currentSection else { return }
+            guard let section = currentSection, let store = currentStore else { return }
             let onResume = currentOnResume
             hostingController.rootView = AnyView(
-                SectionPopoverView(section: section, onResume: onResume) { [weak self] in
+                SectionPopoverView(section: section, store: store, onResume: onResume) { [weak self] in
                     self?.closeFromContent()
                 }
             )

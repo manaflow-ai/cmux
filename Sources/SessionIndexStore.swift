@@ -393,9 +393,13 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: - Scanning
 
-    private static let perAgentLimit = 200
+    private static let perAgentLimit = 30
     private static let headByteCap = 64 * 1024
     private static let tailByteCap = 32 * 1024
+    /// Limits for the on-demand deep search (popover "Show more").
+    private static let searchMaxResults = 200
+    private static let searchMaxFiles = 1500
+    private static let searchFileByteCap = 128 * 1024
 
     private static func scanAll() async -> [SessionEntry] {
         async let claude = scanClaude()
@@ -464,7 +468,7 @@ final class SessionIndexStore: ObservableObject {
         var permissionMode: String?
     }
 
-    private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
+    nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
         var out = ClaudeParsed()
         out.cwd = decodeClaudeProjectDir(projectDir)
 
@@ -534,7 +538,7 @@ final class SessionIndexStore: ObservableObject {
         return out
     }
 
-    private static func decodeClaudeProjectDir(_ raw: String) -> String? {
+    nonisolated private static func decodeClaudeProjectDir(_ raw: String) -> String? {
         // Claude encodes cwd by replacing "/" with "-" and prefixing "-"
         // e.g. "-Users-lawrence-fun-cmuxterm-hq" -> "/Users/lawrence/fun/cmuxterm-hq"
         // This is lossy (cannot distinguish original "-" from "/"), so try as a hint only.
@@ -615,7 +619,7 @@ final class SessionIndexStore: ObservableObject {
     /// Stream lines from `url` until we have everything we need. The first user_message
     /// can sit ~100 KB into a Codex rollout (after huge base_instructions + AGENTS.md),
     /// so a fixed head buffer is unreliable.
-    private static func extractCodexMetadata(url: URL) -> CodexParsed {
+    nonisolated private static func extractCodexMetadata(url: URL) -> CodexParsed {
         var out = CodexParsed()
         let maxBytes = 4 * 1024 * 1024
         forEachJSONLine(url: url, maxBytes: maxBytes) { obj in
@@ -679,7 +683,7 @@ final class SessionIndexStore: ObservableObject {
 
     /// Stream JSON-lines from the start of `url`. `body` returns true to stop early.
     /// Caps total bytes read at `maxBytes`.
-    private static func forEachJSONLine(
+    nonisolated private static func forEachJSONLine(
         url: URL,
         maxBytes: Int,
         body: ([String: Any]) -> Bool
@@ -797,7 +801,7 @@ final class SessionIndexStore: ObservableObject {
         return results
     }
 
-    private static func parseOpenCodeAssistant(_ raw: String?) -> (String?, String?) {
+    nonisolated private static func parseOpenCodeAssistant(_ raw: String?) -> (String?, String?) {
         guard let raw, let data = raw.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return (nil, nil)
@@ -815,15 +819,222 @@ final class SessionIndexStore: ObservableObject {
         return (providerModel, agentName?.isEmpty == false ? agentName : nil)
     }
 
-    private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+    nonisolated private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
         guard let cString = sqlite3_column_text(stmt, index) else { return nil }
         return String(cString: cString)
+    }
+
+    // MARK: - Deep search (popover "Show more")
+
+    enum SearchScope {
+        case agent(SessionAgent)
+        /// Filter by absolute cwd; nil/"" = unknown-folder bucket.
+        case directory(String?)
+    }
+
+    /// Async on-demand search across the full filesystem (Claude/Codex) and SQLite (OpenCode).
+    /// Returns up to ~`searchMaxResults` matching entries sorted by mtime desc.
+    /// Empty query returns an empty array — callers should fall back to the cached entries.
+    func searchSessions(query: String, scope: SearchScope) async -> [SessionEntry] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let needle = trimmed.lowercased()
+        return await Task.detached(priority: .userInitiated) {
+            switch scope {
+            case .agent(let a):
+                return Self.searchAgent(needle: needle, agent: a, cwdFilter: nil)
+            case .directory(let path):
+                let cwdFilter = (path?.isEmpty == false) ? path : nil
+                async let c = Self.searchAgent(needle: needle, agent: .claude, cwdFilter: cwdFilter)
+                async let x = Self.searchAgent(needle: needle, agent: .codex, cwdFilter: cwdFilter)
+                async let o = Self.searchAgent(needle: needle, agent: .opencode, cwdFilter: cwdFilter)
+                let merged = (await c) + (await x) + (await o)
+                return merged.sorted { $0.modified > $1.modified }
+            }
+        }.value
+    }
+
+    nonisolated private static func searchAgent(needle: String, agent: SessionAgent, cwdFilter: String?) -> [SessionEntry] {
+        switch agent {
+        case .claude: return searchClaudeOnDisk(needle: needle, cwdFilter: cwdFilter)
+        case .codex: return searchCodexOnDisk(needle: needle, cwdFilter: cwdFilter)
+        case .opencode: return searchOpenCodeInDB(needle: needle, cwdFilter: cwdFilter)
+        }
+    }
+
+    nonisolated private static func searchClaudeOnDisk(needle: String, cwdFilter: String?) -> [SessionEntry] {
+        let projectsRoot = ("~/.claude/projects" as NSString).expandingTildeInPath
+        let fm = FileManager.default
+        guard let projectDirs = try? fm.contentsOfDirectory(atPath: projectsRoot) else { return [] }
+        var candidates: [(URL, Date, String)] = []
+        for dirName in projectDirs {
+            let dirPath = (projectsRoot as NSString).appendingPathComponent(dirName)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
+            guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { continue }
+            for name in contents where name.hasSuffix(".jsonl") {
+                let filePath = (dirPath as NSString).appendingPathComponent(name)
+                let url = URL(fileURLWithPath: filePath)
+                guard let attrs = try? fm.attributesOfItem(atPath: filePath),
+                      let mtime = attrs[.modificationDate] as? Date else { continue }
+                candidates.append((url, mtime, dirName))
+            }
+        }
+        candidates.sort { $0.1 > $1.1 }
+
+        var results: [SessionEntry] = []
+        for (url, mtime, dirName) in candidates.prefix(searchMaxFiles) {
+            if results.count >= searchMaxResults { break }
+            let head = readFileHead(url: url, byteCap: searchFileByteCap)
+            let tail = readFileTail(url: url, byteCap: tailByteCap)
+            let combined = head + "\n" + tail
+            guard combined.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
+            let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: dirName)
+            if let cwdFilter, parsed.cwd != cwdFilter { continue }
+            let sid = url.deletingPathExtension().lastPathComponent
+            results.append(SessionEntry(
+                id: "claude:" + url.path,
+                agent: .claude,
+                sessionId: sid,
+                title: parsed.title,
+                cwd: parsed.cwd,
+                gitBranch: parsed.branch,
+                pullRequest: parsed.pr,
+                modified: mtime,
+                fileURL: url,
+                specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
+            ))
+        }
+        return results
+    }
+
+    nonisolated private static func searchCodexOnDisk(needle: String, cwdFilter: String?) -> [SessionEntry] {
+        let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
+        let fm = FileManager.default
+        let rootURL = URL(fileURLWithPath: root)
+        guard let enumerator = fm.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var candidates: [(URL, Date)] = []
+        for case let url as URL in enumerator {
+            guard url.pathExtension == "jsonl" else { continue }
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile == true,
+                  let mtime = values?.contentModificationDate else { continue }
+            candidates.append((url, mtime))
+        }
+        candidates.sort { $0.1 > $1.1 }
+
+        var results: [SessionEntry] = []
+        for (url, mtime) in candidates.prefix(searchMaxFiles) {
+            if results.count >= searchMaxResults { break }
+            let head = readFileHead(url: url, byteCap: searchFileByteCap)
+            guard head.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
+            let parsed = extractCodexMetadata(url: url)
+            if let cwdFilter, parsed.cwd != cwdFilter { continue }
+            results.append(SessionEntry(
+                id: "codex:" + url.path,
+                agent: .codex,
+                sessionId: parsed.sessionId,
+                title: parsed.title,
+                cwd: parsed.cwd,
+                gitBranch: parsed.branch,
+                pullRequest: nil,
+                modified: mtime,
+                fileURL: url,
+                specifics: .codex(
+                    model: parsed.model,
+                    approvalPolicy: parsed.approvalPolicy,
+                    sandboxMode: parsed.sandboxMode,
+                    effort: parsed.effort
+                )
+            ))
+        }
+        return results
+    }
+
+    nonisolated private static func searchOpenCodeInDB(needle: String, cwdFilter: String?) -> [SessionEntry] {
+        let dbPath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dbPath) else { return [] }
+        let snapshotDir = fm.temporaryDirectory.appendingPathComponent("cmux-opencode-search-\(UUID().uuidString)", isDirectory: true)
+        do { try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true) } catch { return [] }
+        defer { try? fm.removeItem(at: snapshotDir) }
+        let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
+        do { try fm.copyItem(atPath: dbPath, toPath: snapshotDB.path) } catch { return [] }
+        for sidecar in ["-wal", "-shm"] {
+            let src = dbPath + sidecar
+            let dst = snapshotDB.path + sidecar
+            if fm.fileExists(atPath: src) { try? fm.copyItem(atPath: src, toPath: dst) }
+        }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return []
+        }
+        defer { sqlite3_close(db) }
+
+        let likePattern = "%\(needle)%"
+        var sql = """
+            SELECT s.id, s.title, s.directory, s.time_updated, (
+                SELECT data FROM message
+                WHERE session_id = s.id AND data LIKE '%"role":"assistant"%'
+                ORDER BY time_created DESC LIMIT 1
+            ) AS last_assistant
+            FROM session s
+            WHERE (LOWER(s.title) LIKE ? OR LOWER(s.directory) LIKE ?)
+            """
+        if cwdFilter != nil {
+            sql += " AND s.directory = ?"
+        }
+        sql += " ORDER BY s.time_updated DESC LIMIT \(searchMaxResults)"
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            return []
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(stmt, 1, likePattern, -1, SQLITE_TRANSIENT_FN)
+        sqlite3_bind_text(stmt, 2, likePattern, -1, SQLITE_TRANSIENT_FN)
+        if let cwdFilter {
+            sqlite3_bind_text(stmt, 3, cwdFilter, -1, SQLITE_TRANSIENT_FN)
+        }
+
+        var results: [SessionEntry] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let sid = sqliteText(stmt, 0) ?? ""
+            let title = sqliteText(stmt, 1) ?? ""
+            let directory = sqliteText(stmt, 2)
+            let updatedMs = sqlite3_column_int64(stmt, 3)
+            let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
+            let lastJSON = sqliteText(stmt, 4)
+            let (providerModel, agentName) = parseOpenCodeAssistant(lastJSON)
+            results.append(SessionEntry(
+                id: "opencode:" + sid,
+                agent: .opencode,
+                sessionId: sid,
+                title: title,
+                cwd: directory,
+                gitBranch: nil,
+                pullRequest: nil,
+                modified: modified,
+                fileURL: nil,
+                specifics: .opencode(providerModel: providerModel, agentName: agentName)
+            ))
+        }
+        return results
     }
 
     // MARK: Helpers
 
     /// Read up to `byteCap` bytes from the start of the file as UTF-8.
-    private static func readFileHead(url: URL, byteCap: Int) -> String {
+    nonisolated private static func readFileHead(url: URL, byteCap: Int) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
         let data: Data
@@ -837,7 +1048,7 @@ final class SessionIndexStore: ObservableObject {
 
     /// Read up to `byteCap` bytes from the end of the file as UTF-8.
     /// Used to find late-arriving events like pr-link without scanning the whole file.
-    private static func readFileTail(url: URL, byteCap: Int) -> String {
+    nonisolated private static func readFileTail(url: URL, byteCap: Int) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
         let size: UInt64
