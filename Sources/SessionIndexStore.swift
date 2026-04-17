@@ -131,6 +131,41 @@ struct SessionEntry: Identifiable, Hashable {
     }
 }
 
+// MARK: - Parsed metadata cache
+
+/// Process-wide cache for parsed Claude session metadata, keyed by file URL with
+/// mtime as the freshness check. Avoids re-reading and re-parsing the same
+/// jsonls across pagination calls. Bounded by `maxEntries` to keep memory in
+/// check (LRU on insert).
+final class ClaudeMetadataCache: @unchecked Sendable {
+    static let shared = ClaudeMetadataCache()
+    private let maxEntries = 1000
+    private let lock = NSLock()
+    private var entries: [URL: (mtime: Date, entry: SessionEntry)] = [:]
+
+    func get(url: URL, mtime: Date) -> SessionEntry? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let cached = entries[url], cached.mtime == mtime else { return nil }
+        return cached.entry
+    }
+
+    func put(url: URL, mtime: Date, entry: SessionEntry) {
+        lock.lock()
+        defer { lock.unlock() }
+        entries[url] = (mtime, entry)
+        if entries.count > maxEntries {
+            // Evict ~10% (oldest mtimes) to amortize cleanup cost.
+            let evictCount = entries.count / 10
+            let oldestKeys = entries
+                .sorted { $0.value.mtime < $1.value.mtime }
+                .prefix(evictCount)
+                .map(\.key)
+            for k in oldestKeys { entries.removeValue(forKey: k) }
+        }
+    }
+}
+
 // MARK: - Drag registry
 
 /// Process-wide registry that pairs a synthetic drag UUID with a SessionEntry.
@@ -919,37 +954,75 @@ final class SessionIndexStore: ObservableObject {
         }
         candidates.sort { $0.1 > $1.1 }
 
+        // Take a generous window of candidates to inspect in parallel. We need
+        // enough to cover both targets and skipped files; we'll trim to
+        // (offset+limit) matches afterwards. Cap at searchMaxFiles.
         let target = offset + limit
-        var matches: [SessionEntry] = []
-        var scanned = 0
-        for (url, mtime, dirName) in candidates {
-            if matches.count >= target { break }
-            if scanned >= searchMaxFiles { break }
-            scanned += 1
-            let head = readFileHead(url: url, byteCap: headByteCap)
-            let tail = readFileTail(url: url, byteCap: tailByteCap)
-            // Skip the substring re-check when rg already confirmed the file matches.
-            if !needle.isEmpty && !rgFiltered {
-                let combined = head + "\n" + tail
-                guard combined.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
+        let workSize = min(target * 2, candidates.count, searchMaxFiles)
+        let workCandidates = Array(candidates.prefix(workSize))
+
+        #if DEBUG
+        let loopStart = ProcessInfo.processInfo.systemUptime
+        #endif
+
+        // Parallelize per-file work. Each file's read + parse is independent;
+        // running them in a TaskGroup lets the cooperative pool fan I/O out
+        // across cores instead of one-file-at-a-time blocking on disk.
+        let processed: [(Int, SessionEntry?, Bool)] = await withTaskGroup(
+            of: (Int, SessionEntry?, Bool).self
+        ) { group in
+            for (idx, candidate) in workCandidates.enumerated() {
+                let (url, mtime, dirName) = candidate
+                group.addTask {
+                    // Cache hit
+                    if let cached = ClaudeMetadataCache.shared.get(url: url, mtime: mtime) {
+                        if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
+                        return (idx, cached, true)
+                    }
+                    let head = readFileHead(url: url, byteCap: headByteCap)
+                    let tail = readFileTail(url: url, byteCap: tailByteCap)
+                    if !needle.isEmpty && !rgFiltered {
+                        let combined = head + "\n" + tail
+                        if combined.range(of: needle, options: [.caseInsensitive, .literal]) == nil {
+                            return (idx, nil, false)
+                        }
+                    }
+                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: dirName)
+                    if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
+                    let sid = url.deletingPathExtension().lastPathComponent
+                    let entry = SessionEntry(
+                        id: "claude:" + url.path,
+                        agent: .claude,
+                        sessionId: sid,
+                        title: parsed.title,
+                        cwd: parsed.cwd,
+                        gitBranch: parsed.branch,
+                        pullRequest: parsed.pr,
+                        modified: mtime,
+                        fileURL: url,
+                        specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
+                    )
+                    if needle.isEmpty {
+                        ClaudeMetadataCache.shared.put(url: url, mtime: mtime, entry: entry)
+                    }
+                    return (idx, entry, false)
+                }
             }
-            let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: dirName)
-            if let cwdFilter, parsed.cwd != cwdFilter { continue }
-            let sid = url.deletingPathExtension().lastPathComponent
-            matches.append(SessionEntry(
-                id: "claude:" + url.path,
-                agent: .claude,
-                sessionId: sid,
-                title: parsed.title,
-                cwd: parsed.cwd,
-                gitBranch: parsed.branch,
-                pullRequest: parsed.pr,
-                modified: mtime,
-                fileURL: url,
-                specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
-            ))
+            var collected: [(Int, SessionEntry?, Bool)] = []
+            collected.reserveCapacity(workCandidates.count)
+            for await item in group { collected.append(item) }
+            return collected
         }
-        return Array(matches.dropFirst(offset).prefix(limit))
+        // Restore original mtime ordering (TaskGroup completes out-of-order).
+        let sorted = processed.sorted { $0.0 < $1.0 }
+        let matched = sorted.compactMap { $0.1 }
+        #if DEBUG
+        let cachedCount = sorted.filter { $0.2 }.count
+        let skippedCount = sorted.filter { $0.1 == nil && !$0.2 }.count + sorted.filter { $0.1 == nil && $0.2 }.count
+        let totalMs = (ProcessInfo.processInfo.systemUptime - loopStart) * 1000
+        dlog("session.claude.detail target=\(target) workSize=\(workSize) matched=\(matched.count) cachedHits=\(cachedCount) skipped=\(skippedCount) parallelMs=\(Int(totalMs))")
+        #endif
+        return Array(matched.prefix(target).dropFirst(offset).prefix(limit))
     }
 
     /// Returns Codex session entries paginated by mtime desc.
