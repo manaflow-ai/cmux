@@ -128,6 +128,8 @@ Usage: ./scripts/reload.sh --tag <name> [options]
 Options:
   --tag <name>           Required. Short tag for parallel builds (e.g., feature-xyz-lol).
                          Sets app name, bundle id, and derived data path unless overridden.
+                         After a successful build, terminates any running app with this tag
+                         so macOS launches the freshly-built binary on cmd-click or --launch.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
   --name <app name>      Override app display/bundle name.
@@ -487,18 +489,25 @@ if [[ -x "$CLI_PATH" ]]; then
   echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
 fi
 
-if [[ "$LAUNCH" -eq 1 ]]; then
-  # Ensure any running instance is fully terminated, regardless of DerivedData path.
+# Tag mode: always terminate the existing same-tag instance after a successful build,
+# even without --launch. A stale tagged app pinned to this bundle id would otherwise
+# keep running against freshly-overwritten resources, and macOS would foreground it
+# instead of launching the newly built binary when the user cmd-clicks the .app.
+if [[ -n "$TAG" ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
+  pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+  sleep 0.3
+fi
+
+if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
+    /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
+    sleep 0.3
     pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-  else
-    # Tag mode: only kill the tagged instance; allow side-by-side with the main app.
-    pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+    sleep 0.3
   fi
-  sleep 0.3
 
   # Avoid inheriting cmux/ghostty environment variables from the terminal that
   # runs this script (often inside another cmux instance), which can cause

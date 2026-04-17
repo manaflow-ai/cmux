@@ -6862,6 +6862,7 @@ final class Workspace: Identifiable, ObservableObject {
         portOrdinal: Int = 0,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialTerminalCommand: String? = nil,
+        initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:]
     ) {
         self.id = UUID()
@@ -6912,6 +6913,7 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
             portOrdinal: portOrdinal,
             initialCommand: initialTerminalCommand,
+            initialInput: initialTerminalInput,
             initialEnvironmentOverrides: initialTerminalEnvironment
         )
         configureTerminalPanel(terminalPanel)
@@ -8938,6 +8940,7 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         focus: Bool? = nil,
         workingDirectory: String? = nil,
+        initialInput: String? = nil,
         startupEnvironment: [String: String] = [:]
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
@@ -8955,6 +8958,7 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: remoteTerminalStartupCommand,
+            initialInput: initialInput,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)
@@ -11133,7 +11137,94 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private func handleSessionDrop(
+        entry: SessionEntry,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        let inputWithReturn = entry.resumeCommand + "\n"
+        switch destination {
+        case .insert(let paneId, _):
+            let panel = newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                workingDirectory: entry.cwd,
+                initialInput: inputWithReturn
+            )
+            return panel != nil
+        case .split(let paneId, let orientation, let insertFirst):
+            let panel = splitPaneWithNewTerminal(
+                targetPane: paneId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                workingDirectory: entry.cwd,
+                initialInput: inputWithReturn
+            )
+            return panel != nil
+        }
+    }
+
+    /// Split `paneId` and place a brand-new terminal in the resulting pane.
+    /// Used by the session-index drop path; mirrors `newTerminalSplit(from:...)` but
+    /// targets a destination pane directly rather than inheriting from a source panel.
+    @discardableResult
+    func splitPaneWithNewTerminal(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        workingDirectory: String?,
+        initialInput: String?
+    ) -> TerminalPanel? {
+        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+
+        let newPanel = TerminalPanel(
+            workspaceId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedConfig,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            initialInput: initialInput
+        )
+        configureTerminalPanel(newPanel)
+        panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = newPanel.displayTitle
+        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
+
+        let newTab = Bonsplit.Tab(
+            title: newPanel.displayTitle,
+            icon: newPanel.displayIcon,
+            kind: SurfaceKind.terminal,
+            isDirty: newPanel.isDirty,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = newPanel.id
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst
+        ) != nil else {
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            return nil
+        }
+
+        bonsplitController.selectTab(newTab.id)
+        newPanel.focus()
+        return newPanel
+    }
+
     private func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
+        // Session-index drag → spawn a brand new terminal at the destination instead
+        // of moving an existing tab.
+        if let entry = SessionDragRegistry.shared.consume(id: request.tabId.uuid) {
+            return handleSessionDrop(entry: entry, destination: request.destination)
+        }
+
         guard let app = AppDelegate.shared else { return false }
 #if DEBUG
         let dropStart = ProcessInfo.processInfo.systemUptime

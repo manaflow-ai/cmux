@@ -5761,6 +5761,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard isMainTerminalWindow(window) else { return }
         guard window.attachedSheet == nil else { return }
         guard !isCommandPaletteEffectivelyVisible(in: window) else { return }
+        // If the active first responder is a text-field editor (e.g. a popover's
+        // search field whose field editor is borrowed from the parent window),
+        // never re-route the keystroke to the terminal. Symmetric with
+        // applyFirstResponderIfNeeded's NSText guard. Terminals use GhosttyNSView,
+        // never NSText, so this can't suppress legitimate terminal repair.
+        if window.firstResponder is NSText {
+            return
+        }
         guard let context = contextForMainWindow(window) ?? contextForMainTerminalWindow(window),
               let workspace = context.tabManager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
@@ -7813,8 +7821,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager else { return }
         let tab = tabManager.addTab()
         let config = GhosttyConfig.load()
-        let lineCount = min(max(config.scrollbackLimit * 2, 2000), 60000)
-        let command = "for i in {1..\(lineCount)}; do printf \"scrollback %06d\\n\" $i; done\n"
+        let minimumTargetBytes = 2_000_000
+        let maximumTargetBytes = 200_000_000
+        let minimumLineCount = 2000
+        let effectiveLimit = max(config.scrollbackLimit, 0)
+        let doubledLimit = min(effectiveLimit, maximumTargetBytes / 2) * 2
+        let targetBytes = min(max(doubledLimit, minimumTargetBytes), maximumTargetBytes)
+        // `%06d` guarantees at least a 6-digit field width. Any lines beyond
+        // 999,999 only get wider, so this conservative floor always emits at
+        // least `targetBytes` without oscillating at digit-count boundaries.
+        let baseBytesPerLine = "scrollback 000000\n".utf8.count
+        let lineCount = max((targetBytes + baseBytesPerLine - 1) / baseBytesPerLine, minimumLineCount)
+
+        let command = #"awk 'BEGIN { for (i = 1; i <= \#(lineCount); ++i) printf "scrollback %06d\n", i }'"# + "\n"
         sendTextWhenReady(command, to: tab)
     }
 
