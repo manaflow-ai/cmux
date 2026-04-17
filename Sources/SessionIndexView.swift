@@ -549,10 +549,7 @@ private struct SectionPopoverView: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer(minLength: 4)
-                Text("\(section.entries.count)")
-                    .font(.system(size: 11).monospacedDigit())
-                    .foregroundColor(.secondary)
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
             .padding(.top, 10)

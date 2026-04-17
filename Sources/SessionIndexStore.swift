@@ -887,24 +887,103 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
+    /// Path to `rg` (ripgrep), if installed. Resolved once. nil when not found —
+    /// the search code falls back to the Foundation substring scan.
+    nonisolated private static let cachedRipgrepPath: String? = {
+        let fm = FileManager.default
+        let common = [
+            "/opt/homebrew/bin/rg",
+            "/usr/local/bin/rg",
+            "/usr/bin/rg",
+            "/opt/local/bin/rg",
+        ]
+        for path in common where fm.isExecutableFile(atPath: path) {
+            return path
+        }
+        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
+            for dir in pathEnv.split(separator: ":") {
+                let full = String(dir) + "/rg"
+                if fm.isExecutableFile(atPath: full) { return full }
+            }
+        }
+        return nil
+    }()
+
+    /// Run `rg --files-with-matches --ignore-case --fixed-strings` for `needle`
+    /// under `root`, restricted to `glob` (e.g. `*.jsonl`). Returns matched file
+    /// URLs, or nil if rg isn't available or the run failed (caller falls back).
+    nonisolated private static func ripgrepMatchingPaths(
+        needle: String, root: String, fileGlob: String
+    ) -> [URL]? {
+        guard let rg = cachedRipgrepPath else { return nil }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: rg)
+        process.arguments = [
+            "--files-with-matches",
+            "--ignore-case",
+            "--fixed-strings",
+            "--no-messages",
+            "--no-ignore",
+            "--hidden",
+            "--glob", fileGlob,
+            "--",
+            needle,
+            root,
+        ]
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+        do { try process.run() } catch { return nil }
+        process.waitUntilExit()
+        // rg exit codes: 0 = matches, 1 = no matches, 2 = error.
+        switch process.terminationStatus {
+        case 0:
+            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            guard let str = String(data: data, encoding: .utf8) else { return nil }
+            return str.split(separator: "\n", omittingEmptySubsequences: true)
+                .map { URL(fileURLWithPath: String($0)) }
+        case 1:
+            return []
+        default:
+            return nil
+        }
+    }
+
     nonisolated private static func searchClaudeOnDisk(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) -> [SessionEntry] {
         let projectsRoot = ("~/.claude/projects" as NSString).expandingTildeInPath
         let fm = FileManager.default
-        guard let projectDirs = try? fm.contentsOfDirectory(atPath: projectsRoot) else { return [] }
+
+        // Pre-filter via rg when we have a needle — rg is parallel, mmaps the
+        // file, and scans the WHOLE file (not just our 128 KB head), so it both
+        // speeds the scan up and finds matches deeper in long transcripts.
+        var rgFiltered = false
         var candidates: [(URL, Date, String)] = []
-        for dirName in projectDirs {
-            let dirPath = (projectsRoot as NSString).appendingPathComponent(dirName)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
-            guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { continue }
-            for name in contents where name.hasSuffix(".jsonl") {
-                let filePath = (dirPath as NSString).appendingPathComponent(name)
-                let url = URL(fileURLWithPath: filePath)
-                guard let attrs = try? fm.attributesOfItem(atPath: filePath),
+        if !needle.isEmpty,
+           let rgPaths = ripgrepMatchingPaths(needle: needle, root: projectsRoot, fileGlob: "*.jsonl") {
+            rgFiltered = true
+            for url in rgPaths {
+                guard let attrs = try? fm.attributesOfItem(atPath: url.path),
                       let mtime = attrs[.modificationDate] as? Date else { continue }
+                let dirName = url.deletingLastPathComponent().lastPathComponent
                 candidates.append((url, mtime, dirName))
+            }
+        } else {
+            guard let projectDirs = try? fm.contentsOfDirectory(atPath: projectsRoot) else { return [] }
+            for dirName in projectDirs {
+                let dirPath = (projectsRoot as NSString).appendingPathComponent(dirName)
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
+                guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { continue }
+                for name in contents where name.hasSuffix(".jsonl") {
+                    let filePath = (dirPath as NSString).appendingPathComponent(name)
+                    let url = URL(fileURLWithPath: filePath)
+                    guard let attrs = try? fm.attributesOfItem(atPath: filePath),
+                          let mtime = attrs[.modificationDate] as? Date else { continue }
+                    candidates.append((url, mtime, dirName))
+                }
             }
         }
         candidates.sort { $0.1 > $1.1 }
@@ -918,7 +997,8 @@ final class SessionIndexStore: ObservableObject {
             scanned += 1
             let head = readFileHead(url: url, byteCap: searchFileByteCap)
             let tail = readFileTail(url: url, byteCap: tailByteCap)
-            if !needle.isEmpty {
+            // Skip the substring re-check when rg already confirmed the file matches.
+            if !needle.isEmpty && !rgFiltered {
                 let combined = head + "\n" + tail
                 guard combined.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
             }
@@ -946,20 +1026,31 @@ final class SessionIndexStore: ObservableObject {
     ) -> [SessionEntry] {
         let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
         let fm = FileManager.default
-        let rootURL = URL(fileURLWithPath: root)
-        guard let enumerator = fm.enumerator(
-            at: rootURL,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
 
+        var rgFiltered = false
         var candidates: [(URL, Date)] = []
-        for case let url as URL in enumerator {
-            guard url.pathExtension == "jsonl" else { continue }
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true,
-                  let mtime = values?.contentModificationDate else { continue }
-            candidates.append((url, mtime))
+        if !needle.isEmpty,
+           let rgPaths = ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") {
+            rgFiltered = true
+            for url in rgPaths {
+                guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+                      let mtime = attrs[.modificationDate] as? Date else { continue }
+                candidates.append((url, mtime))
+            }
+        } else {
+            let rootURL = URL(fileURLWithPath: root)
+            guard let enumerator = fm.enumerator(
+                at: rootURL,
+                includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) else { return [] }
+            for case let url as URL in enumerator {
+                guard url.pathExtension == "jsonl" else { continue }
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+                guard values?.isRegularFile == true,
+                      let mtime = values?.contentModificationDate else { continue }
+                candidates.append((url, mtime))
+            }
         }
         candidates.sort { $0.1 > $1.1 }
 
@@ -970,7 +1061,7 @@ final class SessionIndexStore: ObservableObject {
             if matches.count >= target { break }
             if scanned >= searchMaxFiles { break }
             scanned += 1
-            if !needle.isEmpty {
+            if !needle.isEmpty && !rgFiltered {
                 let head = readFileHead(url: url, byteCap: searchFileByteCap)
                 guard head.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
             }
