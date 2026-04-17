@@ -832,37 +832,64 @@ final class SessionIndexStore: ObservableObject {
         case directory(String?)
     }
 
-    /// Async on-demand search across the full filesystem (Claude/Codex) and SQLite (OpenCode).
-    /// Returns up to ~`searchMaxResults` matching entries sorted by mtime desc.
-    /// Empty query returns an empty array — callers should fall back to the cached entries.
-    func searchSessions(query: String, scope: SearchScope) async -> [SessionEntry] {
+    /// Paginated on-demand search across the full filesystem (Claude/Codex) and
+    /// SQLite (OpenCode). Empty query is allowed and returns the most-recent
+    /// entries (used when the user just opens the popover and scrolls).
+    /// Returns up to `limit` entries sorted by mtime desc, skipping the first
+    /// `offset` matches.
+    func searchSessions(
+        query: String,
+        scope: SearchScope,
+        offset: Int,
+        limit: Int
+    ) async -> [SessionEntry] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
         let needle = trimmed.lowercased()
         return await Task.detached(priority: .userInitiated) {
             switch scope {
             case .agent(let a):
-                return Self.searchAgent(needle: needle, agent: a, cwdFilter: nil)
+                return Self.searchAgent(
+                    needle: needle, agent: a, cwdFilter: nil,
+                    offset: offset, limit: limit
+                )
             case .directory(let path):
                 let cwdFilter = (path?.isEmpty == false) ? path : nil
-                async let c = Self.searchAgent(needle: needle, agent: .claude, cwdFilter: cwdFilter)
-                async let x = Self.searchAgent(needle: needle, agent: .codex, cwdFilter: cwdFilter)
-                async let o = Self.searchAgent(needle: needle, agent: .opencode, cwdFilter: cwdFilter)
+                // Multi-agent merge: fetch the union of (offset+limit) per agent so the
+                // merge-sort can produce a stable global ordering, then slice.
+                let target = offset + limit
+                async let c = Self.searchAgent(
+                    needle: needle, agent: .claude, cwdFilter: cwdFilter,
+                    offset: 0, limit: target
+                )
+                async let x = Self.searchAgent(
+                    needle: needle, agent: .codex, cwdFilter: cwdFilter,
+                    offset: 0, limit: target
+                )
+                async let o = Self.searchAgent(
+                    needle: needle, agent: .opencode, cwdFilter: cwdFilter,
+                    offset: 0, limit: target
+                )
                 let merged = (await c) + (await x) + (await o)
-                return merged.sorted { $0.modified > $1.modified }
+                let sorted = merged.sorted { $0.modified > $1.modified }
+                return Array(sorted.dropFirst(offset).prefix(limit))
             }
         }.value
     }
 
-    nonisolated private static func searchAgent(needle: String, agent: SessionAgent, cwdFilter: String?) -> [SessionEntry] {
+    nonisolated private static func searchAgent(
+        needle: String, agent: SessionAgent, cwdFilter: String?,
+        offset: Int, limit: Int
+    ) -> [SessionEntry] {
         switch agent {
-        case .claude: return searchClaudeOnDisk(needle: needle, cwdFilter: cwdFilter)
-        case .codex: return searchCodexOnDisk(needle: needle, cwdFilter: cwdFilter)
-        case .opencode: return searchOpenCodeInDB(needle: needle, cwdFilter: cwdFilter)
+        case .claude: return searchClaudeOnDisk(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        case .codex: return searchCodexOnDisk(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        case .opencode: return searchOpenCodeInDB(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         }
     }
 
-    nonisolated private static func searchClaudeOnDisk(needle: String, cwdFilter: String?) -> [SessionEntry] {
+    nonisolated private static func searchClaudeOnDisk(
+        needle: String, cwdFilter: String?, offset: Int, limit: Int
+    ) -> [SessionEntry] {
         let projectsRoot = ("~/.claude/projects" as NSString).expandingTildeInPath
         let fm = FileManager.default
         guard let projectDirs = try? fm.contentsOfDirectory(atPath: projectsRoot) else { return [] }
@@ -882,17 +909,23 @@ final class SessionIndexStore: ObservableObject {
         }
         candidates.sort { $0.1 > $1.1 }
 
-        var results: [SessionEntry] = []
-        for (url, mtime, dirName) in candidates.prefix(searchMaxFiles) {
-            if results.count >= searchMaxResults { break }
+        let target = offset + limit
+        var matches: [SessionEntry] = []
+        var scanned = 0
+        for (url, mtime, dirName) in candidates {
+            if matches.count >= target { break }
+            if scanned >= searchMaxFiles { break }
+            scanned += 1
             let head = readFileHead(url: url, byteCap: searchFileByteCap)
             let tail = readFileTail(url: url, byteCap: tailByteCap)
-            let combined = head + "\n" + tail
-            guard combined.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
+            if !needle.isEmpty {
+                let combined = head + "\n" + tail
+                guard combined.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
+            }
             let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: dirName)
             if let cwdFilter, parsed.cwd != cwdFilter { continue }
             let sid = url.deletingPathExtension().lastPathComponent
-            results.append(SessionEntry(
+            matches.append(SessionEntry(
                 id: "claude:" + url.path,
                 agent: .claude,
                 sessionId: sid,
@@ -905,10 +938,12 @@ final class SessionIndexStore: ObservableObject {
                 specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
             ))
         }
-        return results
+        return Array(matches.dropFirst(offset).prefix(limit))
     }
 
-    nonisolated private static func searchCodexOnDisk(needle: String, cwdFilter: String?) -> [SessionEntry] {
+    nonisolated private static func searchCodexOnDisk(
+        needle: String, cwdFilter: String?, offset: Int, limit: Int
+    ) -> [SessionEntry] {
         let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
         let fm = FileManager.default
         let rootURL = URL(fileURLWithPath: root)
@@ -928,14 +963,20 @@ final class SessionIndexStore: ObservableObject {
         }
         candidates.sort { $0.1 > $1.1 }
 
-        var results: [SessionEntry] = []
-        for (url, mtime) in candidates.prefix(searchMaxFiles) {
-            if results.count >= searchMaxResults { break }
-            let head = readFileHead(url: url, byteCap: searchFileByteCap)
-            guard head.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
+        let target = offset + limit
+        var matches: [SessionEntry] = []
+        var scanned = 0
+        for (url, mtime) in candidates {
+            if matches.count >= target { break }
+            if scanned >= searchMaxFiles { break }
+            scanned += 1
+            if !needle.isEmpty {
+                let head = readFileHead(url: url, byteCap: searchFileByteCap)
+                guard head.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
+            }
             let parsed = extractCodexMetadata(url: url)
             if let cwdFilter, parsed.cwd != cwdFilter { continue }
-            results.append(SessionEntry(
+            matches.append(SessionEntry(
                 id: "codex:" + url.path,
                 agent: .codex,
                 sessionId: parsed.sessionId,
@@ -953,10 +994,12 @@ final class SessionIndexStore: ObservableObject {
                 )
             ))
         }
-        return results
+        return Array(matches.dropFirst(offset).prefix(limit))
     }
 
-    nonisolated private static func searchOpenCodeInDB(needle: String, cwdFilter: String?) -> [SessionEntry] {
+    nonisolated private static func searchOpenCodeInDB(
+        needle: String, cwdFilter: String?, offset: Int, limit: Int
+    ) -> [SessionEntry] {
         let dbPath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
         let fm = FileManager.default
         guard fm.fileExists(atPath: dbPath) else { return [] }
@@ -977,7 +1020,6 @@ final class SessionIndexStore: ObservableObject {
         }
         defer { sqlite3_close(db) }
 
-        let likePattern = "%\(needle)%"
         var sql = """
             SELECT s.id, s.title, s.directory, s.time_updated, (
                 SELECT data FROM message
@@ -985,12 +1027,18 @@ final class SessionIndexStore: ObservableObject {
                 ORDER BY time_created DESC LIMIT 1
             ) AS last_assistant
             FROM session s
-            WHERE (LOWER(s.title) LIKE ? OR LOWER(s.directory) LIKE ?)
             """
-        if cwdFilter != nil {
-            sql += " AND s.directory = ?"
+        var conditions: [String] = []
+        if !needle.isEmpty {
+            conditions.append("(LOWER(s.title) LIKE ? OR LOWER(s.directory) LIKE ?)")
         }
-        sql += " ORDER BY s.time_updated DESC LIMIT \(searchMaxResults)"
+        if cwdFilter != nil {
+            conditions.append("s.directory = ?")
+        }
+        if !conditions.isEmpty {
+            sql += " WHERE " + conditions.joined(separator: " AND ")
+        }
+        sql += " ORDER BY s.time_updated DESC LIMIT \(limit) OFFSET \(offset)"
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
@@ -1000,10 +1048,14 @@ final class SessionIndexStore: ObservableObject {
         defer { sqlite3_finalize(stmt) }
 
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        sqlite3_bind_text(stmt, 1, likePattern, -1, SQLITE_TRANSIENT_FN)
-        sqlite3_bind_text(stmt, 2, likePattern, -1, SQLITE_TRANSIENT_FN)
+        var bindIndex: Int32 = 1
+        if !needle.isEmpty {
+            let likePattern = "%\(needle)%"
+            sqlite3_bind_text(stmt, bindIndex, likePattern, -1, SQLITE_TRANSIENT_FN); bindIndex += 1
+            sqlite3_bind_text(stmt, bindIndex, likePattern, -1, SQLITE_TRANSIENT_FN); bindIndex += 1
+        }
         if let cwdFilter {
-            sqlite3_bind_text(stmt, 3, cwdFilter, -1, SQLITE_TRANSIENT_FN)
+            sqlite3_bind_text(stmt, bindIndex, cwdFilter, -1, SQLITE_TRANSIENT_FN); bindIndex += 1
         }
 
         var results: [SessionEntry] = []

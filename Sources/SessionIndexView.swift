@@ -527,11 +527,18 @@ private struct SectionPopoverView: View {
     @State private var query: String = ""
     @FocusState private var searchFocused: Bool
 
-    /// Latest filtered/search result. Empty query → cached entries; non-empty query →
-    /// async on-disk/SQL deep search via SessionIndexStore.searchSessions.
-    @State private var filtered: [SessionEntry] = []
-    @State private var filterTask: Task<Void, Never>?
-    @State private var isSearching: Bool = false
+    /// Pages of results loaded so far. Each page is `pageSize` rows from the store's
+    /// paginated search.
+    @State private var loaded: [SessionEntry] = []
+    @State private var hasMore: Bool = true
+    @State private var isLoading: Bool = false
+    @State private var activeQuery: String = ""
+    @State private var loadTask: Task<Void, Never>?
+    /// Bumped on each query reset so an in-flight task knows it's been superseded
+    /// even if cancellation hasn't propagated yet.
+    @State private var loadGeneration: Int = 0
+
+    private static let pageSize = 30
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -587,18 +594,9 @@ private struct SectionPopoverView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if isSearching && filtered.isEmpty {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text(String(localized: "sessionIndex.popover.searching",
-                                        defaultValue: "Searching…"))
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if filtered.isEmpty {
+                    if isLoading && loaded.isEmpty {
+                        loadingRow
+                    } else if loaded.isEmpty {
                         Text(String(localized: "sessionIndex.popover.noMatches",
                                     defaultValue: "No matches"))
                             .font(.system(size: 12))
@@ -607,12 +605,18 @@ private struct SectionPopoverView: View {
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        ForEach(filtered) { entry in
+                        ForEach(loaded) { entry in
                             PopoverRow(entry: entry) {
                                 onResume?(entry)
                                 onDismiss()
                             }
                             .equatable()
+                        }
+                        if hasMore {
+                            // Sentinel row: appearance triggers loadMore. Renders the
+                            // "Loading more…" indicator while fetching.
+                            loadingRow
+                                .onAppear { loadMore() }
                         }
                     }
                 }
@@ -626,42 +630,80 @@ private struct SectionPopoverView: View {
             EscapeKeyCatcher { onDismiss() }
         )
         .onAppear {
-            filtered = section.entries
+            resetAndLoad(query: "")
             DispatchQueue.main.async { searchFocused = true }
         }
         .onChange(of: query) { newValue in
-            scheduleSearch(query: newValue)
+            resetAndLoad(query: newValue)
         }
         .onDisappear {
-            filterTask?.cancel()
-            filterTask = nil
-            isSearching = false
+            loadTask?.cancel()
+            loadTask = nil
+            isLoading = false
         }
     }
 
-    /// Empty query → cached top-N entries (instant). Non-empty query → debounced
-    /// on-demand deep search via SessionIndexStore.searchSessions, which scans the
-    /// full filesystem (Claude/Codex) or the OpenCode SQLite database.
-    private func scheduleSearch(query newValue: String) {
-        filterTask?.cancel()
-        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            filtered = section.entries
-            isSearching = false
-            return
+    private var loadingRow: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Reset the page and load page 0. Empty query loads instantly; non-empty
+    /// query waits 200ms first to debounce keystrokes.
+    private func resetAndLoad(query newValue: String) {
+        loadTask?.cancel()
+        loadGeneration += 1
+        let generation = loadGeneration
+        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        loaded = []
+        hasMore = true
+        activeQuery = trimmed
+        isLoading = true
         let scope = sectionSearchScope
         let store = self.store
-        isSearching = true
-        filterTask = Task { @MainActor in
-            // 200ms debounce: deep search hits disk/SQL, more expensive than the
-            // in-memory pass — collapse rapid keystrokes into one query.
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            if Task.isCancelled { return }
-            let result = await store.searchSessions(query: trimmed, scope: scope)
-            if Task.isCancelled { return }
-            filtered = result
-            isSearching = false
+        let needsDebounce = !trimmed.isEmpty
+        loadTask = Task { @MainActor in
+            if needsDebounce {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                if Task.isCancelled || generation != loadGeneration { return }
+            }
+            let page = await store.searchSessions(
+                query: trimmed, scope: scope,
+                offset: 0, limit: Self.pageSize
+            )
+            if Task.isCancelled || generation != loadGeneration { return }
+            loaded = page
+            hasMore = page.count >= Self.pageSize
+            isLoading = false
+        }
+    }
+
+    /// Append the next page to `loaded`. Triggered by the sentinel row's onAppear.
+    private func loadMore() {
+        guard !isLoading, hasMore else { return }
+        isLoading = true
+        let generation = loadGeneration
+        let scope = sectionSearchScope
+        let store = self.store
+        let query = activeQuery
+        let offset = loaded.count
+        loadTask = Task { @MainActor in
+            let page = await store.searchSessions(
+                query: query, scope: scope,
+                offset: offset, limit: Self.pageSize
+            )
+            if Task.isCancelled || generation != loadGeneration { return }
+            loaded.append(contentsOf: page)
+            hasMore = page.count >= Self.pageSize
+            isLoading = false
         }
     }
 
