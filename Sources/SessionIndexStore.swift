@@ -486,6 +486,27 @@ final class SessionIndexStore: ObservableObject {
         return out
     }
 
+    /// Returns a usable user-prompt string from a Codex `user_message` /
+    /// `response_item.input_text` payload, or nil when the message is just an
+    /// envelope/system wrapper (`<environment_context>...`, `<user_instructions>`,
+    /// `<permissions>`, AGENTS.md preamble) that we don't want to surface as a
+    /// session title.
+    nonisolated private static func realCodexUserMessage(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let envelopePrefixes = [
+            "<environment_context",
+            "<user_instructions",
+            "<permissions",
+            "<system",
+            "# AGENTS.md",
+        ]
+        for prefix in envelopePrefixes where trimmed.hasPrefix(prefix) {
+            return nil
+        }
+        return trimmed
+    }
+
     nonisolated private static func decodeClaudeProjectDir(_ raw: String) -> String? {
         // Claude encodes cwd by replacing "/" with "-" and prefixing "-"
         // e.g. "-Users-lawrence-fun-cmuxterm-hq" -> "/Users/lawrence/fun/cmuxterm-hq"
@@ -549,23 +570,20 @@ final class SessionIndexStore: ObservableObject {
             }
             if out.firstUserMessage.isEmpty, type == "event_msg", let p = payload,
                (p["type"] as? String) == "user_message",
-               let msg = p["message"] as? String, !msg.isEmpty {
-                out.firstUserMessage = msg
+               let msg = p["message"] as? String,
+               let real = realCodexUserMessage(msg) {
+                out.firstUserMessage = real
             }
             if out.firstUserMessage.isEmpty, type == "response_item", let p = payload,
                (p["type"] as? String) == "message",
                (p["role"] as? String) == "user",
                let content = p["content"] as? [[String: Any]] {
                 for part in content {
-                    if (part["type"] as? String) == "input_text",
-                       let text = part["text"] as? String,
-                       !text.isEmpty,
-                       !text.hasPrefix("# AGENTS.md"),
-                       !text.hasPrefix("<user_instructions>"),
-                       !text.hasPrefix("<permissions") {
-                        out.firstUserMessage = text
-                        break
-                    }
+                    guard (part["type"] as? String) == "input_text",
+                          let text = part["text"] as? String,
+                          let real = realCodexUserMessage(text) else { continue }
+                    out.firstUserMessage = real
+                    break
                 }
             }
             // Stop early once we have a real thread name + the launch metadata. If no

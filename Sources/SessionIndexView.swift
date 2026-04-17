@@ -922,6 +922,9 @@ private struct SectionPopoverHost: NSViewRepresentable {
         private var currentSection: IndexSection?
         private var currentStore: SessionIndexStore?
         private var currentOnResume: ((SessionEntry) -> Void)?
+        /// Bumped on every present(). Used as the SwiftUI view identity so each
+        /// open gets fresh @State (empty query, fresh focus, no stale results).
+        private var presentationCount = 0
 
         init(isPresented: Binding<Bool>) {
             _isPresented = isPresented
@@ -937,10 +940,14 @@ private struct SectionPopoverHost: NSViewRepresentable {
         private func refreshContent() {
             guard let section = currentSection, let store = currentStore else { return }
             let onResume = currentOnResume
+            let identity = presentationCount
             hostingController.rootView = AnyView(
                 SectionPopoverView(section: section, store: store, onResume: onResume) { [weak self] in
                     self?.closeFromContent()
                 }
+                // Tied to presentationCount so reopening the popover discards
+                // the prior open's @State (typed query, scrolled position, etc.).
+                .id(identity)
             )
             hostingController.view.invalidateIntrinsicContentSize()
             hostingController.view.layoutSubtreeIfNeeded()
@@ -954,6 +961,10 @@ private struct SectionPopoverHost: NSViewRepresentable {
             }
             anchorView.superview?.layoutSubtreeIfNeeded()
             let popover = popover ?? makePopover()
+            // Bump identity + refresh BEFORE showing so the SwiftUI tree mounts
+            // with the new id (= reset @State) on this open.
+            presentationCount += 1
+            refreshContent()
             updateContentSize()
             guard !popover.isShown else { return }
             popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxX)
