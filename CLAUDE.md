@@ -16,7 +16,7 @@ After making code changes, always run the reload script with a tag to build the 
 ./scripts/reload.sh --tag fix-zsh-autosuggestions
 ```
 
-By default, `reload.sh` builds but does **not** launch the app. The script prints the `.app` path so the user can cmd-click to open it. Pass `--launch` to kill any existing instance and open the app automatically:
+By default, `reload.sh` builds but does **not** launch the app. The script prints the `.app` path so the user can cmd-click to open it. After a successful build, it always terminates any running app with the same tag (so cmd-clicking launches the freshly-built binary instead of foregrounding the stale instance). Pass `--launch` to open the app automatically after the build:
 
 ```bash
 ./scripts/reload.sh --tag fix-zsh-autosuggestions --launch
@@ -74,7 +74,7 @@ When rebuilding cmuxd for release/bundling, always use ReleaseFast:
 cd cmuxd && zig build -Doptimize=ReleaseFast
 ```
 
-`reload` = build the Debug app (tag required). Pass `--launch` to also kill existing and open:
+`reload` = build the Debug app (tag required) and terminate any running app with the same tag. Pass `--launch` to also open the freshly-built app:
 
 ```bash
 ./scripts/reload.sh --tag <tag>
