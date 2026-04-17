@@ -763,14 +763,16 @@ final class SessionIndexStore: ObservableObject {
 
         return await withTaskCancellationHandler {
             do { try process.run() } catch { return nil as [URL]? }
-            // Drain stdout BEFORE awaiting exit. With many matches rg writes
+            // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
-            // make progress, and EOF arrives when rg closes its stdout on exit.
+            // make progress and EOF arrives when rg closes its stdout on exit.
+            // Once readDataToEndOfFile returns, the process is already exiting,
+            // so waitUntilExit is essentially instant — we just need it to make
+            // terminationStatus observable. (Setting terminationHandler here
+            // would race: if rg already exited, the handler is registered too
+            // late and never fires → deadlock.)
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-            // Async wait via terminationHandler — no blocked cooperative-pool thread.
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                process.terminationHandler = { _ in cont.resume() }
-            }
+            process.waitUntilExit()
             // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
             switch process.terminationStatus {
             case 0:
@@ -783,8 +785,9 @@ final class SessionIndexStore: ObservableObject {
                 return nil
             }
         } onCancel: {
-            // Fires synchronously when the awaiting Task is cancelled. Safe to
-            // call before/after run(); a not-yet-running process just no-ops.
+            // Fires synchronously when the awaiting Task is cancelled. Sends
+            // SIGTERM to rg, which closes stdout, lets readDataToEndOfFile
+            // return, and unblocks the body so this call can complete cleanly.
             process.terminate()
         }
     }
