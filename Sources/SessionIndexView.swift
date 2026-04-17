@@ -369,7 +369,12 @@ private struct SessionRow: View, Equatable {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
+            Image(entry.agent.assetName)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 12, height: 12)
             Text(entry.displayTitle)
                 .font(.system(size: 13))
                 .foregroundColor(.primary.opacity(0.92))
@@ -695,7 +700,12 @@ private struct PopoverRow: View, Equatable {
     }()
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
+            Image(entry.agent.assetName)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 12, height: 12)
             Text(entry.displayTitle)
                 .font(.system(size: 12))
                 .foregroundColor(.primary.opacity(0.92))
