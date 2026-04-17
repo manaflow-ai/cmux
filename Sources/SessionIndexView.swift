@@ -517,16 +517,12 @@ private struct SectionPopoverView: View {
     @State private var query: String = ""
     @FocusState private var searchFocused: Bool
 
-    private var filtered: [SessionEntry] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return section.entries }
-        let needle = trimmed.lowercased()
-        return section.entries.filter { entry in
-            entry.displayTitle.lowercased().contains(needle)
-                || (entry.cwd ?? "").lowercased().contains(needle)
-                || (entry.gitBranch ?? "").lowercased().contains(needle)
-        }
-    }
+    /// Pre-lowercased searchable text per entry (computed once on appear).
+    /// Avoids re-allocating lowercased strings on every keystroke.
+    @State private var searchablePairs: [(SessionEntry, String)] = []
+    /// Latest filtered result. Updated asynchronously off-main so typing isn't blocked.
+    @State private var filtered: [SessionEntry] = []
+    @State private var filterTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -608,8 +604,50 @@ private struct SectionPopoverView: View {
             EscapeKeyCatcher { onDismiss() }
         )
         .onAppear {
+            // Pre-lowercase the searchable text once. Typing then only does a
+            // cheap substring scan over the cached strings.
+            let entries = section.entries
+            searchablePairs = entries.map { entry in
+                let combined = (entry.displayTitle + " "
+                                + (entry.cwd ?? "") + " "
+                                + (entry.gitBranch ?? "")).lowercased()
+                return (entry, combined)
+            }
+            filtered = entries
             // Defer one runloop turn so the popover's window is fully key.
             DispatchQueue.main.async { searchFocused = true }
+        }
+        .onChange(of: query) { newValue in
+            scheduleFilter(query: newValue)
+        }
+        .onDisappear {
+            filterTask?.cancel()
+            filterTask = nil
+        }
+    }
+
+    /// Cancel the in-flight filter, debounce briefly, then run the substring scan
+    /// on a detached task. Empty queries skip the task entirely so the full list
+    /// shows instantly.
+    private func scheduleFilter(query newValue: String) {
+        filterTask?.cancel()
+        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed.isEmpty {
+            filtered = section.entries
+            return
+        }
+        let pairs = searchablePairs
+        filterTask = Task { @MainActor in
+            // Tiny debounce: collapse a flurry of keystrokes into one filter pass.
+            try? await Task.sleep(nanoseconds: 30_000_000)
+            if Task.isCancelled { return }
+            let result = await Task.detached(priority: .userInitiated) {
+                pairs.compactMap { (entry, text) -> SessionEntry? in
+                    text.contains(trimmed) ? entry : nil
+                }
+            }.value
+            if Task.isCancelled { return }
+            filtered = result
         }
     }
 
