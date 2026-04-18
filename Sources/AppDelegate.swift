@@ -26,6 +26,9 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
     override var safeAreaRect: NSRect { bounds }
     override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
+    // Minimal mode pulls interactive SwiftUI chrome into the titlebar band.
+    // Keep the root host non-draggable so workspace and pane tabs receive clicks.
+    override var mouseDownCanMoveWindow: Bool { false }
 
     required init(rootView: Content) {
         super.init(rootView: rootView)

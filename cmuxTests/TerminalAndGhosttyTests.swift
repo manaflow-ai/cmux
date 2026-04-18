@@ -1873,6 +1873,8 @@ final class WindowTerminalHostViewTests: XCTestCase {
         }
     }
 
+    private final class FakeTabBarBackgroundNSView: NSView {}
+
     private final class BonsplitMockSplitDelegate: NSObject, NSSplitViewDelegate {}
 
     private func makeHostedTerminalView(frame: NSRect) -> GhosttySurfaceScrollView {
@@ -2033,6 +2035,122 @@ final class WindowTerminalHostViewTests: XCTestCase {
             host.hitTest(textSelectionPoint),
             hostedView: hostedView,
             message: "Once the pointer moves past the reduced terminal-side overlap, terminal content should win hit-testing"
+        )
+    }
+
+    func testHostViewDetectsUnderlyingBonsplitTabBarBackground() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let tabBar = FakeTabBarBackgroundNSView(frame: NSRect(x: 24, y: 140, width: 180, height: 30))
+        contentView.addSubview(tabBar)
+
+        XCTAssertTrue(
+            WindowTerminalHostView.hasBonsplitTabBarBackgroundForTesting(
+                at: NSPoint(x: 60, y: 150),
+                in: contentView
+            ),
+            "Terminal portal should detect Bonsplit tab-bar backing views so clicks can pass through"
+        )
+        XCTAssertFalse(
+            WindowTerminalHostView.hasBonsplitTabBarBackgroundForTesting(
+                at: NSPoint(x: 60, y: 110),
+                in: contentView
+            ),
+            "Terminal portal should not treat non-tab-bar content as a tab-bar hit"
+        )
+    }
+
+    func testHostViewDetectsUnderlyingBonsplitTabBarBackgroundInSiblingTree() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let themeFrame = contentView.superview else {
+            XCTFail("Expected theme frame")
+            return
+        }
+
+        let host = WindowTerminalHostView(frame: themeFrame.bounds)
+        themeFrame.addSubview(host)
+
+        let siblingStrip = NSView(frame: themeFrame.bounds)
+        themeFrame.addSubview(siblingStrip, positioned: .below, relativeTo: host)
+
+        let tabBar = FakeTabBarBackgroundNSView(frame: NSRect(x: 24, y: 150, width: 180, height: 30))
+        siblingStrip.addSubview(tabBar)
+
+        XCTAssertTrue(
+            WindowTerminalHostView.hasUnderlyingBonsplitTabBarBackgroundForTesting(
+                at: tabBar.convert(NSPoint(x: 30, y: 12), to: nil),
+                below: host
+            ),
+            "Terminal portal should detect tab-bar backing views rendered in the host's sibling tree"
+        )
+        XCTAssertFalse(
+            WindowTerminalHostView.hasUnderlyingBonsplitTabBarBackgroundForTesting(
+                at: siblingStrip.convert(NSPoint(x: 60, y: 110), to: nil),
+                below: host
+            ),
+            "Terminal portal should ignore sibling-tree points that do not land inside a tab-bar backing view"
+        )
+    }
+
+    func testHostViewDetectsSiblingTreeTabBarOutsideImmediateContainerBounds() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let themeFrame = contentView.superview else {
+            XCTFail("Expected theme frame")
+            return
+        }
+
+        let host = WindowTerminalHostView(frame: themeFrame.bounds)
+        themeFrame.addSubview(host)
+
+        let siblingStrip = NSView(frame: contentView.frame)
+        themeFrame.addSubview(siblingStrip, positioned: .below, relativeTo: host)
+
+        let tabBar = FakeTabBarBackgroundNSView(
+            frame: NSRect(
+                x: 24,
+                y: siblingStrip.bounds.maxY + 6,
+                width: 180,
+                height: 30
+            )
+        )
+        siblingStrip.addSubview(tabBar)
+
+        let windowPoint = tabBar.convert(NSPoint(x: 30, y: 12), to: nil)
+        let pointInSibling = siblingStrip.convert(windowPoint, from: nil)
+        XCTAssertFalse(
+            siblingStrip.bounds.contains(pointInSibling),
+            "Regression harness: the tab bar should sit outside the immediate sibling container bounds"
+        )
+        XCTAssertTrue(
+            WindowTerminalHostView.hasUnderlyingBonsplitTabBarBackgroundForTesting(
+                at: windowPoint,
+                below: host
+            ),
+            "Terminal portal should still detect a sibling-tree tab bar when minimal mode renders it above the immediate container bounds"
         )
     }
 }

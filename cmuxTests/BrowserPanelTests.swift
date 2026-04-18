@@ -399,6 +399,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
+    private final class FakeTabBarBackgroundNSView: NSView {}
+
     private final class PrimaryPageProbeView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -514,6 +516,122 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let contentPointInWindow = splitView.convert(contentPointInSplit, to: nil)
         let contentPointInHost = host.convert(contentPointInWindow, from: nil)
         XCTAssertTrue(host.hitTest(contentPointInHost) === child)
+    }
+
+    func testHostViewDetectsUnderlyingBonsplitTabBarBackground() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let tabBar = FakeTabBarBackgroundNSView(frame: NSRect(x: 18, y: 132, width: 210, height: 30))
+        contentView.addSubview(tabBar)
+
+        XCTAssertTrue(
+            WindowBrowserHostView.hasBonsplitTabBarBackgroundForTesting(
+                at: NSPoint(x: 40, y: 145),
+                in: contentView
+            ),
+            "Browser portal should detect Bonsplit tab-bar backing views so clicks can pass through"
+        )
+        XCTAssertFalse(
+            WindowBrowserHostView.hasBonsplitTabBarBackgroundForTesting(
+                at: NSPoint(x: 40, y: 96),
+                in: contentView
+            ),
+            "Browser portal should ignore points outside Bonsplit tab-bar backing views"
+        )
+    }
+
+    func testHostViewDetectsUnderlyingBonsplitTabBarBackgroundInSiblingTree() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let themeFrame = contentView.superview else {
+            XCTFail("Expected theme frame")
+            return
+        }
+
+        let host = WindowBrowserHostView(frame: themeFrame.bounds)
+        themeFrame.addSubview(host)
+
+        let siblingStrip = NSView(frame: themeFrame.bounds)
+        themeFrame.addSubview(siblingStrip, positioned: .below, relativeTo: host)
+
+        let tabBar = FakeTabBarBackgroundNSView(frame: NSRect(x: 18, y: 144, width: 210, height: 30))
+        siblingStrip.addSubview(tabBar)
+
+        XCTAssertTrue(
+            WindowBrowserHostView.hasUnderlyingBonsplitTabBarBackgroundForTesting(
+                at: tabBar.convert(NSPoint(x: 28, y: 14), to: nil),
+                below: host
+            ),
+            "Browser portal should detect tab-bar backing views rendered in the host's sibling tree"
+        )
+        XCTAssertFalse(
+            WindowBrowserHostView.hasUnderlyingBonsplitTabBarBackgroundForTesting(
+                at: siblingStrip.convert(NSPoint(x: 40, y: 100), to: nil),
+                below: host
+            ),
+            "Browser portal should ignore sibling-tree points outside the tab-bar backing view"
+        )
+    }
+
+    func testHostViewDetectsSiblingTreeTabBarOutsideImmediateContainerBounds() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let themeFrame = contentView.superview else {
+            XCTFail("Expected theme frame")
+            return
+        }
+
+        let host = WindowBrowserHostView(frame: themeFrame.bounds)
+        themeFrame.addSubview(host)
+
+        let siblingStrip = NSView(frame: contentView.frame)
+        themeFrame.addSubview(siblingStrip, positioned: .below, relativeTo: host)
+
+        let tabBar = FakeTabBarBackgroundNSView(
+            frame: NSRect(
+                x: 18,
+                y: siblingStrip.bounds.maxY + 6,
+                width: 210,
+                height: 30
+            )
+        )
+        siblingStrip.addSubview(tabBar)
+
+        let windowPoint = tabBar.convert(NSPoint(x: 28, y: 14), to: nil)
+        let pointInSibling = siblingStrip.convert(windowPoint, from: nil)
+        XCTAssertFalse(
+            siblingStrip.bounds.contains(pointInSibling),
+            "Regression harness: the tab bar should sit outside the immediate sibling container bounds"
+        )
+        XCTAssertTrue(
+            WindowBrowserHostView.hasUnderlyingBonsplitTabBarBackgroundForTesting(
+                at: windowPoint,
+                below: host
+            ),
+            "Browser portal should still detect a sibling-tree tab bar when minimal mode renders it above the immediate container bounds"
+        )
     }
 
     func testWindowBrowserPortalIgnoresHostedInspectorSplitResizeNotifications() {
