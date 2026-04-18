@@ -8962,14 +8962,8 @@ struct ContentView: View {
     }
 
     private func openFocusedBrowserInDefaultBrowser() -> Bool {
-        guard let panel = tabManager.focusedBrowserPanel,
-              let rawURL = panel.preferredURLStringForOmnibar(),
-              let url = URL(string: rawURL),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            return false
-        }
-        return NSWorkspace.shared.open(url)
+        guard let panel = tabManager.focusedBrowserPanel else { return false }
+        return panel.openPreferredExternalURLInDefaultBrowser()
     }
 
     private func openWorkspacePullRequestsInConfiguredBrowser() -> Bool {

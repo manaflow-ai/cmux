@@ -555,6 +555,9 @@ struct BrowserPanelView: View {
         VStack(spacing: 0) {
             addressBar
                 .fixedSize(horizontal: false, vertical: true)
+            if panel.cloudflareVerificationFallback != nil {
+                cloudflareVerificationFallbackBanner
+            }
             webView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -869,6 +872,61 @@ struct BrowserPanelView: View {
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
         .environment(\.colorScheme, browserChromeColorScheme)
+    }
+
+    private var cloudflareVerificationFallbackBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.shield")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.orange)
+
+            Text(
+                String(
+                    localized: "browser.cloudflareVerificationFallback",
+                    defaultValue: "Cloudflare security verification may not complete in cmux. Open this page in your default browser to continue."
+                )
+            )
+            .font(.system(size: 12))
+            .foregroundStyle(.primary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 8)
+
+            Button(String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser")) {
+                if !panel.openPreferredExternalURLInDefaultBrowser() {
+                    NSSound.beep()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .accessibilityIdentifier("BrowserCloudflareFallbackOpenButton")
+
+            Button {
+                panel.dismissCloudflareVerificationFallback()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .safeHelp(String(localized: "common.close", defaultValue: "Close"))
+            .accessibilityIdentifier("BrowserCloudflareFallbackDismissButton")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(browserChromeBackground)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.orange.opacity(browserChromeColorScheme == .dark ? 0.12 : 0.10))
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
+        )
+        .overlay(alignment: .bottom) {
+            Divider()
+                .padding(.horizontal, 8)
+        }
+        .environment(\.colorScheme, browserChromeColorScheme)
+        .accessibilityIdentifier("BrowserCloudflareFallbackBanner")
     }
 
     private var addressBarButtonBar: some View {

@@ -114,3 +114,38 @@ final class BrowserFindJavaScriptTests: XCTestCase {
         XCTAssertTrue(js.contains("\\u2028"))
     }
 }
+
+final class BrowserCloudflareChallengeHeuristicsTests: XCTestCase {
+    func testDetectsCloudflareVerificationInterstitial() {
+        let snapshot = BrowserCloudflareChallengeSnapshot(
+            url: URL(string: "https://claude.ai/login"),
+            title: "Just a moment...",
+            bodyText: "Cloudflare Verify you are human Performing security verification"
+        )
+
+        XCTAssertTrue(BrowserCloudflareChallengeHeuristics.looksLikeVerification(snapshot))
+    }
+
+    func testDoesNotFlagOrdinaryCloudflarePage() {
+        let snapshot = BrowserCloudflareChallengeSnapshot(
+            url: URL(string: "https://www.cloudflare.com/"),
+            title: "Cloudflare",
+            bodyText: "Connect, protect, and build everywhere."
+        )
+
+        XCTAssertFalse(BrowserCloudflareChallengeHeuristics.looksLikeVerification(snapshot))
+    }
+
+    func testPreferredExternalFallbackPrefersLastRequestedURLOverChallengePlatformURL() {
+        let currentURL = URL(string: "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1")!
+        let lastRequestedURL = URL(string: "https://claude.ai/login")!
+
+        XCTAssertEqual(
+            BrowserCloudflareChallengeHeuristics.preferredExternalOpenURL(
+                currentURL: currentURL,
+                lastRequestedURL: lastRequestedURL
+            ),
+            lastRequestedURL
+        )
+    }
+}

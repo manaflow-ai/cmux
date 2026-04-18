@@ -11048,6 +11048,23 @@
         }
       }
     },
+    "browser.cloudflareVerificationFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudflare security verification may not complete in cmux. Open this page in your default browser to continue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudflare のセキュリティ確認は cmux では完了しない場合があります。続行するには、このページをデフォルトブラウザで開いてください。"
+          }
+        }
+      }
+    },
     "browser.proceedInCmux": {
       "extractionState": "manual",
       "localizations": {

@@ -901,6 +901,97 @@ enum BrowserUserAgentSettings {
     static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
 }
 
+struct BrowserCloudflareChallengeSnapshot: Equatable {
+    let url: URL?
+    let title: String
+    let bodyText: String
+}
+
+enum BrowserCloudflareChallengeHeuristics {
+    private static let verificationPhrases = [
+        "verify you are human",
+        "performing security verification",
+        "security verification",
+        "checking your browser before accessing",
+        "enable javascript and cookies to continue",
+    ]
+
+    private static let titlePhrases = [
+        "just a moment",
+        "attention required",
+    ]
+
+    static func isHTTPURL(_ url: URL?) -> Bool {
+        guard let scheme = url?.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
+    static func isChallengePlatformURL(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        guard isHTTPURL(url) else { return false }
+
+        let host = (url.host ?? "").lowercased()
+        let path = url.path.lowercased()
+        if host == "challenges.cloudflare.com" {
+            return true
+        }
+        return path.contains("/cdn-cgi/challenge-platform/")
+    }
+
+    private static func normalized(_ text: String) -> String {
+        text
+            .lowercased()
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func looksLikeVerification(_ snapshot: BrowserCloudflareChallengeSnapshot) -> Bool {
+        let normalizedTitle = normalized(snapshot.title)
+        let normalizedBody = normalized(snapshot.bodyText)
+        let combined = "\(normalizedTitle) \(normalizedBody)"
+        let mentionsCloudflare = combined.contains("cloudflare")
+        let matchesVerificationPhrase = verificationPhrases.contains { combined.contains($0) }
+        let matchesTitlePhrase = titlePhrases.contains { normalizedTitle.contains($0) }
+
+        if isChallengePlatformURL(snapshot.url) {
+            return true
+        }
+
+        return mentionsCloudflare && (matchesVerificationPhrase || matchesTitlePhrase)
+    }
+
+    static func preferredExternalOpenURL(
+        currentURL: URL?,
+        lastRequestedURL: URL?
+    ) -> URL? {
+        if let currentURL, isHTTPURL(currentURL), !isChallengePlatformURL(currentURL) {
+            return currentURL
+        }
+        if let lastRequestedURL, isHTTPURL(lastRequestedURL) {
+            return lastRequestedURL
+        }
+        if let currentURL, isHTTPURL(currentURL) {
+            return currentURL
+        }
+        return nil
+    }
+
+    static func fallbackFingerprint(
+        currentURL: URL?,
+        lastRequestedURL: URL?
+    ) -> String? {
+        guard let externalURL = preferredExternalOpenURL(
+            currentURL: currentURL,
+            lastRequestedURL: lastRequestedURL
+        ) else {
+            return nil
+        }
+
+        let currentComponent = currentURL?.absoluteString ?? "nil"
+        return "\(currentComponent)|\(externalURL.absoluteString)"
+    }
+}
+
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
     if bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.") {
         return "com.cmuxterm.app.debug"
@@ -2126,9 +2217,30 @@ final class BrowserPanel: Panel, ObservableObject {
       }
     })();
     """
+    private static let cloudflareVerificationSnapshotScript = """
+    (() => {
+      try {
+        const title = typeof document.title === "string" ? document.title : "";
+        const href = typeof window.location?.href === "string" ? window.location.href : "";
+        const rawBodyText = document.body ? String(document.body.innerText || document.body.textContent || "") : "";
+        const bodyText = rawBodyText.replace(/\\s+/g, " ").trim().slice(0, 4096);
+        return JSON.stringify({ title, href, bodyText });
+      } catch (_) {
+        return JSON.stringify({ title: "", href: "", bodyText: "" });
+      }
+    })();
+    """
+
+    struct CloudflareVerificationFallback: Equatable {
+        let fingerprint: String
+        let externalURL: URL
+    }
 
     /// Published URL being displayed
     @Published private(set) var currentURL: URL?
+
+    /// Non-blocking fallback surfaced when a Cloudflare verification page appears stuck.
+    @Published private(set) var cloudflareVerificationFallback: CloudflareVerificationFallback?
 
     /// Whether the browser panel should render its WKWebView in the content area.
     /// New browser tabs stay in an empty "new tab" state until first navigation.
@@ -2163,6 +2275,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private var restoredBackHistoryStack: [URL] = []
     private var restoredForwardHistoryStack: [URL] = []
     private var restoredHistoryCurrentURL: URL?
+    private var lastRequestedExternalOpenURL: URL?
+    private var dismissedCloudflareVerificationFingerprint: String?
+    private var cloudflareVerificationRevealWorkItem: DispatchWorkItem?
+    private let cloudflareVerificationRevealDelay: TimeInterval = 8.0
 
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
@@ -2590,6 +2706,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.refreshFavicon(from: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
+                self.evaluateCloudflareVerificationState(for: webView, revealIfStillPresent: false)
             }
         }
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
@@ -2602,6 +2719,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.lastFaviconURLString = nil
                 // Keep find-in-page open and clear stale counters on failed loads.
                 self.restoreFindStateAfterNavigation(replaySearch: false)
+                self.clearCloudflareVerificationFallback()
             }
         }
     }
@@ -2659,6 +2777,11 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
             self?.replaceWebViewAfterContentProcessTermination(for: webView)
+        }
+        navDelegate.didObserveMainFrameRequestURL = { [weak self] url in
+            Task { @MainActor in
+                self?.noteMainFrameRequestURL(url)
+            }
         }
         // Set up download delegate for navigation-based downloads.
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
@@ -3084,6 +3207,9 @@ final class BrowserPanel: Panel, ObservableObject {
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 self.currentURL = Self.remoteProxyDisplayURL(for: webView.url)
+                if self.cloudflareVerificationFallback != nil {
+                    self.evaluateCloudflareVerificationState(for: webView, revealIfStillPresent: true)
+                }
             }
         }
         webViewObservers.append(urlObserver)
@@ -3098,6 +3224,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 let trimmed = (webView.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
                 self.pageTitle = trimmed
+                if self.cloudflareVerificationFallback != nil {
+                    self.evaluateCloudflareVerificationState(for: webView, revealIfStillPresent: true)
+                }
             }
         }
         webViewObservers.append(titleObserver)
@@ -3689,6 +3818,7 @@ final class BrowserPanel: Panel, ObservableObject {
             loadingEndWorkItem = nil
             loadingStartedAt = Date()
             isLoading = true
+            clearCloudflareVerificationFallback()
             return
         }
 
@@ -3715,6 +3845,157 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         loadingEndWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
+    }
+
+    private struct CloudflareVerificationSnapshotPayload: Decodable {
+        let title: String
+        let href: String
+        let bodyText: String
+    }
+
+    private func noteMainFrameRequestURL(_ url: URL) {
+        guard BrowserCloudflareChallengeHeuristics.isHTTPURL(url) else { return }
+        dismissedCloudflareVerificationFingerprint = nil
+        if !BrowserCloudflareChallengeHeuristics.isChallengePlatformURL(url) {
+            lastRequestedExternalOpenURL = url
+        }
+    }
+
+    private func cancelCloudflareVerificationReveal() {
+        cloudflareVerificationRevealWorkItem?.cancel()
+        cloudflareVerificationRevealWorkItem = nil
+    }
+
+    private func clearCloudflareVerificationFallback(resetDismissal: Bool = true) {
+        cancelCloudflareVerificationReveal()
+        cloudflareVerificationFallback = nil
+        if resetDismissal {
+            dismissedCloudflareVerificationFingerprint = nil
+        }
+    }
+
+    private func evaluateCloudflareVerificationState(
+        for webView: WKWebView,
+        revealIfStillPresent: Bool
+    ) {
+        let observedWebViewInstanceID = webViewInstanceID
+        webView.evaluateJavaScript(Self.cloudflareVerificationSnapshotScript) { [weak self, weak webView] result, error in
+            Task { @MainActor in
+                guard let self, let webView, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else {
+                    return
+                }
+
+                guard error == nil,
+                      let json = result as? String,
+                      let jsonData = json.data(using: .utf8),
+                      let payload = try? JSONDecoder().decode(CloudflareVerificationSnapshotPayload.self, from: jsonData) else {
+                    if revealIfStillPresent {
+                        self.clearCloudflareVerificationFallback()
+                    }
+                    return
+                }
+
+                let snapshot = BrowserCloudflareChallengeSnapshot(
+                    url: URL(string: payload.href),
+                    title: payload.title,
+                    bodyText: payload.bodyText
+                )
+                self.handleCloudflareVerificationSnapshot(
+                    snapshot,
+                    for: webView,
+                    revealIfStillPresent: revealIfStillPresent
+                )
+            }
+        }
+    }
+
+    private func handleCloudflareVerificationSnapshot(
+        _ snapshot: BrowserCloudflareChallengeSnapshot,
+        for webView: WKWebView,
+        revealIfStillPresent: Bool
+    ) {
+        guard BrowserCloudflareChallengeHeuristics.looksLikeVerification(snapshot),
+              let externalURL = BrowserCloudflareChallengeHeuristics.preferredExternalOpenURL(
+                  currentURL: snapshot.url ?? currentURL,
+                  lastRequestedURL: lastRequestedExternalOpenURL
+              ),
+              let fingerprint = BrowserCloudflareChallengeHeuristics.fallbackFingerprint(
+                  currentURL: snapshot.url ?? currentURL,
+                  lastRequestedURL: lastRequestedExternalOpenURL
+              ) else {
+            clearCloudflareVerificationFallback()
+            return
+        }
+
+        if dismissedCloudflareVerificationFingerprint == fingerprint {
+            return
+        }
+
+        if revealIfStillPresent {
+            cancelCloudflareVerificationReveal()
+            let nextFallback = CloudflareVerificationFallback(
+                fingerprint: fingerprint,
+                externalURL: externalURL
+            )
+            if cloudflareVerificationFallback != nextFallback {
+                cloudflareVerificationFallback = nextFallback
+#if DEBUG
+                dlog(
+                    "browser.cloudflare.notice.show panel=\(id.uuidString.prefix(5)) " +
+                    "url=\(externalURL.absoluteString)"
+                )
+#endif
+            }
+            return
+        }
+
+        if cloudflareVerificationFallback?.fingerprint == fingerprint {
+            return
+        }
+
+        cancelCloudflareVerificationReveal()
+        let workItem = DispatchWorkItem { [weak self, weak webView] in
+            guard let self, let webView else { return }
+            self.evaluateCloudflareVerificationState(for: webView, revealIfStillPresent: true)
+        }
+        cloudflareVerificationRevealWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + cloudflareVerificationRevealDelay,
+            execute: workItem
+        )
+    }
+
+    func preferredExternalOpenURL() -> URL? {
+        let currentCandidateURL: URL?
+        if let currentURL {
+            currentCandidateURL = currentURL
+        } else if let rawURL = preferredURLStringForOmnibar() {
+            currentCandidateURL = URL(string: rawURL)
+        } else {
+            currentCandidateURL = nil
+        }
+
+        return BrowserCloudflareChallengeHeuristics.preferredExternalOpenURL(
+            currentURL: currentCandidateURL,
+            lastRequestedURL: lastRequestedExternalOpenURL
+        )
+    }
+
+    func openPreferredExternalURLInDefaultBrowser() -> Bool {
+        guard let url = preferredExternalOpenURL() else { return false }
+        let opened = NSWorkspace.shared.open(url)
+        if opened {
+            dismissedCloudflareVerificationFingerprint = cloudflareVerificationFallback?.fingerprint
+            cloudflareVerificationFallback = nil
+            cancelCloudflareVerificationReveal()
+        }
+        return opened
+    }
+
+    func dismissCloudflareVerificationFallback() {
+        dismissedCloudflareVerificationFingerprint = cloudflareVerificationFallback?.fingerprint
+        cloudflareVerificationFallback = nil
+        cancelCloudflareVerificationReveal()
     }
 
     // MARK: - Navigation
@@ -3981,6 +4262,8 @@ final class BrowserPanel: Panel, ObservableObject {
         developerToolsRestoreRetryWorkItem = nil
         developerToolsTransitionSettleWorkItem?.cancel()
         developerToolsTransitionSettleWorkItem = nil
+        cloudflareVerificationRevealWorkItem?.cancel()
+        cloudflareVerificationRevealWorkItem = nil
         developerToolsVisibilityLossCheckWorkItem?.cancel()
         developerToolsVisibilityLossCheckWorkItem = nil
         if let detachedDeveloperToolsWindowCloseObserver {
@@ -6148,6 +6431,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
+    var didObserveMainFrameRequestURL: ((URL) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
@@ -6337,6 +6621,11 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
         )
 #endif
+
+        if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false {
+            didObserveMainFrameRequestURL?(url)
+        }
 
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
