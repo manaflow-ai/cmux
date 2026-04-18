@@ -1545,7 +1545,7 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
 }
 
 @MainActor
-final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
+final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
     private struct PasteboardItemSnapshot {
         let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
     }
@@ -1703,6 +1703,8 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - Terminal Paste Fallback
 
     func testCommandVPasteStillInvokesTerminalPasteWhenMainMenuMisses() throws {
         installGhosttyPasteActionSwizzle()
