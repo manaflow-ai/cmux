@@ -11297,10 +11297,7 @@ extension Workspace: BonsplitDelegate {
 
     @MainActor
     private func confirmClosePanel(for tabId: TabID) async -> Bool {
-        let alert = NSAlert()
-
-        alert.messageText = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
-
+        let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
         let panelName: String? = {
             guard let panelId = panelIdFromSurfaceId(tabId) else { return nil }
             if let custom = panelCustomTitles[panelId], !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -11315,11 +11312,24 @@ extension Workspace: BonsplitDelegate {
             return nil
         }()
 
+        let message: String
         if let panelName {
-            alert.informativeText = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
+            message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
         } else {
-            alert.informativeText = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+            message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
         }
+
+        if let confirmCloseHandler = (
+            owningTabManager
+            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+            ?? AppDelegate.shared?.tabManager
+        )?.confirmCloseHandler {
+            return confirmCloseHandler(title, message, false)
+        }
+
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
@@ -11752,6 +11762,14 @@ extension Workspace: BonsplitDelegate {
             return true
         }
 
+        let closeConfirmationManager = owningTabManager
+            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+            ?? AppDelegate.shared?.tabManager
+        if let closeConfirmationManager, closeConfirmationManager.isCloseConfirmationInFlight {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            return false
+        }
+
         if let panelId = panelIdFromSurfaceId(tab.id),
            pinnedPanelIds.contains(panelId) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
@@ -11782,12 +11800,23 @@ extension Workspace: BonsplitDelegate {
                 return false
             }
 
+            let confirmationManager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
+            if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
+                return false
+            }
+
             pendingCloseConfirmTabIds.insert(tab.id)
             let tabId = tab.id
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self else {
+                    confirmationManager?.endCloseConfirmationSession()
+                    return
+                }
                 Task { @MainActor in
-                    defer { self.pendingCloseConfirmTabIds.remove(tabId) }
+                    defer {
+                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        confirmationManager?.endCloseConfirmationSession()
+                    }
 
                     // If the tab disappeared while we were scheduling, do nothing.
                     guard self.panelIdFromSurfaceId(tabId) != nil else { return }
