@@ -67,6 +67,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     static let maxNestingDepth = 3
 
     let webView: CmuxWebView
+    private let browserContext: BrowserPopupBrowserContext
     private let panel: NSPanel
     private let urlLabel: NSTextField
     private weak var openerPanel: BrowserPanel?
@@ -85,22 +86,21 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     init(
         configuration: WKWebViewConfiguration,
         windowFeatures: WKWindowFeatures,
+        browserContext: BrowserPopupBrowserContext,
         openerPanel: BrowserPanel?,
         parentPopupController: BrowserPopupWindowController? = nil,
         nestingDepth: Int = 0
     ) {
+        self.browserContext = browserContext
         self.openerPanel = openerPanel
         self.parentPopupController = parentPopupController
         self.nestingDepth = nestingDepth
 
-        let browserContextSource = parentPopupController?.webView.configuration ?? openerPanel?.webView.configuration
-        if let browserContextSource {
-            BrowserPanel.configureWebViewConfiguration(
-                configuration,
-                websiteDataStore: browserContextSource.websiteDataStore,
-                processPool: browserContextSource.processPool
-            )
-        }
+        BrowserPanel.configureWebViewConfiguration(
+            configuration,
+            websiteDataStore: browserContext.websiteDataStore,
+            processPool: browserContext.processPool
+        )
 
         // Create popup web view with WebKit's supplied configuration after
         // overlaying the opener's browser context so OAuth popups keep cmux's
@@ -322,6 +322,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         let child = BrowserPopupWindowController(
             configuration: configuration,
             windowFeatures: windowFeatures,
+            browserContext: browserContext,
             openerPanel: openerPanel,
             parentPopupController: self,
             nestingDepth: nextDepth
@@ -330,10 +331,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         return child.webView
     }
 
-    func openInOpenerTab(_ url: URL) {
+    func openInOpenerTab(_ request: URLRequest) {
         if let openerPanel {
-            openerPanel.openLinkInNewTab(url: url)
-        } else {
+            openerPanel.openLinkInNewTab(request: request)
+        } else if let url = request.url {
             NSWorkspace.shared.open(url)
         }
     }
@@ -429,8 +430,8 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             )
         }
 
-        if let url = navigationAction.request.url {
-            controller?.openInOpenerTab(url)
+        if navigationAction.request.url != nil {
+            controller?.openInOpenerTab(navigationAction.request)
         }
         return nil
     }

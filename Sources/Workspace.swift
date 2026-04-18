@@ -9114,6 +9114,7 @@ final class Workspace: Identifiable, ObservableObject {
     func newBrowserSurface(
         inPane paneId: PaneID,
         url: URL? = nil,
+        initialRequest: URLRequest? = nil,
         focus: Bool? = nil,
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
@@ -9131,6 +9132,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: sourcePanelId
             ),
             initialURL: url,
+            initialRequest: initialRequest,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
