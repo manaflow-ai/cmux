@@ -1734,6 +1734,69 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
             "Cmd+V should not fall back to Ghostty keyDown when the terminal paste action is available"
         )
     }
+
+    func testCommandVPasteRecreatesReleasedSurfaceBeforeConsumption() throws {
+        installGhosttyPasteActionSwizzle()
+
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        defer { window.orderOut(nil) }
+
+        window.makeFirstResponder(surfaceView)
+        XCTAssertNotNil(surfaceView.terminalSurface)
+        XCTAssertNotNil(hostedTerminal.surface.surface)
+
+        let previousMainMenu = NSApp.mainMenu
+        NSApp.mainMenu = installUnrelatedMainMenu()
+        defer { NSApp.mainMenu = previousMainMenu }
+
+        let pasteboard = NSPasteboard.general
+        let pasteboardSnapshot = snapshotPasteboardItems(pasteboard)
+        defer { restorePasteboardItems(pasteboardSnapshot, to: pasteboard) }
+        pasteboard.clearContents()
+        pasteboard.setString("surface recovery paste", forType: .string)
+
+        var pasteInvocationCount = 0
+        let previousPasteHook = ghosttyPasteActionHook
+        ghosttyPasteActionHook = { _, _ in
+            pasteInvocationCount += 1
+        }
+        defer { ghosttyPasteActionHook = previousPasteHook }
+
+        hostedTerminal.surface.releaseSurfaceForTesting()
+        XCTAssertNil(
+            hostedTerminal.surface.surface,
+            "Expected the runtime Ghostty surface to be released before simulating Cmd+V"
+        )
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            isARepeat: false,
+            keyCode: 9
+        ) else {
+            XCTFail("Failed to construct Cmd+V event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(
+            pasteInvocationCount,
+            1,
+            "Cmd+V should still invoke the terminal paste action after a transient surface release"
+        )
+        XCTAssertNotNil(
+            hostedTerminal.surface.surface,
+            "Cmd+V should recreate the Ghostty surface before the direct terminal paste fallback consumes the shortcut"
+        )
+    }
 }
 
 @MainActor
