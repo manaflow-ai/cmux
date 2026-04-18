@@ -14,6 +14,13 @@ struct GhosttyConfig {
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
     var surfaceTabBarFontSize: CGFloat = 11
+    // Primary sidebar workspace-label font size. Secondary sidebar text scales
+    // proportionally from this value (see SidebarFontScale). Default matches
+    // the hardcoded size used prior to this setting.
+    static let defaultSidebarFontSize: CGFloat = 12.5
+    static let minSidebarFontSize: CGFloat = 10
+    static let maxSidebarFontSize: CGFloat = 20
+    var sidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize
     var theme: String?
     var workingDirectory: String?
     // Ghostty measures scrollback-limit in bytes, not lines.
@@ -247,6 +254,14 @@ struct GhosttyConfig {
                 case "surface-tab-bar-font-size":
                     if let size = Double(value) {
                         surfaceTabBarFontSize = CGFloat(size)
+                    }
+                case "sidebar-font-size":
+                    if let size = Double(value) {
+                        let clamped = min(
+                            Double(GhosttyConfig.maxSidebarFontSize),
+                            max(Double(GhosttyConfig.minSidebarFontSize), size)
+                        )
+                        sidebarFontSize = CGFloat(clamped)
                     }
                 case "theme":
                     theme = value

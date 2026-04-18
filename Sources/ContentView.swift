@@ -10084,6 +10084,9 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+    // Proportional scale applied to every hardcoded sidebar font size.
+    // Derived from `sidebar-font-size` in the Ghostty config.
+    let sidebarFontScale: CGFloat
 
     init(defaults: UserDefaults = .standard) {
         sidebarShortcutHintXOffset = Self.double(
@@ -10140,6 +10143,13 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
         activeTabIndicatorStyle = SidebarActiveTabIndicatorSettings.current(defaults: defaults)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+
+        let primarySidebarFontSize = GhosttyConfig.load().sidebarFontSize
+        let clampedPrimary = min(
+            GhosttyConfig.maxSidebarFontSize,
+            max(GhosttyConfig.minSidebarFontSize, primarySidebarFontSize)
+        )
+        sidebarFontScale = clampedPrimary / GhosttyConfig.defaultSidebarFontSize
     }
 
     private static func bool(
@@ -10167,6 +10177,7 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
 
     private let defaults: UserDefaults
     private var defaultsObserver: NSObjectProtocol?
+    private var ghosttyConfigObserver: NSObjectProtocol?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -10180,11 +10191,25 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
                 self?.refreshSnapshot()
             }
         }
+        // Also refresh when the Ghostty config reloads — `sidebar-font-size`
+        // lives in the Ghostty config, not UserDefaults.
+        ghosttyConfigObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyConfigDidReload,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshSnapshot()
+            }
+        }
     }
 
     deinit {
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
+        }
+        if let ghosttyConfigObserver {
+            NotificationCenter.default.removeObserver(ghosttyConfigObserver)
         }
     }
 
@@ -12853,6 +12878,13 @@ private struct TabItemView: View, Equatable {
         .semibold
     }
 
+    // Applied as a multiplier to every hardcoded sidebar font size in this
+    // view (and plumbed into its sub-views). Driven by `sidebar-font-size` in
+    // the Ghostty config; see GhosttyConfig.sidebarFontSize.
+    private var fontScale: CGFloat {
+        settings.sidebarFontScale
+    }
+
     private var showsLeadingRail: Bool {
         explicitRailColor != nil
     }
@@ -12985,7 +13017,7 @@ private struct TabItemView: View, Equatable {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(remoteWorkspaceSidebarText)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 10 * fontScale, design: .monospaced))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -12993,7 +13025,7 @@ private struct TabItemView: View, Equatable {
                     Spacer(minLength: 0)
 
                     Text(remoteConnectionStatusText)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 9 * fontScale, weight: .medium))
                         .foregroundColor(activeSecondaryColor(0.58))
                         .lineLimit(1)
                 }
@@ -13074,7 +13106,7 @@ private struct TabItemView: View, Equatable {
                         Circle()
                             .fill(activeUnreadBadgeFillColor)
                         Text("\(unreadCount)")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 9 * fontScale, weight: .semibold))
                             .foregroundColor(.white)
                     }
                     .frame(width: 16, height: 16)
@@ -13082,13 +13114,13 @@ private struct TabItemView: View, Equatable {
 
                 if tab.isPinned {
                     Image(systemName: "pin.fill")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 9 * fontScale, weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
                 Text(tab.title)
-                    .font(.system(size: 12.5, weight: titleFontWeight))
+                    .font(.system(size: 12.5 * fontScale, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -13104,7 +13136,7 @@ private struct TabItemView: View, Equatable {
                         tabManager.closeWorkspaceWithConfirmation(tab)
                     }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: 9 * fontScale, weight: .medium))
                             .foregroundColor(activeSecondaryColor(0.7))
                     }
                     .buttonStyle(.plain)
@@ -13129,14 +13161,15 @@ private struct TabItemView: View, Equatable {
             if let description = tab.customDescription {
                 SidebarWorkspaceDescriptionText(
                     markdown: description,
-                    isActive: usesInvertedActiveForeground
+                    isActive: usesInvertedActiveForeground,
+                    fontScale: fontScale
                 )
                 .id(description)
             }
 
             if let subtitle = effectiveSubtitle {
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(.system(size: 10 * fontScale))
                     .foregroundColor(activeSecondaryColor(0.8))
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -13152,7 +13185,8 @@ private struct TabItemView: View, Equatable {
                     SidebarMetadataRows(
                         entries: metadataEntries,
                         isActive: usesInvertedActiveForeground,
-                        onFocus: { updateSelection() }
+                        onFocus: { updateSelection() },
+                        fontScale: fontScale
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -13160,7 +13194,8 @@ private struct TabItemView: View, Equatable {
                     SidebarMetadataMarkdownBlocks(
                         blocks: metadataBlocks,
                         isActive: usesInvertedActiveForeground,
-                        onFocus: { updateSelection() }
+                        onFocus: { updateSelection() },
+                        fontScale: fontScale
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -13170,10 +13205,10 @@ private struct TabItemView: View, Equatable {
             if detailVisibility.showsLog, let latestLog = tab.logEntries.last {
                 HStack(spacing: 4) {
                     Image(systemName: logLevelIcon(latestLog.level))
-                        .font(.system(size: 8))
+                        .font(.system(size: 8 * fontScale))
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
-                        .font(.system(size: 10))
+                        .font(.system(size: 10 * fontScale))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -13197,7 +13232,7 @@ private struct TabItemView: View, Equatable {
 
                     if let label = progress.label {
                         Text(label)
-                            .font(.system(size: 9))
+                            .font(.system(size: 9 * fontScale))
                             .foregroundColor(activeSecondaryColor(0.6))
                             .lineLimit(1)
                     }
@@ -13212,7 +13247,7 @@ private struct TabItemView: View, Equatable {
                         HStack(alignment: .top, spacing: 3) {
                             if sidebarShowGitBranchIcon, branchLinesContainBranch {
                                 Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: 9))
+                                    .font(.system(size: 9 * fontScale))
                                     .foregroundColor(activeSecondaryColor(0.6))
                             }
                             VStack(alignment: .leading, spacing: 1) {
@@ -13220,20 +13255,20 @@ private struct TabItemView: View, Equatable {
                                     HStack(spacing: 3) {
                                         if let branch = line.branch {
                                             Text(branch)
-                                                .font(.system(size: 10, design: .monospaced))
+                                                .font(.system(size: 10 * fontScale, design: .monospaced))
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
                                         }
                                         if line.branch != nil, line.directory != nil {
                                             Image(systemName: "circle.fill")
-                                                .font(.system(size: 3))
+                                                .font(.system(size: 3 * fontScale))
                                                 .foregroundColor(activeSecondaryColor(0.6))
                                                 .padding(.horizontal, 1)
                                         }
                                         if let directory = line.directory {
                                             Text(directory)
-                                                .font(.system(size: 10, design: .monospaced))
+                                                .font(.system(size: 10 * fontScale, design: .monospaced))
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
@@ -13247,11 +13282,11 @@ private struct TabItemView: View, Equatable {
                     HStack(spacing: 3) {
                         if sidebarShowGitBranchIcon, compactGitBranchSummaryText != nil {
                             Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 9))
+                                .font(.system(size: 9 * fontScale))
                                 .foregroundColor(activeSecondaryColor(0.6))
                         }
                         Text(dirRow)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(.system(size: 10 * fontScale, design: .monospaced))
                             .foregroundColor(activeSecondaryColor(0.75))
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -13269,7 +13304,8 @@ private struct TabItemView: View, Equatable {
                             HStack(spacing: 4) {
                                 PullRequestStatusIcon(
                                     status: pullRequest.status,
-                                    color: pullRequestForegroundColor
+                                    color: pullRequestForegroundColor,
+                                    fontScale: fontScale
                                 )
                                 Text("\(pullRequest.label) #\(pullRequest.number)")
                                     .underline()
@@ -13279,7 +13315,7 @@ private struct TabItemView: View, Equatable {
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
                             }
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 10 * fontScale, weight: .semibold))
                             .foregroundColor(pullRequestForegroundColor)
                             .opacity(pullRequest.isStale ? 0.5 : 1)
                         }
@@ -13304,7 +13340,7 @@ private struct TabItemView: View, Equatable {
                     }
                     Spacer(minLength: 0)
                 }
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: 10 * fontScale, design: .monospaced))
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
@@ -14208,6 +14244,7 @@ private struct TabItemView: View, Equatable {
     private struct PullRequestStatusIcon: View {
         let status: SidebarPullRequestStatus
         let color: Color
+        var fontScale: CGFloat = 1
         private static let frameSize: CGFloat = 12
 
         var body: some View {
@@ -14218,7 +14255,7 @@ private struct TabItemView: View, Equatable {
                 PullRequestMergedIcon(color: color)
             case .closed:
                 Image(systemName: "xmark.circle")
-                    .font(.system(size: 7, weight: .regular))
+                    .font(.system(size: 7 * fontScale, weight: .regular))
                     .foregroundColor(color)
                     .frame(width: Self.frameSize, height: Self.frameSize)
             }
@@ -14392,6 +14429,7 @@ private struct TabItemView: View, Equatable {
 private struct SidebarWorkspaceDescriptionText: View {
     let markdown: String
     let isActive: Bool
+    var fontScale: CGFloat = 1
 
     var body: some View {
         let renderedMarkdown = SidebarMarkdownRenderer.renderWorkspaceDescription(markdown)
@@ -14402,7 +14440,7 @@ private struct SidebarWorkspaceDescriptionText: View {
                 Text(markdown)
             }
         }
-        .font(.system(size: 10.5))
+        .font(.system(size: 10.5 * fontScale))
         .foregroundColor(foregroundColor)
         .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
@@ -14462,6 +14500,7 @@ private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
     let onFocus: () -> Void
+    var fontScale: CGFloat = 1
 
     @State private var isExpanded: Bool = false
     private let collapsedEntryLimit = 3
@@ -14469,7 +14508,7 @@ private struct SidebarMetadataRows: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(visibleEntries, id: \.key) { entry in
-                SidebarMetadataEntryRow(entry: entry, isActive: isActive, onFocus: onFocus)
+                SidebarMetadataEntryRow(entry: entry, isActive: isActive, onFocus: onFocus, fontScale: fontScale)
             }
 
             if shouldShowToggle {
@@ -14480,7 +14519,7 @@ private struct SidebarMetadataRows: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 10 * fontScale, weight: .semibold))
                 .foregroundColor(isActive ? activeSecondaryTextColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -14514,6 +14553,7 @@ private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
     let onFocus: () -> Void
+    var fontScale: CGFloat = 1
 
     var body: some View {
         Group {
@@ -14546,7 +14586,7 @@ private struct SidebarMetadataEntryRow: View {
                 .truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .font(.system(size: 10))
+        .font(.system(size: 10 * fontScale))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -14570,12 +14610,12 @@ private struct SidebarMetadataEntryRow: View {
         if iconRaw.hasPrefix("emoji:") {
             let value = String(iconRaw.dropFirst("emoji:".count))
             guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).font(.system(size: 9)))
+            return AnyView(Text(value).font(.system(size: 9 * fontScale)))
         }
         if iconRaw.hasPrefix("text:") {
             let value = String(iconRaw.dropFirst("text:".count))
             guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).font(.system(size: 8, weight: .semibold)))
+            return AnyView(Text(value).font(.system(size: 8 * fontScale, weight: .semibold)))
         }
         let symbolName: String
         if iconRaw.hasPrefix("sf:") {
@@ -14584,7 +14624,7 @@ private struct SidebarMetadataEntryRow: View {
             symbolName = iconRaw
         }
         guard !symbolName.isEmpty else { return nil }
-        return AnyView(Image(systemName: symbolName).font(.system(size: 8, weight: .medium)))
+        return AnyView(Image(systemName: symbolName).font(.system(size: 8 * fontScale, weight: .medium)))
     }
 
     @ViewBuilder
@@ -14611,6 +14651,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
     let blocks: [SidebarMetadataBlock]
     let isActive: Bool
     let onFocus: () -> Void
+    var fontScale: CGFloat = 1
 
     @State private var isExpanded: Bool = false
     private let collapsedBlockLimit = 1
@@ -14621,7 +14662,8 @@ private struct SidebarMetadataMarkdownBlocks: View {
                 SidebarMetadataMarkdownBlockRow(
                     block: block,
                     isActive: isActive,
-                    onFocus: onFocus
+                    onFocus: onFocus,
+                    fontScale: fontScale
                 )
             }
 
@@ -14633,7 +14675,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 10 * fontScale, weight: .semibold))
                 .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -14654,6 +14696,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     let block: SidebarMetadataBlock
     let isActive: Bool
     let onFocus: () -> Void
+    var fontScale: CGFloat = 1
 
     @State private var renderedMarkdown: AttributedString?
 
@@ -14667,7 +14710,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
                     .foregroundColor(foregroundColor)
             }
         }
-        .font(.system(size: 10))
+        .font(.system(size: 10 * fontScale))
         .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
