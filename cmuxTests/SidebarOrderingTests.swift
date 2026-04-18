@@ -999,3 +999,87 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         )
     }
 }
+
+final class SidebarTabItemSettingsSnapshotFontScaleTests: XCTestCase {
+
+    /// A UserDefaults suite isolated to this test class so we don't mutate
+    /// the real user defaults used by other tests / the host app.
+    private var defaults: UserDefaults!
+    private var suiteName: String!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "cmux-tests-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults = nil
+        suiteName = nil
+        super.tearDown()
+    }
+
+    func testDefaultConfigYieldsUnitScale() {
+        let snapshot = SidebarTabItemSettingsSnapshot(
+            defaults: defaults,
+            sidebarFontSizeProvider: { GhosttyConfig.defaultSidebarFontSize }
+        )
+        XCTAssertEqual(snapshot.sidebarFontScale, 1.0, accuracy: 0.0001)
+    }
+
+    func testPrimaryEighteenScalesProportionally() {
+        let snapshot = SidebarTabItemSettingsSnapshot(
+            defaults: defaults,
+            sidebarFontSizeProvider: { 18 }
+        )
+        let expected = 18 / GhosttyConfig.defaultSidebarFontSize
+        XCTAssertEqual(snapshot.sidebarFontScale, expected, accuracy: 0.0001)
+    }
+
+    func testBelowMinClampsUp() {
+        let snapshot = SidebarTabItemSettingsSnapshot(
+            defaults: defaults,
+            sidebarFontSizeProvider: { 4 }
+        )
+        let expected = GhosttyConfig.minSidebarFontSize / GhosttyConfig.defaultSidebarFontSize
+        XCTAssertEqual(snapshot.sidebarFontScale, expected, accuracy: 0.0001)
+    }
+
+    func testAboveMaxClampsDown() {
+        let snapshot = SidebarTabItemSettingsSnapshot(
+            defaults: defaults,
+            sidebarFontSizeProvider: { 9999 }
+        )
+        let expected = GhosttyConfig.maxSidebarFontSize / GhosttyConfig.defaultSidebarFontSize
+        XCTAssertEqual(snapshot.sidebarFontScale, expected, accuracy: 0.0001)
+    }
+
+    /// If this test ever passes incorrectly (i.e. two snapshots with
+    /// different scales compare equal), TabItemView's
+    /// `.equatable()` will skip re-rendering on font-size changes and the
+    /// live-reload path will silently break.
+    func testSnapshotEqualityReflectsScaleDifference() {
+        let base = SidebarTabItemSettingsSnapshot(
+            defaults: defaults,
+            sidebarFontSizeProvider: { GhosttyConfig.defaultSidebarFontSize }
+        )
+        let bigger = SidebarTabItemSettingsSnapshot(
+            defaults: defaults,
+            sidebarFontSizeProvider: { 18 }
+        )
+        XCTAssertNotEqual(base, bigger)
+    }
+
+    func testSnapshotEqualityHoldsWhenScaleMatches() {
+        let a = SidebarTabItemSettingsSnapshot(
+            defaults: defaults,
+            sidebarFontSizeProvider: { 14 }
+        )
+        let b = SidebarTabItemSettingsSnapshot(
+            defaults: defaults,
+            sidebarFontSizeProvider: { 14 }
+        )
+        XCTAssertEqual(a, b)
+    }
+}

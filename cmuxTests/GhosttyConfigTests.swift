@@ -2690,6 +2690,36 @@ final class SidebarFontSizeConfigTests: XCTestCase {
                        GhosttyConfig.defaultSidebarFontSize,
                        accuracy: 0.0001)
     }
+
+    func testParseSidebarFontSizeTrailingZero() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-font-size = 14.0")
+        XCTAssertEqual(config.sidebarFontSize, 14, accuracy: 0.0001)
+    }
+
+    func testLoadReadsSidebarFontSizeViaInjectedLoader() {
+        let loaded = GhosttyConfig.load(
+            preferredColorScheme: .dark,
+            useCache: false,
+            loadFromDisk: { _ in
+                var config = GhosttyConfig()
+                config.parse("sidebar-font-size = 14\n")
+                return config
+            }
+        )
+        XCTAssertEqual(loaded.sidebarFontSize, 14, accuracy: 0.0001)
+    }
+
+    func testParseLaterSidebarFontSizeWins() {
+        // When multiple config files are loaded in order, later paths
+        // should override earlier values for the same key — this is the
+        // contract that makes ~/Library/Application Support override
+        // ~/.config/ghostty on macOS.
+        var config = GhosttyConfig()
+        config.parse("sidebar-font-size = 11")
+        config.parse("sidebar-font-size = 18")
+        XCTAssertEqual(config.sidebarFontSize, 18, accuracy: 0.0001)
+    }
 }
 
 final class SidebarBackgroundConfigTests: XCTestCase {

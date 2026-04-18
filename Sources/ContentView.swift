@@ -10069,7 +10069,7 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     }
 }
 
-private struct SidebarTabItemSettingsSnapshot: Equatable {
+struct SidebarTabItemSettingsSnapshot: Equatable {
     let sidebarShortcutHintXOffset: Double
     let sidebarShortcutHintYOffset: Double
     let alwaysShowShortcutHints: Bool
@@ -10088,7 +10088,10 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     // Derived from `sidebar-font-size` in the Ghostty config.
     let sidebarFontScale: CGFloat
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        sidebarFontSizeProvider: () -> CGFloat = { GhosttyConfig.load().sidebarFontSize }
+    ) {
         sidebarShortcutHintXOffset = Self.double(
             defaults: defaults,
             key: ShortcutHintDebugSettings.sidebarHintXKey,
@@ -10144,7 +10147,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
 
-        let primarySidebarFontSize = GhosttyConfig.load().sidebarFontSize
+        let primarySidebarFontSize = sidebarFontSizeProvider()
         let clampedPrimary = min(
             GhosttyConfig.maxSidebarFontSize,
             max(GhosttyConfig.minSidebarFontSize, primarySidebarFontSize)
