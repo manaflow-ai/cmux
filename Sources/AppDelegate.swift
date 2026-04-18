@@ -14532,16 +14532,29 @@ private extension NSWindow {
             // If the window-level direct-to-menu path misses Cmd+V, do not let the
             // event fall through to generic keyDown routing. Bracketed-paste TUIs
             // such as OpenCode need the dedicated terminal paste action.
+            let handledDirectPaste: Bool
             switch pasteCommand {
             case .paste:
-                ghosttyView.paste(nil)
+                handledDirectPaste = ghosttyView.prepareSurfaceForPaste(
+                    reason: "window.performKeyEquivalent.paste.missingSurface"
+                )
+                if handledDirectPaste {
+                    ghosttyView.paste(nil)
+                }
             case .pasteAsPlainText:
-                ghosttyView.pasteAsPlainText(nil)
+                handledDirectPaste = ghosttyView.prepareSurfaceForPaste(
+                    reason: "window.performKeyEquivalent.pasteAsPlainText.missingSurface"
+                )
+                if handledDirectPaste {
+                    ghosttyView.pasteAsPlainText(nil)
+                }
             }
+            if handledDirectPaste {
 #if DEBUG
-            dlog("  → consumed by direct terminal paste fallback")
+                dlog("  → consumed by direct terminal paste fallback")
 #endif
-            return true
+                return true
+            }
         }
 
         let result = cmux_performKeyEquivalent(with: event)

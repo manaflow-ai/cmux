@@ -5927,6 +5927,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
     }
 
+    @discardableResult
+    func prepareSurfaceForPaste(reason: String) -> Bool {
+        guard ensureSurfaceReadyForInput() != nil else {
+            requestInputRecoveryAfterSurfaceMiss(reason: reason)
+            return false
+        }
+        return true
+    }
+
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
         return action.withCString { cString in
@@ -6149,11 +6158,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
+        guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
         _ = performBindingAction("paste_from_clipboard")
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
+        guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
         _ = performBindingAction("paste_from_clipboard")
     }
 
