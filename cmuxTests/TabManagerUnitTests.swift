@@ -886,6 +886,72 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
     }
 }
 
+@MainActor
+final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
+    func testCloseCurrentTabSpamWithConfirmationEnabledPromptsOnceAndClosesOneWorkspace() {
+        let manager = TabManager()
+        while manager.tabs.count < 6 {
+            _ = manager.addWorkspace()
+        }
+
+        for workspace in manager.tabs {
+            guard let panelId = workspace.focusedPanelId,
+                  let terminalPanel = workspace.terminalPanel(for: panelId) else {
+                XCTFail("Expected each workspace to have a focused terminal panel")
+                return
+            }
+            terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        }
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return true
+        }
+
+        for _ in 0..<5 {
+            manager.closeCurrentTabWithConfirmation()
+        }
+
+        XCTAssertEqual(prompts.count, 1, "Expected close-tab spam to surface only one confirmation prompt")
+        XCTAssertEqual(
+            prompts.first?.title,
+            String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?")
+        )
+        XCTAssertEqual(prompts.first?.acceptCmdD, false)
+        XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
+    }
+
+    func testCloseCurrentTabSpamWithConfirmationDisabledClosesEveryRequestedWorkspace() {
+        let manager = TabManager()
+        while manager.tabs.count < 6 {
+            _ = manager.addWorkspace()
+        }
+
+        for workspace in manager.tabs {
+            guard let panelId = workspace.focusedPanelId,
+                  let terminalPanel = workspace.terminalPanel(for: panelId) else {
+                XCTFail("Expected each workspace to have a focused terminal panel")
+                return
+            }
+            terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        }
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return true
+        }
+
+        for _ in 0..<5 {
+            manager.closeCurrentTabWithConfirmation()
+        }
+
+        XCTAssertEqual(promptCount, 0, "Expected warning-disabled close-tab spam to bypass confirmation entirely")
+        XCTAssertEqual(manager.tabs.count, 1, "Expected warning-disabled close-tab spam to close all requested workspaces")
+    }
+}
+
 
 @MainActor
 final class TabManagerCloseCurrentPanelTests: XCTestCase {
