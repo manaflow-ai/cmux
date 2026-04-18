@@ -1798,20 +1798,30 @@ enum MountedWorkspacePresentationPolicy {
 }
 
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
-func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
-    guard objc_getAssociatedObject(window, &fileDropOverlayKey) == nil,
-          let contentView = window.contentView,
-          let themeFrame = contentView.superview else { return }
+private func findFileDropOverlayView(in root: NSView?) -> FileDropOverlayView? {
+    guard let root else { return nil }
+    if let overlay = root as? FileDropOverlayView {
+        return overlay
+    }
+    for subview in root.subviews {
+        if let overlay = findFileDropOverlayView(in: subview) {
+            return overlay
+        }
+    }
+    return nil
+}
 
-    let overlay = FileDropOverlayView(frame: contentView.frame)
-    overlay.translatesAutoresizingMaskIntoConstraints = false
+private func configureFileDropOverlay(_ overlay: FileDropOverlayView, tabManager: TabManager) {
     overlay.onDrop = { [weak tabManager] urls in
         MainActor.assumeIsolated {
             guard let tabManager, let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
             return terminal.hostedView.handleDroppedURLs(urls)
         }
     }
+}
 
+private func attachFileDropOverlay(_ overlay: FileDropOverlayView, to contentView: NSView, in themeFrame: NSView) {
+    overlay.translatesAutoresizingMaskIntoConstraints = false
     themeFrame.addSubview(overlay, positioned: .above, relativeTo: contentView)
     NSLayoutConstraint.activate([
         overlay.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -1819,8 +1829,33 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
         overlay.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
         overlay.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
     ])
+}
 
+@discardableResult
+func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool {
+    guard let contentView = window.contentView,
+          let themeFrame = contentView.superview else { return false }
+
+    let existingOverlay =
+        (objc_getAssociatedObject(window, &fileDropOverlayKey) as? FileDropOverlayView)
+        ?? findFileDropOverlayView(in: themeFrame)
+
+    if let existingOverlay {
+        configureFileDropOverlay(existingOverlay, tabManager: tabManager)
+        objc_setAssociatedObject(window, &fileDropOverlayKey, existingOverlay, .OBJC_ASSOCIATION_RETAIN)
+        guard existingOverlay.superview !== themeFrame else { return true }
+        existingOverlay.removeFromSuperview()
+        attachFileDropOverlay(existingOverlay, to: contentView, in: themeFrame)
+        return true
+    }
+
+    let overlay = FileDropOverlayView(frame: contentView.frame)
+    configureFileDropOverlay(overlay, tabManager: tabManager)
+    // Publish the overlay before mutating the view tree so any re-entrant lookup resolves
+    // the in-flight view instead of installing a second overlay during layout.
     objc_setAssociatedObject(window, &fileDropOverlayKey, overlay, .OBJC_ASSOCIATION_RETAIN)
+    attachFileDropOverlay(overlay, to: contentView, in: themeFrame)
+    return true
 }
 
 struct ContentView: View {
@@ -3700,6 +3735,11 @@ struct ContentView: View {
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState
             )
+        }))
+
+        // Install the file-drop overlay once the window hierarchy is ready, outside the
+        // high-frequency body-level window styling accessor above.
+        view = AnyView(view.background(WindowSetupAccessor { window in
             installFileDropOverlay(on: window, tabManager: tabManager)
         }))
 
