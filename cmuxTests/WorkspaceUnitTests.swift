@@ -301,7 +301,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testShortcutRecorderStopsRecordingWhenFirstStrokeConfirmationIsRejected() {
 #if DEBUG
         let button = ShortcutRecorderNSButton(frame: .zero)
-        button.transformRecordedShortcut = { _ in nil }
+        button.transformRecordedShortcut = { _ in .rejected(.reservedByMacOS) }
         button.debugSetPendingChordStart(
             ShortcutStroke(
                 key: "x",
@@ -1404,7 +1404,67 @@ final class StoredShortcutMatchingTests: XCTestCase {
         XCTAssertEqual(stroke.carbonHotKeyRegistration?.keyCode, 13)
     }
 
-    func testSystemWideHotkeyNormalizationRejectsReservedShortcutByRecordedPhysicalKey() {
+    func testShortcutRecordingResultRejectsBareLetterWithoutModifier() {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ) else {
+            XCTFail("Failed to construct bare letter event")
+            return
+        }
+
+        XCTAssertEqual(
+            ShortcutStroke.recordingResult(from: event, requireModifier: true),
+            .rejected(.bareKeyNotAllowed)
+        )
+    }
+
+    func testShortcutRecordingResultAcceptsBareFunctionKeyWithoutModifier() {
+        let f1Characters = String(UnicodeScalar(NSF1FunctionKey)!)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: f1Characters,
+            charactersIgnoringModifiers: f1Characters,
+            isARepeat: false,
+            keyCode: 122
+        ) else {
+            XCTFail("Failed to construct F1 event")
+            return
+        }
+
+        XCTAssertEqual(
+            ShortcutStroke.recordingResult(from: event, requireModifier: true),
+            .accepted(ShortcutStroke(key: "f1", command: false, shift: false, option: false, control: false, keyCode: 122))
+        )
+    }
+
+    func testShortcutRecorderResolutionReportsConflictingAction() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        let shortcut = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.openBrowser.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.conflictsWithAction(.newSurface))
+        )
+    }
+
+    func testSystemWideHotkeyNormalizationReportsCmuxActionConflictByRecordedPhysicalKey() {
         KeyboardShortcutSettings.resetAll()
         defer { KeyboardShortcutSettings.resetAll() }
 
@@ -1417,7 +1477,22 @@ final class StoredShortcutMatchingTests: XCTestCase {
             keyCode: 13
         )
 
-        XCTAssertNil(KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcut(shortcut))
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.conflictsWithAction(.quit))
+        )
+    }
+
+    func testSystemWideHotkeyNormalizationReportsReservedHotkeyReason() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        let shortcut = StoredShortcut(key: ".", command: true, shift: false, option: false, control: false)
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.reservedByMacOS)
+        )
     }
 }
 
