@@ -36,48 +36,6 @@ struct WindowAccessor: NSViewRepresentable {
     }
 }
 
-/// Replays the window callback until setup succeeds, then dedupes future updates for that window.
-struct WindowSetupAccessor: NSViewRepresentable {
-    let onWindow: (NSWindow) -> Bool
-
-    init(onWindow: @escaping (NSWindow) -> Bool) {
-        self.onWindow = onWindow
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> WindowObservingView {
-        let view = WindowObservingView()
-        view.onWindow = { window in
-            guard context.coordinator.completedWindow !== window else { return }
-            if onWindow(window) {
-                context.coordinator.completedWindow = window
-            }
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: WindowObservingView, context: Context) {
-        nsView.onWindow = { window in
-            guard context.coordinator.completedWindow !== window else { return }
-            if onWindow(window) {
-                context.coordinator.completedWindow = window
-            }
-        }
-        if let window = nsView.window {
-            nsView.onWindow?(window)
-        }
-    }
-}
-
-extension WindowSetupAccessor {
-    final class Coordinator {
-        weak var completedWindow: NSWindow?
-    }
-}
-
 extension WindowAccessor {
     final class Coordinator {
         weak var lastWindow: NSWindow?
