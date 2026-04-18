@@ -1181,6 +1181,8 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
             )
         )
 
+        // This covers the pure seeding helper only. WebKit may still rewrite
+        // programmatic loads when the request is replayed in the destination tab.
         XCTAssertEqual(seed.url, url)
         XCTAssertEqual(seed.bypassInsecureHTTPHostOnce, "www.linkedin.com")
         XCTAssertEqual(seed.initialRequest.httpMethod, "POST")
