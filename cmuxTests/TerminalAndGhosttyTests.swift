@@ -1866,6 +1866,190 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
 
 @MainActor
+final class TerminalWorkspaceSwitchFocusTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        return window
+    }
+
+    private func waitForCondition(
+        timeout: TimeInterval = 1.0,
+        pollInterval: TimeInterval = 0.02,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+        return condition()
+    }
+
+    func testWorkspaceSwitchRestoresTerminalFirstResponderAfterDeferredGeometry() {
+        _ = NSApplication.shared
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let window = makeWindow()
+
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+        let secondWorkspace = manager.addWorkspace(select: false)
+
+        defer {
+            appDelegate.tabManager = originalTabManager
+            window.orderOut(nil)
+        }
+
+        guard let firstWorkspace = manager.selectedWorkspace,
+              let firstTerminal = firstWorkspace.focusedTerminalPanel,
+              let secondTerminal = secondWorkspace.focusedTerminalPanel,
+              let contentView = window.contentView else {
+            XCTFail("Expected two workspaces with focused terminal panels")
+            return
+        }
+
+        let firstHostedView = firstTerminal.hostedView
+        let secondHostedView = secondTerminal.hostedView
+
+        firstHostedView.setVisibleInUI(true)
+        firstHostedView.setActive(true)
+        secondHostedView.setVisibleInUI(false)
+        secondHostedView.setActive(false)
+
+        firstHostedView.frame = contentView.bounds
+        firstHostedView.autoresizingMask = [.width, .height]
+        secondHostedView.frame = .zero
+        secondHostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(firstHostedView)
+        contentView.addSubview(secondHostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        firstHostedView.layoutSubtreeIfNeeded()
+        secondHostedView.layoutSubtreeIfNeeded()
+
+        firstHostedView.moveFocus()
+        XCTAssertTrue(
+            waitForCondition { firstHostedView.isSurfaceViewFirstResponder() },
+            "Expected the initially selected workspace terminal to own first responder"
+        )
+
+        manager.selectWorkspace(secondWorkspace)
+        firstHostedView.setActive(false)
+        firstHostedView.setVisibleInUI(false)
+        secondHostedView.setVisibleInUI(true)
+        secondHostedView.setActive(true)
+
+        let initialDeferredAttempt = expectation(description: "initial deferred first-responder attempt")
+        DispatchQueue.main.async {
+            initialDeferredAttempt.fulfill()
+        }
+        wait(for: [initialDeferredAttempt], timeout: 1.0)
+
+        XCTAssertFalse(
+            secondHostedView.isSurfaceViewFirstResponder(),
+            "Expected the returning workspace terminal to still be unfocused while its portal geometry is zero-sized"
+        )
+
+        secondHostedView.frame = contentView.bounds
+        contentView.layoutSubtreeIfNeeded()
+        secondHostedView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 0.6) { secondHostedView.isSurfaceViewFirstResponder() },
+            "Expected workspace-switch focus recovery to retry until the reactivated terminal can become first responder"
+        )
+    }
+
+    func testWorkspaceSwitchNoOpVisibleAndActiveUpdatesDoNotRearmRetryBudget() {
+        _ = NSApplication.shared
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let window = makeWindow()
+
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+        let secondWorkspace = manager.addWorkspace(select: false)
+
+        defer {
+            appDelegate.tabManager = originalTabManager
+            window.orderOut(nil)
+        }
+
+        guard let firstWorkspace = manager.selectedWorkspace,
+              let firstTerminal = firstWorkspace.focusedTerminalPanel,
+              let secondTerminal = secondWorkspace.focusedTerminalPanel,
+              let contentView = window.contentView else {
+            XCTFail("Expected two workspaces with focused terminal panels")
+            return
+        }
+
+        let firstHostedView = firstTerminal.hostedView
+        let secondHostedView = secondTerminal.hostedView
+
+        firstHostedView.setVisibleInUI(true)
+        firstHostedView.setActive(true)
+        secondHostedView.setVisibleInUI(false)
+        secondHostedView.setActive(false)
+
+        firstHostedView.frame = contentView.bounds
+        firstHostedView.autoresizingMask = [.width, .height]
+        secondHostedView.frame = .zero
+        secondHostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(firstHostedView)
+        contentView.addSubview(secondHostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        firstHostedView.layoutSubtreeIfNeeded()
+        secondHostedView.layoutSubtreeIfNeeded()
+
+        firstHostedView.moveFocus()
+        XCTAssertTrue(
+            waitForCondition { firstHostedView.isSurfaceViewFirstResponder() },
+            "Expected the initially selected workspace terminal to own first responder"
+        )
+
+        manager.selectWorkspace(secondWorkspace)
+        firstHostedView.setActive(false)
+        firstHostedView.setVisibleInUI(false)
+        secondHostedView.setVisibleInUI(true)
+        secondHostedView.setActive(true)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 0.4) {
+                secondHostedView.debugAutomaticFirstResponderRetryBudget() < 8
+            },
+            "Expected deferred geometry to start consuming the automatic first-responder retry budget"
+        )
+
+        let budgetBeforeNoOpRefresh = secondHostedView.debugAutomaticFirstResponderRetryBudget()
+        secondHostedView.setVisibleInUI(true)
+        secondHostedView.setActive(true)
+        let budgetAfterNoOpRefresh = secondHostedView.debugAutomaticFirstResponderRetryBudget()
+
+        XCTAssertLessThanOrEqual(
+            budgetAfterNoOpRefresh,
+            budgetBeforeNoOpRefresh,
+            "Expected no-op visible/active refreshes not to re-arm the automatic first-responder retry budget"
+        )
+    }
+}
+
+
+@MainActor
 final class WindowTerminalHostViewTests: XCTestCase {
     private final class CapturingView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
