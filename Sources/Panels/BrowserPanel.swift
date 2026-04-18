@@ -2778,6 +2778,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let initialRequest {
             shouldRenderWebView = true
             if let url = initialRequest.url,
+               insecureHTTPBypassHostOnce == nil,
                shouldBlockInsecureHTTPNavigation(to: url) {
                 presentInsecureHTTPAlert(
                     for: initialRequest,
