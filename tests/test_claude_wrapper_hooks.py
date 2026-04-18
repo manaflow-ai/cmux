@@ -44,6 +44,7 @@ def run_wrapper(
     argv: list[str],
     node_options: str | None = None,
     tmpdir: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -166,6 +167,8 @@ exit 0
             env["TMPDIR"] = tmpdir
         if node_options is not None:
             env["NODE_OPTIONS"] = node_options
+        if extra_env:
+            env.update(extra_env)
 
         try:
             proc = subprocess.run(
@@ -351,6 +354,41 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
+def _notification_matchers(argv: list[str]) -> list[str]:
+    settings = parse_settings_arg(argv)
+    entries = settings.get("hooks", {}).get("Notification", [])
+    return [entry.get("matcher", "__missing__") for entry in entries]
+
+
+def test_idle_notifications_default_excludes_idle_prompt(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+    )
+    expect(code == 0, f"idle default: wrapper exited {code}: {stderr}", failures)
+    matchers = _notification_matchers(real_argv)
+    expect(
+        matchers == ["permission_prompt", "elicitation_dialog"],
+        f"idle default: expected matcher-gated Notification hooks, got {matchers}",
+        failures,
+    )
+
+
+def test_idle_notifications_opt_in_uses_catch_all(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        extra_env={"CMUX_CLAUDE_IDLE_NOTIFICATIONS": "1"},
+    )
+    expect(code == 0, f"idle opt-in: wrapper exited {code}: {stderr}", failures)
+    matchers = _notification_matchers(real_argv)
+    expect(
+        matchers == [""],
+        f"idle opt-in: expected catch-all Notification matcher, got {matchers}",
+        failures,
+    )
+
+
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks(failures)
@@ -358,6 +396,8 @@ def main() -> int:
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
     test_missing_socket_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
+    test_idle_notifications_default_excludes_idle_prompt(failures)
+    test_idle_notifications_opt_in_uses_catch_all(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")
