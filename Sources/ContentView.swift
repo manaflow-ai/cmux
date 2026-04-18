@@ -13149,7 +13149,7 @@ private struct TabItemView: View, Equatable {
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
 
                     if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                        ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
+                        ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10 * fontScale, emphasis: shortcutHintEmphasis)
                             .offset(
                                 x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
                                 y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
@@ -14251,16 +14251,35 @@ private struct TabItemView: View, Equatable {
         private static let frameSize: CGFloat = 12
 
         var body: some View {
-            switch status {
-            case .open:
-                PullRequestOpenIcon(color: color)
-            case .merged:
-                PullRequestMergedIcon(color: color)
-            case .closed:
-                Image(systemName: "xmark.circle")
-                    .font(.system(size: 7 * fontScale, weight: .regular))
-                    .foregroundColor(color)
-                    .frame(width: Self.frameSize, height: Self.frameSize)
+            Group {
+                switch status {
+                case .open:
+                    // The open/merged icons are hand-drawn with hardcoded Path
+                    // geometry; use .scaleEffect rather than threading fontScale
+                    // through every coordinate to keep the diff small and the
+                    // visuals pixel-equivalent at scale=1.
+                    PullRequestOpenIcon(color: color)
+                        .scaleEffect(fontScale)
+                        .frame(
+                            width: PullRequestOpenIcon.intrinsicFrameSize * fontScale,
+                            height: PullRequestOpenIcon.intrinsicFrameSize * fontScale
+                        )
+                case .merged:
+                    PullRequestMergedIcon(color: color)
+                        .scaleEffect(fontScale)
+                        .frame(
+                            width: PullRequestMergedIcon.intrinsicFrameSize * fontScale,
+                            height: PullRequestMergedIcon.intrinsicFrameSize * fontScale
+                        )
+                case .closed:
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 7 * fontScale, weight: .regular))
+                        .foregroundColor(color)
+                        .frame(
+                            width: Self.frameSize * fontScale,
+                            height: Self.frameSize * fontScale
+                        )
+                }
             }
         }
     }
@@ -14270,6 +14289,7 @@ private struct TabItemView: View, Equatable {
         private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
         private static let nodeDiameter: CGFloat = 3.0
         private static let frameSize: CGFloat = 13
+        static let intrinsicFrameSize: CGFloat = frameSize
 
         var body: some View {
             ZStack {
@@ -14308,6 +14328,7 @@ private struct TabItemView: View, Equatable {
         private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
         private static let nodeDiameter: CGFloat = 3.0
         private static let frameSize: CGFloat = 13
+        static let intrinsicFrameSize: CGFloat = frameSize
 
         var body: some View {
             ZStack {

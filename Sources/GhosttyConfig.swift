@@ -256,7 +256,11 @@ struct GhosttyConfig {
                         surfaceTabBarFontSize = CGFloat(size)
                     }
                 case "sidebar-font-size":
-                    if let size = Double(value) {
+                    // `Double(_:)` accepts "nan" / "inf" per IEEE 754 / Apple
+                    // docs. Reject non-finite values so they don't poison the
+                    // clamp (min/max of NaN → NaN → NaN-valued fontScale →
+                    // invisible sidebar text).
+                    if let size = Double(value), size.isFinite {
                         let clamped = min(
                             Double(GhosttyConfig.maxSidebarFontSize),
                             max(Double(GhosttyConfig.minSidebarFontSize), size)

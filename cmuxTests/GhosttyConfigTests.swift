@@ -2710,6 +2710,32 @@ final class SidebarFontSizeConfigTests: XCTestCase {
         XCTAssertEqual(loaded.sidebarFontSize, 14, accuracy: 0.0001)
     }
 
+    func testParseSidebarFontSizeIgnoresNaN() {
+        // `Double("nan")` returns `.nan`. Without explicit rejection the
+        // min/max clamp would produce NaN, yielding an invisible sidebar.
+        var config = GhosttyConfig()
+        config.parse("sidebar-font-size = nan")
+        XCTAssertEqual(config.sidebarFontSize,
+                       GhosttyConfig.defaultSidebarFontSize,
+                       accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeIgnoresInfinity() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-font-size = inf")
+        XCTAssertEqual(config.sidebarFontSize,
+                       GhosttyConfig.defaultSidebarFontSize,
+                       accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeIgnoresNegativeInfinity() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-font-size = -infinity")
+        XCTAssertEqual(config.sidebarFontSize,
+                       GhosttyConfig.defaultSidebarFontSize,
+                       accuracy: 0.0001)
+    }
+
     func testParseLaterSidebarFontSizeWins() {
         // When multiple config files are loaded in order, later paths
         // should override earlier values for the same key — this is the
