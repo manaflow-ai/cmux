@@ -14497,7 +14497,15 @@ private extension NSWindow {
             }
 #endif
             if !consumedByMenu {
-                // Fall through to the original performKeyEquivalent path below.
+                // After a direct-to-menu miss, let Ghostty resolve the command key
+                // through its normal binding path so user key overrides still win.
+                let consumedByGhostty = firstResponderGhosttyView?.performKeyEquivalentAfterMenuMiss(with: event) == true
+#if DEBUG
+                dlog("  → mainMenu miss; ghostty command path: \(consumedByGhostty)")
+#endif
+                if consumedByGhostty {
+                    return true
+                }
             } else {
 #if DEBUG
                 dlog("  → consumed by mainMenu (bypassed SwiftUI)")
