@@ -870,7 +870,7 @@ func browserNewTabNavigationSeed(
     guard let url = request.url else { return nil }
     return BrowserNewTabNavigationSeed(
         url: url,
-        initialRequest: browserPreparedNavigationRequest(request),
+        initialRequest: request,
         bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
     )
 }

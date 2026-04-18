@@ -1195,7 +1195,7 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
             seed.initialRequest.value(forHTTPHeaderField: "X-Cmux-Test"),
             "keep-me"
         )
-        XCTAssertEqual(seed.initialRequest.cachePolicy, .useProtocolCachePolicy)
+        XCTAssertEqual(seed.initialRequest.cachePolicy, .reloadIgnoringLocalCacheData)
     }
 }
 
