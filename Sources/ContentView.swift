@@ -1858,6 +1858,26 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool
     return true
 }
 
+private func installFileDropOverlayWhenReady(
+    on window: NSWindow,
+    tabManager: TabManager,
+    remainingAttempts: Int = 16
+) {
+    guard !installFileDropOverlay(on: window, tabManager: tabManager),
+          remainingAttempts > 0 else { return }
+
+    // Defer retrying until the next main-loop turn so we don't mutate the
+    // NSThemeFrame hierarchy while SwiftUI/AppKit is still attaching views.
+    DispatchQueue.main.async { [weak window, weak tabManager] in
+        guard let window, let tabManager else { return }
+        installFileDropOverlayWhenReady(
+            on: window,
+            tabManager: tabManager,
+            remainingAttempts: remainingAttempts - 1
+        )
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
@@ -3796,12 +3816,7 @@ struct ContentView: View {
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState
             )
-        }))
-
-        // Install the file-drop overlay once the window hierarchy is ready, outside the
-        // high-frequency body-level window styling accessor above.
-        view = AnyView(view.background(WindowSetupAccessor { window in
-            installFileDropOverlay(on: window, tabManager: tabManager)
+            installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
         }))
 
         return view
