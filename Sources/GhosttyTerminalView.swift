@@ -12313,34 +12313,50 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostInLiveResize || windowInLiveResize || interactiveGeometryResizeActive
     }
 
-    private static func synchronizePortalGeometry(
+    @discardableResult
+    private static func bindHostedView(
+        _ hostedView: GhosttySurfaceScrollView,
+        to host: HostContainerView
+    ) -> Bool {
+        if hostedView.superview !== host {
+            hostedView.removeFromSuperviewWithoutNeedingDisplay()
+            hostedView.translatesAutoresizingMaskIntoConstraints = true
+            hostedView.autoresizingMask = [.width, .height]
+            hostedView.frame = host.bounds
+            host.addSubview(hostedView)
+        } else if host.subviews.last !== hostedView {
+            host.addSubview(hostedView, positioned: .above, relativeTo: nil)
+        }
+
+        if !hostedView.frame.equalTo(host.bounds) {
+            hostedView.frame = host.bounds
+        }
+        return hostedView.reconcileGeometryNow()
+    }
+
+    private static func synchronizeHostedViewGeometry(
         for host: HostContainerView,
-        coordinator: Coordinator
+        coordinator: Coordinator,
+        hostedView: GhosttySurfaceScrollView
     ) {
         let geometryRevision = host.geometryRevision
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-        let window = host.window
-        if shouldSynchronizePortalGeometryImmediately(
+        let didGeometryChange = bindHostedView(hostedView, to: host)
+        if didGeometryChange && shouldSynchronizePortalGeometryImmediately(
             hostInLiveResize: host.inLiveResize,
-            windowInLiveResize: window?.inLiveResize == true,
+            windowInLiveResize: host.window?.inLiveResize == true,
             interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
         ) {
-            TerminalWindowPortalRegistry.synchronizeForAnchor(host)
-            return
+            hostedView.refreshSurfaceNow(reason: "workspace.directHost.geometrySync")
         }
-        // Avoid synchronizing the terminal portal while AppKit is still inside
-        // the current layout turn. Re-entrant syncs here can wedge window resize
-        // handling and leave the app spinning on the wait cursor.
-        guard let window else { return }
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
     }
 
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView(frame: .zero)
-        container.wantsLayer = false
-        // The actual terminal surface lives in the AppKit portal layer above SwiftUI.
-        // This empty placeholder should not be walked by the accessibility subsystem.
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.clear.cgColor
+        container.layer?.masksToBounds = true
         container.setAccessibilityRole(.none)
         container.setAccessibilityElement(false)
         return container
@@ -12418,7 +12434,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 expectedGeneration: portalExpectedGeneration
             )
         }
-        let forwardedDropZone = isVisibleInUI ? paneDropZone : nil
 #if DEBUG
         if coordinator.lastPaneDropZone != paneDropZone {
             let oldZone = coordinator.lastPaneDropZone.map { String(describing: $0) } ?? "none"
@@ -12438,9 +12453,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
             )
         }
 #endif
-        if hostOwnsPortalNow {
-            hostedView.setDropZoneOverlay(zone: forwardedDropZone)
-        }
+        // Direct-hosted terminals stay inside the pane hierarchy, so the SwiftUI drop overlay
+        // can own split-drop affordances without a second AppKit overlay on top.
+        hostedView.setDropZoneOverlay(zone: nil)
 
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
@@ -12459,14 +12474,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 ) else { return }
                 guard host.window != nil else { return }
                 guard portalBindingStillLive() else { return }
-                TerminalWindowPortalRegistry.bind(
-                    hostedView: hostedView,
-                    to: host,
-                    visibleInUI: coordinator.desiredIsVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority,
-                    expectedSurfaceId: portalExpectedSurfaceId,
-                    expectedGeneration: portalExpectedGeneration
-                )
+                Self.bindHostedView(hostedView, to: host)
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
@@ -12488,30 +12496,26 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 let hostId = ObjectIdentifier(host)
                 if host.window != nil,
                    (coordinator.lastBoundHostId != hostId ||
-                    !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)) {
+                    hostedView.superview !== host) {
 #if DEBUG
                     dlog(
                         "ws.hostState.rebindOnGeometry surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                        "reason=portalEntryMissing visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
+                        "reason=hostedViewReattach visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
                         "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority)"
                     )
 #endif
-                    TerminalWindowPortalRegistry.bind(
-                        hostedView: hostedView,
-                        to: host,
-                        visibleInUI: coordinator.desiredIsVisibleInUI,
-                        zPriority: coordinator.desiredPortalZPriority,
-                        expectedSurfaceId: portalExpectedSurfaceId,
-                        expectedGeneration: portalExpectedGeneration
-                    )
+                    Self.bindHostedView(hostedView, to: host)
                     coordinator.lastBoundHostId = hostId
+                    coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                     hostedView.setActive(coordinator.desiredIsActive)
                     hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                    return
                 }
-                Self.synchronizePortalGeometry(
+                Self.synchronizeHostedViewGeometry(
                     for: host,
-                    coordinator: coordinator
+                    coordinator: coordinator,
+                    hostedView: hostedView
                 )
             }
 
@@ -12519,7 +12523,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 let portalBindingLive = portalBindingStillLive()
                 let hostId = ObjectIdentifier(host)
                 let geometryRevision = host.geometryRevision
-                let portalEntryMissing = !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
+                let portalEntryMissing = hostedView.superview !== host
                 let shouldBindNow =
                     coordinator.lastBoundHostId != hostId ||
                     hostedView.superview == nil ||
@@ -12532,31 +12536,22 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     if portalEntryMissing {
                         dlog(
                             "ws.hostState.rebindOnUpdate surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                            "reason=portalEntryMissing visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
+                            "reason=hostedViewReattach visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
                             "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority)"
                         )
                     }
 #endif
-                    TerminalWindowPortalRegistry.bind(
-                        hostedView: hostedView,
-                        to: host,
-                        visibleInUI: coordinator.desiredIsVisibleInUI,
-                        zPriority: coordinator.desiredPortalZPriority,
-                        expectedSurfaceId: portalExpectedSurfaceId,
-                        expectedGeneration: portalExpectedGeneration
-                    )
+                    Self.bindHostedView(hostedView, to: host)
                     coordinator.lastBoundHostId = hostId
                     coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
                 } else if portalBindingLive && coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
-                    Self.synchronizePortalGeometry(
+                    Self.synchronizeHostedViewGeometry(
                         for: host,
-                        coordinator: coordinator
+                        coordinator: coordinator,
+                        hostedView: hostedView
                     )
                 }
             } else if hostOwnsPortalNow, portalBindingStillLive() {
-                // Bind is deferred until host moves into a window. Update the
-                // existing portal entry's visibleInUI now so that any portal sync
-                // that runs before the deferred bind completes won't hide the view.
 #if DEBUG
                 if desiredStateChanged {
                     dlog(
@@ -12567,16 +12562,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     )
                 }
 #endif
-                TerminalWindowPortalRegistry.updateEntryVisibility(
-                    for: hostedView,
-                    visibleInUI: coordinator.desiredIsVisibleInUI
-                )
             }
         }
 
         let hostWindowAttached = hostContainer?.window != nil
         let isBoundToCurrentHost = hostContainer.map { host in
-            TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
+            hostedView.superview === host
         } ?? true
         let shouldApplyImmediateHostedState = hostOwnsPortalNow && Self.shouldApplyImmediateHostedStateUpdate(
             hostedViewHasSuperview: hostedView.superview != nil,
@@ -12587,8 +12578,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
             hostedView.setVisibleInUI(isVisibleInUI)
             hostedView.setActive(isActive)
         } else {
-            // Preserve portal entry visibility while a stale host is still receiving SwiftUI updates.
-            // The currently bound host remains authoritative for immediate visible/active state.
+            // Preserve visible/active state while a stale host is still receiving SwiftUI updates.
+            // The currently bound host remains authoritative for immediate state changes.
 #if DEBUG
             if desiredStateChanged {
                 dlog(
