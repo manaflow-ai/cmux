@@ -1,0 +1,61 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # Daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ssh-fish-shell-compat
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/manaflow-ai/cmux.git || true
+          git fetch upstream main
+
+      - name: Rebase onto upstream/main
+        id: rebase
+        run: |
+          if git rebase upstream/main; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+          else
+            git rebase --abort
+            echo "status=conflict" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push rebased branch
+        if: steps.rebase.outputs.status == 'success'
+        run: git push --force-with-lease
+
+      - name: Update main from upstream
+        if: steps.rebase.outputs.status == 'success'
+        run: |
+          git checkout main
+          git merge upstream/main --ff-only
+          git push
+
+      - name: Open issue on conflict
+        if: steps.rebase.outputs.status == 'conflict'
+        run: |
+          gh issue create \
+            --title "Upstream sync conflict on fix/ssh-fish-shell-compat" \
+            --body "Auto-rebase of \`fix/ssh-fish-shell-compat\` onto \`upstream/main\` failed with conflicts. Manual resolution needed." \
+            --label "sync-conflict"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
