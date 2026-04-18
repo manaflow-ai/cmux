@@ -12,6 +12,8 @@ private var cjkIMEInterpretKeyEventsSwizzled = false
 private var cjkIMEInterpretKeyEventsHook: ((GhosttyNSView, [NSEvent]) -> Bool)?
 private var ghosttyPasteActionSwizzled = false
 private var ghosttyPasteActionHook: ((GhosttyNSView, Any?) -> Void)?
+private var ghosttyPasteAsPlainTextActionSwizzled = false
+private var ghosttyPasteAsPlainTextActionHook: ((GhosttyNSView, Any?) -> Void)?
 
 private extension GhosttyNSView {
     @objc func cmuxUnitTest_interpretKeyEvents(_ eventArray: [NSEvent]) {
@@ -24,6 +26,11 @@ private extension GhosttyNSView {
     @objc func cmuxUnitTest_paste(_ sender: Any?) {
         ghosttyPasteActionHook?(self, sender)
         cmuxUnitTest_paste(sender)
+    }
+
+    @objc func cmuxUnitTest_pasteAsPlainText(_ sender: Any?) {
+        ghosttyPasteAsPlainTextActionHook?(self, sender)
+        cmuxUnitTest_pasteAsPlainText(sender)
     }
 }
 
@@ -89,6 +96,36 @@ private func installGhosttyPasteActionSwizzle() {
     }
 
     ghosttyPasteActionSwizzled = true
+
+    guard !ghosttyPasteAsPlainTextActionSwizzled else { return }
+
+    let plainTextOriginalSelector = #selector(GhosttyNSView.pasteAsPlainText(_:))
+    let plainTextSwizzledSelector = #selector(GhosttyNSView.cmuxUnitTest_pasteAsPlainText(_:))
+
+    guard let plainTextOriginalMethod = class_getInstanceMethod(GhosttyNSView.self, plainTextOriginalSelector),
+          let plainTextSwizzledMethod = class_getInstanceMethod(GhosttyNSView.self, plainTextSwizzledSelector) else {
+        fatalError("Unable to locate GhosttyNSView pasteAsPlainText methods for swizzling")
+    }
+
+    let didAddPlainTextMethod = class_addMethod(
+        GhosttyNSView.self,
+        plainTextOriginalSelector,
+        method_getImplementation(plainTextSwizzledMethod),
+        method_getTypeEncoding(plainTextSwizzledMethod)
+    )
+
+    if didAddPlainTextMethod {
+        class_replaceMethod(
+            GhosttyNSView.self,
+            plainTextSwizzledSelector,
+            method_getImplementation(plainTextOriginalMethod),
+            method_getTypeEncoding(plainTextOriginalMethod)
+        )
+    } else {
+        method_exchangeImplementations(plainTextOriginalMethod, plainTextSwizzledMethod)
+    }
+
+    ghosttyPasteAsPlainTextActionSwizzled = true
 }
 
 private func findGhosttyNSView(in view: NSView) -> GhosttyNSView? {
@@ -1671,6 +1708,7 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
         installGhosttyPasteActionSwizzle()
 
         let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
         defer { window.orderOut(nil) }
@@ -1690,7 +1728,9 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
 
         var pasteInvocationCount = 0
         let previousPasteHook = ghosttyPasteActionHook
-        ghosttyPasteActionHook = { _, _ in
+        ghosttyPasteActionHook = { candidateView, sender in
+            previousPasteHook?(candidateView, sender)
+            guard candidateView === surfaceView else { return }
             pasteInvocationCount += 1
         }
         defer { ghosttyPasteActionHook = previousPasteHook }
@@ -1722,30 +1762,120 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
             return
         }
 
-        XCTAssertTrue(window.performKeyEquivalent(with: event))
-        XCTAssertEqual(
-            pasteInvocationCount,
-            1,
-            "Cmd+V should still invoke the terminal paste action even if the window main-menu fast path misses"
-        )
-        XCTAssertEqual(
-            forwardedCommandVCount,
-            0,
-            "Cmd+V should not fall back to Ghostty keyDown when the terminal paste action is available"
-        )
+        withExtendedLifetime(terminalSurface) {
+            XCTAssertTrue(window.performKeyEquivalent(with: event))
+            XCTAssertEqual(
+                pasteInvocationCount,
+                1,
+                "Cmd+V should still invoke the terminal paste action even if the window main-menu fast path misses"
+            )
+            XCTAssertEqual(
+                forwardedCommandVCount,
+                0,
+                "Cmd+V should not fall back to Ghostty keyDown when the terminal paste action is available"
+            )
+        }
     }
 
-    func testCommandVPasteRecreatesReleasedSurfaceBeforeConsumption() throws {
+    func testCommandShiftVPasteAsPlainTextStillInvokesTerminalFallbackWhenMainMenuMisses() throws {
         installGhosttyPasteActionSwizzle()
 
         let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
         defer { window.orderOut(nil) }
 
         window.makeFirstResponder(surfaceView)
         XCTAssertNotNil(surfaceView.terminalSurface)
-        XCTAssertNotNil(hostedTerminal.surface.surface)
+
+        let previousMainMenu = NSApp.mainMenu
+        NSApp.mainMenu = installUnrelatedMainMenu()
+        defer { NSApp.mainMenu = previousMainMenu }
+
+        let pasteboard = NSPasteboard.general
+        let pasteboardSnapshot = snapshotPasteboardItems(pasteboard)
+        defer { restorePasteboardItems(pasteboardSnapshot, to: pasteboard) }
+        pasteboard.clearContents()
+        pasteboard.setString("opencode paste plain text", forType: .string)
+
+        var pasteInvocationCount = 0
+        let previousPasteHook = ghosttyPasteActionHook
+        ghosttyPasteActionHook = { candidateView, sender in
+            previousPasteHook?(candidateView, sender)
+            guard candidateView === surfaceView else { return }
+            pasteInvocationCount += 1
+        }
+        defer { ghosttyPasteActionHook = previousPasteHook }
+
+        var pasteAsPlainTextInvocationCount = 0
+        let previousPasteAsPlainTextHook = ghosttyPasteAsPlainTextActionHook
+        ghosttyPasteAsPlainTextActionHook = { candidateView, sender in
+            previousPasteAsPlainTextHook?(candidateView, sender)
+            guard candidateView === surfaceView else { return }
+            pasteAsPlainTextInvocationCount += 1
+        }
+        defer { ghosttyPasteAsPlainTextActionHook = previousPasteAsPlainTextHook }
+
+        var forwardedCommandVCount = 0
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 9 else { return }
+            forwardedCommandVCount += 1
+        }
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+        }
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "V",
+            charactersIgnoringModifiers: "v",
+            isARepeat: false,
+            keyCode: 9
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+V event")
+            return
+        }
+
+        withExtendedLifetime(terminalSurface) {
+            XCTAssertTrue(window.performKeyEquivalent(with: event))
+            XCTAssertEqual(
+                pasteInvocationCount,
+                0,
+                "Cmd+Shift+V should route through pasteAsPlainText instead of the regular terminal paste action"
+            )
+            XCTAssertEqual(
+                pasteAsPlainTextInvocationCount,
+                1,
+                "Cmd+Shift+V should still invoke the terminal pasteAsPlainText action even if the window main-menu fast path misses"
+            )
+            XCTAssertEqual(
+                forwardedCommandVCount,
+                0,
+                "Cmd+Shift+V should not fall back to Ghostty keyDown when the terminal plain-text paste action is available"
+            )
+        }
+    }
+
+    func testCommandVPasteRecreatesReleasedSurfaceBeforeConsumption() throws {
+        installGhosttyPasteActionSwizzle()
+
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        defer { window.orderOut(nil) }
+
+        window.makeFirstResponder(surfaceView)
+        XCTAssertNotNil(surfaceView.terminalSurface)
+        XCTAssertNotNil(terminalSurface.surface)
 
         let previousMainMenu = NSApp.mainMenu
         NSApp.mainMenu = installUnrelatedMainMenu()
@@ -1759,14 +1889,27 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
 
         var pasteInvocationCount = 0
         let previousPasteHook = ghosttyPasteActionHook
-        ghosttyPasteActionHook = { _, _ in
+        ghosttyPasteActionHook = { candidateView, sender in
+            previousPasteHook?(candidateView, sender)
+            guard candidateView === surfaceView else { return }
             pasteInvocationCount += 1
         }
         defer { ghosttyPasteActionHook = previousPasteHook }
 
-        hostedTerminal.surface.releaseSurfaceForTesting()
+        var forwardedCommandVCount = 0
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 9 else { return }
+            forwardedCommandVCount += 1
+        }
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+        }
+
+        terminalSurface.releaseSurfaceForTesting()
         XCTAssertNil(
-            hostedTerminal.surface.surface,
+            terminalSurface.surface,
             "Expected the runtime Ghostty surface to be released before simulating Cmd+V"
         )
 
@@ -1786,16 +1929,23 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
             return
         }
 
-        XCTAssertTrue(window.performKeyEquivalent(with: event))
-        XCTAssertEqual(
-            pasteInvocationCount,
-            1,
-            "Cmd+V should still invoke the terminal paste action after a transient surface release"
-        )
-        XCTAssertNotNil(
-            hostedTerminal.surface.surface,
-            "Cmd+V should recreate the Ghostty surface before the direct terminal paste fallback consumes the shortcut"
-        )
+        withExtendedLifetime(terminalSurface) {
+            XCTAssertTrue(window.performKeyEquivalent(with: event))
+            XCTAssertEqual(
+                pasteInvocationCount,
+                1,
+                "Cmd+V should still invoke the terminal paste action after a transient surface release"
+            )
+            XCTAssertEqual(
+                forwardedCommandVCount,
+                0,
+                "Cmd+V should recover the Ghostty surface without falling back to keyDown"
+            )
+            XCTAssertNotNil(
+                terminalSurface.surface,
+                "Cmd+V should recreate the Ghostty surface before the direct terminal paste fallback consumes the shortcut"
+            )
+        }
     }
 }
 
