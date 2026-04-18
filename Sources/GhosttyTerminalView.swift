@@ -6444,6 +6444,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        performKeyEquivalent(with: event, shouldRetryMainMenu: true)
+    }
+
+    func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
+        performKeyEquivalent(with: event, shouldRetryMainMenu: false)
+    }
+
+    private func performKeyEquivalent(with event: NSEvent, shouldRetryMainMenu: Bool) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {
@@ -6515,14 +6523,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let bindingFlags {
             let isConsumed = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue) != 0
             let isAll = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_ALL.rawValue) != 0
-            let isPerformable = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_PERFORMABLE.rawValue) != 0
 
             // If the binding is consumed and not meant for the menu, allow menu first.
             // Performable bindings (e.g. paste_from_clipboard) also need the menu
             // path so that Edit > Paste handles Cmd+V instead of keyDown double-
             // firing the clipboard request through both interpretKeyEvents and
             // ghostty_surface_key.
-            if isConsumed && !isAll && keySequence.isEmpty && keyTables.isEmpty {
+            if shouldRetryMainMenu && isConsumed && !isAll && keySequence.isEmpty && keyTables.isEmpty {
                 if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
                     return true
                 }

@@ -1938,26 +1938,6 @@ func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
     return true
 }
 
-private enum TerminalPasteCommandEquivalent {
-    case paste
-    case pasteAsPlainText
-}
-
-private func terminalPasteCommandEquivalent(for event: NSEvent) -> TerminalPasteCommandEquivalent? {
-    guard event.keyCode == 9 else { return nil } // V key (hardware position, layout-independent)
-
-    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-    let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-    switch normalizedFlags {
-    case [.command]:
-        return .paste
-    case [.command, .shift]:
-        return .pasteAsPlainText
-    default:
-        return nil
-    }
-}
-
 private enum BrowserFindCommandEquivalent {
     case find
     case findNext
@@ -14517,41 +14497,18 @@ private extension NSWindow {
             }
 #endif
             if !consumedByMenu {
-                // Fall through to the original performKeyEquivalent path below.
+                // After a direct-to-menu miss, let Ghostty resolve the command key
+                // through its normal binding path so user key overrides still win.
+                let consumedByGhostty = firstResponderGhosttyView?.performKeyEquivalentAfterMenuMiss(with: event) == true
+#if DEBUG
+                dlog("  → mainMenu miss; ghostty command path: \(consumedByGhostty)")
+#endif
+                if consumedByGhostty {
+                    return true
+                }
             } else {
 #if DEBUG
                 dlog("  → consumed by mainMenu (bypassed SwiftUI)")
-#endif
-                return true
-            }
-        }
-
-        if let ghosttyView = firstResponderGhosttyView,
-           let pasteCommand = terminalPasteCommandEquivalent(for: event),
-           GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD) {
-            // If the window-level direct-to-menu path misses Cmd+V, do not let the
-            // event fall through to generic keyDown routing. Bracketed-paste TUIs
-            // such as OpenCode need the dedicated terminal paste action.
-            let handledDirectPaste: Bool
-            switch pasteCommand {
-            case .paste:
-                handledDirectPaste = ghosttyView.prepareSurfaceForPaste(
-                    reason: "window.performKeyEquivalent.paste.missingSurface"
-                )
-                if handledDirectPaste {
-                    ghosttyView.paste(nil)
-                }
-            case .pasteAsPlainText:
-                handledDirectPaste = ghosttyView.prepareSurfaceForPaste(
-                    reason: "window.performKeyEquivalent.pasteAsPlainText.missingSurface"
-                )
-                if handledDirectPaste {
-                    ghosttyView.pasteAsPlainText(nil)
-                }
-            }
-            if handledDirectPaste {
-#if DEBUG
-                dlog("  → consumed by direct terminal paste fallback")
 #endif
                 return true
             }
