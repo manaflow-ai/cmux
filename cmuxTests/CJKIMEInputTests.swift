@@ -10,6 +10,8 @@ import ObjectiveC.runtime
 
 private var cjkIMEInterpretKeyEventsSwizzled = false
 private var cjkIMEInterpretKeyEventsHook: ((GhosttyNSView, [NSEvent]) -> Bool)?
+private var ghosttyPasteActionSwizzled = false
+private var ghosttyPasteActionHook: ((GhosttyNSView, Any?) -> Void)?
 
 private extension GhosttyNSView {
     @objc func cmuxUnitTest_interpretKeyEvents(_ eventArray: [NSEvent]) {
@@ -17,6 +19,11 @@ private extension GhosttyNSView {
             return
         }
         cmuxUnitTest_interpretKeyEvents(eventArray)
+    }
+
+    @objc func cmuxUnitTest_paste(_ sender: Any?) {
+        ghosttyPasteActionHook?(self, sender)
+        cmuxUnitTest_paste(sender)
     }
 }
 
@@ -50,6 +57,38 @@ private func installCJKIMEInterpretKeyEventsSwizzle() {
     }
 
     cjkIMEInterpretKeyEventsSwizzled = true
+}
+
+private func installGhosttyPasteActionSwizzle() {
+    guard !ghosttyPasteActionSwizzled else { return }
+
+    let originalSelector = #selector(GhosttyNSView.paste(_:))
+    let swizzledSelector = #selector(GhosttyNSView.cmuxUnitTest_paste(_:))
+
+    guard let originalMethod = class_getInstanceMethod(GhosttyNSView.self, originalSelector),
+          let swizzledMethod = class_getInstanceMethod(GhosttyNSView.self, swizzledSelector) else {
+        fatalError("Unable to locate GhosttyNSView paste methods for swizzling")
+    }
+
+    let didAddMethod = class_addMethod(
+        GhosttyNSView.self,
+        originalSelector,
+        method_getImplementation(swizzledMethod),
+        method_getTypeEncoding(swizzledMethod)
+    )
+
+    if didAddMethod {
+        class_replaceMethod(
+            GhosttyNSView.self,
+            swizzledSelector,
+            method_getImplementation(originalMethod),
+            method_getTypeEncoding(originalMethod)
+        )
+    } else {
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }
+
+    ghosttyPasteActionSwizzled = true
 }
 
 private func findGhosttyNSView(in view: NSView) -> GhosttyNSView? {
@@ -1470,6 +1509,10 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
 
 @MainActor
 final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
+    private struct PasteboardItemSnapshot {
+        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
+    }
+
     private struct HostedTerminalWindow {
         let surface: TerminalSurface
         let window: NSWindow
@@ -1514,6 +1557,48 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
             hostedView: hostedView,
             surfaceView: surfaceView
         )
+    }
+
+    private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
+        guard let items = pasteboard.pasteboardItems else { return [] }
+        return items.map { item in
+            let representations = item.types.compactMap { type -> (NSPasteboard.PasteboardType, Data)? in
+                guard let data = item.data(forType: type) else { return nil }
+                return (type, data)
+            }
+            return PasteboardItemSnapshot(representations: representations)
+        }
+    }
+
+    private func restorePasteboardItems(
+        _ snapshots: [PasteboardItemSnapshot],
+        to pasteboard: NSPasteboard
+    ) {
+        pasteboard.clearContents()
+        guard !snapshots.isEmpty else { return }
+        let items = snapshots.compactMap { snapshot -> NSPasteboardItem? in
+            let item = NSPasteboardItem()
+            guard !snapshot.representations.isEmpty else { return nil }
+            for representation in snapshot.representations {
+                item.setData(representation.data, forType: representation.type)
+            }
+            return item
+        }
+        if !items.isEmpty {
+            _ = pasteboard.writeObjects(items)
+        }
+    }
+
+    private func installUnrelatedMainMenu() -> NSMenu {
+        let mainMenu = NSMenu()
+        let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        let fileMenu = NSMenu(title: "File")
+        let item = NSMenuItem(title: "New", action: nil, keyEquivalent: "n")
+        item.keyEquivalentModifierMask = [.command]
+        fileMenu.addItem(item)
+        mainMenu.addItem(fileItem)
+        mainMenu.setSubmenu(fileMenu, for: fileItem)
+        return mainMenu
     }
 
     func testShiftSlashPrintableKeyEquivalentBypassesShortcutPath() throws {
@@ -1580,6 +1665,74 @@ final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
                 "Printable Shift+? should continue through keyDown instead of being consumed as a key equivalent"
             )
         }
+    }
+
+    func testCommandVPasteStillInvokesTerminalPasteWhenMainMenuMisses() throws {
+        installGhosttyPasteActionSwizzle()
+
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        defer { window.orderOut(nil) }
+
+        window.makeFirstResponder(surfaceView)
+        XCTAssertNotNil(surfaceView.terminalSurface)
+
+        let previousMainMenu = NSApp.mainMenu
+        NSApp.mainMenu = installUnrelatedMainMenu()
+        defer { NSApp.mainMenu = previousMainMenu }
+
+        let pasteboard = NSPasteboard.general
+        let pasteboardSnapshot = snapshotPasteboardItems(pasteboard)
+        defer { restorePasteboardItems(pasteboardSnapshot, to: pasteboard) }
+        pasteboard.clearContents()
+        pasteboard.setString("opencode paste", forType: .string)
+
+        var pasteInvocationCount = 0
+        let previousPasteHook = ghosttyPasteActionHook
+        ghosttyPasteActionHook = { _, _ in
+            pasteInvocationCount += 1
+        }
+        defer { ghosttyPasteActionHook = previousPasteHook }
+
+        var forwardedCommandVCount = 0
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 9 else { return }
+            forwardedCommandVCount += 1
+        }
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+        }
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            isARepeat: false,
+            keyCode: 9
+        ) else {
+            XCTFail("Failed to construct Cmd+V event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(
+            pasteInvocationCount,
+            1,
+            "Cmd+V should still invoke the terminal paste action even if the window main-menu fast path misses"
+        )
+        XCTAssertEqual(
+            forwardedCommandVCount,
+            0,
+            "Cmd+V should not fall back to Ghostty keyDown when the terminal paste action is available"
+        )
     }
 }
 
