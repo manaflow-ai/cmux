@@ -92,8 +92,13 @@ fi
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    # Use a persistent location rather than $TMPDIR. macOS `periodic` reaps
+    # files under /var/folders/.../T/ after ~3 days of no access, which
+    # breaks NODE_OPTIONS=--require=... for any `node` invocation from a
+    # long-running Claude session (most visibly from Stop/PreToolUse hooks
+    # that spawn `node`). Storing the guard under Application Support
+    # keeps the injected require target valid for the session's lifetime.
+    local guard_dir="${HOME:-/tmp}/Library/Application Support/cmux/node-options"
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path
