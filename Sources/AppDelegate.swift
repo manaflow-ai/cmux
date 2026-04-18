@@ -1938,6 +1938,26 @@ func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
     return true
 }
 
+private enum TerminalPasteCommandEquivalent {
+    case paste
+    case pasteAsPlainText
+}
+
+private func terminalPasteCommandEquivalent(for event: NSEvent) -> TerminalPasteCommandEquivalent? {
+    guard event.keyCode == 9 else { return nil } // V key (hardware position, layout-independent)
+
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+    switch normalizedFlags {
+    case [.command]:
+        return .paste
+    case [.command, .shift]:
+        return .pasteAsPlainText
+    default:
+        return nil
+    }
+}
+
 private enum BrowserFindCommandEquivalent {
     case find
     case findNext
@@ -14504,6 +14524,24 @@ private extension NSWindow {
 #endif
                 return true
             }
+        }
+
+        if let ghosttyView = firstResponderGhosttyView,
+           let pasteCommand = terminalPasteCommandEquivalent(for: event),
+           GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD) {
+            // If the window-level direct-to-menu path misses Cmd+V, do not let the
+            // event fall through to generic keyDown routing. Bracketed-paste TUIs
+            // such as OpenCode need the dedicated terminal paste action.
+            switch pasteCommand {
+            case .paste:
+                ghosttyView.paste(nil)
+            case .pasteAsPlainText:
+                ghosttyView.pasteAsPlainText(nil)
+            }
+#if DEBUG
+            dlog("  → consumed by direct terminal paste fallback")
+#endif
+            return true
         }
 
         let result = cmux_performKeyEquivalent(with: event)
