@@ -2648,6 +2648,50 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 }
 
+final class SidebarFontSizeConfigTests: XCTestCase {
+
+    func testDefaultSidebarFontSizeMatchesConstant() {
+        let config = GhosttyConfig()
+        XCTAssertEqual(config.sidebarFontSize, GhosttyConfig.defaultSidebarFontSize, accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeValid() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-font-size = 14")
+        XCTAssertEqual(config.sidebarFontSize, 14, accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeFractional() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-font-size = 13.5")
+        XCTAssertEqual(config.sidebarFontSize, 13.5, accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeClampedAboveMax() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-font-size = 9999")
+        XCTAssertEqual(config.sidebarFontSize,
+                       GhosttyConfig.maxSidebarFontSize,
+                       accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeClampedBelowMin() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-font-size = 1")
+        XCTAssertEqual(config.sidebarFontSize,
+                       GhosttyConfig.minSidebarFontSize,
+                       accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeIgnoresNonNumeric() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-font-size = huge")
+        XCTAssertEqual(config.sidebarFontSize,
+                       GhosttyConfig.defaultSidebarFontSize,
+                       accuracy: 0.0001)
+    }
+}
+
 final class SidebarBackgroundConfigTests: XCTestCase {
 
     func testParseSidebarBackgroundSingleHex() {
