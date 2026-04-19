@@ -96,7 +96,7 @@ private final class CapsuleToolbarBackgroundView: NSView {
 }
 
 @MainActor
-final class TimeToolbarController: NSObject, NSToolbarDelegate {
+final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private let commandPaletteHintItemIdentifier = NSToolbarItem.Identifier("cmux.commandPaletteHint")
 
     private struct CommandPaletteHintViews {
