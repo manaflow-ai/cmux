@@ -203,13 +203,16 @@ fs.writeFileSync(
             raise SystemExit(1)
 
         term_value = read_text(term_log)
-        if term_value != "screen-256color":
-            print(f"FAIL: expected TERM=screen-256color, got {term_value!r}")
+        if term_value != "xterm-ghostty":
+            print(f"FAIL: expected TERM=xterm-ghostty, got {term_value!r}")
             raise SystemExit(1)
 
         term_program_value = read_text(term_program_log)
-        if term_program_value != "__UNSET__":
-            print(f"FAIL: expected TERM_PROGRAM to be unset, got {term_program_value!r}")
+        if term_program_value != "__HOST_TERM_PROGRAM__":
+            print(
+                "FAIL: expected TERM_PROGRAM to be preserved for claude-teams "
+                f"(Claude Code v2.1.112+ crashes if missing, see #2947), got {term_program_value!r}"
+            )
             raise SystemExit(1)
 
         socket_path_value = read_text(socket_path_log)
