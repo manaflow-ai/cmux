@@ -76,6 +76,7 @@ type attachBridge struct {
 	pollMs     int
 	useVT      bool
 	stopCh     chan struct{}
+	stopOnce   sync.Once
 
 	mu          sync.Mutex
 	lastScreen  string
@@ -130,20 +131,23 @@ func (b *attachBridge) run() int {
 			case syscall.SIGWINCH:
 				// Forward resize to remote surface
 				b.handleResize()
-			case syscall.SIGINT:
-				// Forward Ctrl+C to remote surface
-				_, _ = hostCmuxRoundTrip("surface.send_key", map[string]any{
-					"surface_id": b.surfaceRef,
-					"key":        "ctrl+c",
-				})
-			case syscall.SIGTERM:
-				close(b.stopCh)
+			case syscall.SIGINT, syscall.SIGTERM:
+				// External signal: exit the bridge (raw mode disables ISIG,
+				// so Ctrl+C is handled as a keystroke in inputPump, not as SIGINT)
+				b.stop()
 				return 0
 			}
 		case <-b.stopCh:
 			return 0
 		}
 	}
+}
+
+// stop safely closes stopCh exactly once, preventing double-close panics.
+func (b *attachBridge) stop() {
+	b.stopOnce.Do(func() {
+		close(b.stopCh)
+	})
 }
 
 // outputPump continuously reads the remote surface's screen and writes it to stdout.
@@ -207,8 +211,9 @@ func (b *attachBridge) refreshScreen() {
 }
 
 // inputPump reads raw keyboard input and forwards it to the remote surface.
+// It uses a small read timeout to coalesce multi-byte escape sequences
+// (e.g., arrow keys send \x1b[A as 3 bytes that may arrive separately).
 func (b *attachBridge) inputPump() {
-	reader := bufio.NewReader(os.Stdin)
 	buf := make([]byte, 256)
 
 	for {
@@ -218,7 +223,7 @@ func (b *attachBridge) inputPump() {
 		default:
 		}
 
-		n, err := reader.Read(buf)
+		n, err := os.Stdin.Read(buf)
 		if err != nil {
 			return
 		}
@@ -226,11 +231,24 @@ func (b *attachBridge) inputPump() {
 			continue
 		}
 
-		input := buf[:n]
+		input := make([]byte, n)
+		copy(input, buf[:n])
+
+		// If the first byte is ESC (0x1b), wait briefly for more bytes
+		// to coalesce a multi-byte escape sequence.
+		if n == 1 && input[0] == 0x1b {
+			os.Stdin.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+			extra := make([]byte, 16)
+			en, _ := os.Stdin.Read(extra)
+			os.Stdin.SetReadDeadline(time.Time{})
+			if en > 0 {
+				input = append(input, extra[:en]...)
+			}
+		}
 
 		// Check for detach sequence: Ctrl+\ (0x1c)
-		if n == 1 && input[0] == 0x1c {
-			close(b.stopCh)
+		if len(input) == 1 && input[0] == 0x1c {
+			b.stop()
 			return
 		}
 
@@ -241,75 +259,60 @@ func (b *attachBridge) inputPump() {
 
 // forwardInput sends raw terminal input bytes to the remote cmux surface.
 func (b *attachBridge) forwardInput(data []byte) {
-	// Handle special key sequences
+	sendKey := func(key string) {
+		hostCmuxRoundTrip("surface.send_key", map[string]any{
+			"surface_id": b.surfaceRef,
+			"key":        key,
+		})
+	}
+
+	// Handle single-byte control characters
 	if len(data) == 1 {
 		switch data[0] {
-		case 0x0d: // Enter
-			hostCmuxRoundTrip("surface.send_key", map[string]any{
-				"surface_id": b.surfaceRef,
-				"key":        "Enter",
-			})
-			return
-		case 0x09: // Tab
-			hostCmuxRoundTrip("surface.send_key", map[string]any{
-				"surface_id": b.surfaceRef,
-				"key":        "Tab",
-			})
-			return
-		case 0x7f: // Backspace
-			hostCmuxRoundTrip("surface.send_key", map[string]any{
-				"surface_id": b.surfaceRef,
-				"key":        "Backspace",
-			})
-			return
-		case 0x1b: // Escape
-			hostCmuxRoundTrip("surface.send_key", map[string]any{
-				"surface_id": b.surfaceRef,
-				"key":        "Escape",
-			})
-			return
-		case 0x03: // Ctrl+C
-			hostCmuxRoundTrip("surface.send_key", map[string]any{
-				"surface_id": b.surfaceRef,
-				"key":        "ctrl+c",
-			})
-			return
-		case 0x04: // Ctrl+D
-			hostCmuxRoundTrip("surface.send_key", map[string]any{
-				"surface_id": b.surfaceRef,
-				"key":        "ctrl+d",
-			})
-			return
+		case 0x0d:
+			sendKey("Enter"); return
+		case 0x09:
+			sendKey("Tab"); return
+		case 0x7f:
+			sendKey("Backspace"); return
+		case 0x1b:
+			// Lone ESC (after coalesce timeout in inputPump)
+			sendKey("Escape"); return
+		case 0x03:
+			sendKey("ctrl+c"); return
+		case 0x04:
+			sendKey("ctrl+d"); return
 		}
 	}
 
-	// Handle arrow keys and other escape sequences
-	if len(data) == 3 && data[0] == 0x1b && data[1] == 0x5b {
-		var key string
-		switch data[2] {
-		case 'A':
-			key = "Up"
-		case 'B':
-			key = "Down"
-		case 'C':
-			key = "Right"
-		case 'D':
-			key = "Left"
+	// Handle CSI escape sequences: ESC [ ...
+	if len(data) >= 3 && data[0] == 0x1b && data[1] == '[' {
+		csiMap := map[byte]string{
+			'A': "Up", 'B': "Down", 'C': "Right", 'D': "Left",
+			'H': "Home", 'F': "End",
 		}
-		if key != "" {
-			hostCmuxRoundTrip("surface.send_key", map[string]any{
-				"surface_id": b.surfaceRef,
-				"key":        key,
-			})
-			return
+		if len(data) == 3 {
+			if key, ok := csiMap[data[2]]; ok {
+				sendKey(key); return
+			}
+		}
+		// CSI sequences like ESC[3~ (Delete), ESC[5~ (PageUp), ESC[6~ (PageDown)
+		if len(data) == 4 && data[3] == '~' {
+			switch data[2] {
+			case '3':
+				sendKey("Delete"); return
+			case '5':
+				sendKey("PageUp"); return
+			case '6':
+				sendKey("PageDown"); return
+			}
 		}
 	}
 
-	// Default: send as text
-	text := string(data)
+	// Default: send as text (handles UTF-8/CJK/IME input)
 	hostCmuxRoundTrip("surface.send_text", map[string]any{
 		"surface_id": b.surfaceRef,
-		"text":       text,
+		"text":       string(data),
 	})
 }
 
@@ -377,7 +380,7 @@ func getTerminalSize() (cols, rows int) {
 }
 
 // ioctl wrapper for terminal control.
-func ioctl(fd int, request uint64, argp uintptr) error {
+func ioctl(fd int, request uintptr, argp uintptr) error {
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(request), argp)
 	if errno != 0 {
 		return errno
