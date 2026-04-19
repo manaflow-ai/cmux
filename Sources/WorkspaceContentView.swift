@@ -237,7 +237,8 @@ struct WorkspaceContentView: View {
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    private let notificationStore = TerminalNotificationStore.shared
+    @State private var notificationSnapshot = TerminalNotificationWorkspaceSnapshot.empty
 
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
@@ -290,10 +291,7 @@ struct WorkspaceContentView: View {
                     isFocused: isFocused
                 )
                 let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
-                    hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
-                        forTabId: workspace.id,
-                        surfaceId: panel.id
-                    ),
+                    hasUnreadNotification: notificationSnapshot.visibleSurfaceIds.contains(panel.id),
                     isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
                 )
                 PanelContentView(
@@ -342,10 +340,18 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            refreshNotificationSnapshot()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
-        .onChange(of: notificationStore.notifications) { _, _ in
+        .onReceive(
+            notificationStore.workspaceSnapshotPublisher(forTabId: workspace.id)
+                .receive(on: RunLoop.main)
+        ) { snapshot in
+            guard notificationSnapshot != snapshot else { return }
+            notificationSnapshot = snapshot
+        }
+        .onChange(of: notificationSnapshot) { _, _ in
             syncBonsplitNotificationBadges()
         }
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
@@ -396,8 +402,7 @@ struct WorkspaceContentView: View {
                 let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
                 let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
                 let shouldShow = panelId.map {
-                    notificationStore.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: $0) ||
-                        manualUnread.contains($0)
+                    notificationSnapshot.visibleSurfaceIds.contains($0) || manualUnread.contains($0)
                 } ?? false
                 let kindUpdate: String?? = expectedKind.map { .some($0) }
 
@@ -413,6 +418,10 @@ struct WorkspaceContentView: View {
                 }
             }
         }
+    }
+
+    private func refreshNotificationSnapshot() {
+        notificationSnapshot = notificationStore.workspaceSnapshot(forTabId: workspace.id)
     }
 
     private var splitZoomRenderIdentity: String {
@@ -474,7 +483,7 @@ struct WorkspaceContentView: View {
 
     private static func tmuxWorkspacePaneRects(
         workspace: Workspace,
-        notificationStore: TerminalNotificationStore,
+        visibleNotificationSurfaceIds: Set<UUID>,
         layoutSnapshot: LayoutSnapshot?,
         includeContainerOffset: Bool,
         trimMode: TmuxWorkspacePaneOverlayTrimMode
@@ -489,10 +498,7 @@ struct WorkspaceContentView: View {
             }
 
             let shouldShowUnread = Workspace.shouldShowUnreadIndicator(
-                hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
-                    forTabId: workspace.id,
-                    surfaceId: panelId
-                ),
+                hasUnreadNotification: visibleNotificationSurfaceIds.contains(panelId),
                 isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId)
             )
             guard shouldShowUnread else { return nil }
@@ -555,12 +561,12 @@ struct WorkspaceContentView: View {
 
     static func tmuxWorkspacePaneUnreadRects(
         workspace: Workspace,
-        notificationStore: TerminalNotificationStore,
+        visibleNotificationSurfaceIds: Set<UUID>,
         layoutSnapshot: LayoutSnapshot?
     ) -> [CGRect] {
         tmuxWorkspacePaneRects(
             workspace: workspace,
-            notificationStore: notificationStore,
+            visibleNotificationSurfaceIds: visibleNotificationSurfaceIds,
             layoutSnapshot: layoutSnapshot,
             includeContainerOffset: false,
             trimMode: .workspaceLocal
@@ -569,12 +575,12 @@ struct WorkspaceContentView: View {
 
     static func tmuxWorkspacePaneWindowUnreadRects(
         workspace: Workspace,
-        notificationStore: TerminalNotificationStore,
+        visibleNotificationSurfaceIds: Set<UUID>,
         layoutSnapshot: LayoutSnapshot?
     ) -> [CGRect] {
         tmuxWorkspacePaneRects(
             workspace: workspace,
-            notificationStore: notificationStore,
+            visibleNotificationSurfaceIds: visibleNotificationSurfaceIds,
             layoutSnapshot: layoutSnapshot,
             includeContainerOffset: true,
             trimMode: .windowContent

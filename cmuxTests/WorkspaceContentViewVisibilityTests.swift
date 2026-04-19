@@ -152,7 +152,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         XCTAssertEqual(
             WorkspaceContentView.tmuxWorkspacePaneUnreadRects(
                 workspace: workspace,
-                notificationStore: store,
+                visibleNotificationSurfaceIds: store.workspaceSnapshot(forTabId: workspace.id).visibleSurfaceIds,
                 layoutSnapshot: snapshot
             ),
             [CGRect(x: 677.5, y: 30, width: 500, height: 290)]

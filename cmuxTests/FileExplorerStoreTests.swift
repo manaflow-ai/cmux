@@ -167,8 +167,12 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertTrue(store.rootNodes.isEmpty)
 
         // Manually track expanded state (user expanded before provider was ready)
-        store.expand(node: FileExplorerNode(name: "src", path: "/home/user/project/src", isDirectory: true))
+        let pendingNode = FileExplorerNode(name: "src", path: "/home/user/project/src", isDirectory: true)
+        store.expand(node: pendingNode)
         XCTAssertTrue(store.expandedPaths.contains("/home/user/project/src"))
+        try await waitFor("unavailable src expansion attempt finished") {
+            provider.listCallPaths.contains("/home/user/project/src") && pendingNode.isLoading == false
+        }
 
         // Provider becomes available
         provider.isAvailable = true

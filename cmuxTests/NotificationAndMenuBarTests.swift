@@ -1207,3 +1207,154 @@ final class MenuBarIconRendererTests: XCTestCase {
         XCTAssertEqual(withBadge.size.width, 18, accuracy: 0.001)
     }
 }
+
+@MainActor
+final class WorkspaceNotificationPresentationStoreTests: XCTestCase {
+    override func tearDown() {
+        TerminalNotificationStore.shared.replaceNotificationsForTesting([])
+        super.tearDown()
+    }
+
+    func testWorkspacePresentationStoreIgnoresUnrelatedWorkspaceNotifications() throws {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+        let otherWorkspaceId = UUID()
+        let workspacePanelId = UUID()
+        let otherPanelId = UUID()
+        let presentationStore = WorkspaceNotificationPresentationStore(
+            tabId: workspaceId,
+            notificationStore: store
+        )
+
+        var updates: [WorkspaceNotificationPresentation] = []
+        let cancellable = presentationStore.$presentation
+            .dropFirst()
+            .sink { presentation in
+                updates.append(presentation)
+            }
+        defer { cancellable.cancel() }
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: otherWorkspaceId,
+                surfaceId: otherPanelId,
+                title: "Other",
+                subtitle: "",
+                body: "Other body",
+                createdAt: Date(),
+                isRead: false
+            )
+        ])
+
+        XCTAssertTrue(
+            updates.isEmpty,
+            "Expected unrelated workspace notifications to avoid publishing workspace presentation updates"
+        )
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspaceId,
+                surfaceId: workspacePanelId,
+                title: "Mine",
+                subtitle: "",
+                body: "Workspace body",
+                createdAt: Date(),
+                isRead: false
+            )
+        ])
+
+        let update = try XCTUnwrap(updates.last)
+        XCTAssertEqual(update.tabId, workspaceId)
+        XCTAssertEqual(update.unreadCount, 1)
+        XCTAssertTrue(update.hasUnreadNotification(surfaceId: workspacePanelId))
+        XCTAssertTrue(update.hasVisibleNotificationIndicator(surfaceId: workspacePanelId))
+    }
+
+    func testWorkspacePresentationIncludesLatestNotificationAndFocusedIndicatorForWorkspaceOnly() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let latestNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: panelId,
+            title: "Build finished",
+            subtitle: "",
+            body: "Done",
+            createdAt: Date(),
+            isRead: true
+        )
+        store.replaceNotificationsForTesting([latestNotification])
+        store.setFocusedReadIndicator(forTabId: workspaceId, surfaceId: panelId)
+
+        let presentation = store.presentation(forTabId: workspaceId)
+
+        XCTAssertEqual(presentation.latestNotification, latestNotification)
+        XCTAssertEqual(presentation.focusedReadIndicatorSurfaceId, panelId)
+        XCTAssertFalse(presentation.hasUnreadNotification(surfaceId: panelId))
+        XCTAssertTrue(presentation.hasVisibleNotificationIndicator(surfaceId: panelId))
+        XCTAssertFalse(presentation.hasUnreadNotifications)
+        XCTAssertTrue(presentation.hasReadNotifications)
+    }
+
+    func testResolvedWorkspaceNotificationSnapshotFallsBackWhenSelectedSnapshotIsStale() {
+        let store = TerminalNotificationStore.shared
+        let previousWorkspaceId = UUID()
+        let previousPanelId = UUID()
+        let selectedWorkspaceId = UUID()
+        let selectedPanelId = UUID()
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: previousWorkspaceId,
+                surfaceId: previousPanelId,
+                title: "Previous",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            ),
+            TerminalNotification(
+                id: UUID(),
+                tabId: selectedWorkspaceId,
+                surfaceId: selectedPanelId,
+                title: "Selected",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            )
+        ])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let staleSnapshot = store.workspaceSnapshot(forTabId: previousWorkspaceId)
+
+        let resolvedSnapshot = ContentView.resolvedWorkspaceNotificationSnapshot(
+            selectedWorkspaceNotificationSnapshot: staleSnapshot,
+            workspaceId: selectedWorkspaceId,
+            notificationStore: store
+        )
+
+        XCTAssertEqual(resolvedSnapshot.tabId, selectedWorkspaceId)
+        XCTAssertTrue(resolvedSnapshot.hasUnreadNotification(surfaceId: selectedPanelId))
+        XCTAssertFalse(resolvedSnapshot.hasVisibleNotificationIndicator(surfaceId: previousPanelId))
+    }
+
+    @MainActor
+    func testWorkspaceNotificationPresentationStoreCacheRemovesStaleStores() {
+        let cache = WorkspaceNotificationPresentationStoreCache(notificationStore: .shared)
+        let keptWorkspaceId = UUID()
+        let removedWorkspaceId = UUID()
+
+        let keptStore = cache.store(for: keptWorkspaceId)
+        let removedStore = cache.store(for: removedWorkspaceId)
+
+        cache.removeStaleStores(keepingTabIds: Set([keptWorkspaceId]))
+
+        XCTAssertTrue(keptStore === cache.store(for: keptWorkspaceId))
+        XCTAssertFalse(removedStore === cache.store(for: removedWorkspaceId))
+    }
+}

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import UserNotifications
 import Bonsplit
@@ -666,6 +667,118 @@ struct TerminalNotification: Identifiable, Hashable {
     var isRead: Bool
 }
 
+struct TerminalNotificationWorkspaceSnapshot: Equatable, Sendable {
+    let tabId: UUID?
+    let unreadCount: Int
+    let hasRead: Bool
+    let unreadSurfaceIds: Set<UUID>
+    let visibleSurfaceIds: Set<UUID>
+    let latestNotification: TerminalNotification?
+    let focusedReadIndicatorSurfaceId: UUID?
+
+    static let empty = TerminalNotificationWorkspaceSnapshot(
+        tabId: nil,
+        unreadCount: 0,
+        hasRead: false,
+        unreadSurfaceIds: [],
+        visibleSurfaceIds: [],
+        latestNotification: nil,
+        focusedReadIndicatorSurfaceId: nil
+    )
+
+    static func empty(
+        forTabId tabId: UUID,
+        focusedReadIndicatorSurfaceId: UUID? = nil
+    ) -> TerminalNotificationWorkspaceSnapshot {
+        var visibleSurfaceIds = Set<UUID>()
+        if let focusedReadIndicatorSurfaceId {
+            visibleSurfaceIds.insert(focusedReadIndicatorSurfaceId)
+        }
+        return TerminalNotificationWorkspaceSnapshot(
+            tabId: tabId,
+            unreadCount: 0,
+            hasRead: false,
+            unreadSurfaceIds: [],
+            visibleSurfaceIds: visibleSurfaceIds,
+            latestNotification: nil,
+            focusedReadIndicatorSurfaceId: focusedReadIndicatorSurfaceId
+        )
+    }
+
+    var hasUnreadNotifications: Bool {
+        unreadCount > 0
+    }
+
+    var hasReadNotifications: Bool {
+        hasRead
+    }
+
+    func hasUnreadNotification(surfaceId: UUID?) -> Bool {
+        guard let surfaceId else { return false }
+        return unreadSurfaceIds.contains(surfaceId)
+    }
+
+    func hasVisibleNotificationIndicator(surfaceId: UUID?) -> Bool {
+        guard let surfaceId else { return false }
+        return visibleSurfaceIds.contains(surfaceId)
+    }
+}
+
+typealias WorkspaceNotificationPresentation = TerminalNotificationWorkspaceSnapshot
+
+@MainActor
+final class WorkspaceNotificationPresentationStore: ObservableObject {
+    @Published private(set) var presentation: WorkspaceNotificationPresentation
+
+    private var cancellable: AnyCancellable?
+
+    convenience init(tabId: UUID) {
+        self.init(tabId: tabId, notificationStore: .shared)
+    }
+
+    init(
+        tabId: UUID,
+        notificationStore: TerminalNotificationStore
+    ) {
+        self.presentation = notificationStore.presentation(forTabId: tabId)
+        cancellable = notificationStore.presentationPublisher(forTabId: tabId)
+            .sink { [weak self] presentation in
+                guard let self, self.presentation != presentation else { return }
+                self.presentation = presentation
+            }
+    }
+}
+
+@MainActor
+final class WorkspaceNotificationPresentationStoreCache: ObservableObject {
+    private let notificationStore: TerminalNotificationStore
+    private var stores: [UUID: WorkspaceNotificationPresentationStore] = [:]
+
+    convenience init() {
+        self.init(notificationStore: .shared)
+    }
+
+    init(notificationStore: TerminalNotificationStore) {
+        self.notificationStore = notificationStore
+    }
+
+    func store(for tabId: UUID) -> WorkspaceNotificationPresentationStore {
+        if let existing = stores[tabId] {
+            return existing
+        }
+        let store = WorkspaceNotificationPresentationStore(
+            tabId: tabId,
+            notificationStore: notificationStore
+        )
+        stores[tabId] = store
+        return store
+    }
+
+    func removeStaleStores(keepingTabIds tabIds: Set<UUID>) {
+        stores = stores.filter { tabIds.contains($0.key) }
+    }
+}
+
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -676,7 +789,9 @@ final class TerminalNotificationStore: ObservableObject {
     private struct NotificationIndexes {
         var unreadCount = 0
         var unreadCountByTabId: [UUID: Int] = [:]
+        var unreadSurfaceIdsByTabId: [UUID: Set<UUID>] = [:]
         var unreadByTabSurface = Set<TabSurfaceKey>()
+        var hasReadByTabId = Set<UUID>()
         var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
         var latestByTabId: [UUID: TerminalNotification] = [:]
     }
@@ -894,6 +1009,69 @@ final class TerminalNotificationStore: ObservableObject {
 
     func focusedReadIndicatorSurfaceId(forTabId tabId: UUID) -> UUID? {
         focusedReadIndicatorByTabId[tabId]
+    }
+
+    func presentation(forTabId tabId: UUID) -> WorkspaceNotificationPresentation {
+        workspaceSnapshot(forTabId: tabId)
+    }
+
+    func workspaceSnapshot(forTabId tabId: UUID) -> TerminalNotificationWorkspaceSnapshot {
+        workspaceSnapshot(
+            forTabId: tabId,
+            focusedReadIndicatorByTabId: focusedReadIndicatorByTabId
+        )
+    }
+
+    private func workspaceSnapshot(
+        forTabId tabId: UUID,
+        focusedReadIndicatorByTabId: [UUID: UUID]
+    ) -> TerminalNotificationWorkspaceSnapshot {
+        let focusedReadIndicatorSurfaceId = focusedReadIndicatorByTabId[tabId]
+        let unreadCount = indexes.unreadCountByTabId[tabId] ?? 0
+        let hasRead = indexes.hasReadByTabId.contains(tabId)
+        let unreadSurfaceIds = indexes.unreadSurfaceIdsByTabId[tabId] ?? []
+        let latestNotification = indexes.latestByTabId[tabId]
+
+        guard unreadCount > 0 || hasRead || latestNotification != nil else {
+            return .empty(
+                forTabId: tabId,
+                focusedReadIndicatorSurfaceId: focusedReadIndicatorSurfaceId
+            )
+        }
+
+        var visibleSurfaceIds = unreadSurfaceIds
+        if let surfaceId = focusedReadIndicatorSurfaceId {
+            visibleSurfaceIds.insert(surfaceId)
+        }
+
+        return TerminalNotificationWorkspaceSnapshot(
+            tabId: tabId,
+            unreadCount: unreadCount,
+            hasRead: hasRead,
+            unreadSurfaceIds: unreadSurfaceIds,
+            visibleSurfaceIds: visibleSurfaceIds,
+            latestNotification: latestNotification,
+            focusedReadIndicatorSurfaceId: focusedReadIndicatorSurfaceId
+        )
+    }
+
+    func presentationPublisher(forTabId tabId: UUID) -> AnyPublisher<WorkspaceNotificationPresentation, Never> {
+        workspaceSnapshotPublisher(forTabId: tabId)
+    }
+
+    func workspaceSnapshotPublisher(forTabId tabId: UUID) -> AnyPublisher<TerminalNotificationWorkspaceSnapshot, Never> {
+        Publishers.CombineLatest($notifications, $focusedReadIndicatorByTabId)
+            .map { [weak self] _, focusedReadIndicatorByTabId in
+                guard let self else {
+                    return .empty(forTabId: tabId)
+                }
+                return self.workspaceSnapshot(
+                    forTabId: tabId,
+                    focusedReadIndicatorByTabId: focusedReadIndicatorByTabId
+                )
+            }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
     }
 
     func addNotification(
@@ -1337,12 +1515,18 @@ final class TerminalNotificationStore: ObservableObject {
             if indexes.latestByTabId[notification.tabId] == nil {
                 indexes.latestByTabId[notification.tabId] = notification
             }
-            guard !notification.isRead else { continue }
+            if notification.isRead {
+                indexes.hasReadByTabId.insert(notification.tabId)
+                continue
+            }
             indexes.unreadCount += 1
             indexes.unreadCountByTabId[notification.tabId, default: 0] += 1
             indexes.unreadByTabSurface.insert(
                 TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
             )
+            if let surfaceId = notification.surfaceId {
+                indexes.unreadSurfaceIdsByTabId[notification.tabId, default: []].insert(surfaceId)
+            }
             if indexes.latestUnreadByTabId[notification.tabId] == nil {
                 indexes.latestUnreadByTabId[notification.tabId] = notification
             }
