@@ -1,1 +1,0 @@
-{"version":3,"file":"bootstrap.js","sourceRoot":"","sources":["../../../../src/runtimes/go1.x/bootstrap.ts"],"names":[],"mappings":";;AAAA,yCAAiC;AACjC,2DAA2C;AAC3C,yCAA2C;AAE3C,MAAM,GAAG,GAAG,IAAA,wBAAa,GAAE,CAAC;AAC5B,MAAM,SAAS,GAAG,IAAA,gBAAI,EAAC,SAAS,EAAE,GAAG,CAAC,CAAC;AACvC,IAAA,0BAAK,EAAC,SAAS,EAAE,EAAE,EAAE,EAAE,KAAK,EAAE,SAAS,EAAE,CAAC,CAAC"}

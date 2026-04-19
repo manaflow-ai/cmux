@@ -12,10 +12,9 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Fork rebased onto upstream `main` at `3509ccf78` (`v1.3.1-457-g3509ccf78`) on March 30, 2026.
-Current cmux pinned fork head: `ae3cc5d29` (`v1.3.1-473-gae3cc5d29`).
-Fork `main` keeps this pin reachable via merge commit `5c781d710`
-(`Retain layer-background pin ancestry on main`).
+Fork main has advanced beyond the March 30, 2026 rebase onto upstream `main`
+at `3509ccf78` (`v1.3.1-457-g3509ccf78`).
+Current cmux pinned fork head: `3b684a085` (`tip-1717-g3b684a085`).
 
 ### 1) macOS display link restart on display changes
 
@@ -112,7 +111,17 @@ tend to conflict together during rebases.
   - Allows the host app to provide the terminal background via `CALayer.backgroundColor` for instant coverage during view resizes, avoiding alpha double-stacking.
   - Replays the layer-background restore on top of the refreshed Ghostty base so cmux keeps the resize-coverage fix after the upstream sync.
 
-The fork branch HEAD is now the section 7 layer-background restore commit.
+### 8) TerminalStream kitty graphics APC handling
+
+- Commit: `a8e92c9c5` (terminal: add APC handler to stream_terminal)
+- Files:
+  - `src/terminal/stream_terminal.zig`
+- Summary:
+  - Wires `.apc_start`, `.apc_put`, and `.apc_end` through the shared APC parser in `TerminalStream`.
+  - Restores kitty graphics execution and APC OK/error replies for the non-termio stream path used by cmux/libghostty integrations.
+
+Fork main now carries the section 8 APC handling fix plus later upstream merges;
+the current cmux pin is the head listed above.
 
 ## Upstreamed fork changes
 
@@ -169,5 +178,10 @@ These files change frequently upstream; be careful when rebasing the fork:
 - `src/termio/stream_handler.zig`
   - Keep DECSET 1004 enablement side-effect free. xterm-compatible focus reporting should only emit
     `CSI I` / `CSI O` on actual focus transitions, not immediately when the mode is enabled.
+
+- `src/terminal/stream_terminal.zig`
+  - Keep the APC handler wired into `.apc_start`, `.apc_put`, `.apc_end`, and preserve the
+    `apcEnd()` response path so kitty graphics still reach `Terminal.kittyGraphics()` and reply via
+    `write_pty`.
 
 If you resolve a conflict, update this doc with what changed.

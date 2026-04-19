@@ -35,6 +35,7 @@ const schemaSourceUrl =
   "https://github.com/manaflow-ai/cmux/blob/main/web/data/cmux-settings.schema.json";
 const sectionOrder = [
   "app",
+  "terminal",
   "notifications",
   "sidebar",
   "workspaceColors",
@@ -52,6 +53,10 @@ const settingsFileExample = `{
   // "app": {
   //   "appearance": "dark",
   //   "newWorkspacePlacement": "afterCurrent"
+  // },
+
+  // "terminal": {
+  //   "showScrollBar": false
   // },
 
   // "browser": {
@@ -242,7 +247,7 @@ touch ~/.config/ghostty/config`}</CodeBlock>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = SF Mono
 font-size = 13
 theme = One Dark
-scrollback-limit = 50000
+scrollback-limit = 50000000
 split-divider-color = #3e4451
 working-directory = ~/code`}</CodeBlock>
 
@@ -286,8 +291,8 @@ working-directory = ~/code`}</CodeBlock>
       <h2>Schema reference</h2>
       <p>
         This reference covers every supported key in <code>settings.json</code>. The embedded
-        browser, sidebar, notifications, automation, and cmux-owned keyboard shortcuts all live
-        here.
+        browser, terminal, sidebar, notifications, automation, and cmux-owned keyboard shortcuts
+        all live here.
       </p>
 
       <h3>Metadata</h3>

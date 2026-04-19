@@ -172,6 +172,38 @@ struct ShortcutHintPillBackground: View {
     }
 }
 
+/// Reusable shortcut hint pill that shows a keyboard shortcut string.
+struct ShortcutHintPill: View {
+    let text: String
+    var fontSize: CGFloat = 9
+    var emphasis: Double = 1.0
+
+    init(shortcut: StoredShortcut, fontSize: CGFloat = 9, emphasis: Double = 1.0) {
+        self.text = shortcut.displayString
+        self.fontSize = fontSize
+        self.emphasis = emphasis
+    }
+
+    init(text: String, fontSize: CGFloat = 9, emphasis: Double = 1.0) {
+        self.text = text
+        self.fontSize = fontSize
+        self.emphasis = emphasis
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: fontSize, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .foregroundColor(.primary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(ShortcutHintPillBackground(emphasis: emphasis))
+    }
+}
+
+
 /// Applies NSGlassEffectView (macOS 26+) to a window, falling back to NSVisualEffectView
 enum WindowGlassEffect {
     private static var glassViewKey: UInt8 = 0
@@ -1766,20 +1798,30 @@ enum MountedWorkspacePresentationPolicy {
 }
 
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
-func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
-    guard objc_getAssociatedObject(window, &fileDropOverlayKey) == nil,
-          let contentView = window.contentView,
-          let themeFrame = contentView.superview else { return }
+private func findFileDropOverlayView(in root: NSView?) -> FileDropOverlayView? {
+    guard let root else { return nil }
+    if let overlay = root as? FileDropOverlayView {
+        return overlay
+    }
+    for subview in root.subviews {
+        if let overlay = findFileDropOverlayView(in: subview) {
+            return overlay
+        }
+    }
+    return nil
+}
 
-    let overlay = FileDropOverlayView(frame: contentView.frame)
-    overlay.translatesAutoresizingMaskIntoConstraints = false
+private func configureFileDropOverlay(_ overlay: FileDropOverlayView, tabManager: TabManager) {
     overlay.onDrop = { [weak tabManager] urls in
         MainActor.assumeIsolated {
             guard let tabManager, let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
             return terminal.hostedView.handleDroppedURLs(urls)
         }
     }
+}
 
+private func attachFileDropOverlay(_ overlay: FileDropOverlayView, to contentView: NSView, in themeFrame: NSView) {
+    overlay.translatesAutoresizingMaskIntoConstraints = false
     themeFrame.addSubview(overlay, positioned: .above, relativeTo: contentView)
     NSLayoutConstraint.activate([
         overlay.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -1787,8 +1829,53 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
         overlay.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
         overlay.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
     ])
+}
 
+@discardableResult
+func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool {
+    guard let contentView = window.contentView,
+          let themeFrame = contentView.superview else { return false }
+
+    let existingOverlay =
+        (objc_getAssociatedObject(window, &fileDropOverlayKey) as? FileDropOverlayView)
+        ?? findFileDropOverlayView(in: themeFrame)
+
+    if let existingOverlay {
+        configureFileDropOverlay(existingOverlay, tabManager: tabManager)
+        objc_setAssociatedObject(window, &fileDropOverlayKey, existingOverlay, .OBJC_ASSOCIATION_RETAIN)
+        guard existingOverlay.superview !== themeFrame else { return true }
+        existingOverlay.removeFromSuperview()
+        attachFileDropOverlay(existingOverlay, to: contentView, in: themeFrame)
+        return true
+    }
+
+    let overlay = FileDropOverlayView(frame: contentView.frame)
+    configureFileDropOverlay(overlay, tabManager: tabManager)
+    // Publish the overlay before mutating the view tree so any re-entrant lookup resolves
+    // the in-flight view instead of installing a second overlay during layout.
     objc_setAssociatedObject(window, &fileDropOverlayKey, overlay, .OBJC_ASSOCIATION_RETAIN)
+    attachFileDropOverlay(overlay, to: contentView, in: themeFrame)
+    return true
+}
+
+private func installFileDropOverlayWhenReady(
+    on window: NSWindow,
+    tabManager: TabManager,
+    remainingAttempts: Int = 16
+) {
+    guard !installFileDropOverlay(on: window, tabManager: tabManager),
+          remainingAttempts > 0 else { return }
+
+    // Defer retrying until the next main-loop turn so we don't mutate the
+    // NSThemeFrame hierarchy while SwiftUI/AppKit is still attaching views.
+    DispatchQueue.main.async { [weak window, weak tabManager] in
+        guard let window, let tabManager else { return }
+        installFileDropOverlayWhenReady(
+            on: window,
+            tabManager: tabManager,
+            remainingAttempts: remainingAttempts - 1
+        )
+    }
 }
 
 struct ContentView: View {
@@ -1799,6 +1886,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @EnvironmentObject var fileExplorerState: FileExplorerState
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1810,6 +1898,10 @@ struct ContentView: View {
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
+    @StateObject private var fileExplorerStore = FileExplorerStore()
+    @StateObject private var sessionIndexStore = SessionIndexStore()
+    @State private var fileExplorerWidth: CGFloat = 220
+    @State private var fileExplorerDragStartWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
@@ -2298,6 +2390,50 @@ struct ContentView: View {
 
     private enum SidebarResizerHandle: Hashable {
         case divider
+        case explorerDivider
+    }
+
+    /// Returns the current drag width, start width capture, width update, and drag end cleanup for a resizer handle.
+    private func resizerConfig(for handle: SidebarResizerHandle, availableWidth: CGFloat) -> (
+        currentWidth: CGFloat,
+        captureStart: () -> Void,
+        updateWidth: (CGFloat) -> Void,
+        finishDrag: () -> Void
+    ) {
+        switch handle {
+        case .divider:
+            return (
+                currentWidth: sidebarWidth,
+                captureStart: { sidebarDragStartWidth = sidebarWidth },
+                updateWidth: { translation in
+                    let startWidth = sidebarDragStartWidth ?? sidebarWidth
+                    let nextWidth = Self.clampedSidebarWidth(
+                        startWidth + translation,
+                        maximumWidth: maxSidebarWidth(availableWidth: availableWidth)
+                    )
+                    withTransaction(Transaction(animation: nil)) {
+                        sidebarWidth = nextWidth
+                    }
+                },
+                finishDrag: { sidebarDragStartWidth = nil }
+            )
+        case .explorerDivider:
+            return (
+                currentWidth: fileExplorerWidth,
+                captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
+                updateWidth: { translation in
+                    let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
+                    let nextWidth = min(500, max(150, startWidth - translation))
+                    withTransaction(Transaction(animation: nil)) {
+                        fileExplorerWidth = nextWidth
+                    }
+                },
+                finishDrag: {
+                    fileExplorerDragStartWidth = nil
+                    fileExplorerState.width = fileExplorerWidth
+                }
+            )
+        }
     }
 
     private var sidebarResizerSidebarHitWidth: CGFloat {
@@ -2529,27 +2665,21 @@ struct ContentView: View {
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { value in
+                        let config = resizerConfig(for: handle, availableWidth: availableWidth)
                         if !isResizerDragging {
                             TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
                             isResizerDragging = true
-                            sidebarDragStartWidth = sidebarWidth
+                            config.captureStart()
                         }
-
                         activateSidebarResizerCursor()
-                        let startWidth = sidebarDragStartWidth ?? sidebarWidth
-                        let nextWidth = Self.clampedSidebarWidth(
-                            startWidth + value.translation.width,
-                            maximumWidth: maxSidebarWidth(availableWidth: availableWidth)
-                        )
-                        withTransaction(Transaction(animation: nil)) {
-                            sidebarWidth = nextWidth
-                        }
+                        config.updateWidth(value.translation.width)
                     }
                     .onEnded { _ in
                         if isResizerDragging {
                             TerminalWindowPortalRegistry.endInteractiveGeometryResize()
                             isResizerDragging = false
-                            sidebarDragStartWidth = nil
+                            let config = resizerConfig(for: handle, availableWidth: availableWidth)
+                            config.finishDrag()
                         }
                         activateSidebarResizerCursor()
                         scheduleSidebarResizerCursorRelease()
@@ -2593,6 +2723,7 @@ struct ContentView: View {
     private var sidebarView: some View {
         VerticalTabsSidebar(
             updateViewModel: updateViewModel,
+            fileExplorerState: fileExplorerState,
             onSendFeedback: presentFeedbackComposer,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
@@ -2686,10 +2817,55 @@ struct ContentView: View {
     }
 
     private var terminalContentWithSidebarDropOverlay: some View {
-        terminalContent
-            .overlay {
-                SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
+        // File explorer is always in the view tree. Visibility is controlled by
+        // frame width (0 when hidden), avoiding SwiftUI view insertion/removal
+        // and all associated transition animations.
+        let explorerVisible = fileExplorerState.isVisible
+        return HStack(spacing: 0) {
+            terminalContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
+                .overlay {
+                    SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
+                }
+            if explorerVisible {
+                Divider()
             }
+            RightSidebarPanelView(
+                fileExplorerStore: fileExplorerStore,
+                fileExplorerState: fileExplorerState,
+                sessionIndexStore: sessionIndexStore,
+                onResumeSession: { entry in
+                    resumeSession(entry: entry)
+                }
+            )
+                .frame(width: explorerVisible ? fileExplorerWidth : 0)
+                .clipped()
+                .allowsHitTesting(explorerVisible)
+                .accessibilityHidden(!explorerVisible)
+                .overlay(alignment: .leading) {
+                    if explorerVisible {
+                        fileExplorerResizerHandle
+                    }
+                }
+        }
+        .transaction { $0.animation = nil }
+        .onAppear {
+            fileExplorerWidth = fileExplorerState.width
+        }
+        .onChange(of: fileExplorerState.width) { newValue in
+            if fileExplorerDragStartWidth == nil {
+                fileExplorerWidth = newValue
+            }
+        }
+    }
+
+    private var fileExplorerResizerHandle: some View {
+        sidebarResizerHandleOverlay(
+            .explorerDivider,
+            width: SidebarResizeInteraction.totalHitWidth,
+            availableWidth: observedWindow?.contentView?.bounds.width ?? 1920
+        )
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
@@ -2849,6 +3025,120 @@ struct ContentView: View {
             backgroundSource: backgroundSource,
             notificationPayloadHex: notificationPayloadHex
         )
+    }
+
+    private func resumeSession(entry: SessionEntry) {
+        let inputWithReturn = entry.resumeCommand + "\n"
+        let targetCwd = entry.cwd
+
+        // Smart placement: if the focused workspace's tracked cwd matches, open a
+        // new tab inside that workspace. Otherwise create a new workspace.
+        // Remote workspaces are excluded from cwd-match: a session indexed from
+        // the local filesystem must not be resumed inside a remote shell just
+        // because the path string happens to coincide.
+        let selected = tabManager.selectedWorkspace
+        let selectedTab = tabManager.selectedTabId.flatMap { id in
+            tabManager.tabs.first(where: { $0.id == id })
+        }
+        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
+        let workspaceCwd = selected?.currentDirectory
+        let pwdMatches: Bool = {
+            guard !isRemoteSelection,
+                  let targetCwd, !targetCwd.isEmpty,
+                  let workspaceCwd, !workspaceCwd.isEmpty else { return false }
+            let lhs = (targetCwd as NSString).standardizingPath
+            let rhs = (workspaceCwd as NSString).standardizingPath
+            return lhs == rhs
+        }()
+
+        if pwdMatches,
+           let workspace = selected,
+           let paneId = workspace.bonsplitController.focusedPaneId {
+            workspace.newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                workingDirectory: targetCwd,
+                initialInput: inputWithReturn
+            )
+            return
+        }
+
+        tabManager.addWorkspace(
+            workingDirectory: targetCwd,
+            initialTerminalInput: inputWithReturn
+        )
+    }
+
+    private func syncFileExplorerDirectory() {
+        guard let selectedId = tabManager.selectedTabId,
+              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+            // No selection means we have no local cwd to scope by; clear so the
+            // sessions panel doesn't keep filtering by a stale previous tab.
+            sessionIndexStore.currentDirectory = nil
+            return
+        }
+
+        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !dir.isEmpty else {
+            sessionIndexStore.currentDirectory = nil
+            return
+        }
+
+        fileExplorerStore.showHiddenFiles = true
+        if !tab.isRemoteWorkspace {
+            sessionIndexStore.currentDirectory = dir
+        } else {
+            sessionIndexStore.currentDirectory = nil
+        }
+
+        if tab.isRemoteWorkspace {
+            let config = tab.remoteConfiguration
+            let remotePath = tab.remoteDaemonStatus.remotePath
+            let isReady = tab.remoteDaemonStatus.state == .ready
+            let homePath = remotePath.flatMap { path -> String? in
+                let components = dir.split(separator: "/")
+                if components.count >= 2, components[0] == "home" {
+                    return "/home/\(components[1])"
+                }
+                if dir.hasPrefix("/root") {
+                    return "/root"
+                }
+                return nil
+            } ?? ""
+
+            #if DEBUG
+            dlog("fileExplorer.sync remote dir=\(dir) ready=\(isReady) dest=\(config?.destination ?? "nil")")
+            #endif
+
+            if let existingProvider = fileExplorerStore.provider as? SSHFileExplorerProvider,
+               existingProvider.destination == config?.destination {
+                existingProvider.updateAvailability(isReady, homePath: isReady ? homePath : nil)
+                if isReady {
+                    // Only reload if the path actually changed
+                    let pathChanged = fileExplorerStore.rootPath != dir
+                    fileExplorerStore.setRootPath(dir)
+                    if pathChanged {
+                        fileExplorerStore.hydrateExpandedNodes()
+                    }
+                }
+            } else if let config {
+                let provider = SSHFileExplorerProvider(
+                    destination: config.destination,
+                    port: config.port,
+                    identityFile: config.identityFile,
+                    sshOptions: config.sshOptions,
+                    homePath: homePath,
+                    isAvailable: isReady
+                )
+                fileExplorerStore.setProvider(provider)
+                fileExplorerStore.setRootPath(dir)
+            }
+        } else {
+            if !(fileExplorerStore.provider is LocalFileExplorerProvider) {
+                fileExplorerStore.setProvider(LocalFileExplorerProvider())
+            }
+            fileExplorerStore.setRootPath(dir)
+        }
     }
 
     private var focusedDirectory: String? {
@@ -3017,6 +3307,24 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: selectedTabIds) { _ in
             syncSidebarSelectedWorkspaceIds()
+        })
+
+        // File explorer: reactively sync CWD when selected workspace or its directory changes.
+        // Uses switchToLatest to automatically unsubscribe from the old workspace's publisher.
+        view = AnyView(view.onReceive(
+            tabManager.$selectedTabId
+                .compactMap { [weak tabManager] tabId -> Workspace? in
+                    guard let tabId, let tabManager else { return nil }
+                    return tabManager.tabs.first(where: { $0.id == tabId })
+                }
+                .map { workspace -> AnyPublisher<String, Never> in
+                    workspace.$currentDirectory.eraseToAnyPublisher()
+                }
+                .switchToLatest()
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+        ) { _ in
+            syncFileExplorerDirectory()
         })
 
         view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
@@ -3508,7 +3816,7 @@ struct ContentView: View {
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState
             )
-            installFileDropOverlay(on: window, tabManager: tabManager)
+            installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
         }))
 
         return view
@@ -9896,6 +10204,7 @@ private struct SidebarTabItemPresentationSnapshot: Equatable {
 
 struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
+    @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
@@ -9910,6 +10219,7 @@ struct VerticalTabsSidebar: View {
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
     @State private var frozenTabItemPresentation: SidebarTabItemPresentationSnapshot?
+    @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
 
@@ -9932,6 +10242,7 @@ struct VerticalTabsSidebar: View {
     }
 
     var body: some View {
+        let _ = terminalScrollBarVisibilityGeneration
         let tabs = tabManager.tabs
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
@@ -9944,6 +10255,9 @@ struct VerticalTabsSidebar: View {
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
         let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
+        let workspaceTerminalScrollBarHiddenById = Dictionary(
+            uniqueKeysWithValues: tabs.map { ($0.id, $0.terminalScrollBarHidden) }
+        )
         let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
@@ -9975,6 +10289,10 @@ struct VerticalTabsSidebar: View {
                                 let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
                                     ? allSelectedRemoteContextMenuTargetsDisconnected
                                     : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
+                                let allContextMenuWorkspacesHideTerminalScrollBar = !contextMenuWorkspaceIds.isEmpty &&
+                                    contextMenuWorkspaceIds.allSatisfy { workspaceId in
+                                        workspaceTerminalScrollBarHiddenById[workspaceId] == true
+                                    }
                                 let liveUnreadCount = notificationStore.unreadCount(forTabId: tab.id)
                                 let liveLatestNotificationText: String? = {
                                     guard showsSidebarNotificationMessage,
@@ -10022,6 +10340,7 @@ struct VerticalTabsSidebar: View {
                                     remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
                                     allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
                                     allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+                                    allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
                                     settings: tabItemSettings,
                                     livePresentation: livePresentation,
                                     frozenPresentation: $frozenTabItemPresentation
@@ -10072,7 +10391,7 @@ struct VerticalTabsSidebar: View {
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
             }
-            SidebarFooter(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
+            SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("Sidebar")
@@ -10138,6 +10457,19 @@ struct VerticalTabsSidebar: View {
 #endif
             draggedTabId = nil
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: Workspace.terminalScrollBarHiddenDidChangeNotification)
+                .receive(on: RunLoop.main)
+        ) { notification in
+            guard let workspace = notification.object as? Workspace,
+                  tabManager.tabs.contains(where: { $0 === workspace }) else {
+                return
+            }
+
+            // Workspace scrollbar visibility changes do not publish on TabManager.tabs,
+            // so bump a local generation to refresh the precomputed context-menu state.
+            terminalScrollBarVisibilityGeneration &+= 1
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -10154,14 +10486,16 @@ enum ShortcutHintModifierPolicy {
         for modifierFlags: NSEvent.ModifierFlags,
         defaults: UserDefaults = .standard
     ) -> Bool {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
-        guard !shortcut.hasChord else { return false }
         let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        guard normalized == [.command] else {
+        switch normalized {
+        case [.command]:
+            return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults)
+        case [.control]:
+            return ShortcutHintDebugSettings.showHintsOnControlHoldEnabled(defaults: defaults)
+        default:
             return false
         }
-        return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults)
     }
 
     static func isCurrentWindow(
@@ -10204,6 +10538,7 @@ enum ShortcutHintDebugSettings {
     static let paneHintYKey = "shortcutHintPaneTabYOffset"
     static let alwaysShowHintsKey = "shortcutHintAlwaysShow"
     static let showHintsOnCommandHoldKey = "shortcutHintShowOnCommandHold"
+    static let showHintsOnControlHoldKey = "shortcutHintShowOnControlHold"
 
     static let defaultSidebarHintX = 0.0
     static let defaultSidebarHintY = 0.0
@@ -10213,6 +10548,7 @@ enum ShortcutHintDebugSettings {
     static let defaultPaneHintY = 0.0
     static let defaultAlwaysShowHints = false
     static let defaultShowHintsOnCommandHold = true
+    static let defaultShowHintsOnControlHold = true
 
     static let offsetRange: ClosedRange<Double> = -20...20
 
@@ -10227,9 +10563,17 @@ enum ShortcutHintDebugSettings {
         return defaults.bool(forKey: showHintsOnCommandHoldKey)
     }
 
+    static func showHintsOnControlHoldEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: showHintsOnControlHoldKey) != nil else {
+            return defaultShowHintsOnControlHold
+        }
+        return defaults.bool(forKey: showHintsOnControlHoldKey)
+    }
+
     static func resetVisibilityDefaults(defaults: UserDefaults = .standard) {
         defaults.set(defaultAlwaysShowHints, forKey: alwaysShowHintsKey)
         defaults.set(defaultShowHintsOnCommandHold, forKey: showHintsOnCommandHoldKey)
+        defaults.set(defaultShowHintsOnControlHold, forKey: showHintsOnControlHoldKey)
     }
 }
 
@@ -11020,13 +11364,14 @@ private final class SidebarShortcutHintModifierMonitor: ObservableObject {
 
 private struct SidebarFooter: View {
     @ObservedObject var updateViewModel: UpdateViewModel
+    @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
 
     var body: some View {
 #if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
+        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
 #else
-        SidebarFooterButtons(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
+        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
             .padding(.leading, 6)
             .padding(.trailing, 10)
             .padding(.bottom, 6)
@@ -11036,6 +11381,7 @@ private struct SidebarFooter: View {
 
 private struct SidebarFooterButtons: View {
     @ObservedObject var updateViewModel: UpdateViewModel
+    @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
 
     var body: some View {
@@ -12159,13 +12505,14 @@ private struct SidebarFooterIconButtonStyleBody: View {
 #if DEBUG
 private struct SidebarDevFooter: View {
     @ObservedObject var updateViewModel: UpdateViewModel
+    @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SidebarFooterButtons(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
+            SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
             if showSidebarDevBuildBanner {
                 Text(String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD"))
                     .font(.system(size: 11, weight: .semibold))
@@ -12378,18 +12725,8 @@ enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
 
     static func width(
-        canCloseWorkspace: Bool,
-        showsWorkspaceShortcutHint: Bool,
-        workspaceShortcutLabel: String?,
-        debugXOffset: Double
+        canCloseWorkspace: Bool
     ) -> CGFloat {
-        if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-            return SidebarWorkspaceShortcutHintMetrics.slotWidth(
-                label: workspaceShortcutLabel,
-                debugXOffset: debugXOffset
-            )
-        }
-
         return canCloseWorkspace ? closeButtonWidth : 0
     }
 }
@@ -12430,6 +12767,7 @@ private struct TabItemView: View, Equatable {
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
+        lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.settings == rhs.settings
     }
 
@@ -12460,6 +12798,7 @@ private struct TabItemView: View, Equatable {
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
+    let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let settings: SidebarTabItemSettingsSnapshot
     let livePresentation: SidebarTabItemPresentationSnapshot
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
@@ -12601,10 +12940,7 @@ private struct TabItemView: View, Equatable {
 
     private var trailingAccessoryWidth: CGFloat {
         SidebarTrailingAccessoryWidthPolicy.width(
-            canCloseWorkspace: canCloseWorkspace,
-            showsWorkspaceShortcutHint: showsWorkspaceShortcutHint,
-            workspaceShortcutLabel: workspaceShortcutLabel,
-            debugXOffset: sidebarShortcutHintXOffset
+            canCloseWorkspace: canCloseWorkspace
         )
     }
 
@@ -12792,15 +13128,7 @@ private struct TabItemView: View, Equatable {
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
 
                     if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                        Text(workspaceShortcutLabel)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundColor(activePrimaryTextColor)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(ShortcutHintPillBackground(emphasis: shortcutHintEmphasis))
+                        ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
                             .offset(
                                 x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
                                 y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
@@ -12808,7 +13136,7 @@ private struct TabItemView: View, Equatable {
                             .transition(.opacity)
                     }
                 }
-                .animation(.easeInOut(duration: 0.14), value: showsModifierShortcutHints || alwaysShowShortcutHints)
+                .animation(.easeOut(duration: 0.12), value: showsModifierShortcutHints || alwaysShowShortcutHints)
                 .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
             }
 
@@ -13273,6 +13601,20 @@ private struct TabItemView: View, Equatable {
                 }
             }
             .disabled(allRemoteContextMenuTargetsDisconnected)
+        }
+
+        Menu(String(localized: "contextMenu.workspaceSettings", defaultValue: "Workspace Settings")) {
+            Button {
+                toggleWorkspaceTerminalScrollBarHidden(targetIds: targetIds)
+            } label: {
+                Label {
+                    Text(String(localized: "contextMenu.workspaceSettings.hideTerminalScrollBar", defaultValue: "Hide Terminal Scroll Bar"))
+                } icon: {
+                    if allContextMenuWorkspacesHideTerminalScrollBar {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
         }
 
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
@@ -13975,6 +14317,16 @@ private struct TabItemView: View, Equatable {
     private func applyTabColor(_ hex: String?, targetIds: [UUID]) {
         for targetId in targetIds {
             tabManager.setTabColor(tabId: targetId, color: hex)
+        }
+    }
+
+    private func toggleWorkspaceTerminalScrollBarHidden(targetIds: [UUID]) {
+        let currentlyHidden = !targetIds.isEmpty && targetIds.allSatisfy { targetId in
+            tabManager.tabs.first(where: { $0.id == targetId })?.terminalScrollBarHidden == true
+        }
+        let hideScrollBar = !currentlyHidden
+        for targetId in targetIds {
+            tabManager.setWorkspaceTerminalScrollBarHidden(tabId: targetId, hidden: hideScrollBar)
         }
     }
 

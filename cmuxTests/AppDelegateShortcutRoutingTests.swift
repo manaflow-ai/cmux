@@ -11,6 +11,25 @@ private final class FakeWKInspectorContainerView: NSView {}
 private final class FocusableTestView: NSView {
     override var acceptsFirstResponder: Bool { true }
 }
+private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
+    var afterMenuMissCallCount = 0
+    var pasteCallCount = 0
+    var pasteAsPlainTextCallCount = 0
+    var performAfterMenuMissResult = true
+
+    override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
+        afterMenuMissCallCount += 1
+        return performAfterMenuMissResult
+    }
+
+    override func paste(_ sender: Any?) {
+        pasteCallCount += 1
+    }
+
+    override func pasteAsPlainText(_ sender: Any?) {
+        pasteAsPlainTextCallCount += 1
+    }
+}
 
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
@@ -4252,6 +4271,55 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // responder assertions above act as the Release-build proxy.
         XCTAssertGreaterThan(forwardedKeyDownCount, 0, "Typing repair should forward the keyDown into Ghostty")
 #endif
+    }
+
+    func testWindowPerformKeyEquivalentDefersTerminalPasteMenuMissToGhosttyBindingResolution() {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let emptyMenu = NSMenu(title: "Test")
+        emptyMenu.addItem(withTitle: "Placeholder", action: nil, keyEquivalent: "")
+        NSApp.mainMenu = emptyMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "v",
+            modifiers: [.command],
+            keyCode: 9,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+V event")
+            return
+        }
+
+        XCTAssertTrue(
+            probeWindow.performKeyEquivalent(with: event),
+            "Cmd+V menu miss should still route through Ghostty binding resolution"
+        )
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 1, "Ghostty binding resolution should run after the menu miss")
+        XCTAssertEqual(probeView.pasteCallCount, 0, "Window routing must not force paste before Ghostty inspects bindings")
+        XCTAssertEqual(
+            probeView.pasteAsPlainTextCallCount,
+            0,
+            "Window routing must not force plain-text paste before Ghostty inspects bindings"
+        )
     }
 
     func testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping() {

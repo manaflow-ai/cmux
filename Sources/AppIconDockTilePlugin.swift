@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 
 private let cmuxAppIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 private let cmuxAppIconModeKey = "appIconMode"
@@ -12,10 +13,10 @@ private enum DockTileAppIconMode: String {
         self = Self(rawValue: defaultsValue ?? "") ?? .automatic
     }
 
-    var imageName: NSImage.Name? {
+    func imageName(isDarkAppearance: Bool) -> NSImage.Name? {
         switch self {
         case .automatic:
-            return nil
+            return isDarkAppearance ? NSImage.Name("AppIconDark") : NSImage.Name("AppIconLight")
         case .light:
             return NSImage.Name("AppIconLight")
         case .dark:
@@ -29,11 +30,13 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     // Keep the state minimal and derive everything from the enclosing app bundle.
     private let pluginBundle = Bundle(for: CmuxDockTilePlugin.self)
     private var iconChangeObserver: NSObjectProtocol?
+    private var appearanceObservation: NSKeyValueObservation?
 
     deinit {
         if let iconChangeObserver {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
         }
+        appearanceObservation?.invalidate()
     }
 
     func setDockTile(_ dockTile: NSDockTile?) {
@@ -41,6 +44,8 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
             self.iconChangeObserver = nil
         }
+        appearanceObservation?.invalidate()
+        appearanceObservation = nil
 
         guard let dockTile else { return }
         updateDockTile(dockTile)
@@ -53,6 +58,15 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             guard let self else { return }
             self.updateDockTile(dockTile)
         }
+
+        if let app = NSApp {
+            appearanceObservation = app.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
+                DispatchQueue.main.async {
+                    guard let self, self.appearanceObservation != nil else { return }
+                    self.updateDockTile(dockTile)
+                }
+            }
+        }
     }
 
     private var appBundleURL: URL? {
@@ -64,6 +78,13 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         return Bundle(url: appBundleURL)
     }
 
+    private var shouldPersistBundleIcon: Bool {
+        guard let appBundleURL else { return false }
+        // The default untagged Debug app is rebuilt and re-signed in place during CI.
+        // Persisting a custom icon there leaves Finder metadata behind and breaks codesign.
+        return appBundleURL.lastPathComponent != "cmux DEV.app"
+    }
+
     private var appDefaults: UserDefaults? {
         guard let bundleIdentifier = appBundle?.bundleIdentifier else { return nil }
         return UserDefaults(suiteName: bundleIdentifier)
@@ -71,12 +92,28 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private func updateDockTile(_ dockTile: NSDockTile) {
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
-        guard let imageName = mode.imageName,
-              let icon = appBundle?.image(forResource: imageName) else {
+        let isDarkAppearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        guard let appBundleURL else {
             dockTile.showDefaultAppIcon()
             return
         }
 
+        guard let imageName = mode.imageName(isDarkAppearance: isDarkAppearance),
+              let icon = appBundle?.image(forResource: imageName) else {
+            if shouldPersistBundleIcon {
+                NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
+                NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
+                _ = LSRegisterURL(appBundleURL as CFURL, true)
+            }
+            dockTile.showDefaultAppIcon()
+            return
+        }
+
+        if shouldPersistBundleIcon {
+            NSWorkspace.shared.setIcon(icon, forFile: appBundleURL.path, options: [])
+            NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
+            _ = LSRegisterURL(appBundleURL as CFURL, true)
+        }
         dockTile.showIcon(icon)
     }
 

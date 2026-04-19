@@ -49,6 +49,49 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
     }
 
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/2818 —
+    /// Qt-based apps (Telegram Desktop, etc.) register the legacy
+    /// `com.apple.traditional-mac-plain-text` type (Mac OS Roman encoding,
+    /// no CJK/Cyrillic/Arabic support) *before* UTF-8. Iterating the
+    /// pasteboard types in order used to return the lossy legacy value,
+    /// mangling every non-Latin character into "?". The helper must
+    /// prefer UTF-8 whenever it is also present on the pasteboard.
+    func testPrefersUTF8PlainTextOverLegacyMacRomanType() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-utf8-priority-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let koreanText = "삼성전자 거래량 미충족"
+        let legacyType = NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
+        let utf8Type = NSPasteboard.PasteboardType("public.utf8-plain-text")
+
+        // Order matters: declare legacy FIRST to mirror Qt's behaviour.
+        pasteboard.declareTypes([legacyType, utf8Type], owner: nil)
+        pasteboard.setString("?? ??? ???", forType: legacyType)
+        pasteboard.setString(koreanText, forType: utf8Type)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            koreanText
+        )
+    }
+
+    /// Fallback-loop coverage: when *only* a legacy / unknown plain-text
+    /// type is present and no UTF-8 variant exists, the helper should still
+    /// return whatever string the pasteboard does expose (best-effort).
+    func testFallsBackWhenOnlyNonPreferredPlainTextTypePresent() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-only-legacy-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let legacyType = NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
+        pasteboard.declareTypes([legacyType], owner: nil)
+        pasteboard.setString("plain ascii", forType: legacyType)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "plain ascii"
+        )
+    }
+
     func testEmptyPlainTextFallsBackToRichTextPayload() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-empty-plain-rich-fallback-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -428,6 +471,24 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 
         XCTAssertEqual(plan, .insertText("hello from clipboard"))
         XCTAssertEqual(targetResolutionCount, 0)
+    }
+
+    func testPastePlanFallsBackToAlternatePlainTextWhenImageTypeIsUnusable() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-raycast-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "hello from Raycast",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
+        pasteboard.setData(Data("not a real tiff".utf8), forType: .tiff)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .local
+        )
+
+        XCTAssertEqual(plan, .insertText("hello from Raycast"))
     }
 
     func testLazyPastePlanResolvesTargetForFileURLPaste() throws {
@@ -3699,6 +3760,103 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
+final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
+    func testTrimsTrailingPeriodAfterMarkdownFile() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "~/ClaudeCode/feature-spec-template.md."
+            ),
+            "~/ClaudeCode/feature-spec-template.md"
+        )
+    }
+
+    func testTrimsTrailingCommaInList() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/first.txt,"
+            ),
+            "/tmp/fixtures/first.txt"
+        )
+    }
+
+    func testTrimsTrailingCloseParenWhenNoBalancedOpenParen() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/notes.txt)"
+            ),
+            "/tmp/fixtures/notes.txt"
+        )
+    }
+
+    func testPreservesBalancedParensInMiddleOfPath() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/report (draft)/notes.txt"
+            ),
+            "/tmp/fixtures/report (draft)/notes.txt"
+        )
+    }
+
+    func testStripsMultipleTrailingPunctuationCharacters() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/report (draft).md).,!?\""
+            ),
+            "/tmp/fixtures/report (draft).md"
+        )
+    }
+
+    func testTrimsTrailingClosingQuote() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/notes.txt\""
+            ),
+            "/tmp/fixtures/notes.txt"
+        )
+    }
+
+    func testResolveQuicklookFallsBackToStrippedPathWhenLiteralPathIsMissing() {
+        let strippedPath = "/tmp/cmux-cmdclick-path.md"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                "\(strippedPath).",
+                cwd: "/tmp",
+                existingPaths: [strippedPath]
+            ),
+            strippedPath
+        )
+    }
+
+    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithDot() {
+        let literalPath = "/tmp/cmux-cmdclick-literal-dot.md."
+        let strippedPath = "/tmp/cmux-cmdclick-literal-dot.md"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                literalPath,
+                cwd: "/tmp",
+                existingPaths: [literalPath, strippedPath]
+            ),
+            literalPath
+        )
+    }
+
+    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithParen() {
+        let literalPath = "/tmp/cmux-cmdclick-literal-paren)"
+        let strippedPath = "/tmp/cmux-cmdclick-literal-paren"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                literalPath,
+                cwd: "/tmp",
+                existingPaths: [literalPath, strippedPath]
+            ),
+            literalPath
+        )
+    }
+}
+
 
 final class TerminalControllerSocketTextChunkTests: XCTestCase {
     func testSocketTextChunksReturnsSingleChunkForPlainText() {
@@ -3779,6 +3937,144 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
                 interactiveGeometryResizeActive: true
             ),
             "Interactive resize should use the immediate portal sync path"
+        )
+    }
+}
+
+final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
+    func testLeftShiftPressReturnsPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x38,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testLeftShiftReleaseReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x38,
+                modifierFlagsRawValue: 0
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testLeftShiftWithoutLeftSideDeviceMaskReturnsReleaseWhenRightShiftHeld() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x38,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightShiftRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3C,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightShiftWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3C,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightShiftWithoutRightSideDeviceMaskReturnsReleaseWhenLeftShiftHeld() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3C,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightControlRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3E,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue | UInt(NX_DEVICERCTLKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightControlWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3E,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightOptionRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3D,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightOptionWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3D,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightCommandRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x36,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICERCMDKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testCapsLockUsesLogicalModifierState() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x39,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.capsLock.rawValue
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x39,
+                modifierFlagsRawValue: 0
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testNonModifierKeyReturnsNil() {
+        XCTAssertNil(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x00,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
+            )
         )
     }
 }
