@@ -84,6 +84,9 @@ enum KeyboardShortcutSettings {
         case showBrowserJavaScriptConsole
         case toggleReactGrab
 
+        // Leader key (tmux-style prefix)
+        case leaderKey
+
         var id: String { rawValue }
 
         var label: String {
@@ -145,6 +148,7 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
+            case .leaderKey: return String(localized: "shortcut.leaderKey.label", defaultValue: "Leader Key (tmux prefix)")
             }
         }
 
@@ -272,6 +276,9 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .leaderKey:
+                // tmux default: Ctrl+B
+                return StoredShortcut(key: "b", command: false, shift: false, option: false, control: true)
             }
         }
 
