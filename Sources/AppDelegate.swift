@@ -715,466 +715,6 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     }
 }
 
-enum VSCodeServeWebURLBuilder {
-    static func extractWebUIURL(from output: String) -> URL? {
-        let prefix = "Web UI available at "
-        for line in output.split(whereSeparator: \.isNewline).reversed() {
-            guard let range = line.range(of: prefix) else { continue }
-            let rawURL = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !rawURL.isEmpty, let url = URL(string: rawURL) else { continue }
-            return url
-        }
-        return nil
-    }
-
-    static func openFolderURL(baseWebUIURL: URL, directoryPath: String) -> URL? {
-        var components = URLComponents(url: baseWebUIURL, resolvingAgainstBaseURL: false)
-        var queryItems = components?.queryItems ?? []
-        queryItems.removeAll { $0.name == "folder" }
-        queryItems.append(URLQueryItem(name: "folder", value: directoryPath))
-        components?.queryItems = queryItems
-        return components?.url
-    }
-}
-
-struct VSCodeCLILaunchConfiguration {
-    let executableURL: URL
-    let argumentsPrefix: [String]
-    let environment: [String: String]
-}
-
-enum VSCodeCLILaunchConfigurationBuilder {
-    static func launchConfiguration(
-        vscodeApplicationURL: URL,
-        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
-    ) -> VSCodeCLILaunchConfiguration? {
-        let contentsURL = vscodeApplicationURL.appendingPathComponent("Contents", isDirectory: true)
-        let codeTunnelURL = contentsURL.appendingPathComponent("Resources/app/bin/code-tunnel", isDirectory: false)
-        guard isExecutableAtPath(codeTunnelURL.path) else { return nil }
-
-        var environment = baseEnvironment
-        environment["ELECTRON_RUN_AS_NODE"] = "1"
-        environment.removeValue(forKey: "VSCODE_NODE_OPTIONS")
-        environment.removeValue(forKey: "VSCODE_NODE_REPL_EXTERNAL_MODULE")
-        if let nodeOptions = environment["NODE_OPTIONS"] {
-            environment["VSCODE_NODE_OPTIONS"] = nodeOptions
-        }
-        if let nodeReplExternalModule = environment["NODE_REPL_EXTERNAL_MODULE"] {
-            environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"] = nodeReplExternalModule
-        }
-        environment.removeValue(forKey: "NODE_OPTIONS")
-        environment.removeValue(forKey: "NODE_REPL_EXTERNAL_MODULE")
-
-        return VSCodeCLILaunchConfiguration(
-            executableURL: codeTunnelURL,
-            argumentsPrefix: [],
-            environment: environment
-        )
-    }
-}
-
-final class VSCodeServeWebController {
-    static let shared = VSCodeServeWebController()
-    private static let serveWebStartupTimeoutSeconds: TimeInterval = 60
-
-    private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
-    private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
-    private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
-    private var serveWebProcess: Process?
-    private var launchingProcess: Process?
-    private var connectionTokenFilesByProcessID: [ObjectIdentifier: URL] = [:]
-    private var serveWebURL: URL?
-    private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
-    private var isLaunching = false
-    private var activeLaunchGeneration: UInt64?
-    private var lifecycleGeneration: UInt64 = 0
-#if DEBUG
-    private var testingTrackedProcesses: [Process] = []
-#endif
-
-    private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
-        self.launchProcessOverride = launchProcessOverride
-    }
-
-#if DEBUG
-    static func makeForTesting(
-        launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
-    ) -> VSCodeServeWebController {
-        VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
-    }
-
-    func trackConnectionTokenFileForTesting(
-        _ connectionTokenFileURL: URL,
-        setAsLaunchingProcess: Bool = false,
-        setAsServeWebProcess: Bool = false
-    ) {
-        let process = Process()
-        queue.sync {
-            if setAsLaunchingProcess {
-                self.launchingProcess = process
-            }
-            if setAsServeWebProcess {
-                self.serveWebProcess = process
-            }
-            if !setAsLaunchingProcess && !setAsServeWebProcess {
-                self.testingTrackedProcesses.append(process)
-            }
-            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
-        }
-    }
-#endif
-
-    func ensureServeWebURL(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
-        queue.async {
-            if let process = self.serveWebProcess,
-               process.isRunning,
-               let url = self.serveWebURL {
-                DispatchQueue.main.async {
-                    completion(url)
-                }
-                return
-            }
-
-            let completionGeneration = self.lifecycleGeneration
-            self.pendingCompletions.append((generation: completionGeneration, completion: completion))
-            guard !self.isLaunching else { return }
-
-            self.isLaunching = true
-            let launchGeneration = completionGeneration
-            self.activeLaunchGeneration = launchGeneration
-
-            self.launchQueue.async {
-                let shouldLaunch = self.queue.sync {
-                    self.lifecycleGeneration == launchGeneration
-                }
-                guard shouldLaunch else {
-                    self.queue.async {
-                        guard self.activeLaunchGeneration == launchGeneration else { return }
-                        self.isLaunching = false
-                        self.activeLaunchGeneration = nil
-                    }
-                    return
-                }
-                let launchResult = self.launchServeWebProcess(
-                    vscodeApplicationURL: vscodeApplicationURL,
-                    expectedGeneration: launchGeneration
-                )
-                self.queue.async {
-                    guard self.activeLaunchGeneration == launchGeneration else {
-                        if let process = launchResult?.process, process.isRunning {
-                            process.terminate()
-                        }
-                        return
-                    }
-                    self.isLaunching = false
-                    self.activeLaunchGeneration = nil
-
-                    guard self.lifecycleGeneration == launchGeneration else {
-                        if let launchedProcess = launchResult?.process,
-                           self.launchingProcess === launchedProcess {
-                            self.launchingProcess = nil
-                        }
-                        if let process = launchResult?.process, process.isRunning {
-                            process.terminate()
-                        }
-                        return
-                    }
-
-                    if let launchResult {
-                        self.launchingProcess = nil
-                        self.serveWebProcess = launchResult.process
-                        self.serveWebURL = launchResult.url
-                    } else {
-                        self.launchingProcess = nil
-                        self.serveWebProcess = nil
-                        self.serveWebURL = nil
-                    }
-
-                    var completions: [(URL?) -> Void] = []
-                    var remaining: [(generation: UInt64, completion: (URL?) -> Void)] = []
-                    for pending in self.pendingCompletions {
-                        if pending.generation == launchGeneration {
-                            completions.append(pending.completion)
-                        } else {
-                            remaining.append(pending)
-                        }
-                    }
-                    self.pendingCompletions = remaining
-                    let resolvedURL = self.serveWebURL
-                    DispatchQueue.main.async {
-                        completions.forEach { $0(resolvedURL) }
-                    }
-                }
-            }
-        }
-    }
-
-    func stop() {
-        let (processes, tokenFileURLs, completions): ([Process], [URL], [(URL?) -> Void]) = queue.sync {
-            self.lifecycleGeneration &+= 1
-            self.isLaunching = false
-            self.activeLaunchGeneration = nil
-            var processes: [Process] = []
-            if let process = self.serveWebProcess {
-                processes.append(process)
-            }
-            if let process = self.launchingProcess,
-               !processes.contains(where: { $0 === process }) {
-                processes.append(process)
-            }
-            self.serveWebProcess = nil
-            self.launchingProcess = nil
-#if DEBUG
-            self.testingTrackedProcesses.removeAll()
-#endif
-            var tokenFileURLs = processes.compactMap {
-                self.connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
-            }
-            tokenFileURLs.append(contentsOf: self.connectionTokenFilesByProcessID.values)
-            self.connectionTokenFilesByProcessID.removeAll()
-            self.serveWebURL = nil
-            let completions = self.pendingCompletions.map(\.completion)
-            self.pendingCompletions.removeAll()
-            return (processes, tokenFileURLs, completions)
-        }
-
-        for tokenFileURL in tokenFileURLs {
-            Self.removeConnectionTokenFile(at: tokenFileURL)
-        }
-
-        for process in processes where process.isRunning {
-            process.terminate()
-        }
-
-        if !completions.isEmpty {
-            DispatchQueue.main.async {
-                completions.forEach { $0(nil) }
-            }
-        }
-    }
-
-    func restart(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
-        stop()
-        ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
-    }
-
-    private func launchServeWebProcess(
-        vscodeApplicationURL: URL,
-        expectedGeneration: UInt64
-    ) -> (process: Process, url: URL)? {
-        if let launchProcessOverride {
-            return launchProcessOverride(vscodeApplicationURL, expectedGeneration)
-        }
-
-        guard let launchConfiguration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: vscodeApplicationURL
-        ) else { return nil }
-
-        guard let connectionTokenFileURL = Self.makeConnectionTokenFile() else {
-            return nil
-        }
-
-        let process = Process()
-        process.executableURL = launchConfiguration.executableURL
-        process.arguments = launchConfiguration.argumentsPrefix + [
-            "serve-web",
-            "--accept-server-license-terms",
-            "--host", "127.0.0.1",
-            "--port", "0",
-            "--connection-token-file", connectionTokenFileURL.path,
-        ]
-        process.environment = launchConfiguration.environment
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        let collector = ServeWebOutputCollector()
-        let outputReader: (FileHandle) -> Void = { fileHandle in
-            let data = fileHandle.availableData
-            guard !data.isEmpty else { return }
-            collector.append(data)
-        }
-        stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
-        stderrPipe.fileHandleForReading.readabilityHandler = outputReader
-
-        process.terminationHandler = { [weak self] terminatedProcess in
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
-            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
-            collector.markProcessExited()
-            self?.queue.async {
-                guard let self else { return }
-                if self.launchingProcess === terminatedProcess {
-                    self.launchingProcess = nil
-                }
-                if self.serveWebProcess === terminatedProcess {
-                    self.serveWebProcess = nil
-                    self.serveWebURL = nil
-                }
-                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                    forKey: ObjectIdentifier(terminatedProcess)
-                ) {
-                    Self.removeConnectionTokenFile(at: tokenFileURL)
-                }
-            }
-        }
-
-        let didStart: Bool = queue.sync {
-            guard self.lifecycleGeneration == expectedGeneration,
-                  self.activeLaunchGeneration == expectedGeneration else {
-                return false
-            }
-            self.launchingProcess = process
-            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
-            do {
-                try process.run()
-                return true
-            } catch {
-                if self.launchingProcess === process {
-                    self.launchingProcess = nil
-                }
-                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                    forKey: ObjectIdentifier(process)
-                ) {
-                    Self.removeConnectionTokenFile(at: tokenFileURL)
-                }
-                return false
-            }
-        }
-        guard didStart else {
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            Self.removeConnectionTokenFile(at: connectionTokenFileURL)
-            return nil
-        }
-
-        guard collector.waitForURL(timeoutSeconds: Self.serveWebStartupTimeoutSeconds),
-              let serveWebURL = collector.webUIURL else {
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            if process.isRunning {
-                process.terminate()
-            } else {
-                queue.sync {
-                    if self.launchingProcess === process {
-                        self.launchingProcess = nil
-                    }
-                    if self.serveWebProcess === process {
-                        self.serveWebProcess = nil
-                        self.serveWebURL = nil
-                    }
-                    if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                        forKey: ObjectIdentifier(process)
-                    ) {
-                        Self.removeConnectionTokenFile(at: tokenFileURL)
-                    }
-                }
-            }
-            return nil
-        }
-
-        return (process, serveWebURL)
-    }
-
-    private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
-        while true {
-            let data = fileHandle.availableData
-            guard !data.isEmpty else { return }
-            collector.append(data)
-        }
-    }
-
-    private static func randomConnectionToken() -> String {
-        UUID().uuidString.replacingOccurrences(of: "-", with: "")
-    }
-
-    private static func makeConnectionTokenFile() -> URL? {
-        let token = randomConnectionToken()
-        let tokenFileName = "cmux-vscode-token-\(UUID().uuidString)"
-        let tokenFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent(tokenFileName, isDirectory: false)
-        guard let tokenData = token.data(using: .utf8) else { return nil }
-
-        let fileDescriptor = open(tokenFileURL.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
-        guard fileDescriptor >= 0 else { return nil }
-        defer { _ = close(fileDescriptor) }
-
-        let wroteAllBytes = tokenData.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else { return false }
-            return write(fileDescriptor, baseAddress, rawBuffer.count) == rawBuffer.count
-        }
-        guard wroteAllBytes else {
-            removeConnectionTokenFile(at: tokenFileURL)
-            return nil
-        }
-
-        return tokenFileURL
-    }
-
-    private static func removeConnectionTokenFile(at url: URL) {
-        try? FileManager.default.removeItem(at: url)
-    }
-}
-
-final class ServeWebOutputCollector {
-    private let lock = NSLock()
-    private let semaphore = DispatchSemaphore(value: 0)
-    private var outputBuffer = ""
-    private var resolvedURL: URL?
-    private var didSignal = false
-
-    var webUIURL: URL? {
-        lock.lock()
-        defer { lock.unlock() }
-        return resolvedURL
-    }
-
-    func append(_ data: Data) {
-        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        guard resolvedURL == nil else { return }
-        outputBuffer.append(text)
-        while let newlineIndex = outputBuffer.firstIndex(where: \.isNewline) {
-            let line = String(outputBuffer[..<newlineIndex])
-            outputBuffer.removeSubrange(...newlineIndex)
-            guard let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: line) else {
-                continue
-            }
-            resolvedURL = parsedURL
-            outputBuffer.removeAll(keepingCapacity: false)
-            if !didSignal {
-                didSignal = true
-                semaphore.signal()
-            }
-            return
-        }
-    }
-
-    func markProcessExited() {
-        lock.lock()
-        defer { lock.unlock() }
-        if resolvedURL == nil, !outputBuffer.isEmpty,
-           let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: outputBuffer) {
-            resolvedURL = parsedURL
-            outputBuffer.removeAll(keepingCapacity: false)
-        }
-        guard !didSignal else { return }
-        didSignal = true
-        semaphore.signal()
-    }
-
-    func waitForURL(timeoutSeconds: TimeInterval) -> Bool {
-        if webUIURL != nil { return true }
-        _ = semaphore.wait(timeout: .now() + timeoutSeconds)
-        return webUIURL != nil
-    }
-}
-
 enum WorkspaceShortcutMapper {
     /// Maps numbered workspace shortcuts to a zero-based workspace index.
     /// 1...8 target fixed indices; 9 always targets the last workspace.
@@ -1203,320 +743,6 @@ enum WorkspaceShortcutMapper {
     }
 }
 
-struct CmuxCLIPathInstaller {
-    struct InstallOutcome {
-        let usedAdministratorPrivileges: Bool
-        let destinationURL: URL
-        let sourceURL: URL
-    }
-
-    struct UninstallOutcome {
-        let usedAdministratorPrivileges: Bool
-        let destinationURL: URL
-        let removedExistingEntry: Bool
-    }
-
-    enum InstallerError: LocalizedError {
-        case bundledCLIMissing(expectedPath: String)
-        case destinationParentNotDirectory(path: String)
-        case destinationIsDirectory(path: String)
-        case installVerificationFailed(path: String)
-        case uninstallVerificationFailed(path: String)
-        case privilegedCommandFailed(message: String)
-
-        var errorDescription: String? {
-            switch self {
-            case .bundledCLIMissing(let expectedPath):
-                return "Bundled cmux CLI was not found at \(expectedPath)."
-            case .destinationParentNotDirectory(let path):
-                return "Expected \(path) to be a directory."
-            case .destinationIsDirectory(let path):
-                return "\(path) is a directory. Remove or rename it and try again."
-            case .installVerificationFailed(let path):
-                return "Installed symlink at \(path) did not point to the bundled cmux CLI."
-            case .uninstallVerificationFailed(let path):
-                return "Failed to remove \(path)."
-            case .privilegedCommandFailed(let message):
-                return "Administrator action failed: \(message)"
-            }
-        }
-    }
-
-    typealias PrivilegedInstallHandler = (_ sourceURL: URL, _ destinationURL: URL) throws -> Void
-    typealias PrivilegedUninstallHandler = (_ destinationURL: URL) throws -> Void
-
-    let fileManager: FileManager
-    let destinationURL: URL
-    private let bundledCLIURLProvider: () -> URL?
-    private let expectedBundledCLIPath: String
-    private let privilegedInstaller: PrivilegedInstallHandler
-    private let privilegedUninstaller: PrivilegedUninstallHandler
-
-    init(
-        fileManager: FileManager = .default,
-        destinationURL: URL = URL(fileURLWithPath: "/usr/local/bin/cmux"),
-        bundledCLIURLProvider: @escaping () -> URL? = {
-            CmuxCLIPathInstaller.defaultBundledCLIURL()
-        },
-        expectedBundledCLIPath: String = CmuxCLIPathInstaller.defaultBundledCLIExpectedPath(),
-        privilegedInstaller: PrivilegedInstallHandler? = nil,
-        privilegedUninstaller: PrivilegedUninstallHandler? = nil
-    ) {
-        self.fileManager = fileManager
-        self.destinationURL = destinationURL
-        self.bundledCLIURLProvider = bundledCLIURLProvider
-        self.expectedBundledCLIPath = expectedBundledCLIPath
-        self.privilegedInstaller = privilegedInstaller ?? Self.installWithAdministratorPrivileges(sourceURL:destinationURL:)
-        self.privilegedUninstaller = privilegedUninstaller ?? Self.uninstallWithAdministratorPrivileges(destinationURL:)
-    }
-
-    var destinationPath: String {
-        destinationURL.path
-    }
-
-    func install() throws -> InstallOutcome {
-        let sourceURL = try resolveBundledCLIURL()
-        do {
-            try installWithoutAdministratorPrivileges(sourceURL: sourceURL)
-            return InstallOutcome(
-                usedAdministratorPrivileges: false,
-                destinationURL: destinationURL,
-                sourceURL: sourceURL
-            )
-        } catch {
-            guard Self.isPermissionDenied(error) else { throw error }
-            try ensureDestinationIsNotDirectory()
-            try privilegedInstaller(sourceURL, destinationURL)
-            try verifyInstalledSymlinkTarget(sourceURL: sourceURL)
-            return InstallOutcome(
-                usedAdministratorPrivileges: true,
-                destinationURL: destinationURL,
-                sourceURL: sourceURL
-            )
-        }
-    }
-
-    func uninstall() throws -> UninstallOutcome {
-        do {
-            let removedExistingEntry = try uninstallWithoutAdministratorPrivileges()
-            return UninstallOutcome(
-                usedAdministratorPrivileges: false,
-                destinationURL: destinationURL,
-                removedExistingEntry: removedExistingEntry
-            )
-        } catch {
-            guard Self.isPermissionDenied(error) else { throw error }
-            try ensureDestinationIsNotDirectory()
-            let removedExistingEntry = destinationEntryExists()
-            try privilegedUninstaller(destinationURL)
-            if destinationEntryExists() {
-                throw InstallerError.uninstallVerificationFailed(path: destinationURL.path)
-            }
-            return UninstallOutcome(
-                usedAdministratorPrivileges: true,
-                destinationURL: destinationURL,
-                removedExistingEntry: removedExistingEntry
-            )
-        }
-    }
-
-    func isInstalled() -> Bool {
-        guard let sourceURL = bundledCLIURLProvider()?.standardizedFileURL else { return false }
-        guard let installedTargetURL = symlinkDestinationURL() else { return false }
-        return installedTargetURL == sourceURL
-    }
-
-    private func resolveBundledCLIURL() throws -> URL {
-        guard let sourceURL = bundledCLIURLProvider()?.standardizedFileURL else {
-            throw InstallerError.bundledCLIMissing(expectedPath: expectedBundledCLIPath)
-        }
-
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
-            throw InstallerError.bundledCLIMissing(expectedPath: sourceURL.path)
-        }
-        return sourceURL
-    }
-
-    private func installWithoutAdministratorPrivileges(sourceURL: URL) throws {
-        try ensureDestinationParentDirectoryExists()
-        try ensureDestinationIsNotDirectory()
-        if destinationEntryExists() {
-            try fileManager.removeItem(at: destinationURL)
-        }
-        try fileManager.createSymbolicLink(at: destinationURL, withDestinationURL: sourceURL)
-        try verifyInstalledSymlinkTarget(sourceURL: sourceURL)
-    }
-
-    @discardableResult
-    private func uninstallWithoutAdministratorPrivileges() throws -> Bool {
-        try ensureDestinationIsNotDirectory()
-        let existed = destinationEntryExists()
-        if existed {
-            try fileManager.removeItem(at: destinationURL)
-        }
-        if destinationEntryExists() {
-            throw InstallerError.uninstallVerificationFailed(path: destinationURL.path)
-        }
-        return existed
-    }
-
-    /// Check if the destination path has any filesystem entry (including dangling symlinks).
-    /// `FileManager.fileExists` follows symlinks, so a dangling symlink returns false.
-    private func destinationEntryExists() -> Bool {
-        (try? fileManager.attributesOfItem(atPath: destinationURL.path)) != nil
-    }
-
-    private func verifyInstalledSymlinkTarget(sourceURL: URL) throws {
-        guard let installedTargetURL = symlinkDestinationURL(),
-              installedTargetURL == sourceURL.standardizedFileURL else {
-            throw InstallerError.installVerificationFailed(path: destinationURL.path)
-        }
-    }
-
-    private func symlinkDestinationURL() -> URL? {
-        guard fileManager.fileExists(atPath: destinationURL.path) else { return nil }
-        guard let destinationPath = try? fileManager.destinationOfSymbolicLink(atPath: destinationURL.path) else {
-            return nil
-        }
-        return URL(
-            fileURLWithPath: destinationPath,
-            relativeTo: destinationURL.deletingLastPathComponent()
-        ).standardizedFileURL
-    }
-
-    private func ensureDestinationParentDirectoryExists() throws {
-        let parentURL = destinationURL.deletingLastPathComponent()
-        var isDirectory: ObjCBool = false
-        if fileManager.fileExists(atPath: parentURL.path, isDirectory: &isDirectory) {
-            guard isDirectory.boolValue else {
-                throw InstallerError.destinationParentNotDirectory(path: parentURL.path)
-            }
-            return
-        }
-        try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true)
-    }
-
-    private func ensureDestinationIsNotDirectory() throws {
-        guard let values = try resourceValuesIfFileExists(
-            at: destinationURL,
-            keys: [.isDirectoryKey, .isSymbolicLinkKey]
-        ) else {
-            return
-        }
-
-        if values.isDirectory == true, values.isSymbolicLink != true {
-            throw InstallerError.destinationIsDirectory(path: destinationURL.path)
-        }
-    }
-
-    private func resourceValuesIfFileExists(
-        at url: URL,
-        keys: Set<URLResourceKey>
-    ) throws -> URLResourceValues? {
-        do {
-            return try url.resourceValues(forKeys: keys)
-        } catch {
-            let nsError = error as NSError
-            if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileReadNoSuchFileError {
-                return nil
-            }
-            if nsError.domain == NSPOSIXErrorDomain,
-               POSIXErrorCode(rawValue: Int32(nsError.code)) == .ENOENT {
-                return nil
-            }
-            throw error
-        }
-    }
-
-    private static func defaultBundledCLIURL(bundle: Bundle = .main) -> URL? {
-        bundle.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
-    }
-
-    private static func defaultBundledCLIExpectedPath(bundle: Bundle = .main) -> String {
-        bundle.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .path
-    }
-
-    private static func installWithAdministratorPrivileges(sourceURL: URL, destinationURL: URL) throws {
-        let destinationPath = destinationURL.path
-        let parentPath = destinationURL.deletingLastPathComponent().path
-        let command = "/bin/mkdir -p \(shellQuoted(parentPath)) && " +
-            "/bin/rm -f \(shellQuoted(destinationPath)) && " +
-            "/bin/ln -s \(shellQuoted(sourceURL.path)) \(shellQuoted(destinationPath))"
-        try runPrivilegedShellCommand(command)
-    }
-
-    private static func uninstallWithAdministratorPrivileges(destinationURL: URL) throws {
-        let command = "/bin/rm -f \(shellQuoted(destinationURL.path))"
-        try runPrivilegedShellCommand(command)
-    }
-
-    private static func runPrivilegedShellCommand(_ command: String) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = [
-            "-e", "on run argv",
-            "-e", "do shell script (item 1 of argv) with administrator privileges",
-            "-e", "end run",
-            command
-        ]
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let stderrText = String(
-                data: stderr.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let stdoutText = String(
-                data: stdout.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let details = stderrText.isEmpty ? stdoutText : stderrText
-            let message = details.isEmpty
-                ? "osascript exited with status \(process.terminationStatus)."
-                : details
-            throw InstallerError.privilegedCommandFailed(message: message)
-        }
-    }
-
-    private static func shellQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    private static func isPermissionDenied(_ error: Error) -> Bool {
-        isPermissionDenied(error as NSError)
-    }
-
-    private static func isPermissionDenied(_ error: NSError) -> Bool {
-        if error.domain == NSPOSIXErrorDomain,
-           let code = POSIXErrorCode(rawValue: Int32(error.code)),
-           code == .EACCES || code == .EPERM || code == .EROFS {
-            return true
-        }
-
-        if error.domain == NSCocoaErrorDomain {
-            switch error.code {
-            case NSFileWriteNoPermissionError, NSFileReadNoPermissionError, NSFileWriteVolumeReadOnlyError:
-                return true
-            default:
-                break
-            }
-        }
-
-        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
-            return isPermissionDenied(underlying)
-        }
-
-        return false
-    }
-}
 
 private extension NSScreen {
     var cmuxDisplayID: UInt32? {
@@ -2298,14 +1524,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
-    private var browserAddressBarFocusedPanelId: UUID?
-    private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
-    private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
-    private var browserOmnibarRepeatKeyCode: UInt16?
-    private var browserOmnibarRepeatDelta: Int = 0
-    private var browserAddressBarFocusObserver: NSObjectProtocol?
-    private var browserAddressBarBlurObserver: NSObjectProtocol?
-    private var browserWebViewFirstResponderObserver: NSObjectProtocol?
+    private lazy var browserAddressBar: BrowserAddressBarCoordinator = {
+        BrowserAddressBarCoordinator(
+            panelLookup: { [weak self] panelId in self?.browserPanel(for: panelId) },
+            panelOwnerLookup: { [weak self] webView in self?.browserPanelOwning(webView) },
+            shouldPreserveCheck: { [weak self] panel in
+                self?.shouldPreserveBrowserAddressBarTracking(for: panel) ?? false
+            }
+        )
+    }()
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
@@ -2644,7 +1871,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
         installWindowResponderSwizzles()
-        installBrowserAddressBarFocusObservers()
+        browserAddressBar.installObserversIfNeeded()
         installShortcutMonitor()
         installShortcutDefaultsObserver()
         SystemWideHotkeyController.shared.start()
@@ -10280,7 +9507,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if shortcutMonitorTraceEnabled {
                     let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
                     dlog(
-                        "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
+                        "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBar.focusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
                     )
                 }
                 if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
@@ -10326,7 +9553,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return event // Pass through
             }
-            self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+            self.browserAddressBar.handleOmnibarSelectionRepeatLifecycleEvent(event)
             if self.clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true) {
                 return nil
             }
@@ -10847,21 +10074,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        // Guard against stale browserAddressBarFocusedPanelId after focus transitions
+        // Guard against stale browserAddressBar.focusedPanelId after focus transitions
         // (e.g., split that doesn't properly blur the address bar). If the first responder
         // is a terminal surface, the address bar can't be focused.
-        if browserAddressBarFocusedPanelId != nil,
+        if browserAddressBar.focusedPanelId != nil,
            cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
 #if DEBUG
-            let stalePanelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let stalePanelToken = browserAddressBar.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
             dlog(
                 "browser.focus.addressBar.staleClear panel=\(stalePanelToken) " +
                 "reason=terminal_first_responder fr=\(firstResponderType)"
             )
 #endif
-            browserAddressBarFocusedPanelId = nil
-            stopBrowserOmnibarSelectionRepeat()
+            browserAddressBar.clearFocus()
         }
 
         // Keep Cmd+P/Cmd+N inside the focused browser omnibar for Chrome-like
@@ -10962,8 +10188,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             flags: flags,
             chars: chars
         ) {
-            dispatchBrowserOmnibarSelectionMove(delta: delta)
-            startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: event.keyCode, delta: delta)
+            browserAddressBar.dispatchOmnibarSelectionMove(delta: delta)
+            browserAddressBar.startOmnibarSelectionRepeatIfNeeded(keyCode: event.keyCode, delta: delta)
             return true
         }
 
@@ -10972,7 +10198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             flags: event.modifierFlags,
             keyCode: event.keyCode
         ) {
-            dispatchBrowserOmnibarSelectionMove(delta: delta)
+            browserAddressBar.dispatchOmnibarSelectionMove(delta: delta)
             return true
         }
 
@@ -11427,8 +10653,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
 
-            if let browserAddressBarFocusedPanelId,
-               focusBrowserAddressBar(panelId: browserAddressBarFocusedPanelId) {
+            if let panelId = browserAddressBar.focusedPanelId,
+               focusBrowserAddressBar(panelId: panelId) {
                 return true
             }
 
@@ -11628,7 +10854,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "chars='\(chars)' flags=\(browserZoomShortcutTraceFlagsString(flags)) " +
             "action=\(browserZoomShortcutTraceActionString(action)) keyWin=\(keyWindow?.windowNumber ?? -1) " +
             "fr=\(firstResponderType) panel=\(panelToken) zoom=\(String(format: "%.3f", panelZoom)) " +
-            "addrBarId=\(browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")"
+            "addrBarId=\(browserAddressBar.focusedPanelId?.uuidString.prefix(8) ?? "nil")"
         if let handled {
             line += " handled=\(handled ? 1 : 0)"
         }
@@ -11638,7 +10864,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func browserFocusStateSnapshot() -> String {
         let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         let focused = tabManager?.selectedWorkspace?.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-        let addressBar = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let addressBar = browserAddressBar.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         let keyWindow = NSApp.keyWindow?.windowNumber ?? -1
         let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         return "selected=\(selected) focused=\(focused) addr=\(addressBar) keyWin=\(keyWindow) fr=\(firstResponderType)"
@@ -11734,7 +10960,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #else
         _ = panel.requestAddressBarFocus()
 #endif
-        browserAddressBarFocusedPanelId = panel.id
+        browserAddressBar.setFocusedPanel(panel.id)
 #if DEBUG
         dlog(
             "browser.focus.addressBar.sticky panel=\(panel.id.uuidString.prefix(5)) " +
@@ -11751,11 +10977,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func focusedBrowserAddressBarPanelId() -> UUID? {
-        browserAddressBarFocusedPanelId
+        browserAddressBar.focusedPanelId
     }
 
     private func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
-        guard let panelId = browserAddressBarFocusedPanelId else { return nil }
+        guard let panelId = browserAddressBar.focusedPanelId else { return nil }
 
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
 #if DEBUG
@@ -11841,7 +11067,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func shouldPreserveBrowserAddressBarTracking(for panel: BrowserPanel) -> Bool {
-        guard browserAddressBarFocusedPanelId == panel.id else { return false }
+        guard browserAddressBar.focusedPanelId == panel.id else { return false }
         if isBrowserOmnibarResponder(panel.webView.window?.firstResponder) {
             return true
         }
@@ -11857,14 +11083,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         flags: NSEvent.ModifierFlags,
         chars: String
     ) -> Bool {
-        guard browserAddressBarFocusedPanelId != nil else { return false }
+        guard browserAddressBar.focusedPanelId != nil else { return false }
         let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
         let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
         guard isCommandOrControlOnly else { return false }
         let shouldBypass = chars == "n" || chars == "p"
 #if DEBUG
         if shouldBypass {
-            let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let panelToken = browserAddressBar.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             dlog(
                 "browser.focus.addressBar.shortcutBypass panel=\(panelToken) " +
                 "chars=\(chars) flags=\(normalizedFlags.rawValue)"
@@ -11884,141 +11110,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             flags: flags,
             chars: chars
         )
-    }
-
-    private func dispatchBrowserOmnibarSelectionMove(delta: Int) {
-        guard delta != 0 else { return }
-        guard let panelId = browserAddressBarFocusedPanelId else { return }
-#if DEBUG
-        dlog(
-            "browser.focus.omnibar.selectionMove panel=\(panelId.uuidString.prefix(5)) " +
-            "delta=\(delta) repeatKey=\(browserOmnibarRepeatKeyCode.map(String.init) ?? "nil")"
-        )
-#endif
-        NotificationCenter.default.post(
-            name: .browserMoveOmnibarSelection,
-            object: panelId,
-            userInfo: ["delta": delta]
-        )
-    }
-
-    private func startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: UInt16, delta: Int) {
-        guard delta != 0 else { return }
-        guard browserAddressBarFocusedPanelId != nil else {
-#if DEBUG
-            dlog(
-                "browser.focus.omnibar.repeat.start key=\(keyCode) delta=\(delta) " +
-                "result=skip_no_focused_address_bar"
-            )
-#endif
-            return
-        }
-
-        if browserOmnibarRepeatKeyCode == keyCode, browserOmnibarRepeatDelta == delta {
-#if DEBUG
-            let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-            dlog(
-                "browser.focus.omnibar.repeat.start panel=\(panelToken) " +
-                "key=\(keyCode) delta=\(delta) result=reuse"
-            )
-#endif
-            return
-        }
-
-        stopBrowserOmnibarSelectionRepeat()
-        browserOmnibarRepeatKeyCode = keyCode
-        browserOmnibarRepeatDelta = delta
-#if DEBUG
-        let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-        dlog(
-            "browser.focus.omnibar.repeat.start panel=\(panelToken) " +
-            "key=\(keyCode) delta=\(delta) result=armed"
-        )
-#endif
-
-        let start = DispatchWorkItem { [weak self] in
-            self?.scheduleBrowserOmnibarSelectionRepeatTick()
-        }
-        browserOmnibarRepeatStartWorkItem = start
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: start)
-    }
-
-    private func scheduleBrowserOmnibarSelectionRepeatTick() {
-        browserOmnibarRepeatStartWorkItem = nil
-        guard browserAddressBarFocusedPanelId != nil else {
-#if DEBUG
-            dlog("browser.focus.omnibar.repeat.tick result=stop_no_focused_address_bar")
-#endif
-            stopBrowserOmnibarSelectionRepeat()
-            return
-        }
-        guard browserOmnibarRepeatKeyCode != nil else { return }
-
-#if DEBUG
-        let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-        dlog(
-            "browser.focus.omnibar.repeat.tick panel=\(panelToken) " +
-            "delta=\(browserOmnibarRepeatDelta)"
-        )
-#endif
-        dispatchBrowserOmnibarSelectionMove(delta: browserOmnibarRepeatDelta)
-
-        let tick = DispatchWorkItem { [weak self] in
-            self?.scheduleBrowserOmnibarSelectionRepeatTick()
-        }
-        browserOmnibarRepeatTickWorkItem = tick
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.055, execute: tick)
-    }
-
-    private func stopBrowserOmnibarSelectionRepeat() {
-#if DEBUG
-        let previousKeyCode = browserOmnibarRepeatKeyCode
-        let previousDelta = browserOmnibarRepeatDelta
-#endif
-        browserOmnibarRepeatStartWorkItem?.cancel()
-        browserOmnibarRepeatTickWorkItem?.cancel()
-        browserOmnibarRepeatStartWorkItem = nil
-        browserOmnibarRepeatTickWorkItem = nil
-        browserOmnibarRepeatKeyCode = nil
-        browserOmnibarRepeatDelta = 0
-#if DEBUG
-        if previousKeyCode != nil || previousDelta != 0 {
-            dlog(
-                "browser.focus.omnibar.repeat.stop key=\(previousKeyCode.map(String.init) ?? "nil") " +
-                "delta=\(previousDelta)"
-            )
-        }
-#endif
-    }
-
-    private func handleBrowserOmnibarSelectionRepeatLifecycleEvent(_ event: NSEvent) {
-        guard browserOmnibarRepeatKeyCode != nil else { return }
-
-        switch event.type {
-        case .keyUp:
-            if event.keyCode == browserOmnibarRepeatKeyCode {
-#if DEBUG
-                dlog(
-                    "browser.focus.omnibar.repeat.lifecycle event=keyUp key=\(event.keyCode) " +
-                    "action=stop"
-                )
-#endif
-                stopBrowserOmnibarSelectionRepeat()
-            }
-        case .flagsChanged:
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if !flags.contains(.command) {
-#if DEBUG
-                dlog(
-                    "browser.focus.omnibar.repeat.lifecycle event=flagsChanged " +
-                    "flags=\(flags.rawValue) action=stop"
-                )
-#endif
-                stopBrowserOmnibarSelectionRepeat()
-            }
-        default:
-            break
-        }
     }
 
     private func isLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
@@ -12266,7 +11357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if event.type == .keyDown {
             return handleCustomShortcut(event: event)
         }
-        handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+        browserAddressBar.handleOmnibarSelectionRepeatLifecycleEvent(event)
         return clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true)
     }
 
@@ -12789,90 +11880,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] note in
             guard let self, let window = note.object as? NSWindow else { return }
             self.setActiveMainWindow(window)
-        }
-    }
-
-    private func installBrowserAddressBarFocusObservers() {
-        guard browserAddressBarFocusObserver == nil,
-              browserAddressBarBlurObserver == nil,
-              browserWebViewFirstResponderObserver == nil else { return }
-
-        browserAddressBarFocusObserver = NotificationCenter.default.addObserver(
-            forName: .browserDidFocusAddressBar,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self else { return }
-            guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
-            self.browserAddressBarFocusedPanelId = panelId
-            self.stopBrowserOmnibarSelectionRepeat()
-#if DEBUG
-            dlog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
-#endif
-        }
-
-        browserAddressBarBlurObserver = NotificationCenter.default.addObserver(
-            forName: .browserDidBlurAddressBar,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self else { return }
-            guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
-            if self.browserAddressBarFocusedPanelId == panelId {
-                self.browserAddressBarFocusedPanelId = nil
-                self.stopBrowserOmnibarSelectionRepeat()
-#if DEBUG
-                dlog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
-#endif
-            }
-        }
-
-        browserWebViewFirstResponderObserver = NotificationCenter.default.addObserver(
-            forName: .browserDidBecomeFirstResponderWebView,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self else { return }
-            guard let webView = notification.object as? CmuxWebView,
-                  let panel = self.browserPanelOwning(webView) else { return }
-
-            if let trackedPanelId = self.browserAddressBarFocusedPanelId,
-               trackedPanelId != panel.id,
-               let trackedPanel = self.browserPanel(for: trackedPanelId),
-               !self.shouldPreserveBrowserAddressBarTracking(for: trackedPanel) {
-                trackedPanel.endSuppressWebViewFocusForAddressBar()
-                self.browserAddressBarFocusedPanelId = nil
-                self.stopBrowserOmnibarSelectionRepeat()
-#if DEBUG
-                dlog(
-                    "addressBar CLEAR panelId=\(trackedPanelId.uuidString.prefix(8)) " +
-                    "reason=stale_other_panel_webViewFirstResponder"
-                )
-#endif
-            }
-
-            guard !self.shouldPreserveBrowserAddressBarTracking(for: panel) else {
-#if DEBUG
-                dlog(
-                    "addressBar CLEAR panelId=\(panel.id.uuidString.prefix(8)) " +
-                    "reason=skip_preserve_omnibar_handoff"
-                )
-#endif
-                return
-            }
-            panel.endSuppressWebViewFocusForAddressBar()
-            if self.browserAddressBarFocusedPanelId == panel.id {
-                self.browserAddressBarFocusedPanelId = nil
-                self.stopBrowserOmnibarSelectionRepeat()
-#if DEBUG
-                dlog(
-                    "addressBar CLEAR panelId=\(panel.id.uuidString.prefix(8)) " +
-                    "reason=webViewFirstResponder"
-                )
-#endif
-            }
         }
     }
 
