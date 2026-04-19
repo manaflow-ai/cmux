@@ -4391,6 +4391,10 @@ struct CMUXCLI {
         guard (remote["enabled"] as? Bool) == true else { return false }
         guard (remote["destination"] as? String) == options.destination else { return false }
 
+        // Only reuse workspaces that are actively connected.
+        let state = (remote["state"] as? String) ?? ""
+        guard state == "connected" else { return false }
+
         let remotePort = intFromAny(remote["port"])
         if let requestedPort = options.port {
             guard remotePort == requestedPort else { return false }

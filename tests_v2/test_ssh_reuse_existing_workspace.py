@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: `cmux ssh` reuses matching remote SSH workspaces by default."""
+"""Regression: `cmux ssh` reuses matching remote SSH workspaces only when connected."""
 
 from __future__ import annotations
 
@@ -96,12 +96,14 @@ def main() -> int:
     with cmux(SOCKET_PATH) as client:
         try:
             selected_before_setup = client.current_workspace()
-            reusable_workspace_id = client.new_workspace()
-            workspaces_to_close.append(reusable_workspace_id)
+
+            # Create a workspace configured as remote but NOT connected (auto_connect=False).
+            disconnected_workspace_id = client.new_workspace()
+            workspaces_to_close.append(disconnected_workspace_id)
             client._call(
                 "workspace.remote.configure",
                 {
-                    "workspace_id": reusable_workspace_id,
+                    "workspace_id": disconnected_workspace_id,
                     "destination": "cmux-reuse.test",
                     "port": 2200,
                     "auto_connect": False,
@@ -109,30 +111,37 @@ def main() -> int:
             )
             client.select_workspace(selected_before_setup)
 
-            count_before_reuse = _workspace_count(client)
-            selected_before_reuse = client.current_workspace()
-            reuse_payload = _run_cli_json(
+            # Verify disconnected workspaces are NOT reused — cmux ssh should
+            # create a new workspace instead of attaching to a stale session.
+            count_before = _workspace_count(client)
+            selected_before = client.current_workspace()
+            new_payload = _run_cli_json(
                 cli,
                 ["ssh", "cmux-reuse.test", "--port", "2200", "--no-focus"],
             )
-            reuse_workspace_id = _resolve_workspace_id_from_payload(client, reuse_payload)
-            if reuse_workspace_id and reuse_workspace_id != reusable_workspace_id:
-                workspaces_to_close.append(reuse_workspace_id)
+            new_workspace_id = _resolve_workspace_id_from_payload(client, new_payload)
+            if new_workspace_id:
+                workspaces_to_close.append(new_workspace_id)
 
-            _must(bool(reuse_payload.get("reused")) is True, f"reuse payload should set reused=true: {reuse_payload}")
             _must(
-                reuse_workspace_id == reusable_workspace_id,
-                f"cmux ssh should reuse workspace {reusable_workspace_id}, got {reuse_workspace_id}: {reuse_payload}",
+                bool(new_payload.get("reused")) is False,
+                f"disconnected workspace should not be reused: {new_payload}",
             )
             _must(
-                _workspace_count(client) == count_before_reuse,
-                f"cmux ssh reuse should not create another workspace: before={count_before_reuse} payload={reuse_payload}",
+                not new_workspace_id or new_workspace_id != disconnected_workspace_id,
+                f"cmux ssh should create a new workspace, not reuse disconnected {disconnected_workspace_id}: {new_payload}",
             )
             _must(
-                client.current_workspace() == selected_before_reuse,
-                "cmux ssh --no-focus should not select the reused workspace",
+                _workspace_count(client) == count_before + 1,
+                f"cmux ssh should create a new workspace when existing one is disconnected: before={count_before} payload={new_payload}",
+            )
+            _must(
+                client.current_workspace() == selected_before,
+                "cmux ssh --no-focus should not switch workspace",
             )
 
+            # --new should always create a new workspace regardless.
+            count_before_new = _workspace_count(client)
             force_new_payload = _run_cli_json(
                 cli,
                 ["ssh", "cmux-reuse.test", "--port", "2200", "--new", "--no-focus"],
@@ -143,12 +152,12 @@ def main() -> int:
 
             _must(bool(force_new_payload.get("reused")) is False, f"--new payload should set reused=false: {force_new_payload}")
             _must(
-                bool(force_new_workspace_id) and force_new_workspace_id != reusable_workspace_id,
-                f"cmux ssh --new should create a distinct workspace: existing={reusable_workspace_id} payload={force_new_payload}",
+                bool(force_new_workspace_id) and force_new_workspace_id != disconnected_workspace_id,
+                f"cmux ssh --new should create a distinct workspace: existing={disconnected_workspace_id} payload={force_new_payload}",
             )
             _must(
-                _workspace_count(client) == count_before_reuse + 1,
-                f"cmux ssh --new should create exactly one workspace: before={count_before_reuse} payload={force_new_payload}",
+                _workspace_count(client) == count_before_new + 1,
+                f"cmux ssh --new should create exactly one workspace: before={count_before_new} payload={force_new_payload}",
             )
         finally:
             for workspace_id in dict.fromkeys(workspaces_to_close):
@@ -157,7 +166,7 @@ def main() -> int:
                 except Exception:
                     pass
 
-    print("PASS: cmux ssh reuses matching remote workspace and --new creates a fresh workspace")
+    print("PASS: cmux ssh skips disconnected workspaces and --new always creates a fresh workspace")
     return 0
 
 
