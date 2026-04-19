@@ -124,10 +124,12 @@ private final class CapsuleToolbarBackgroundView: NSView {
 
 @MainActor
 final class WindowToolbarController: NSObject, NSToolbarDelegate {
+    private let toolbarIdentifier = NSToolbar.Identifier("cmux.toolbar")
     private let commandItemIdentifier = NSToolbarItem.Identifier("cmux.focusedCommand")
     private let timeIndicatorItemIdentifier = NSToolbarItem.Identifier("cmux.timeIndicator")
 
     private struct TimeIndicatorViews {
+        let containerView: NSView
         let iconView: NSImageView
         let textField: NSTextField
     }
@@ -136,7 +138,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private var timeIndicatorViews: [ObjectIdentifier: TimeIndicatorViews] = [:]
     private var observers: [NSObjectProtocol] = []
     private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    private var minuteTimer: Timer?
+    private var timeIndicatorTimer: Timer?
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var lastKnownTimeIndicatorEnabled = TitlebarTimeIndicatorSettings.isEnabled()
 
@@ -144,7 +146,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
-        minuteTimer?.invalidate()
+        timeIndicatorTimer?.invalidate()
     }
 
     func start() {
@@ -216,13 +218,13 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     }
 
     private func startMinuteTimer() {
-        minuteTimer?.invalidate()
+        timeIndicatorTimer?.invalidate()
         let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.updateTimeIndicator()
             }
         }
-        minuteTimer = timer
+        timeIndicatorTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
@@ -256,7 +258,8 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         // Toolbar removal/re-addition changes the titlebar geometry, and
         // accessories hidden via isHidden need a layout pass to reappear.
         if !isMinimal {
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
                 for window in NSApp.windows where self.shouldManageToolbar(for: window) {
                     for accessory in window.titlebarAccessoryViewControllers where !accessory.isHidden {
                         accessory.view.needsLayout = true
@@ -275,11 +278,12 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     }
 
     private func clearToolbar(for window: NSWindow) {
-        if let toolbar = window.toolbar {
-            let key = ObjectIdentifier(toolbar)
-            commandLabels.removeValue(forKey: key)
-            timeIndicatorViews.removeValue(forKey: key)
-        }
+        guard let toolbar = window.toolbar else { return }
+        guard toolbar.identifier == toolbarIdentifier else { return }
+
+        let key = ObjectIdentifier(toolbar)
+        commandLabels.removeValue(forKey: key)
+        timeIndicatorViews.removeValue(forKey: key)
         window.toolbar = nil
     }
 
@@ -299,7 +303,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         guard window.toolbar == nil else { return }
         guard !WorkspacePresentationModeSettings.isMinimal() else { return }
 
-        let toolbar = NSToolbar(identifier: NSToolbar.Identifier("cmux.toolbar"))
+        let toolbar = NSToolbar(identifier: toolbarIdentifier)
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.sizeMode = .small
@@ -326,19 +330,53 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private func updateFocusedCommandText() {
         pruneStaleViewCaches()
 
-        let text: String
-        if let tabManager = AppDelegate.shared?.tabManager,
-           let selectedId = tabManager.selectedTabId,
-           let tab = tabManager.tabs.first(where: { $0.id == selectedId }) {
-            let title = tab.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-            text = title.isEmpty ? "Cmd: —" : "Cmd: \(title)"
-        } else {
-            text = "Cmd: —"
+        for window in NSApp.windows where shouldManageToolbar(for: window) {
+            guard let toolbar = window.toolbar else { continue }
+            let key = ObjectIdentifier(toolbar)
+            guard let label = commandLabels[key] else { continue }
+
+            let text = focusedCommandText(for: window)
+            if label.stringValue != text {
+                label.stringValue = text
+            }
+        }
+    }
+
+    private func focusedCommandText(for window: NSWindow) -> String {
+        guard let tabManager = tabManager(for: window),
+              let selectedId = tabManager.selectedTabId,
+              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+            return focusedCommandPlaceholderText()
         }
 
-        for label in commandLabels.values where label.stringValue != text {
-            label.stringValue = text
+        let title = tab.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        return title.isEmpty ? focusedCommandPlaceholderText() : focusedCommandWithTitleText(title)
+    }
+
+    private func tabManager(for window: NSWindow) -> TabManager? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        if let windowId = windowId(for: window),
+           let tabManager = appDelegate.tabManagerFor(windowId: windowId) {
+            return tabManager
         }
+        return appDelegate.tabManager
+    }
+
+    private func windowId(for window: NSWindow) -> UUID? {
+        guard let rawIdentifier = window.identifier?.rawValue else { return nil }
+        let prefix = "cmux.main."
+        guard rawIdentifier.hasPrefix(prefix) else { return nil }
+        let uuidText = String(rawIdentifier.dropFirst(prefix.count))
+        return UUID(uuidString: uuidText)
+    }
+
+    private func focusedCommandPlaceholderText() -> String {
+        String(localized: "titlebar.focusedCommand.none", defaultValue: "Cmd: —")
+    }
+
+    private func focusedCommandWithTitleText(_ title: String) -> String {
+        let format = String(localized: "titlebar.focusedCommand.withTitle", defaultValue: "Cmd: %@")
+        return String(format: format, title)
     }
 
     private func updateTimeIndicator() {
@@ -361,6 +399,9 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         for views in timeIndicatorViews.values {
             if views.textField.stringValue != fullText {
                 views.textField.stringValue = fullText
+                views.containerView.invalidateIntrinsicContentSize()
+                views.containerView.needsLayout = true
+                views.containerView.superview?.needsLayout = true
             }
             views.iconView.image = symbolImage
             views.iconView.contentTintColor = style.color
@@ -394,7 +435,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
                 defaultValue: "Focused command in the active workspace"
             )
 
-            let label = NSTextField(labelWithString: "Cmd: —")
+            let label = NSTextField(labelWithString: focusedCommandPlaceholderText())
             label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
             label.textColor = .secondaryLabelColor
             label.lineBreakMode = .byTruncatingMiddle
@@ -453,6 +494,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             item.view = capsuleView
 
             timeIndicatorViews[ObjectIdentifier(toolbar)] = TimeIndicatorViews(
+                containerView: capsuleView,
                 iconView: iconView,
                 textField: label
             )
