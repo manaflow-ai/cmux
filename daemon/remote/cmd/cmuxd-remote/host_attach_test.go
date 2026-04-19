@@ -137,20 +137,27 @@ func TestHostAttachCapability(t *testing.T) {
 		t.Fatal("hello result should be a map")
 	}
 
-	caps, ok := result["capabilities"].([]string)
-	if !ok {
-		t.Fatal("capabilities should be a string slice")
-	}
-
 	found := false
-	for _, c := range caps {
-		if c == "host.attach" {
-			found = true
-			break
+	switch caps := result["capabilities"].(type) {
+	case []string:
+		for _, c := range caps {
+			if c == "host.attach" {
+				found = true
+				break
+			}
 		}
+	case []any:
+		for _, c := range caps {
+			if s, ok := c.(string); ok && s == "host.attach" {
+				found = true
+				break
+			}
+		}
+	default:
+		t.Fatalf("unexpected capabilities type %T", result["capabilities"])
 	}
 	if !found {
-		capsJSON, _ := json.Marshal(caps)
+		capsJSON, _ := json.Marshal(result["capabilities"])
 		t.Errorf("host.attach capability not found in %s", capsJSON)
 	}
 }

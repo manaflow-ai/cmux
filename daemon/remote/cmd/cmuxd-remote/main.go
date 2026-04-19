@@ -179,6 +179,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote attach-bridge --surface <ref> [--read-only] [--poll-ms <ms>] [--no-vt]")
 }
 
 func runStdioServer(stdin io.Reader, stdout io.Writer) error {
@@ -186,11 +187,12 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 		writer: bufio.NewWriter(stdout),
 	}
 	server := &rpcServer{
-		nextStreamID:  1,
-		nextSessionID: 1,
-		streams:       map[string]*streamState{},
-		sessions:      map[string]*sessionState{},
-		frameWriter:   writer,
+		nextStreamID:    1,
+		nextSessionID:   1,
+		streams:         map[string]*streamState{},
+		sessions:        map[string]*sessionState{},
+		hostAttachments: map[string]*hostAttachState{},
+		frameWriter:     writer,
 	}
 	defer server.closeAll()
 

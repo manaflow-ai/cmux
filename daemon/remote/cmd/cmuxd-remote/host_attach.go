@@ -319,9 +319,6 @@ func (s *rpcServer) handleHostAttach(req rpcRequest) rpcResponse {
 		surfaceRef: surfaceID,
 		stopCh:     make(chan struct{}),
 	}
-	if s.hostAttachments == nil {
-		s.hostAttachments = make(map[string]*hostAttachState)
-	}
 	s.hostAttachments[attachID] = state
 	s.mu.Unlock()
 

@@ -6552,7 +6552,7 @@ struct CMUXCLI {
     ) throws {
         // Parse options
         let (surfaceOpt, rem0) = parseOption(commandArgs, name: "--surface")
-        let (workspaceOpt, rem1) = parseOption(rem0, name: "--workspace")
+        let (_, rem1) = parseOption(rem0, name: "--workspace") // reserved for future use
         let (nameOpt, rem2) = parseOption(rem1, name: "--name")
         let listMode = rem2.contains("--list")
         let readOnly = rem2.contains("--read-only")
