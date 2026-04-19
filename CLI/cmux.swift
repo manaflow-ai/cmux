@@ -6652,12 +6652,13 @@ struct CMUXCLI {
     }
 
     /// Builds the remote command for bridging to a host surface.
+    /// Uses cmuxd-remote's attach-bridge subcommand for full bidirectional PTY proxy.
     private func buildAttachBridgeCommand(relayPort: Int, surfaceRef: String, readOnly: Bool) -> String {
-        let readOnlyFlag = readOnly ? " --read-only" : ""
-        return [
-            "CMUX_HOST_SURFACE=\(surfaceRef)\(readOnlyFlag)",
-            "exec ~/.cmux/bin/cmuxd-remote/*/darwin-*/cmuxd-remote cli host-read --surface \(surfaceRef)",
-        ].joined(separator: " ")
+        var flags = "--surface \(surfaceRef)"
+        if readOnly {
+            flags += " --read-only"
+        }
+        return "exec ~/.cmux/bin/cmuxd-remote/*/darwin-*/cmuxd-remote attach-bridge \(flags)"
     }
 
     private func runRemoteDaemonStatus(commandArgs: [String], jsonOutput: Bool) throws {

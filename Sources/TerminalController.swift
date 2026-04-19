@@ -2716,6 +2716,8 @@ class TerminalController {
 
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
+        case "surface.read_vt":
+            return v2Result(id: id, self.v2SurfaceReadVT(params: params))
 
 
 #if DEBUG
@@ -6799,6 +6801,95 @@ class TerminalController {
             ])
         }
 
+        return result
+    }
+
+    /// Reads the terminal screen with VT escape sequences preserved (ANSI colors, cursor, etc).
+    /// Used by `cmux attach` to achieve high-fidelity remote surface mirroring.
+    private func v2SurfaceReadVT(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let lineLimit = v2Int(params, "lines")
+        if let lineLimit, lineLimit <= 0 {
+            return .err(code: "invalid_params", message: "lines must be greater than 0", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to read terminal VT", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
+                result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+
+            guard let vtText = readTerminalTextFromVTExportForSnapshot(
+                terminalPanel: terminalPanel,
+                lineLimit: lineLimit
+            ) else {
+                // Fallback to plain text if VT export fails
+                let response = readTerminalTextBase64(
+                    terminalPanel: terminalPanel,
+                    includeScrollback: false,
+                    lineLimit: lineLimit
+                )
+                guard response.hasPrefix("OK ") else {
+                    result = .err(code: "internal_error", message: response, data: nil)
+                    return
+                }
+                let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+                let decoded = Data(base64Encoded: base64).flatMap { String(data: $0, encoding: .utf8) }
+                guard let text = decoded ?? (base64.isEmpty ? "" : nil) else {
+                    result = .err(code: "internal_error", message: "Failed to decode terminal text", data: nil)
+                    return
+                }
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "text": text,
+                    "vt": false,
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId)
+                ])
+                return
+            }
+
+            let vtBase64 = Data(vtText.utf8).base64EncodedString()
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "text": vtText,
+                "base64": vtBase64,
+                "vt": true,
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId)
+            ])
+        }
         return result
     }
 
