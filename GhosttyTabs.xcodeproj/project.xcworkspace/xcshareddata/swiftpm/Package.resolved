@@ -1,13 +1,13 @@
 {
-  "originHash" : "b66d812c506be67c70b46c63421ab2eb2db013613c74252ad1205f662ada079b",
+  "originHash" : "d6e697ed61148b5ed6f7c38d488b1cba990cb1cdbc72aa1498ab6cb2f08d01d5",
   "pins" : [
     {
-      "identity" : "networkimage",
+      "identity" : "coretextswift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/NetworkImage",
+      "location" : "https://github.com/krzyzanowskim/CoreTextSwift",
       "state" : {
-        "revision" : "2849f5323265386e200484b0d0f896e73c3411b9",
-        "version" : "6.0.1"
+        "revision" : "833177201d6421e6322296f39fce6ff6ae52618a",
+        "version" : "0.2.0"
       }
     },
     {
@@ -38,21 +38,21 @@
       }
     },
     {
-      "identity" : "swift-cmark",
+      "identity" : "sttextkitplus",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-cmark",
+      "location" : "https://github.com/krzyzanowskim/STTextKitPlus",
       "state" : {
-        "revision" : "5d9bdaa4228b381639fff09403e39a04926e2dbe",
-        "version" : "0.7.1"
+        "revision" : "2ee74906f4d753458eeaa9a2f6d4538aacb86a1d",
+        "version" : "0.3.0"
       }
     },
     {
-      "identity" : "swift-markdown-ui",
+      "identity" : "sttextview",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/swift-markdown-ui",
+      "location" : "https://github.com/krzyzanowskim/STTextView",
       "state" : {
-        "revision" : "5f613358148239d0292c0cef674a3c2314737f9e",
-        "version" : "2.4.1"
+        "revision" : "c36bf60f098f05d82d16dd4a7fe5135ef0678706",
+        "version" : "2.3.9"
       }
     }
   ],

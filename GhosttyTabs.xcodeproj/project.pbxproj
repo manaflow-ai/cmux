@@ -45,7 +45,7 @@
 		A5007422 /* BrowserWebAuthnSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007423 /* BrowserWebAuthnSupport.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
-		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
+		A5001295 /* STTextView in Frameworks */ = {isa = PBXBuildFile; productRef = A5001294 /* STTextView */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
@@ -121,6 +121,7 @@
 					F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
 					F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */; };
 					F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */; };
+					FA200000A1B2C3D4E5F60718 /* MarkdownPanelTextViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA200001A1B2C3D4E5F60718 /* MarkdownPanelTextViewTests.swift */; };
 					FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */; };
 					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
 					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
@@ -328,6 +329,7 @@
 					F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
 					F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyEnsureFocusWindowActivationTests.swift; sourceTree = "<group>"; };
 					F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
+					FA200001A1B2C3D4E5F60718 /* MarkdownPanelTextViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPanelTextViewTests.swift; sourceTree = "<group>"; };
 					FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStressProfileTests.swift; sourceTree = "<group>"; };
 					A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
 				A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
@@ -361,7 +363,7 @@
 					A5001230 /* Sparkle in Frameworks */,
 					A5001250 /* Sentry in Frameworks */,
 					A5001270 /* PostHog in Frameworks */,
-					A5001290 /* MarkdownUI in Frameworks */,
+					A5001295 /* STTextView in Frameworks */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
@@ -618,6 +620,7 @@
 					F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */,
 					F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */,
 					F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */,
+					FA200001A1B2C3D4E5F60718 /* MarkdownPanelTextViewTests.swift */,
 					FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */,
 					A5008380 /* BrowserFindJavaScriptTests.swift */,
 					A5008382 /* CommandPaletteSearchEngineTests.swift */,
@@ -669,7 +672,7 @@
 					A5001251 /* Sentry */,
 					A5001271 /* PostHog */,
 					A5001261 /* Bonsplit */,
-					A5001291 /* MarkdownUI */,
+					A5001294 /* STTextView */,
 				);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
@@ -788,7 +791,7 @@
 					A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
 					A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
-					A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+					A5001293 /* XCRemoteSwiftPackageReference "STTextView" */,
 					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				);
 			productRefGroup = A5001042 /* Products */;
@@ -927,6 +930,7 @@
 					F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
 					F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */,
 					F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
+					FA200000A1B2C3D4E5F60718 /* MarkdownPanelTextViewTests.swift in Sources */,
 					FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */,
 					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
 					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */,
@@ -1312,12 +1316,12 @@
 					minimumVersion = 3.41.0;
 				};
 			};
-			A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			A5001293 /* XCRemoteSwiftPackageReference "STTextView" */ = {
 				isa = XCRemoteSwiftPackageReference;
-				repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+				repositoryURL = "https://github.com/krzyzanowskim/STTextView";
 				requirement = {
 					kind = upToNextMajorVersion;
-					minimumVersion = 2.4.1;
+					minimumVersion = 2.3.9;
 				};
 			};
 			A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
@@ -1347,10 +1351,10 @@
 				package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
 				productName = Bonsplit;
 			};
-			A5001291 /* MarkdownUI */ = {
+			A5001294 /* STTextView */ = {
 				isa = XCSwiftPackageProductDependency;
-				package = A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
-				productName = MarkdownUI;
+				package = A5001293 /* XCRemoteSwiftPackageReference "STTextView" */;
+				productName = STTextView;
 			};
 /* End XCSwiftPackageProductDependency section */
 
