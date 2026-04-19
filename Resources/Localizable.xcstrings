@@ -90163,6 +90163,23 @@
         }
       }
     },
+    "sessionIndex.popover.endOfList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You've reached the end"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストの末尾に到達しました"
+          }
+        }
+      }
+    },
     "sessionIndex.popover.searching": {
       "extractionState": "manual",
       "localizations": {

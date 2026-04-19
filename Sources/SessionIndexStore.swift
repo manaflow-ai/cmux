@@ -236,7 +236,7 @@ struct SectionKey: Hashable {
     static func directory(_ path: String?) -> SectionKey { SectionKey(raw: "dir:" + (path ?? "")) }
 }
 
-struct IndexSection: Identifiable {
+struct IndexSection: Identifiable, Equatable {
     let key: SectionKey
     let title: String
     let icon: SectionIcon
@@ -245,9 +245,28 @@ struct IndexSection: Identifiable {
     var id: SectionKey { key }
 }
 
-enum SectionIcon {
+enum SectionIcon: Equatable {
     case agent(SessionAgent)
     case folder
+}
+
+/// Owns the "which section is currently being dragged" bit, separate from
+/// `SessionIndexStore`. Isolating this means drag start/end does not emit
+/// `objectWillChange` on the data store, so rows and gaps don't re-render
+/// every time a drag begins or clears.
+@MainActor
+final class SessionDragCoordinator: ObservableObject {
+    @Published var draggedKey: SectionKey? = nil
+}
+
+/// Immutable per-directory snapshot consumed by `SectionPopoverView` for
+/// empty-query scrolling. All entries are merged across the three agent
+/// sources and sorted by `modified` desc. The popover slices this array
+/// in-memory to page, so scrolling fires zero store/disk calls.
+struct DirectorySnapshot: Sendable {
+    let cwd: String  // "" represents the unknown-folder bucket
+    let entries: [SessionEntry]
+    let errors: [String]
 }
 
 @MainActor
@@ -258,7 +277,12 @@ final class SessionIndexStore: ObservableObject {
     @Published var currentDirectory: String? = nil
 
     @Published var grouping: SessionGrouping {
-        didSet { UserDefaults.standard.set(grouping.rawValue, forKey: Self.groupingKey) }
+        didSet {
+            UserDefaults.standard.set(grouping.rawValue, forKey: Self.groupingKey)
+            // Switching into directory grouping can expose cwds that were never
+            // backfilled while the user was viewing agent grouping.
+            if grouping == .directory { backfillDirectoryOrderFromEntries() }
+        }
     }
 
     /// Persisted order for agent sections.
@@ -270,9 +294,6 @@ final class SessionIndexStore: ObservableObject {
     @Published var directoryOrder: [String] {
         didSet { Self.persistDirectoryOrder(directoryOrder) }
     }
-
-    /// The section currently being dragged, if any. Drives "hide adjacent drop slots".
-    @Published var draggedKey: SectionKey? = nil
 
     private static let groupingKey = "sessionIndex.grouping"
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
@@ -300,7 +321,13 @@ final class SessionIndexStore: ObservableObject {
             }
         case .directory:
             let buckets = Dictionary(grouping: visible) { $0.cwd ?? "" }
-            // Discover any directories not yet in saved order; append by most-recent activity.
+            // Any cwds that aren't yet in the saved order still need to show
+            // up. They get appended by most-recent activity, purely locally,
+            // without mutating `directoryOrder` from inside this view-body
+            // computation — scheduling a Task here created a state-update
+            // feedback loop that pegged the main thread at 100% CPU.
+            // Persistent backfill happens via `backfillDirectoryOrderFromEntries`,
+            // called from `reload()` and `grouping.didSet`.
             let knownPaths = Set(directoryOrder)
             let unknownSorted = buckets.keys
                 .filter { !knownPaths.contains($0) }
@@ -309,10 +336,6 @@ final class SessionIndexStore: ObservableObject {
                     let rMax = buckets[rhs]?.map(\.modified).max() ?? .distantPast
                     return lMax > rMax
                 }
-            if !unknownSorted.isEmpty {
-                let nextOrder = directoryOrder + unknownSorted
-                Task { @MainActor in self.directoryOrder = nextOrder }
-            }
             return (directoryOrder + unknownSorted)
                 .filter { buckets[$0] != nil }
                 .map { path in
@@ -324,6 +347,27 @@ final class SessionIndexStore: ObservableObject {
                     )
                 }
         }
+    }
+
+    /// Extend `directoryOrder` with any cwds seen in `entries` that aren't
+    /// already tracked. Kept out of the view-body path: it mutates `@Published`
+    /// state and must only run in response to real data changes (new scan
+    /// results, grouping switch) — not on every SwiftUI update tick.
+    private func backfillDirectoryOrderFromEntries() {
+        var seen = Set(directoryOrder)
+        var additions: [(path: String, latest: Date)] = []
+        for entry in entries {
+            let path = entry.cwd ?? ""
+            if seen.insert(path).inserted {
+                additions.append((path, entry.modified))
+            } else if let idx = additions.firstIndex(where: { $0.path == path }),
+                      additions[idx].latest < entry.modified {
+                additions[idx].latest = entry.modified
+            }
+        }
+        guard !additions.isEmpty else { return }
+        additions.sort { $0.latest > $1.latest }
+        directoryOrder.append(contentsOf: additions.map(\.path))
     }
 
     private func filteredEntriesForCurrentScope() -> [SessionEntry] {
@@ -414,6 +458,8 @@ final class SessionIndexStore: ObservableObject {
     func reload() {
         loadTask?.cancel()
         isLoading = true
+        directorySnapshotGeneration += 1
+        invalidateDirectorySnapshots()
         loadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let scanned = await Self.scanAll()
             await MainActor.run {
@@ -421,8 +467,103 @@ final class SessionIndexStore: ObservableObject {
                 if Task.isCancelled { return }
                 self.entries = scanned
                 self.isLoading = false
+                self.backfillDirectoryOrderFromEntries()
             }
         }
+    }
+
+    // MARK: - Directory snapshot cache
+
+    private var directorySnapshotCache: [String: DirectorySnapshot] = [:]
+    private var directorySnapshotLRU: [String] = []
+    /// Bumped on every `reload()`. Snapshot builds capture this at start;
+    /// if it changes before the build completes (reload raced with an
+    /// in-flight build), the build's result is discarded instead of
+    /// being written back into the cache — otherwise the stale
+    /// pre-reload result would repopulate the cache after invalidation
+    /// and be reused on the next popover open.
+    private var directorySnapshotGeneration: Int = 0
+    private static let directorySnapshotCacheCapacity = 16
+
+    /// Return a cached or freshly-built merged snapshot for a cwd-scoped
+    /// directory. Used by the Show-more popover's empty-query scroll
+    /// path: the popover slices this array in memory instead of asking
+    /// the store for more pages on every scroll, eliminating the O(n²)
+    /// repeated-refetch-and-merge behavior.
+    func loadDirectorySnapshot(cwd: String?) async -> DirectorySnapshot {
+        let key = cwd ?? ""
+        if let cached = touchDirectorySnapshotLRU(key) {
+            return cached
+        }
+
+        let generation = directorySnapshotGeneration
+        let bag = ErrorBag()
+        // The per-agent loaders interpret `cwdFilter == nil` as "no filter,
+        // return all entries". When `cwd` is nil here we specifically mean
+        // the "(no folder)" bucket — entries that genuinely have no cwd.
+        // Fetch unfiltered and post-filter locally to preserve that scope.
+        let noFolderScope = (cwd == nil) || ((cwd ?? "").isEmpty)
+        let cwdFilter = noFolderScope ? nil : cwd
+        // Large limit so every per-agent loader returns all matching rows.
+        // Claude's `searchMaxFiles` cap still applies (currently 1500); if
+        // anyone has more Claude sessions in a single cwd we'll bump it.
+        let bigLimit = 10_000
+        async let c = Self.timedAgent(
+            needle: "", agent: .claude, cwdFilter: cwdFilter,
+            offset: 0, limit: bigLimit, errorBag: bag
+        )
+        async let x = Self.timedAgent(
+            needle: "", agent: .codex, cwdFilter: cwdFilter,
+            offset: 0, limit: bigLimit, errorBag: bag
+        )
+        async let o = Self.timedAgent(
+            needle: "", agent: .opencode, cwdFilter: cwdFilter,
+            offset: 0, limit: bigLimit, errorBag: bag
+        )
+        var merged = (await c) + (await x) + (await o)
+        if Task.isCancelled {
+            return DirectorySnapshot(cwd: key, entries: [], errors: [])
+        }
+        if noFolderScope {
+            merged = merged.filter { ($0.cwd ?? "").isEmpty }
+        }
+        let sorted = merged.sorted { $0.modified > $1.modified }
+        let snapshot = DirectorySnapshot(cwd: key, entries: sorted, errors: bag.snapshot())
+        // Only cache this result if no `reload()` raced in while the
+        // build was running. Otherwise the caller gets a fresh snapshot
+        // but the cache stays invalidated; the next open will rebuild.
+        if generation == directorySnapshotGeneration {
+            storeDirectorySnapshot(key: key, snapshot: snapshot)
+        }
+        return snapshot
+    }
+
+    private func touchDirectorySnapshotLRU(_ key: String) -> DirectorySnapshot? {
+        guard let cached = directorySnapshotCache[key] else { return nil }
+        if let idx = directorySnapshotLRU.firstIndex(of: key) {
+            directorySnapshotLRU.remove(at: idx)
+        }
+        directorySnapshotLRU.append(key)
+        return cached
+    }
+
+    private func storeDirectorySnapshot(key: String, snapshot: DirectorySnapshot) {
+        if directorySnapshotCache[key] == nil,
+           directorySnapshotCache.count >= Self.directorySnapshotCacheCapacity,
+           let oldestKey = directorySnapshotLRU.first {
+            directorySnapshotCache.removeValue(forKey: oldestKey)
+            directorySnapshotLRU.removeFirst()
+        }
+        directorySnapshotCache[key] = snapshot
+        if let idx = directorySnapshotLRU.firstIndex(of: key) {
+            directorySnapshotLRU.remove(at: idx)
+        }
+        directorySnapshotLRU.append(key)
+    }
+
+    private func invalidateDirectorySnapshots() {
+        directorySnapshotCache.removeAll()
+        directorySnapshotLRU.removeAll()
     }
 
     private func normalizedDirectory(_ value: String?) -> String? {
