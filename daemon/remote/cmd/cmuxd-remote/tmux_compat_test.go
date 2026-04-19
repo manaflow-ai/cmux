@@ -364,6 +364,12 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	if os.Getenv("COLORTERM") != "truecolor" {
 		t.Errorf("COLORTERM = %q, want truecolor", os.Getenv("COLORTERM"))
 	}
+	// Verify TERM_PROGRAM was unset (zero-value preserveTermProgram = legacy
+	// "unset" behavior; the explicit preserve case is covered in
+	// agent_launch_test.go).
+	if v, ok := os.LookupEnv("TERM_PROGRAM"); ok {
+		t.Errorf("TERM_PROGRAM should be unset, got %q", v)
+	}
 	// Verify workspace/surface IDs
 	if os.Getenv("CMUX_WORKSPACE_ID") != "ws-abc" {
 		t.Errorf("CMUX_WORKSPACE_ID = %q", os.Getenv("CMUX_WORKSPACE_ID"))
