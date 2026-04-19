@@ -10366,6 +10366,29 @@ struct CMUXCLI {
         return ["--teammate-mode", "auto"] + commandArgs
     }
 
+    /// Returns "xterm-ghostty" if its terminfo entry is available, otherwise
+    /// "xterm-256color" — which is universally supported. This avoids a race
+    /// where `cmux claude-teams` (etc.) could exec a child process that
+    /// inherits TERM=xterm-ghostty before cmux's terminfo overlay has
+    /// finished installing (matters for SSH'd agents on fresh remote hosts;
+    /// also belt-and-suspenders for local Macs without Ghostty installed
+    /// system-wide). Mirrors the Go-side `resolveDefaultTerm` in
+    /// daemon/remote/cmd/cmuxd-remote/agent_launch.go.
+    private static func resolveDefaultTerm() -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["infocmp", "xterm-ghostty"]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0 ? "xterm-ghostty" : "xterm-256color"
+        } catch {
+            return "xterm-256color"
+        }
+    }
+
     private func configureTmuxCompatEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
@@ -10376,7 +10399,7 @@ struct CMUXCLI {
         tmuxPathPrefix: String,
         cmuxBinEnvVar: String,
         termOverrideEnvVar: String,
-        unsetTermProgram: Bool,
+        preserveTermProgram: Bool = false,
         extraEnvVars: [(key: String, value: String)] = []
     ) {
         let updatedPath = prependPathEntries(
@@ -10393,14 +10416,19 @@ struct CMUXCLI {
         let fakeTmuxPane = focusedContext.map { "%\($0.paneHandle)" }
             ?? processEnvironment["TMUX_PANE"]
             ?? "%1"
-        let fakeTerm = processEnvironment[termOverrideEnvVar] ?? "xterm-ghostty"
+        let fakeTerm = processEnvironment[termOverrideEnvVar] ?? Self.resolveDefaultTerm()
 
         setenv(cmuxBinEnvVar, executablePath, 1)
         setenv("PATH", updatedPath, 1)
         setenv("TMUX", fakeTmuxValue, 1)
         setenv("TMUX_PANE", fakeTmuxPane, 1)
         setenv("TERM", fakeTerm, 1)
-        if (processEnvironment["COLORTERM"] ?? "").isEmpty {
+        // Read COLORTERM from the live env (not the snapshot) so the fallback
+        // is robust against any future re-ordering that mutates COLORTERM
+        // earlier — and so it stays in sync with the Go daemon's behavior in
+        // daemon/remote/cmd/cmuxd-remote/agent_launch.go.
+        let liveColorTerm = getenv("COLORTERM").map { String(cString: $0) } ?? ""
+        if liveColorTerm.isEmpty {
             setenv("COLORTERM", "truecolor", 1)
         }
         setenv("CMUX_SOCKET_PATH", socketPath, 1)
@@ -10409,11 +10437,14 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
         }
-        // Only unset TERM_PROGRAM for opencode-family (omo/omx/omc) — they switch
-        // to a light theme when they detect TERM_PROGRAM=ghostty. claude-teams
-        // must preserve it; Claude Code v2.1.112+ crashes during permission
-        // escalation when TERM_PROGRAM is missing (see issue #2947).
-        if unsetTermProgram {
+        // opencode-family agents (omo/omx/omc) react to any non-empty
+        // TERM_PROGRAM by switching to a light theme — they treat the variable
+        // as an outer-host marker regardless of value (regression #2516).
+        // claude-teams must preserve TERM_PROGRAM since Claude Code v2.1.112+
+        // crashes during permission escalation when it's missing (issue #2947).
+        // The default (false) keeps the legacy "unset" behavior, so any new
+        // agent type defaults to the historically common case.
+        if !preserveTermProgram {
             unsetenv("TERM_PROGRAM")
         }
         for envVar in extraEnvVars {
@@ -10456,7 +10487,7 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-claude-teams",
             cmuxBinEnvVar: "CMUX_CLAUDE_TEAMS_CMUX_BIN",
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
-            unsetTermProgram: false,
+            preserveTermProgram: true,
             extraEnvVars: [
                 (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
             ]
@@ -11035,7 +11066,6 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-omo",
             cmuxBinEnvVar: "CMUX_OMO_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMO_TERM",
-            unsetTermProgram: true,
             extraEnvVars: [(key: "OPENCODE_PORT", value: openCodePort)]
         )
     }
@@ -11157,8 +11187,7 @@ struct CMUXCLI {
             focusedContext: focusedContext,
             tmuxPathPrefix: "cmux-omx",
             cmuxBinEnvVar: "CMUX_OMX_CMUX_BIN",
-            termOverrideEnvVar: "CMUX_OMX_TERM",
-            unsetTermProgram: true
+            termOverrideEnvVar: "CMUX_OMX_TERM"
         )
     }
 
@@ -11261,8 +11290,7 @@ struct CMUXCLI {
             focusedContext: focusedContext,
             tmuxPathPrefix: "cmux-omc",
             cmuxBinEnvVar: "CMUX_OMC_CMUX_BIN",
-            termOverrideEnvVar: "CMUX_OMC_TERM",
-            unsetTermProgram: true
+            termOverrideEnvVar: "CMUX_OMC_TERM"
         )
         // omc wraps Claude Code, so it needs the same NODE_OPTIONS restore module
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {

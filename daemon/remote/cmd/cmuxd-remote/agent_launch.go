@@ -41,13 +41,13 @@ func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() st
 	focused := getFocusedContext(rc)
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:          shimDir,
-		socketPath:       socketPath,
-		focused:          focused,
-		tmuxPathPrefix:   "cmux-claude-teams",
-		cmuxBinEnvVar:    "CMUX_CLAUDE_TEAMS_CMUX_BIN",
-		termEnvVar:       "CMUX_CLAUDE_TEAMS_TERM",
-		unsetTermProgram: false,
+		shimDir:             shimDir,
+		socketPath:          socketPath,
+		focused:             focused,
+		tmuxPathPrefix:      "cmux-claude-teams",
+		cmuxBinEnvVar:       "CMUX_CLAUDE_TEAMS_CMUX_BIN",
+		termEnvVar:          "CMUX_CLAUDE_TEAMS_TERM",
+		preserveTermProgram: true,
 		extraEnv: map[string]string{
 			"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
 		},
@@ -96,14 +96,13 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 	focused := getFocusedContext(rc)
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:          shimDir,
-		socketPath:       socketPath,
-		focused:          focused,
-		tmuxPathPrefix:   "cmux-omo",
-		cmuxBinEnvVar:    "CMUX_OMO_CMUX_BIN",
-		termEnvVar:       "CMUX_OMO_TERM",
-		unsetTermProgram: true,
-		extraEnv:         map[string]string{},
+		shimDir:        shimDir,
+		socketPath:     socketPath,
+		focused:        focused,
+		tmuxPathPrefix: "cmux-omo",
+		cmuxBinEnvVar:  "CMUX_OMO_CMUX_BIN",
+		termEnvVar:     "CMUX_OMO_TERM",
+		extraEnv:       map[string]string{},
 	})
 
 	// Set OPENCODE_PORT if not already set
@@ -155,14 +154,13 @@ func runOMXRelay(socketPath string, args []string, refreshAddr func() string) in
 	focused := getFocusedContext(rc)
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:          shimDir,
-		socketPath:       socketPath,
-		focused:          focused,
-		tmuxPathPrefix:   "cmux-omx",
-		cmuxBinEnvVar:    "CMUX_OMX_CMUX_BIN",
-		termEnvVar:       "CMUX_OMX_TERM",
-		unsetTermProgram: true,
-		extraEnv:         map[string]string{},
+		shimDir:        shimDir,
+		socketPath:     socketPath,
+		focused:        focused,
+		tmuxPathPrefix: "cmux-omx",
+		cmuxBinEnvVar:  "CMUX_OMX_CMUX_BIN",
+		termEnvVar:     "CMUX_OMX_TERM",
+		extraEnv:       map[string]string{},
 	})
 
 	launchPath, launchArgv := resolveNodeScriptExec(omxPath, args, originalPath, shimDir)
@@ -192,14 +190,13 @@ func runOMCRelay(socketPath string, args []string, refreshAddr func() string) in
 	focused := getFocusedContext(rc)
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:          shimDir,
-		socketPath:       socketPath,
-		focused:          focused,
-		tmuxPathPrefix:   "cmux-omc",
-		cmuxBinEnvVar:    "CMUX_OMC_CMUX_BIN",
-		termEnvVar:       "CMUX_OMC_TERM",
-		unsetTermProgram: true,
-		extraEnv:         map[string]string{},
+		shimDir:        shimDir,
+		socketPath:     socketPath,
+		focused:        focused,
+		tmuxPathPrefix: "cmux-omc",
+		cmuxBinEnvVar:  "CMUX_OMC_CMUX_BIN",
+		termEnvVar:     "CMUX_OMC_TERM",
+		extraEnv:       map[string]string{},
 	})
 
 	// omc wraps Claude Code, so configure NODE_OPTIONS restore module
@@ -434,15 +431,32 @@ func stringFromAny(values ...any) string {
 
 // --- Environment configuration ---
 
+// resolveDefaultTerm returns "xterm-ghostty" if its terminfo entry is
+// available, otherwise "xterm-256color" — which is universally supported.
+// This avoids a race on fresh remote SSH hosts where cmux's terminfo overlay
+// installs asynchronously during shell bootstrap (see CLI/cmux.swift around
+// the interactiveRemoteTerminalSetupLines block, and the existing test
+// tests_v2/test_ssh_remote_shell_integration.py which documents that fresh
+// containers don't have the entry preinstalled).
+func resolveDefaultTerm() string {
+	cmd := exec.Command("infocmp", "xterm-ghostty")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Run(); err == nil {
+		return "xterm-ghostty"
+	}
+	return "xterm-256color"
+}
+
 type agentConfig struct {
-	shimDir          string
-	socketPath       string
-	focused          *focusedContext
-	tmuxPathPrefix   string
-	cmuxBinEnvVar    string
-	termEnvVar       string
-	extraEnv         map[string]string
-	unsetTermProgram bool
+	shimDir             string
+	socketPath          string
+	focused             *focusedContext
+	tmuxPathPrefix      string
+	cmuxBinEnvVar       string
+	termEnvVar          string
+	extraEnv            map[string]string
+	preserveTermProgram bool
 }
 
 func configureAgentEnvironment(cfg agentConfig) {
@@ -475,7 +489,7 @@ func configureAgentEnvironment(cfg agentConfig) {
 	// Terminal settings
 	fakeTerm := os.Getenv(cfg.termEnvVar)
 	if fakeTerm == "" {
-		fakeTerm = "xterm-ghostty"
+		fakeTerm = resolveDefaultTerm()
 	}
 	os.Setenv("TERM", fakeTerm)
 	if os.Getenv("COLORTERM") == "" {
@@ -486,12 +500,14 @@ func configureAgentEnvironment(cfg agentConfig) {
 	os.Setenv("CMUX_SOCKET_PATH", cfg.socketPath)
 	os.Setenv("CMUX_SOCKET", cfg.socketPath)
 
-	// Unset TERM_PROGRAM so apps don't detect the host terminal and
-	// override tmux-compatible behavior (e.g. opencode switches to
-	// light theme when it sees TERM_PROGRAM=ghostty).
-	// Only unset for OMO/OMX/OMC; claude-teams must preserve it
-	// so Claude Code can detect Ghostty for proper color support.
-	if cfg.unsetTermProgram {
+	// opencode-family agents (omo/omx/omc) react to any non-empty TERM_PROGRAM
+	// by switching to a light theme — they treat the variable as an outer-host
+	// marker regardless of value. claude-teams must preserve TERM_PROGRAM since
+	// Claude Code v2.1.112+ crashes during permission escalation when it's
+	// missing (issue #2947). The zero value (false) keeps the legacy behavior
+	// of unsetting, so any new agent type defaults to the historically common
+	// case.
+	if !cfg.preserveTermProgram {
 		os.Unsetenv("TERM_PROGRAM")
 	}
 
