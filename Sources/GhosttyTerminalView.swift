@@ -9468,6 +9468,38 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
+    /// Width to reserve on the right edge of the terminal surface so that a
+    /// persistently-visible vertical scroller does not render on top of
+    /// terminal content. Returns 0 when the scroller is either absent or
+    /// transient (overlay style that fades out), in which case briefly
+    /// overlapping content is acceptable and we keep the full terminal width.
+    ///
+    /// `preferredScrollerStyle == .legacy` is the signal for "persistently
+    /// visible": macOS reports legacy when the user's Show Scroll Bars
+    /// preference is Always, or Automatic with a mouse attached. cmux forces
+    /// the NSScrollView to overlay style to avoid a reserved legacy gutter,
+    /// which means AppKit will not subtract the scroller width for us, so we
+    /// do it here.
+    static func verticalScrollerInsetWidth(
+        hasVerticalScroller: Bool,
+        preferredScrollerStyle: NSScroller.Style,
+        scrollerWidth: CGFloat
+    ) -> CGFloat {
+        guard hasVerticalScroller else { return 0 }
+        guard preferredScrollerStyle == .legacy else { return 0 }
+        return max(0, scrollerWidth)
+    }
+
+    private func verticalScrollerInsetWidth() -> CGFloat {
+        let style = NSScroller.preferredScrollerStyle
+        let width = NSScroller.scrollerWidth(for: .regular, scrollerStyle: style)
+        return Self.verticalScrollerInsetWidth(
+            hasVerticalScroller: scrollView.hasVerticalScroller,
+            preferredScrollerStyle: style,
+            scrollerWidth: width
+        )
+    }
+
     @discardableResult
     private func synchronizeGeometryAndContent() -> Bool {
         CATransaction.begin()
@@ -9478,7 +9510,11 @@ final class GhosttySurfaceScrollView: NSView {
         let previousSurfaceSize = surfaceView.frame.size
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
-        let targetSize = scrollView.bounds.size
+        let scrollerInset = verticalScrollerInsetWidth()
+        let targetSize = CGSize(
+            width: max(0, scrollView.bounds.width - scrollerInset),
+            height: scrollView.bounds.height
+        )
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
@@ -11463,6 +11499,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     /// Match upstream Ghostty behavior: use content area width (excluding non-content
     /// regions such as scrollbar space) when telling libghostty the terminal size.
+    /// `surfaceView.frame` is pre-shrunk by `verticalScrollerInsetWidth()` inside
+    /// `synchronizeGeometryAndContent` so that a persistent vertical scroller does
+    /// not render over the rightmost terminal column.
     @discardableResult
     private func synchronizeCoreSurface() -> Bool {
         let width = max(0, surfaceView.frame.width)
@@ -11637,12 +11676,11 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        synchronizeScrollbarAppearance()
-
-        // Retile just the scroll view so contentSize reflects the current
-        // scroller preference without perturbing hosted terminal geometry.
-        scrollView.tile()
-        _ = synchronizeCoreSurface()
+        // Re-run the full geometry pass: the scroller inset we reserve on the
+        // right edge of the terminal depends on preferredScrollerStyle, so the
+        // surface frame needs to resize when legacy/overlay toggles (e.g. the
+        // user plugs in a mouse or flips Show Scroll Bars).
+        _ = synchronizeGeometryAndContent()
     }
 
     private func handleTerminalScrollBarPreferenceChange() {
