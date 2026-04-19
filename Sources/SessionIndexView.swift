@@ -1317,12 +1317,13 @@ private struct EscapeKeyCatcher: NSViewRepresentable {
 
 // MARK: - Drag cancel monitor
 
-/// Clears `dragCoordinator.draggedKey` after any mouseUp, so a cancelled drag
-/// (user releases outside any valid drop target, or presses Esc mid-drag)
-/// doesn't leave the section stuck at 0.45 opacity. Successful drops clear
-/// the key themselves via `SectionGapDropDelegate.performDrop` and that clear
-/// happens under `DispatchQueue.main.async`, so the drop path always wins the
-/// race against this fallback.
+/// Clears `dragCoordinator.draggedKey` after any mouseUp OR Escape keypress,
+/// so a cancelled drag (user releases outside any valid drop target, or
+/// presses Esc mid-drag) doesn't leave the section stuck at 0.45 opacity.
+/// Successful drops clear the key themselves via
+/// `SectionGapDropDelegate.performDrop` and that clear happens under
+/// `DispatchQueue.main.async`, so the drop path always wins the race
+/// against this fallback.
 private struct DragCancelMonitor: NSViewRepresentable {
     let dragCoordinator: SessionDragCoordinator
 
@@ -1347,9 +1348,20 @@ private struct DragCancelMonitor: NSViewRepresentable {
                 self.monitor = nil
             }
             guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .otherMouseUp]) { [weak self] event in
+            // Cover every way a drag can end without a drop firing:
+            // mouse release (default cancellation) and Escape (AppKit
+            // signals drag abort by delivering a keyDown with
+            // kVK_Escape / keyCode 53). Without the Escape branch,
+            // pressing Esc to cancel a section drag leaves the section
+            // stuck at 0.45 opacity until the next mouseUp elsewhere.
+            monitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseUp, .otherMouseUp, .keyDown]
+            ) { [weak self] event in
                 guard let coordinator = self?.dragCoordinator,
                       coordinator.draggedKey != nil else { return event }
+                if event.type == .keyDown, event.keyCode != 53 { // 53 = kVK_Escape
+                    return event
+                }
                 // Defer the clear so any `performDrop` already queued on the
                 // main actor wins first; this path only matters when no drop
                 // fires, i.e. the drag was cancelled.
