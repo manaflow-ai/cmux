@@ -1,4 +1,6 @@
 import AppKit
+import Combine
+import SwiftUI
 
 private final class PaddedToolbarContentView: NSView {
     private let contentView: NSView
@@ -48,14 +50,8 @@ private final class CapsuleToolbarBackgroundView: NSView {
 
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
-        layer?.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.16).cgColor
         layer?.borderWidth = 1
 
-        gradientLayer.colors = [
-            NSColor(calibratedRed: 0.25, green: 0.22, blue: 0.18, alpha: 0.96).cgColor,
-            NSColor(calibratedRed: 0.17, green: 0.18, blue: 0.20, alpha: 0.96).cgColor,
-            NSColor(calibratedRed: 0.12, green: 0.13, blue: 0.16, alpha: 0.96).cgColor,
-        ]
         gradientLayer.locations = [0.0, 0.45, 1.0]
         gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)
         gradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
@@ -70,6 +66,8 @@ private final class CapsuleToolbarBackgroundView: NSView {
             contentView.topAnchor.constraint(equalTo: topAnchor, constant: insets.top),
             contentView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -insets.bottom),
         ])
+
+        updateGradientColors()
     }
 
     @available(*, unavailable)
@@ -86,6 +84,16 @@ private final class CapsuleToolbarBackgroundView: NSView {
         gradientLayer.cornerRadius = radius
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateGradientColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateGradientColors()
+    }
+
     override var intrinsicContentSize: NSSize {
         let contentSize = contentView.fittingSize
         return NSSize(
@@ -93,21 +101,44 @@ private final class CapsuleToolbarBackgroundView: NSView {
             height: contentSize.height + insets.top + insets.bottom
         )
     }
+
+    private func updateGradientColors() {
+        let isDarkMode = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if isDarkMode {
+            gradientLayer.colors = [
+                NSColor(calibratedRed: 0.25, green: 0.22, blue: 0.18, alpha: 0.96).cgColor,
+                NSColor(calibratedRed: 0.17, green: 0.18, blue: 0.20, alpha: 0.96).cgColor,
+                NSColor(calibratedRed: 0.12, green: 0.13, blue: 0.16, alpha: 0.96).cgColor,
+            ]
+            layer?.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.16).cgColor
+        } else {
+            gradientLayer.colors = [
+                NSColor(calibratedRed: 0.98, green: 0.97, blue: 0.95, alpha: 0.97).cgColor,
+                NSColor(calibratedRed: 0.95, green: 0.95, blue: 0.96, alpha: 0.97).cgColor,
+                NSColor(calibratedRed: 0.92, green: 0.93, blue: 0.95, alpha: 0.97).cgColor,
+            ]
+            layer?.borderColor = NSColor(calibratedWhite: 0.0, alpha: 0.12).cgColor
+        }
+    }
 }
 
 @MainActor
 final class WindowToolbarController: NSObject, NSToolbarDelegate {
-    private let commandPaletteHintItemIdentifier = NSToolbarItem.Identifier("cmux.commandPaletteHint")
+    private let commandItemIdentifier = NSToolbarItem.Identifier("cmux.focusedCommand")
+    private let timeIndicatorItemIdentifier = NSToolbarItem.Identifier("cmux.timeIndicator")
 
-    private struct CommandPaletteHintViews {
+    private struct TimeIndicatorViews {
         let iconView: NSImageView
         let textField: NSTextField
     }
 
-    private var commandPaletteHintViews: [ObjectIdentifier: CommandPaletteHintViews] = [:]
+    private var commandLabels: [ObjectIdentifier: NSTextField] = [:]
+    private var timeIndicatorViews: [ObjectIdentifier: TimeIndicatorViews] = [:]
     private var observers: [NSObjectProtocol] = []
+    private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var minuteTimer: Timer?
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
+    private var lastKnownTimeIndicatorEnabled = TitlebarTimeIndicatorSettings.isEnabled()
 
     deinit {
         for observer in observers {
@@ -120,7 +151,8 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         attachToExistingWindows()
         installObservers()
         startMinuteTimer()
-        updateCommandPaletteHint()
+        scheduleFocusedCommandTextUpdate()
+        updateTimeIndicator()
     }
 
     func attach(to window: NSWindow) {
@@ -129,6 +161,26 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private func installObservers() {
         let center = NotificationCenter.default
+
+        observers.append(center.addObserver(
+            forName: .ghosttyDidSetTitle,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleFocusedCommandTextUpdate()
+            }
+        })
+
+        observers.append(center.addObserver(
+            forName: .ghosttyDidFocusTab,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleFocusedCommandTextUpdate()
+            }
+        })
 
         observers.append(center.addObserver(
             forName: NSWindow.didBecomeMainNotification,
@@ -158,18 +210,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.updateToolbarVisibilityIfNeeded()
-                self?.updateCommandPaletteHint()
-            }
-        })
-
-        observers.append(center.addObserver(
-            forName: KeyboardShortcutSettings.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateCommandPaletteHint()
+                self?.updateToolbarConfigurationIfNeeded()
             }
         })
     }
@@ -178,27 +219,42 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         minuteTimer?.invalidate()
         let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.updateCommandPaletteHint()
+                self?.updateTimeIndicator()
             }
         }
         minuteTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
-    private func updateToolbarVisibilityIfNeeded() {
+    private func updateToolbarConfigurationIfNeeded() {
         let currentMode = WorkspacePresentationModeSettings.mode()
-        guard currentMode != lastKnownPresentationMode else { return }
+        let currentTimeIndicatorEnabled = TitlebarTimeIndicatorSettings.isEnabled()
+        let modeChanged = currentMode != lastKnownPresentationMode
+        let timeIndicatorChanged = currentTimeIndicatorEnabled != lastKnownTimeIndicatorEnabled
+
+        guard modeChanged || timeIndicatorChanged else {
+            pruneStaleViewCaches()
+            return
+        }
+
         lastKnownPresentationMode = currentMode
+        lastKnownTimeIndicatorEnabled = currentTimeIndicatorEnabled
 
         let isMinimal = currentMode == .minimal
         for window in NSApp.windows where shouldManageToolbar(for: window) {
             if isMinimal {
-                window.toolbar = nil
+                clearToolbar(for: window)
+            } else if timeIndicatorChanged {
+                clearToolbar(for: window)
+                attachToolbarIfNeeded(to: window)
             } else {
                 attachToolbarIfNeeded(to: window)
             }
         }
 
+        // After toolbar changes, force titlebar accessories to recalculate.
+        // Toolbar removal/re-addition changes the titlebar geometry, and
+        // accessories hidden via isHidden need a layout pass to reappear.
         if !isMinimal {
             DispatchQueue.main.async {
                 for window in NSApp.windows where self.shouldManageToolbar(for: window) {
@@ -212,6 +268,19 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
                 }
             }
         }
+
+        pruneStaleViewCaches()
+        scheduleFocusedCommandTextUpdate()
+        updateTimeIndicator()
+    }
+
+    private func clearToolbar(for window: NSWindow) {
+        if let toolbar = window.toolbar {
+            let key = ObjectIdentifier(toolbar)
+            commandLabels.removeValue(forKey: key)
+            timeIndicatorViews.removeValue(forKey: key)
+        }
+        window.toolbar = nil
     }
 
     private func attachToExistingWindows() {
@@ -221,13 +290,8 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     }
 
     private func shouldManageToolbar(for window: NSWindow) -> Bool {
-        if let rawIdentifier = window.identifier?.rawValue {
-            return rawIdentifier == "cmux.main" || rawIdentifier.hasPrefix("cmux.main.")
-        }
-
-        // During early startup the main window identifier may not be set yet.
-        // Main workspace windows use an empty title, while utility windows have titles.
-        return window.title.isEmpty
+        guard let rawIdentifier = window.identifier?.rawValue else { return false }
+        return rawIdentifier == "cmux.main" || rawIdentifier.hasPrefix("cmux.main.")
     }
 
     private func attachToolbarIfNeeded(to window: NSWindow) {
@@ -247,18 +311,54 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         window.titleVisibility = .hidden
     }
 
-    private func updateCommandPaletteHint() {
+    private func scheduleFocusedCommandTextUpdate() {
+        focusedCommandUpdateCoalescer.signal { [weak self] in
+            self?.updateFocusedCommandText()
+        }
+    }
+
+    private func pruneStaleViewCaches() {
+        let activeToolbars = Set(NSApp.windows.compactMap { $0.toolbar }.map(ObjectIdentifier.init))
+        commandLabels = commandLabels.filter { activeToolbars.contains($0.key) }
+        timeIndicatorViews = timeIndicatorViews.filter { activeToolbars.contains($0.key) }
+    }
+
+    private func updateFocusedCommandText() {
+        pruneStaleViewCaches()
+
+        let text: String
+        if let tabManager = AppDelegate.shared?.tabManager,
+           let selectedId = tabManager.selectedTabId,
+           let tab = tabManager.tabs.first(where: { $0.id == selectedId }) {
+            let title = tab.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            text = title.isEmpty ? "Cmd: —" : "Cmd: \(title)"
+        } else {
+            text = "Cmd: —"
+        }
+
+        for label in commandLabels.values where label.stringValue != text {
+            label.stringValue = text
+        }
+    }
+
+    private func updateTimeIndicator() {
+        pruneStaleViewCaches()
+        guard TitlebarTimeIndicatorSettings.isEnabled() else { return }
+
         let now = Date()
         let hour = Calendar.current.component(.hour, from: now)
         let style = timeStyle(for: hour)
-
         let fullText = now.formatted(date: .omitted, time: .shortened)
+        let iconDescription = String(
+            localized: "titlebar.timeIndicator.icon.accessibility",
+            defaultValue: "Time of day"
+        )
 
         let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        let symbolImage = NSImage(systemSymbolName: style.symbolName, accessibilityDescription: nil)?
+        let symbolImage = NSImage(systemSymbolName: style.symbolName, accessibilityDescription: iconDescription)?
             .withSymbolConfiguration(symbolConfiguration)
 
-        for views in commandPaletteHintViews.values {
+        for views in timeIndicatorViews.values {
             if views.textField.stringValue != fullText {
                 views.textField.stringValue = fullText
             }
@@ -270,11 +370,14 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     // MARK: - NSToolbarDelegate
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [commandPaletteHintItemIdentifier, .flexibleSpace]
+        [commandItemIdentifier, timeIndicatorItemIdentifier, .flexibleSpace]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, commandPaletteHintItemIdentifier, .flexibleSpace]
+        if TitlebarTimeIndicatorSettings.isEnabled() {
+            return [.flexibleSpace, timeIndicatorItemIdentifier, .flexibleSpace]
+        }
+        return [commandItemIdentifier, .flexibleSpace]
     }
 
     func toolbar(
@@ -282,54 +385,82 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
-        guard itemIdentifier == commandPaletteHintItemIdentifier else { return nil }
+        if itemIdentifier == commandItemIdentifier {
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = String(localized: "titlebar.focusedCommand.label", defaultValue: "Focused Command")
+            item.paletteLabel = item.label
+            item.toolTip = String(
+                localized: "titlebar.focusedCommand.tooltip",
+                defaultValue: "Focused command in the active workspace"
+            )
 
-        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            let label = NSTextField(labelWithString: "Cmd: —")
+            label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+            label.textColor = .secondaryLabelColor
+            label.lineBreakMode = .byTruncatingMiddle
+            label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            label.setAccessibilityLabel(item.label)
+            item.view = label
 
-        let iconView = NSImageView(frame: NSRect(x: 0, y: 0, width: 12, height: 12))
-        iconView.imageScaling = .scaleProportionallyDown
-        iconView.setContentHuggingPriority(.required, for: .horizontal)
+            commandLabels[ObjectIdentifier(toolbar)] = label
+            scheduleFocusedCommandTextUpdate()
+            return item
+        }
 
-        let label = NSTextField(labelWithString: "")
-        label.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        label.textColor = .secondaryLabelColor
-        label.lineBreakMode = .byTruncatingMiddle
-        label.cell?.wraps = false
-        label.drawsBackground = false
-        label.backgroundColor = .clear
-        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        if itemIdentifier == timeIndicatorItemIdentifier {
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = String(localized: "titlebar.timeIndicator.label", defaultValue: "Current Time")
+            item.paletteLabel = item.label
+            item.toolTip = String(localized: "titlebar.timeIndicator.tooltip", defaultValue: "Current local time")
 
-        let stack = NSStackView(views: [iconView, label])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 6
-        stack.wantsLayer = true
-        stack.layer?.backgroundColor = NSColor.clear.cgColor
-        stack.setContentHuggingPriority(.required, for: .horizontal)
-        stack.setContentCompressionResistancePriority(.required, for: .horizontal)
+            let iconView = NSImageView(frame: NSRect(x: 0, y: 0, width: 12, height: 12))
+            iconView.imageScaling = .scaleProportionallyDown
+            iconView.setContentHuggingPriority(.required, for: .horizontal)
 
-        let paddedView = PaddedToolbarContentView(
-            contentView: stack,
-            insets: NSEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
-        )
-        paddedView.setContentHuggingPriority(.required, for: .horizontal)
-        paddedView.setContentCompressionResistancePriority(.required, for: .horizontal)
+            let label = NSTextField(labelWithString: "")
+            label.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+            label.textColor = .secondaryLabelColor
+            label.lineBreakMode = .byTruncatingMiddle
+            label.cell?.wraps = false
+            label.drawsBackground = false
+            label.backgroundColor = .clear
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let capsuleView = CapsuleToolbarBackgroundView(
-            contentView: paddedView,
-            insets: NSEdgeInsets(top: 0, left: 2, bottom: 0, right: 2)
-        )
-        capsuleView.setContentHuggingPriority(.required, for: .horizontal)
-        capsuleView.setContentCompressionResistancePriority(.required, for: .horizontal)
+            let stack = NSStackView(views: [iconView, label])
+            stack.orientation = .horizontal
+            stack.alignment = .centerY
+            stack.spacing = 6
+            stack.wantsLayer = true
+            stack.layer?.backgroundColor = NSColor.clear.cgColor
+            stack.setContentHuggingPriority(.required, for: .horizontal)
+            stack.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        item.view = capsuleView
+            let paddedView = PaddedToolbarContentView(
+                contentView: stack,
+                insets: NSEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+            )
+            paddedView.setContentHuggingPriority(.required, for: .horizontal)
+            paddedView.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        commandPaletteHintViews[ObjectIdentifier(toolbar)] = CommandPaletteHintViews(
-            iconView: iconView,
-            textField: label
-        )
-        updateCommandPaletteHint()
-        return item
+            let capsuleView = CapsuleToolbarBackgroundView(
+                contentView: paddedView,
+                insets: NSEdgeInsets(top: 0, left: 2, bottom: 0, right: 2)
+            )
+            capsuleView.setContentHuggingPriority(.required, for: .horizontal)
+            capsuleView.setContentCompressionResistancePriority(.required, for: .horizontal)
+            capsuleView.setAccessibilityLabel(item.label)
+
+            item.view = capsuleView
+
+            timeIndicatorViews[ObjectIdentifier(toolbar)] = TimeIndicatorViews(
+                iconView: iconView,
+                textField: label
+            )
+            updateTimeIndicator()
+            return item
+        }
+
+        return nil
     }
 
     private struct TimeStyle {

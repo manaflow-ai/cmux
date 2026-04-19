@@ -4816,7 +4816,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         sidebarSelectionState: SidebarSelectionState
     ) {
+        let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
+        if window.identifier?.rawValue != expectedIdentifier {
+            window.identifier = NSUserInterfaceItemIdentifier(expectedIdentifier)
+        }
+
         tabManager.window = window
+        windowToolbarController.attach(to: window)
 
         let key = ObjectIdentifier(window)
         #if DEBUG
@@ -7186,7 +7192,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Apply shared window styling.
         attachUpdateAccessory(to: window)
         applyWindowDecorations(to: window)
-        windowToolbarController.attach(to: window)
 
         // Keep a strong reference so the window isn't deallocated.
         let controller = MainWindowController(window: window)
