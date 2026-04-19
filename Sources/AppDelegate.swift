@@ -2309,6 +2309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
+    private let timeToolbarController = TimeToolbarController()
     private var menuBarExtraController: MenuBarExtraController?
     private static let serviceErrorNoPath = NSString(string: String(localized: "error.clipboardFolderPath", defaultValue: "Could not load any folder path from the clipboard."))
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
@@ -2640,6 +2641,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         titlebarAccessoryController.start()
         windowDecorationsController.start()
+        timeToolbarController.start()
         installMainWindowKeyObserver()
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
@@ -7184,6 +7186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Apply shared window styling.
         attachUpdateAccessory(to: window)
         applyWindowDecorations(to: window)
+        timeToolbarController.attach(to: window)
 
         // Keep a strong reference so the window isn't deallocated.
         let controller = MainWindowController(window: window)
