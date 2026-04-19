@@ -4346,26 +4346,40 @@ struct CMUXCLI {
         guard options.identityFile == nil else { return nil }
         guard options.sshOptions.isEmpty else { return nil }
 
-        let windowsPayload = try client.sendV2(method: "window.list")
-        let windows = windowsPayload["windows"] as? [[String: Any]] ?? []
-        if windows.isEmpty {
-            let listed = try client.sendV2(method: "workspace.list")
-            return reusableSSHWorkspace(in: listed, options: options)
+        // Scope reuse to the window containing the invoking workspace.
+        // If CMUX_WORKSPACE_ID is set we are running inside a cmux tab;
+        // resolve its window and search only there.  Otherwise fall back
+        // to the focused window (workspace.list with no window_id).
+        var targetWindowHandle: String?
+        if let envWorkspace = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !envWorkspace.isEmpty {
+            let windowsPayload = try client.sendV2(method: "window.list")
+            let windows = windowsPayload["windows"] as? [[String: Any]] ?? []
+            for window in windows {
+                let windowHandle = (window["id"] as? String) ?? (window["ref"] as? String)
+                guard let windowHandle, !windowHandle.isEmpty else { continue }
+                let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle])
+                let workspaces = listed["workspaces"] as? [[String: Any]] ?? []
+                if workspaces.contains(where: { ($0["id"] as? String) == envWorkspace || ($0["ref"] as? String) == envWorkspace }) {
+                    targetWindowHandle = windowHandle
+                    break
+                }
+            }
         }
 
-        for window in windows {
-            let windowHandle = (window["id"] as? String) ?? (window["ref"] as? String)
-            guard let windowHandle, !windowHandle.isEmpty else { continue }
-            let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle])
-            if var workspace = reusableSSHWorkspace(in: listed, options: options) {
-                if workspace["window_id"] == nil {
-                    workspace["window_id"] = listed["window_id"] ?? window["id"]
-                }
-                if workspace["window_ref"] == nil {
-                    workspace["window_ref"] = listed["window_ref"] ?? window["ref"]
-                }
-                return workspace
+        var listParams: [String: Any] = [:]
+        if let targetWindowHandle {
+            listParams["window_id"] = targetWindowHandle
+        }
+        let listed = try client.sendV2(method: "workspace.list", params: listParams)
+        if var workspace = reusableSSHWorkspace(in: listed, options: options) {
+            if workspace["window_id"] == nil {
+                workspace["window_id"] = listed["window_id"]
             }
+            if workspace["window_ref"] == nil {
+                workspace["window_ref"] = listed["window_ref"]
+            }
+            return workspace
         }
 
         return nil
