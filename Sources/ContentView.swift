@@ -12741,9 +12741,47 @@ enum SidebarTrailingAccessoryWidthPolicy {
 // and bridge only sidebar-visible workspace changes into local state.
 // Do NOT add @EnvironmentObject or new @Binding without updating ==.
 // Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
+struct SidebarWorkspaceSnapshotBuilder {
+    struct VerticalBranchDirectoryLine: Equatable {
+        let branch: String?
+        let directory: String?
+    }
+
+    struct PullRequestDisplay: Identifiable, Equatable {
+        let id: String
+        let number: Int
+        let label: String
+        let url: URL
+        let status: SidebarPullRequestStatus
+        let isStale: Bool
+    }
+
+    struct Snapshot: Equatable {
+        let title: String
+        let customDescription: String?
+        let isPinned: Bool
+        let customColorHex: String?
+        let remoteWorkspaceSidebarText: String?
+        let remoteConnectionStatusText: String
+        let remoteStateHelpText: String
+        let copyableSidebarSSHError: String?
+        let metadataEntries: [SidebarStatusEntry]
+        let metadataBlocks: [SidebarMetadataBlock]
+        let latestLog: SidebarLogEntry?
+        let progress: SidebarProgressState?
+        let compactGitBranchSummaryText: String?
+        let compactBranchDirectoryRow: String?
+        let branchDirectoryLines: [VerticalBranchDirectoryLine]
+        let branchLinesContainBranch: Bool
+        let pullRequestRows: [PullRequestDisplay]
+        let listeningPorts: [Int]
+    }
+}
+
 private final class SidebarTabItemContextMenuState: ObservableObject {
     var isVisible = false
     var hasDeferredWorkspaceObservationInvalidation = false
+    var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
 
 private struct TabItemView: View, Equatable {
@@ -12802,7 +12840,7 @@ private struct TabItemView: View, Equatable {
     let settings: SidebarTabItemSettingsSnapshot
     let livePresentation: SidebarTabItemPresentationSnapshot
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
-    @State private var workspaceObservationGeneration: UInt64 = 0
+    @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var isHovering = false
     @State private var rowHeight: CGFloat = 1
@@ -12841,6 +12879,10 @@ private struct TabItemView: View, Equatable {
 
     private var sidebarShowSSH: Bool {
         settings.showsSSH
+    }
+
+    private var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot {
+        workspaceSnapshotStorage ?? makeWorkspaceSnapshot()
     }
 
     private var activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -12995,7 +13037,8 @@ private struct TabItemView: View, Equatable {
 
     @ViewBuilder
     private var remoteWorkspaceSection: some View {
-        if sidebarShowSSH, let remoteWorkspaceSidebarText {
+        let workspaceSnapshot = self.workspaceSnapshot
+        if sidebarShowSSH, let remoteWorkspaceSidebarText = workspaceSnapshot.remoteWorkspaceSidebarText {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(remoteWorkspaceSidebarText)
@@ -13006,14 +13049,14 @@ private struct TabItemView: View, Equatable {
 
                     Spacer(minLength: 0)
 
-                    Text(remoteConnectionStatusText)
+                    Text(workspaceSnapshot.remoteConnectionStatusText)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundColor(activeSecondaryColor(0.58))
                         .lineLimit(1)
                 }
             }
             .padding(.top, latestNotificationText == nil ? 1 : 2)
-            .safeHelp(remoteStateHelpText)
+            .safeHelp(workspaceSnapshot.remoteStateHelpText)
         }
     }
 
@@ -13028,13 +13071,13 @@ private struct TabItemView: View, Equatable {
     }
 
     var body: some View {
-        let _ = workspaceObservationGeneration
+        let workspaceSnapshot = self.workspaceSnapshot
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
         let protectedWorkspaceTooltip = String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
             defaultValue: "Pinned workspace. Closing requires confirmation."
         )
-        let closeButtonTooltip = tab.isPinned
+        let closeButtonTooltip = workspaceSnapshot.isPinned
             ? protectedWorkspaceTooltip
             : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
@@ -13043,43 +13086,6 @@ private struct TabItemView: View, Equatable {
         let latestNotificationSubtitle = latestNotificationText
         let effectiveSubtitle = latestNotificationSubtitle
         let detailVisibility = visibleAuxiliaryDetails
-        let orderedPanelIds: [UUID]? = (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
-            ? tab.sidebarOrderedPanelIds()
-            : nil
-        let compactGitBranchSummaryText: String? = {
-            guard detailVisibility.showsBranchDirectory,
-                  !sidebarBranchVerticalLayout,
-                  sidebarShowGitBranch,
-                  let orderedPanelIds else {
-                return nil
-            }
-            return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
-        }()
-        let compactDirectorySummaryText: String? = {
-            guard detailVisibility.showsBranchDirectory,
-                  !sidebarBranchVerticalLayout,
-                  let orderedPanelIds else {
-                return nil
-            }
-            return directorySummaryText(orderedPanelIds: orderedPanelIds)
-        }()
-        let compactBranchDirectoryRow = branchDirectoryRow(
-            gitSummary: compactGitBranchSummaryText,
-            directorySummary: compactDirectorySummaryText
-        )
-        let branchDirectoryLines: [VerticalBranchDirectoryLine] = {
-            guard detailVisibility.showsBranchDirectory,
-                  sidebarBranchVerticalLayout,
-                  let orderedPanelIds else {
-                return []
-            }
-            return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
-        }()
-        let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
-        let pullRequestRows: [PullRequestDisplay] = {
-            guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
-            return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
-        }()
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -13094,14 +13100,14 @@ private struct TabItemView: View, Equatable {
                     .frame(width: 16, height: 16)
                 }
 
-                if tab.isPinned {
+                if workspaceSnapshot.isPinned {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
-                Text(tab.title)
+                Text(workspaceSnapshot.title)
                     .font(.system(size: 12.5, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
@@ -13140,7 +13146,7 @@ private struct TabItemView: View, Equatable {
                 .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
             }
 
-            if let description = tab.customDescription {
+            if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
                     markdown: description,
                     isActive: usesInvertedActiveForeground
@@ -13160,8 +13166,8 @@ private struct TabItemView: View, Equatable {
             remoteWorkspaceSection
 
             if detailVisibility.showsMetadata {
-                let metadataEntries = tab.sidebarStatusEntriesInDisplayOrder()
-                let metadataBlocks = tab.sidebarMetadataBlocksInDisplayOrder()
+                let metadataEntries = workspaceSnapshot.metadataEntries
+                let metadataBlocks = workspaceSnapshot.metadataBlocks
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
@@ -13181,7 +13187,7 @@ private struct TabItemView: View, Equatable {
             }
 
             // Latest log entry
-            if detailVisibility.showsLog, let latestLog = tab.logEntries.last {
+            if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
                 HStack(spacing: 4) {
                     Image(systemName: logLevelIcon(latestLog.level))
                         .font(.system(size: 8))
@@ -13196,7 +13202,7 @@ private struct TabItemView: View, Equatable {
             }
 
             // Progress bar
-            if detailVisibility.showsProgress, let progress = tab.progress {
+            if detailVisibility.showsProgress, let progress = workspaceSnapshot.progress {
                 VStack(alignment: .leading, spacing: 2) {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
@@ -13222,15 +13228,15 @@ private struct TabItemView: View, Equatable {
             // Branch + directory row
             if detailVisibility.showsBranchDirectory {
                 if sidebarBranchVerticalLayout {
-                    if !branchDirectoryLines.isEmpty {
+                    if !workspaceSnapshot.branchDirectoryLines.isEmpty {
                         HStack(alignment: .top, spacing: 3) {
-                            if sidebarShowGitBranchIcon, branchLinesContainBranch {
+                            if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
                                 Image(systemName: "arrow.triangle.branch")
                                     .font(.system(size: 9))
                                     .foregroundColor(activeSecondaryColor(0.6))
                             }
                             VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(branchDirectoryLines.enumerated()), id: \.offset) { _, line in
+                                ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
                                     HStack(spacing: 3) {
                                         if let branch = line.branch {
                                             Text(branch)
@@ -13257,9 +13263,9 @@ private struct TabItemView: View, Equatable {
                             }
                         }
                     }
-                } else if let dirRow = compactBranchDirectoryRow {
+                } else if let dirRow = workspaceSnapshot.compactBranchDirectoryRow {
                     HStack(spacing: 3) {
-                        if sidebarShowGitBranchIcon, compactGitBranchSummaryText != nil {
+                        if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
                             Image(systemName: "arrow.triangle.branch")
                                 .font(.system(size: 9))
                                 .foregroundColor(activeSecondaryColor(0.6))
@@ -13274,9 +13280,9 @@ private struct TabItemView: View, Equatable {
             }
 
             // Pull request rows
-            if detailVisibility.showsPullRequests, !pullRequestRows.isEmpty {
+            if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
-                    ForEach(pullRequestRows) { pullRequest in
+                    ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
                         Button(action: {
                             openPullRequestLink(pullRequest.url)
                         }) {
@@ -13304,9 +13310,9 @@ private struct TabItemView: View, Equatable {
             }
 
             // Ports row
-            if detailVisibility.showsPorts, !tab.listeningPorts.isEmpty {
+            if detailVisibility.showsPorts, !workspaceSnapshot.listeningPorts.isEmpty {
                 HStack(spacing: 4) {
-                    ForEach(tab.listeningPorts, id: \.self) { port in
+                    ForEach(workspaceSnapshot.listeningPorts, id: \.self) { port in
                         Button(action: {
                             openPortLink(port)
                         }) {
@@ -13323,9 +13329,9 @@ private struct TabItemView: View, Equatable {
                 .lineLimit(1)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
-        .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
-        .animation(.easeInOut(duration: 0.2), value: tab.metadataBlocks.count)
+        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
+        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
+        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -13377,6 +13383,9 @@ private struct TabItemView: View, Equatable {
                     .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
             }
         }
+        .onAppear {
+            refreshWorkspaceSnapshot(force: true)
+        }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)
@@ -13391,7 +13400,7 @@ private struct TabItemView: View, Equatable {
                 "desc=\"\(debugCommandPaletteTextPreview(description))\""
             )
 #endif
-            scheduleWorkspaceObservationInvalidation()
+            refreshWorkspaceSnapshot()
         }
         .onReceive(
             tab.sidebarObservationPublisher
@@ -13411,7 +13420,10 @@ private struct TabItemView: View, Equatable {
                 "desc=\"\(debugCommandPaletteTextPreview(description))\""
             )
 #endif
-            scheduleWorkspaceObservationInvalidation()
+            refreshWorkspaceSnapshot()
+        }
+        .onChange(of: settings) { _ in
+            refreshWorkspaceSnapshot(force: true)
         }
         .onDrag {
             #if DEBUG
@@ -13459,6 +13471,7 @@ private struct TabItemView: View, Equatable {
                 .onAppear {
                     contextMenuState.isVisible = true
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
+                    contextMenuState.pendingWorkspaceSnapshot = nil
                     frozenPresentation = livePresentation
                 }
                 .onDisappear {
@@ -13472,19 +13485,30 @@ private struct TabItemView: View, Equatable {
         }
     }
 
-    private func scheduleWorkspaceObservationInvalidation() {
-        // Keep the context menu stable while background workspace telemetry keeps arriving.
+    private func refreshWorkspaceSnapshot(force: Bool = false) {
+        let nextSnapshot = makeWorkspaceSnapshot()
+
         if contextMenuState.isVisible {
-            contextMenuState.hasDeferredWorkspaceObservationInvalidation = true
+            let deferredBaseline = contextMenuState.pendingWorkspaceSnapshot ?? workspaceSnapshotStorage
+            if force || deferredBaseline != nextSnapshot {
+                contextMenuState.hasDeferredWorkspaceObservationInvalidation = true
+                contextMenuState.pendingWorkspaceSnapshot = nextSnapshot
+            }
             return
         }
-        workspaceObservationGeneration &+= 1
+
+        if force || workspaceSnapshotStorage != nextSnapshot {
+            workspaceSnapshotStorage = nextSnapshot
+        }
     }
 
     private func flushDeferredWorkspaceObservationInvalidation() {
         guard contextMenuState.hasDeferredWorkspaceObservationInvalidation else { return }
         contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
-        workspaceObservationGeneration &+= 1
+        if let pendingSnapshot = contextMenuState.pendingWorkspaceSnapshot {
+            workspaceSnapshotStorage = pendingSnapshot
+        }
+        contextMenuState.pendingWorkspaceSnapshot = nil
     }
 
     private func contextMenuLabel(multi: String, single: String, isMulti: Bool) -> String {
@@ -13649,7 +13673,7 @@ private struct TabItemView: View, Equatable {
             }
         }
 
-        if let copyableSidebarSSHError {
+        if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
             Button(String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error")) {
                 copyTextToPasteboard(copyableSidebarSSHError)
             }
@@ -13782,7 +13806,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var resolvedCustomTabColor: Color? {
-        guard let hex = tab.customColor else { return nil }
+        guard let hex = workspaceSnapshot.customColorHex else { return nil }
         return WorkspaceTabColorSettings.displayColor(
             hex: hex,
             colorScheme: colorScheme,
@@ -13814,7 +13838,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var accessibilityTitle: String {
-        String(localized: "accessibility.workspacePosition", defaultValue: "\(tab.title), workspace \(index + 1) of \(accessibilityWorkspaceCount)")
+        String(localized: "accessibility.workspacePosition", defaultValue: "\(workspaceSnapshot.title), workspace \(index + 1) of \(accessibilityWorkspaceCount)")
     }
 
     private func moveBy(_ delta: Int) {
@@ -13994,6 +14018,68 @@ private struct TabItemView: View, Equatable {
             )
         }
     }
+
+    private func makeWorkspaceSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+        let detailVisibility = visibleAuxiliaryDetails
+        let orderedPanelIds: [UUID]? = (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
+            ? tab.sidebarOrderedPanelIds()
+            : nil
+        let compactGitBranchSummaryText: String? = {
+            guard detailVisibility.showsBranchDirectory,
+                  !sidebarBranchVerticalLayout,
+                  sidebarShowGitBranch,
+                  let orderedPanelIds else {
+                return nil
+            }
+            return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
+        }()
+        let compactDirectorySummaryText: String? = {
+            guard detailVisibility.showsBranchDirectory,
+                  !sidebarBranchVerticalLayout,
+                  let orderedPanelIds else {
+                return nil
+            }
+            return directorySummaryText(orderedPanelIds: orderedPanelIds)
+        }()
+        let compactBranchDirectoryRow = branchDirectoryRow(
+            gitSummary: compactGitBranchSummaryText,
+            directorySummary: compactDirectorySummaryText
+        )
+        let branchDirectoryLines: [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] = {
+            guard detailVisibility.showsBranchDirectory,
+                  sidebarBranchVerticalLayout,
+                  let orderedPanelIds else {
+                return []
+            }
+            return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
+        }()
+        let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
+        let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
+            guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
+            return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
+        }()
+
+        return SidebarWorkspaceSnapshotBuilder.Snapshot(
+            title: tab.title,
+            customDescription: tab.customDescription,
+            isPinned: tab.isPinned,
+            customColorHex: tab.customColor,
+            remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
+            remoteConnectionStatusText: remoteConnectionStatusText,
+            remoteStateHelpText: remoteStateHelpText,
+            copyableSidebarSSHError: copyableSidebarSSHError,
+            metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
+            metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
+            latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
+            progress: detailVisibility.showsProgress ? tab.progress : nil,
+            compactGitBranchSummaryText: compactGitBranchSummaryText,
+            compactBranchDirectoryRow: compactBranchDirectoryRow,
+            branchDirectoryLines: branchDirectoryLines,
+            branchLinesContainBranch: branchLinesContainBranch,
+            pullRequestRows: pullRequestRows,
+            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : []
+        )
+    }
     private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
         guard let app = AppDelegate.shared else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
@@ -14064,12 +14150,7 @@ private struct TabItemView: View, Equatable {
         }
     }
 
-    private struct VerticalBranchDirectoryLine {
-        let branch: String?
-        let directory: String?
-    }
-
-    private func verticalBranchDirectoryLines(orderedPanelIds: [UUID]) -> [VerticalBranchDirectoryLine] {
+    private func verticalBranchDirectoryLines(orderedPanelIds: [UUID]) -> [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] {
         let entries = tab.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
         let home = SidebarPathFormatter.homeDirectoryPath
         return entries.compactMap { entry in
@@ -14086,11 +14167,11 @@ private struct TabItemView: View, Equatable {
 
             switch (branchText, directoryText) {
             case let (branch?, directory?):
-                return VerticalBranchDirectoryLine(branch: branch, directory: directory)
+                return SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine(branch: branch, directory: directory)
             case let (branch?, nil):
-                return VerticalBranchDirectoryLine(branch: branch, directory: nil)
+                return SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine(branch: branch, directory: nil)
             case let (nil, directory?):
-                return VerticalBranchDirectoryLine(branch: nil, directory: directory)
+                return SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine(branch: nil, directory: directory)
             default:
                 return nil
             }
@@ -14106,18 +14187,9 @@ private struct TabItemView: View, Equatable {
         return entries.isEmpty ? nil : entries.joined(separator: " | ")
     }
 
-    private struct PullRequestDisplay: Identifiable {
-        let id: String
-        let number: Int
-        let label: String
-        let url: URL
-        let status: SidebarPullRequestStatus
-        let isStale: Bool
-    }
-
-    private func pullRequestDisplays(orderedPanelIds: [UUID]) -> [PullRequestDisplay] {
+    private func pullRequestDisplays(orderedPanelIds: [UUID]) -> [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] {
         tab.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds).map { pullRequest in
-            PullRequestDisplay(
+            SidebarWorkspaceSnapshotBuilder.PullRequestDisplay(
                 id: "\(pullRequest.label.lowercased())#\(pullRequest.number)|\(pullRequest.url.absoluteString)",
                 number: pullRequest.number,
                 label: pullRequest.label,

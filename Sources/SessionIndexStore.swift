@@ -271,14 +271,31 @@ struct DirectorySnapshot: Sendable {
 
 @MainActor
 final class SessionIndexStore: ObservableObject {
-    @Published private(set) var entries: [SessionEntry] = []
+    @Published private(set) var entries: [SessionEntry] = [] {
+        didSet {
+            guard entries != oldValue else { return }
+            invalidateSectionsCache()
+        }
+    }
     @Published private(set) var isLoading: Bool = false
-    @Published var scopeToCurrentDirectory: Bool = false
-    @Published var currentDirectory: String? = nil
+    @Published var scopeToCurrentDirectory: Bool = false {
+        didSet {
+            guard scopeToCurrentDirectory != oldValue else { return }
+            invalidateSectionsCache()
+        }
+    }
+    @Published var currentDirectory: String? = nil {
+        didSet {
+            guard scopeToCurrentDirectory, currentDirectory != oldValue else { return }
+            invalidateSectionsCache()
+        }
+    }
 
     @Published var grouping: SessionGrouping {
         didSet {
+            guard grouping != oldValue else { return }
             UserDefaults.standard.set(grouping.rawValue, forKey: Self.groupingKey)
+            invalidateSectionsCache()
             // Switching into directory grouping can expose cwds that were never
             // backfilled while the user was viewing agent grouping.
             if grouping == .directory { backfillDirectoryOrderFromEntries() }
@@ -287,17 +304,28 @@ final class SessionIndexStore: ObservableObject {
 
     /// Persisted order for agent sections.
     @Published var agentOrder: [SessionAgent] {
-        didSet { Self.persistAgentOrder(agentOrder) }
+        didSet {
+            guard agentOrder != oldValue else { return }
+            Self.persistAgentOrder(agentOrder)
+            invalidateSectionsCache()
+        }
     }
 
     /// Persisted order for directory sections (absolute paths; "" means "no folder").
     @Published var directoryOrder: [String] {
-        didSet { Self.persistDirectoryOrder(directoryOrder) }
+        didSet {
+            guard directoryOrder != oldValue else { return }
+            Self.persistDirectoryOrder(directoryOrder)
+            invalidateSectionsCache()
+        }
     }
 
     private static let groupingKey = "sessionIndex.grouping"
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
     private static let directoryOrderDefaultsKey = "sessionIndex.directoryOrder"
+    private var sectionsCacheRevision: UInt64 = 0
+    private var cachedSectionsRevision: UInt64?
+    private var cachedSections: [IndexSection] = []
 
     init() {
         self.agentOrder = Self.loadAgentOrder()
@@ -308,10 +336,15 @@ final class SessionIndexStore: ObservableObject {
 
     /// Returns the sections for the current grouping mode, in the user-saved order.
     func sectionsForCurrentGrouping() -> [IndexSection] {
+        if cachedSectionsRevision == sectionsCacheRevision {
+            return cachedSections
+        }
+
         let visible = filteredEntriesForCurrentScope()
+        let sections: [IndexSection]
         switch grouping {
         case .agent:
-            return agentOrder.map { agent in
+            sections = agentOrder.map { agent in
                 IndexSection(
                     key: .agent(agent),
                     title: agent.displayName,
@@ -336,7 +369,7 @@ final class SessionIndexStore: ObservableObject {
                     let rMax = buckets[rhs]?.map(\.modified).max() ?? .distantPast
                     return lMax > rMax
                 }
-            return (directoryOrder + unknownSorted)
+            sections = (directoryOrder + unknownSorted)
                 .filter { buckets[$0] != nil }
                 .map { path in
                     IndexSection(
@@ -347,6 +380,10 @@ final class SessionIndexStore: ObservableObject {
                     )
                 }
         }
+
+        cachedSections = sections
+        cachedSectionsRevision = sectionsCacheRevision
+        return sections
     }
 
     /// Extend `directoryOrder` with any cwds seen in `entries` that aren't
@@ -368,6 +405,10 @@ final class SessionIndexStore: ObservableObject {
         guard !additions.isEmpty else { return }
         additions.sort { $0.latest > $1.latest }
         directoryOrder.append(contentsOf: additions.map(\.path))
+    }
+
+    private func invalidateSectionsCache() {
+        sectionsCacheRevision &+= 1
     }
 
     private func filteredEntriesForCurrentScope() -> [SessionEntry] {

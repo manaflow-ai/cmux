@@ -982,6 +982,23 @@ private struct PopoverRow: View, Equatable {
         return out
     }
 
+    fileprivate static func refreshInterval(for modified: Date, now: Date = .now) -> TimeInterval {
+        let age = max(0, now.timeIntervalSince(modified))
+        if age < 3_600 { return 60 }
+        if age < 86_400 { return 3_600 }
+        return 86_400
+    }
+
+    @ViewBuilder
+    private var modifiedText: some View {
+        TimelineView(RelativeTimestampSchedule(modified: entry.modified)) { context in
+            Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: context.date))
+        }
+        .font(.system(size: 11).monospacedDigit())
+        .foregroundColor(.secondary.opacity(0.7))
+        .fixedSize()
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             Image(entry.agent.assetName)
@@ -999,10 +1016,7 @@ private struct PopoverRow: View, Equatable {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
-            Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: Date()))
-                .font(.system(size: 11).monospacedDigit())
-                .foregroundColor(.secondary.opacity(0.7))
-                .fixedSize()
+            modifiedText
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -1017,6 +1031,25 @@ private struct PopoverRow: View, Equatable {
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+        }
+    }
+}
+
+private struct RelativeTimestampSchedule: TimelineSchedule {
+    let modified: Date
+
+    func entries(from startDate: Date, mode: Mode) -> Entries {
+        Entries(current: startDate, modified: modified)
+    }
+
+    struct Entries: Sequence, IteratorProtocol {
+        var current: Date
+        let modified: Date
+
+        mutating func next() -> Date? {
+            let date = current
+            current = current.addingTimeInterval(PopoverRow.refreshInterval(for: modified, now: date))
+            return date
         }
     }
 }
@@ -1106,7 +1139,7 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 /// Hosts SectionPopoverView in a real NSPopover. SwiftUI's native `.popover()`
 /// doesn't reliably let the embedded TextField become first responder in cmux's
 /// focus-managed environment — the terminal keeps grabbing focus back.
-private struct SectionPopoverHost: NSViewRepresentable {
+struct SectionPopoverHost: NSViewRepresentable {
     @Binding var isPresented: Bool
     let section: IndexSection
     /// Closure-typed search handle passed through to the SwiftUI popover
@@ -1147,6 +1180,8 @@ private struct SectionPopoverHost: NSViewRepresentable {
     final class Coordinator: NSObject, NSPopoverDelegate {
         @Binding var isPresented: Bool
         weak var anchorView: NSView?
+        private(set) var debugRefreshContentCallCount = 0
+        var debugIsPopoverShown: Bool { popover?.isShown == true }
 
         private let hostingController: NSHostingController<AnyView> = {
             NSHostingController(rootView: AnyView(EmptyView()))
@@ -1168,6 +1203,8 @@ private struct SectionPopoverHost: NSViewRepresentable {
         private var currentSearch: SessionSearchFn?
         private var currentLoadSnapshot: DirectorySnapshotFn?
         private var currentOnResume: ((SessionEntry) -> Void)?
+        private var lastRenderedSection: IndexSection?
+        private var lastRenderedPresentationCount: Int?
         /// Bumped on every present(). Used as the SwiftUI view identity so each
         /// open gets fresh @State (empty query, fresh focus, no stale results).
         private var presentationCount = 0
@@ -1186,6 +1223,16 @@ private struct SectionPopoverHost: NSViewRepresentable {
             currentSearch = search
             currentLoadSnapshot = loadSnapshot
             currentOnResume = onResume
+            // When hidden, defer rebuilding the hosting view until `present()`.
+            // Rewriting rootView + forcing layout on every parent re-render was
+            // the 100% CPU loop behind #3010.
+            guard popover?.isShown == true else { return }
+            // Rows capture stable closure bundles above the list boundary, so
+            // the section snapshot is the meaningful input here. Skipping
+            // identical visible-section updates avoids re-laying out the popover
+            // during unrelated parent re-renders while still refreshing when the
+            // visible content actually changes.
+            guard lastRenderedSection != section || lastRenderedPresentationCount != presentationCount else { return }
             refreshContent()
         }
 
@@ -1193,6 +1240,7 @@ private struct SectionPopoverHost: NSViewRepresentable {
             guard let section = currentSection,
                   let search = currentSearch,
                   let loadSnapshot = currentLoadSnapshot else { return }
+            debugRefreshContentCallCount += 1
             let onResume = currentOnResume
             let identity = presentationCount
             hostingController.rootView = AnyView(
@@ -1208,6 +1256,8 @@ private struct SectionPopoverHost: NSViewRepresentable {
                 // the prior open's @State (typed query, scrolled position, etc.).
                 .id(identity)
             )
+            lastRenderedSection = section
+            lastRenderedPresentationCount = presentationCount
             hostingController.view.invalidateIntrinsicContentSize()
             hostingController.view.layoutSubtreeIfNeeded()
             updateContentSize()
