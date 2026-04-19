@@ -132,9 +132,10 @@ func (b *attachBridge) run() int {
 				// Forward resize to remote surface
 				b.handleResize()
 			case syscall.SIGINT:
-				if b.rawMode {
+				if b.rawMode || b.readOnly {
 					// In raw mode ISIG is disabled, so SIGINT comes from an
 					// external sender (kill -INT) — exit the bridge.
+					// In read-only mode, never send input to the remote.
 					b.stop()
 					return 0
 				}
