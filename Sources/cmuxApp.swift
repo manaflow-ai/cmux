@@ -96,6 +96,15 @@ enum PaneFirstClickFocusSettings {
     }
 }
 
+enum TitlebarTimeIndicatorSettings {
+    static let enabledKey = "titlebarTimeIndicator.enabled"
+    static let defaultEnabled = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+}
+
 enum TerminalScrollBarSettings {
     static let showScrollBarKey = "terminal.showScrollBar"
     static let defaultShowScrollBar = true
@@ -4382,6 +4391,8 @@ struct SettingsView: View {
     @AppStorage(AppIconSettings.modeKey) private var appIconMode = AppIconSettings.defaultMode.rawValue
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+    @AppStorage(TitlebarTimeIndicatorSettings.enabledKey)
+    private var titlebarTimeIndicatorEnabled = TitlebarTimeIndicatorSettings.defaultEnabled
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
@@ -5056,6 +5067,21 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsMinimalModeToggle")
                                 .accessibilityLabel(
                                     String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.showTitlebarTimeIndicator"),
+                            String(localized: "settings.app.showTitlebarTimeIndicator", defaultValue: "Show Titlebar Time Indicator"),
+                            subtitle: String(localized: "settings.app.showTitlebarTimeIndicator.subtitle", defaultValue: "Display a centered time capsule in the window titlebar.")
+                        ) {
+                            Toggle("", isOn: $titlebarTimeIndicatorEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.showTitlebarTimeIndicator", defaultValue: "Show Titlebar Time Indicator")
                                 )
                         }
 
@@ -6569,6 +6595,7 @@ struct SettingsView: View {
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+        titlebarTimeIndicatorEnabled = TitlebarTimeIndicatorSettings.defaultEnabled
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.modeKey)

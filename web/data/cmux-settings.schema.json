@@ -73,6 +73,11 @@
           "default": false,
           "description": "Hide the workspace title bar and move controls into the sidebar."
         },
+        "showTitlebarTimeIndicator": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a centered time indicator capsule in the titlebar."
+        },
         "keepWorkspaceOpenWhenClosingLastSurface": {
           "type": "boolean",
           "default": false,
