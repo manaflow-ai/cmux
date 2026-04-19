@@ -161,6 +161,20 @@ doneFlags:
 		return runOMCRelay(socketPath, cmdArgs, refreshAddr)
 	}
 
+	// Host attach commands (bridge to host machine's local cmux)
+	if cmdName == "host-list" {
+		return runHostList(socketPath, cmdArgs, jsonOutput, refreshAddr)
+	}
+	if cmdName == "host-read" {
+		return runHostRead(socketPath, cmdArgs, jsonOutput, refreshAddr)
+	}
+	if cmdName == "host-send" {
+		return runHostSend(socketPath, cmdArgs, refreshAddr)
+	}
+	if cmdName == "host-send-key" {
+		return runHostSendKey(socketPath, cmdArgs, refreshAddr)
+	}
+
 	// Tmux compatibility layer (used by agent shims)
 	if cmdName == "__tmux-compat" {
 		return runTmuxCompat(socketPath, cmdArgs, refreshAddr)
@@ -779,4 +793,10 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  omx [args...]              Launch Oh My Codex with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omc [args...]              Launch Oh My Claude Code with cmux integration")
 	fmt.Fprintln(os.Stderr, "  rpc <method> [json-params] Send arbitrary JSON-RPC")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Host attach (bridge to host machine's local cmux):")
+	fmt.Fprintln(os.Stderr, "  host-list                 List surfaces on the host cmux")
+	fmt.Fprintln(os.Stderr, "  host-read --surface <ref>  Read screen of a host cmux surface")
+	fmt.Fprintln(os.Stderr, "  host-send --surface <ref> <text>  Send text to a host surface")
+	fmt.Fprintln(os.Stderr, "  host-send-key --surface <ref> <key>  Send key to a host surface")
 }

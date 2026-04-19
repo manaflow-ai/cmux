@@ -64,12 +64,13 @@ type stdioFrameWriter struct {
 }
 
 type rpcServer struct {
-	mu            sync.Mutex
-	nextStreamID  uint64
-	nextSessionID uint64
-	streams       map[string]*streamState
-	sessions      map[string]*sessionState
-	frameWriter   rpcFrameWriter
+	mu              sync.Mutex
+	nextStreamID    uint64
+	nextSessionID   uint64
+	streams         map[string]*streamState
+	sessions        map[string]*sessionState
+	hostAttachments map[string]*hostAttachState
+	frameWriter     rpcFrameWriter
 }
 
 type sessionAttachment struct {
@@ -345,6 +346,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"proxy.socks5",
 					"proxy.stream",
 					"proxy.stream.push",
+					"host.attach",
 				},
 			},
 		}
@@ -376,6 +378,19 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handleSessionDetach(req)
 	case "session.status":
 		return s.handleSessionStatus(req)
+	// Host attach: bridge to the host machine's local cmux instance
+	case "host.surface.list":
+		return s.handleHostSurfaceList(req)
+	case "host.surface.read_screen":
+		return s.handleHostSurfaceReadScreen(req)
+	case "host.surface.send_text":
+		return s.handleHostSurfaceSendText(req)
+	case "host.surface.send_key":
+		return s.handleHostSurfaceSendKey(req)
+	case "host.attach":
+		return s.handleHostAttach(req)
+	case "host.detach":
+		return s.handleHostDetach(req)
 	default:
 		return rpcResponse{
 			ID: req.ID,
@@ -1012,6 +1027,17 @@ func (s *rpcServer) closeAll() {
 	}
 	for id := range s.sessions {
 		delete(s.sessions, id)
+	}
+	// Clean up host attach sessions
+	for id, attach := range s.hostAttachments {
+		delete(s.hostAttachments, id)
+		attach.mu.Lock()
+		if !attach.stopped {
+			attach.stopped = true
+			close(attach.stopCh)
+		}
+		attach.mu.Unlock()
+		_ = attach.conn.Close()
 	}
 	s.mu.Unlock()
 	for _, conn := range streams {
