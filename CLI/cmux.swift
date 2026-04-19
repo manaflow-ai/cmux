@@ -10376,6 +10376,7 @@ struct CMUXCLI {
         tmuxPathPrefix: String,
         cmuxBinEnvVar: String,
         termOverrideEnvVar: String,
+        unsetTermProgram: Bool,
         extraEnvVars: [(key: String, value: String)] = []
     ) {
         let updatedPath = prependPathEntries(
@@ -10392,20 +10393,29 @@ struct CMUXCLI {
         let fakeTmuxPane = focusedContext.map { "%\($0.paneHandle)" }
             ?? processEnvironment["TMUX_PANE"]
             ?? "%1"
-        let fakeTerm = processEnvironment[termOverrideEnvVar] ?? "screen-256color"
+        let fakeTerm = processEnvironment[termOverrideEnvVar] ?? "xterm-ghostty"
 
         setenv(cmuxBinEnvVar, executablePath, 1)
         setenv("PATH", updatedPath, 1)
         setenv("TMUX", fakeTmuxValue, 1)
         setenv("TMUX_PANE", fakeTmuxPane, 1)
         setenv("TERM", fakeTerm, 1)
+        if (processEnvironment["COLORTERM"] ?? "").isEmpty {
+            setenv("COLORTERM", "truecolor", 1)
+        }
         setenv("CMUX_SOCKET_PATH", socketPath, 1)
         setenv("CMUX_SOCKET", socketPath, 1)
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
         }
-        unsetenv("TERM_PROGRAM")
+        // Only unset TERM_PROGRAM for opencode-family (omo/omx/omc) — they switch
+        // to a light theme when they detect TERM_PROGRAM=ghostty. claude-teams
+        // must preserve it; Claude Code v2.1.112+ crashes during permission
+        // escalation when TERM_PROGRAM is missing (see issue #2947).
+        if unsetTermProgram {
+            unsetenv("TERM_PROGRAM")
+        }
         for envVar in extraEnvVars {
             setenv(envVar.key, envVar.value, 1)
         }
@@ -10446,6 +10456,7 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-claude-teams",
             cmuxBinEnvVar: "CMUX_CLAUDE_TEAMS_CMUX_BIN",
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
+            unsetTermProgram: false,
             extraEnvVars: [
                 (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
             ]
@@ -11024,6 +11035,7 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-omo",
             cmuxBinEnvVar: "CMUX_OMO_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMO_TERM",
+            unsetTermProgram: true,
             extraEnvVars: [(key: "OPENCODE_PORT", value: openCodePort)]
         )
     }
@@ -11145,7 +11157,8 @@ struct CMUXCLI {
             focusedContext: focusedContext,
             tmuxPathPrefix: "cmux-omx",
             cmuxBinEnvVar: "CMUX_OMX_CMUX_BIN",
-            termOverrideEnvVar: "CMUX_OMX_TERM"
+            termOverrideEnvVar: "CMUX_OMX_TERM",
+            unsetTermProgram: true
         )
     }
 
@@ -11248,7 +11261,8 @@ struct CMUXCLI {
             focusedContext: focusedContext,
             tmuxPathPrefix: "cmux-omc",
             cmuxBinEnvVar: "CMUX_OMC_CMUX_BIN",
-            termOverrideEnvVar: "CMUX_OMC_TERM"
+            termOverrideEnvVar: "CMUX_OMC_TERM",
+            unsetTermProgram: true
         )
         // omc wraps Claude Code, so it needs the same NODE_OPTIONS restore module
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
