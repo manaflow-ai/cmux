@@ -13101,6 +13101,12 @@ private struct TabItemView: View, Equatable {
             guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
+        // Grow the fixed 16pt accessory containers proportionally when the
+        // sidebar font scales above 1, so the glyphs inside (unread count,
+        // close X, shortcut pill) don't clip or overlap. At scale <= 1 this
+        // is a no-op — the 16pt floor preserves the original hit-target size.
+        let scaledAccessorySize = max(16, 16 * fontScale)
+        let scaledTrailingAccessoryWidth = max(trailingAccessoryWidth, scaledAccessorySize)
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -13112,7 +13118,7 @@ private struct TabItemView: View, Equatable {
                             .font(.system(size: 9 * fontScale, weight: .semibold))
                             .foregroundColor(.white)
                     }
-                    .frame(width: 16, height: 16)
+                    .frame(width: scaledAccessorySize, height: scaledAccessorySize)
                 }
 
                 if tab.isPinned {
@@ -13144,7 +13150,7 @@ private struct TabItemView: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .safeHelp(closeButtonTooltip)
-                    .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
+                    .frame(width: scaledAccessorySize, height: scaledAccessorySize, alignment: .center)
                     .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
 
@@ -13158,7 +13164,7 @@ private struct TabItemView: View, Equatable {
                     }
                 }
                 .animation(.easeOut(duration: 0.12), value: showsModifierShortcutHints || alwaysShowShortcutHints)
-                .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
+                .frame(width: scaledTrailingAccessoryWidth, height: scaledAccessorySize, alignment: .trailing)
             }
 
             if let description = tab.customDescription {
