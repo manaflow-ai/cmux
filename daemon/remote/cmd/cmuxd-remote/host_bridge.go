@@ -131,9 +131,20 @@ func (b *attachBridge) run() int {
 			case syscall.SIGWINCH:
 				// Forward resize to remote surface
 				b.handleResize()
-			case syscall.SIGINT, syscall.SIGTERM:
-				// External signal: exit the bridge (raw mode disables ISIG,
-				// so Ctrl+C is handled as a keystroke in inputPump, not as SIGINT)
+			case syscall.SIGINT:
+				if b.rawMode {
+					// In raw mode ISIG is disabled, so SIGINT comes from an
+					// external sender (kill -INT) — exit the bridge.
+					b.stop()
+					return 0
+				}
+				// In cooked mode (raw setup failed), Ctrl+C generates SIGINT
+				// so forward it to the remote surface instead of exiting.
+				hostCmuxRoundTrip("surface.send_key", map[string]any{
+					"surface_id": b.surfaceRef,
+					"key":        "ctrl+c",
+				})
+			case syscall.SIGTERM:
 				b.stop()
 				return 0
 			}
@@ -236,14 +247,17 @@ func (b *attachBridge) inputPump() {
 
 		// If the first byte is ESC (0x1b), wait briefly for more bytes
 		// to coalesce a multi-byte escape sequence.
+		// Only attempt if SetReadDeadline is supported (regular files/pipes may not).
 		if n == 1 && input[0] == 0x1b {
-			os.Stdin.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-			extra := make([]byte, 16)
-			en, _ := os.Stdin.Read(extra)
-			os.Stdin.SetReadDeadline(time.Time{})
-			if en > 0 {
-				input = append(input, extra[:en]...)
+			if err := os.Stdin.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err == nil {
+				extra := make([]byte, 16)
+				en, _ := os.Stdin.Read(extra)
+				os.Stdin.SetReadDeadline(time.Time{})
+				if en > 0 {
+					input = append(input, extra[:en]...)
+				}
 			}
+			// If SetReadDeadline is unsupported, treat the lone ESC as Escape.
 		}
 
 		// Check for detach sequence: Ctrl+\ (0x1c)
