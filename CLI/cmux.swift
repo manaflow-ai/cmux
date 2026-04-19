@@ -4060,6 +4060,7 @@ struct CMUXCLI {
         let identityFile: String?
         let workspaceName: String?
         let noFocus: Bool
+        let forceNewWorkspace: Bool
         let sshOptions: [String]
         let extraArguments: [String]
         let localSocketPath: String
@@ -4125,6 +4126,29 @@ struct CMUXCLI {
         }
 
         logSSHTiming("parsed")
+        if let reusableWorkspace = try findReusableSSHWorkspace(options: sshOptions, client: client) {
+            let payload = reusableSSHWorkspacePayload(workspace: reusableWorkspace, destination: sshOptions.destination)
+            if !sshOptions.noFocus,
+               let reusableWorkspaceId = payload["workspace_id"] as? String,
+               !reusableWorkspaceId.isEmpty {
+                var selectParams: [String: Any] = ["workspace_id": reusableWorkspaceId]
+                if let reusableWindowId = payload["window_id"] as? String, !reusableWindowId.isEmpty {
+                    selectParams["window_id"] = reusableWindowId
+                }
+                _ = try client.sendV2(method: "workspace.select", params: selectParams)
+            }
+            logSSHTiming("reused", extra: "workspace=\(String(((payload["workspace_id"] as? String) ?? "").prefix(8)))")
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? ((payload["workspace_id"] as? String) ?? "?")
+                let remote = payload["remote"] as? [String: Any]
+                let state = (remote?["state"] as? String) ?? "unknown"
+                print("OK workspace=\(workspaceHandle) target=\(sshOptions.destination) state=\(state) reused=true")
+            }
+            return
+        }
+
         let terminfoSource = localXtermGhosttyTerminfoSource()
         cliDebugLog(
             "cli.ssh.timing target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
@@ -4300,6 +4324,7 @@ struct CMUXCLI {
             "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
         ]
         payload["remote_relay_port"] = remoteRelayPort
+        payload["reused"] = false
         logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -4311,12 +4336,100 @@ struct CMUXCLI {
         }
     }
 
+
+    private func findReusableSSHWorkspace(options: SSHCommandOptions, client: SocketClient) throws -> [String: Any]? {
+        guard !options.forceNewWorkspace else { return nil }
+        // Remote command arguments imply a new foreground SSH command should be run.
+        guard options.extraArguments.isEmpty else { return nil }
+        // Current public workspace metadata does not expose comparable identity or custom SSH option values.
+        // Avoid reusing when this invocation asks for values that we cannot prove match safely.
+        guard options.identityFile == nil else { return nil }
+        guard options.sshOptions.isEmpty else { return nil }
+
+        let windowsPayload = try client.sendV2(method: "window.list")
+        let windows = windowsPayload["windows"] as? [[String: Any]] ?? []
+        if windows.isEmpty {
+            let listed = try client.sendV2(method: "workspace.list")
+            return reusableSSHWorkspace(in: listed, options: options)
+        }
+
+        for window in windows {
+            let windowHandle = (window["id"] as? String) ?? (window["ref"] as? String)
+            guard let windowHandle, !windowHandle.isEmpty else { continue }
+            let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle])
+            if var workspace = reusableSSHWorkspace(in: listed, options: options) {
+                if workspace["window_id"] == nil {
+                    workspace["window_id"] = listed["window_id"] ?? window["id"]
+                }
+                if workspace["window_ref"] == nil {
+                    workspace["window_ref"] = listed["window_ref"] ?? window["ref"]
+                }
+                return workspace
+            }
+        }
+
+        return nil
+    }
+
+    private func reusableSSHWorkspace(in listed: [String: Any], options: SSHCommandOptions) -> [String: Any]? {
+        let workspaces = listed["workspaces"] as? [[String: Any]] ?? []
+        for workspace in workspaces where sshWorkspaceMatches(workspace, options: options) {
+            var enriched = workspace
+            if enriched["window_id"] == nil {
+                enriched["window_id"] = listed["window_id"]
+            }
+            if enriched["window_ref"] == nil {
+                enriched["window_ref"] = listed["window_ref"]
+            }
+            return enriched
+        }
+        return nil
+    }
+
+    private func sshWorkspaceMatches(_ workspace: [String: Any], options: SSHCommandOptions) -> Bool {
+        guard let remote = workspace["remote"] as? [String: Any] else { return false }
+        guard (remote["enabled"] as? Bool) == true else { return false }
+        guard (remote["destination"] as? String) == options.destination else { return false }
+
+        let remotePort = intFromAny(remote["port"])
+        if let requestedPort = options.port {
+            guard remotePort == requestedPort else { return false }
+        } else if remotePort != nil {
+            return false
+        }
+
+        // Do not silently attach a default invocation to a workspace that was created with a private key.
+        if (remote["has_identity_file"] as? Bool) == true {
+            return false
+        }
+
+        return true
+    }
+
+    private func reusableSSHWorkspacePayload(workspace: [String: Any], destination: String) -> [String: Any] {
+        var payload: [String: Any] = [:]
+        if let workspaceId = workspace["id"] as? String {
+            payload["workspace_id"] = workspaceId
+        }
+        if let workspaceRef = workspace["ref"] as? String {
+            payload["workspace_ref"] = workspaceRef
+        }
+        payload["window_id"] = workspace["window_id"] ?? NSNull()
+        payload["window_ref"] = workspace["window_ref"] ?? NSNull()
+        payload["workspace"] = workspace
+        payload["remote"] = workspace["remote"] ?? NSNull()
+        payload["target"] = destination
+        payload["reused"] = true
+        return payload
+    }
+
     private func parseSSHCommandOptions(_ commandArgs: [String], localSocketPath: String = "", remoteRelayPort: Int = 0) throws -> SSHCommandOptions {
         var destination: String?
         var port: Int?
         var identityFile: String?
         var workspaceName: String?
         var noFocus = false
+        var forceNewWorkspace = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
 
@@ -4358,6 +4471,9 @@ struct CMUXCLI {
             case "--no-focus":
                 noFocus = true
                 index += 1
+            case "--new":
+                forceNewWorkspace = true
+                index += 1
             case "--ssh-option":
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh: --ssh-option requires a value")
@@ -4394,6 +4510,7 @@ struct CMUXCLI {
             identityFile: identityFile,
             workspaceName: workspaceName,
             noFocus: noFocus,
+            forceNewWorkspace: forceNewWorkspace,
             sshOptions: sshOptions,
             extraArguments: extraArguments,
             localSocketPath: localSocketPath,
@@ -7243,15 +7360,16 @@ struct CMUXCLI {
             return """
             Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]
 
-            Create a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.
+            Create or reuse a remote SSH workspace, then start or attach to an SSH session for that destination.
             cmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.
 
             Flags:
-              --name <title>          Optional workspace title
+              --name <title>          Optional workspace title for newly-created workspaces
               --port <n>              SSH port
               --identity <path>       SSH identity file path
               --ssh-option <opt>      Extra SSH -o option (repeatable)
-              --no-focus              Create workspace without switching to it
+              --new                   Always create a new workspace instead of reusing a match
+              --no-focus              Do not switch to the created or reused workspace
 
             Example:
               cmux ssh dev@my-host
@@ -14385,7 +14503,7 @@ struct CMUXCLI {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           list-workspaces
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--new] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]
