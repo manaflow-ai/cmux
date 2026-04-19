@@ -1039,7 +1039,6 @@ func (s *rpcServer) closeAll() {
 			close(attach.stopCh)
 		}
 		attach.mu.Unlock()
-		_ = attach.conn.Close()
 	}
 	s.mu.Unlock()
 	for _, conn := range streams {

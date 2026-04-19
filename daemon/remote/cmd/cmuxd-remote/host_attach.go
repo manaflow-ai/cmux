@@ -24,7 +24,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
@@ -33,8 +32,6 @@ import (
 // surface to a host cmux surface.
 type hostAttachState struct {
 	mu         sync.Mutex
-	conn       net.Conn        // connection to host cmux socket
-	reader     *bufio.Reader   // buffered reader on the socket
 	surfaceRef string          // e.g. "surface:4"
 	stopCh     chan struct{}    // signals the output pump to stop
 	stopped    bool
@@ -314,26 +311,11 @@ func (s *rpcServer) handleHostAttach(req rpcRequest) rpcResponse {
 		}
 	}
 
-	// Create a persistent connection for output streaming
-	conn, dialErr := dialHostCmux()
-	if dialErr != nil {
-		return rpcResponse{
-			ID: req.ID,
-			OK: false,
-			Error: &rpcError{
-				Code:    "host_error",
-				Message: dialErr.Error(),
-			},
-		}
-	}
-
 	s.mu.Lock()
 	attachID := fmt.Sprintf("attach-%d", s.nextStreamID)
 	s.nextStreamID++
 
 	state := &hostAttachState{
-		conn:       conn,
-		reader:     bufio.NewReader(conn),
 		surfaceRef: surfaceID,
 		stopCh:     make(chan struct{}),
 	}
@@ -395,7 +377,6 @@ func (s *rpcServer) handleHostDetach(req rpcRequest) rpcResponse {
 		close(state.stopCh)
 	}
 	state.mu.Unlock()
-	_ = state.conn.Close()
 
 	return rpcResponse{
 		ID: req.ID,
@@ -418,7 +399,6 @@ func (s *rpcServer) hostAttachPump(attachID string, state *hostAttachState) {
 		s.mu.Lock()
 		delete(s.hostAttachments, attachID)
 		s.mu.Unlock()
-		_ = state.conn.Close()
 	}()
 
 	var lastScreen string
@@ -461,27 +441,17 @@ func (s *rpcServer) hostAttachPump(attachID string, state *hostAttachState) {
 }
 
 // extractScreenText pulls the screen content string from a read_screen result.
+// It checks well-known keys in a deterministic order.
 func extractScreenText(result map[string]any) string {
 	if result == nil {
 		return ""
 	}
-	// The read_screen result may be a string directly or nested
-	if text, ok := result["text"].(string); ok {
-		return text
-	}
-	if content, ok := result["content"].(string); ok {
-		return content
-	}
-	// Fallback: try to find any string value
-	for _, v := range result {
-		if s, ok := v.(string); ok && len(s) > 10 {
-			return s
+	// Check well-known keys in priority order
+	for _, key := range []string{"text", "content", "screen", "data", "output"} {
+		if text, ok := result[key].(string); ok {
+			return text
 		}
 	}
 	return ""
 }
 
-// Helper to check if a string looks like a host:port TCP address.
-func isHostSocketTCP(addr string) bool {
-	return strings.Contains(addr, ":") && !strings.HasPrefix(addr, "/")
-}

@@ -53,8 +53,11 @@ func runHostRead(socketPath string, args []string, jsonOutput bool, refreshAddr 
 	}
 
 	params := map[string]any{"surface_id": surfaceID}
-	if lines, ok := parsed.flags["lines"]; ok {
-		params["lines"] = lines
+	if linesStr, ok := parsed.flags["lines"]; ok {
+		var linesInt int
+		if _, err := fmt.Sscanf(linesStr, "%d", &linesInt); err == nil && linesInt > 0 {
+			params["lines"] = linesInt
+		}
 	}
 
 	resp, err := socketRoundTripV2(socketPath, "host.surface.read_screen", params, refreshAddr)

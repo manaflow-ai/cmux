@@ -6623,7 +6623,12 @@ struct CMUXCLI {
             "ssh_command": sshCommand,
             "mode": readOnly ? "read_only" : "interactive",
         ]
-        _ = try? client.sendV2(method: "workspace.remote.configure", params: configureParams)
+        do {
+            _ = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+        } catch {
+            // workspace.remote.configure may not exist on older cmux versions; log but continue
+            cliDebugLog("attach: workspace.remote.configure failed (non-fatal): \(error)")
+        }
 
         let wsHandle = handleForID(workspaceId, kind: .workspace) ?? workspaceId
         if jsonOutput {

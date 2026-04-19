@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 )
 
@@ -27,9 +28,9 @@ func TestExtractScreenText(t *testing.T) {
 			expected: "screen content here",
 		},
 		{
-			name:     "fallback to long string",
-			result:   map[string]any{"screen_data": "this is long enough to be screen content"},
-			expected: "this is long enough to be screen content",
+			name:     "screen field",
+			result:   map[string]any{"screen": "screen content here"},
+			expected: "screen content here",
 		},
 		{
 			name:     "empty result",
@@ -67,6 +68,9 @@ func TestHostAttachRPCRouting(t *testing.T) {
 		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
 	}
+
+	// Force isolation: point to a non-existent socket so tests don't depend on host cmux
+	t.Setenv("CMUX_HOST_SOCKET_PATH", filepath.Join(t.TempDir(), "nope.sock"))
 
 	// host.surface.list should fail gracefully (no socket) but not panic
 	resp := server.handleRequest(rpcRequest{
