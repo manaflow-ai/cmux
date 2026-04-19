@@ -5694,7 +5694,9 @@ class TerminalController {
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
             let queued: Bool
-            if let surface = terminalPanel.surface.surface {
+            if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+                reason: "terminalController.v2SurfaceSendText"
+            ) {
                 sendSocketText(text, surface: surface)
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
@@ -5750,7 +5752,9 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            let surfaceWasReady = terminalPanel.surface.surface != nil
+            let surfaceWasReady = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+                reason: "terminalController.v2SurfaceSendKey.preflight"
+            ) != nil
             guard terminalPanel.surface.sendNamedKey(key) else {
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
@@ -5885,7 +5889,9 @@ class TerminalController {
     }
 
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard let surface = terminalPanel.surface.surface else { return "ERROR: Terminal surface not found" }
+        guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+            reason: "terminalController.readTerminalTextBase64"
+        ) else { return "ERROR: Terminal surface not found" }
 
         func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
             let topLeft = ghostty_point_s(
@@ -6183,7 +6189,9 @@ class TerminalController {
                 if let panelUUID = selectedSurfaceUUID,
                    let panel = ws.panels[panelUUID] as? TerminalPanel,
                    panel.surface.hasLiveSurface,
-                   let ghosttySurface = panel.surface.surface {
+                   let ghosttySurface = panel.surface.liveSurfaceForGhosttyAccess(
+                    reason: "terminalController.workspaceList"
+                   ) {
                     let size = ghostty_surface_size(ghosttySurface)
                     if size.columns > 0 && size.rows > 0 {
                         dict["columns"] = Int(size.columns)
@@ -13421,7 +13429,9 @@ class TerminalController {
     }
 
     private func waitForTerminalSurface(_ terminalPanel: TerminalPanel, waitUpTo timeout: TimeInterval = 0.6) -> ghostty_surface_t? {
-        if let surface = terminalPanel.surface.surface { return surface }
+        if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+            reason: "terminalController.waitForTerminalSurface.initial"
+        ) { return surface }
 
         let terminalSurface = terminalPanel.surface
         terminalSurface.requestBackgroundSurfaceStartIfNeeded()
@@ -13451,18 +13461,24 @@ class TerminalController {
                 queue: .main
             ) { _ in
                 Task { @MainActor in
-                    if terminalSurface.surface != nil {
+                    if terminalSurface.liveSurfaceForGhosttyAccess(
+                        reason: "terminalController.waitForTerminalSurface.hostedObserver"
+                    ) != nil {
                         finishOnce()
                     }
                 }
             }
 
-            if terminalSurface.surface != nil {
+            if terminalSurface.liveSurfaceForGhosttyAccess(
+                reason: "terminalController.waitForTerminalSurface.immediate"
+            ) != nil {
                 finishOnce()
             }
         }
 
-        return terminalPanel.surface.surface
+        return terminalPanel.surface.liveSurfaceForGhosttyAccess(
+            reason: "terminalController.waitForTerminalSurface.final"
+        )
     }
 
     private func resolveSurface(from arg: String, tabManager: TabManager) -> ghostty_surface_t? {
@@ -13740,7 +13756,9 @@ class TerminalController {
             // payload does not hold the control-socket response open in CI.
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                if let surface = terminalPanel.surface.surface {
+                if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+                    reason: "terminalController.sendInputToWorkspace"
+                ) {
                     self.sendSocketText(unescaped, surface: surface)
                 } else {
                     terminalPanel.sendText(unescaped)

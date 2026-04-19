@@ -1346,7 +1346,25 @@ private final class GhosttySurfaceCallbackContext {
     }
 
     var runtimeSurface: ghostty_surface_t? {
-        terminalSurface?.surface ?? surfaceView?.terminalSurface?.surface
+        liveRuntimeSurface(reason: "callbackContext.runtimeSurface")
+    }
+
+    func liveRuntimeSurface(reason: String) -> ghostty_surface_t? {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                terminalSurface?.liveSurfaceForGhosttyAccess(reason: reason)
+                    ?? surfaceView?.terminalSurface?.liveSurfaceForGhosttyAccess(reason: reason)
+            }
+        }
+
+        var liveSurface: ghostty_surface_t?
+        DispatchQueue.main.sync {
+            liveSurface = MainActor.assumeIsolated {
+                terminalSurface?.liveSurfaceForGhosttyAccess(reason: reason)
+                    ?? surfaceView?.terminalSurface?.liveSurfaceForGhosttyAccess(reason: reason)
+            }
+        }
+        return liveSurface
     }
 }
 
@@ -1400,18 +1418,18 @@ class GhosttyApp {
         return URL(fileURLWithPath: "/tmp/cmux-bg.log")
     }
 
-    fileprivate static func runtimeReadClipboardCallback(
+fileprivate static func runtimeReadClipboardCallback(
         _ userdata: UnsafeMutableRawPointer?,
         _ location: ghostty_clipboard_e,
         _ state: UnsafeMutableRawPointer?
     ) -> Bool {
         guard let callbackContext = Self.callbackContext(from: userdata),
-              let requestSurface = callbackContext.runtimeSurface else { return false }
+              let requestSurface = callbackContext.liveRuntimeSurface(reason: "ghostty.clipboard.read.begin") else { return false }
 
         DispatchQueue.main.async {
             func completeClipboardRequest(with text: String) {
                 let finish = {
-                    guard callbackContext.runtimeSurface == requestSurface else { return }
+                    guard callbackContext.liveRuntimeSurface(reason: "ghostty.clipboard.read.finish") == requestSurface else { return }
                     text.withCString { ptr in
                         ghostty_surface_complete_clipboard_request(requestSurface, ptr, state, false)
                     }
@@ -1705,7 +1723,7 @@ class GhosttyApp {
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
             guard let content else { return }
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
-                  let surface = callbackContext.runtimeSurface else { return }
+                  let surface = callbackContext.liveRuntimeSurface(reason: "ghostty.clipboard.confirm") else { return }
 
             ghostty_surface_complete_clipboard_request(surface, content, state, true)
         }
@@ -1740,6 +1758,13 @@ class GhosttyApp {
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
             let callbackSurfaceId = callbackContext.surfaceId
             let callbackTabId = callbackContext.tabId
+            if !needsConfirmClose {
+                // Confirmed-close flows suppress restart when the host actually begins closing.
+                // Suppressing here would strand the panel if the user cancels the dialog.
+                callbackContext.terminalSurface?.suppressRuntimeSurfaceRestart(
+                    reason: "ghostty.close_surface_cb"
+                )
+            }
 
 #if DEBUG
             cmuxWriteChildExitProbe(
@@ -2978,6 +3003,9 @@ class GhosttyApp {
             // "Process exited. Press any key..." into the terminal unless the host
             // handles this action. For cmux, the correct behavior is to close
             // the panel immediately (no prompt).
+            callbackContext?.terminalSurface?.suppressRuntimeSurfaceRestart(
+                reason: "ghostty.show_child_exited"
+            )
 #if DEBUG
             dlog(
                 "surface.action.showChildExited tab=\(callbackTabId?.uuidString.prefix(5) ?? "nil") " +
@@ -3630,10 +3658,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
     private let debugMetadataLock = NSLock()
+    private let runtimeRestartSuppressionLock = NSLock()
     private let createdAt: Date = Date()
     private var runtimeSurfaceCreatedAt: Date?
     private var teardownRequestedAt: Date?
     private var teardownRequestReason: String?
+    private var runtimeSurfaceRestartSuppressed = false
     private var pendingSocketInputQueue: [PendingSocketInput] = []
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
@@ -4035,13 +4065,56 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    private func withRuntimeRestartSuppressionLock<T>(_ body: () -> T) -> T {
+        runtimeRestartSuppressionLock.lock()
+        defer { runtimeRestartSuppressionLock.unlock() }
+        return body()
+    }
+
+    private func isRuntimeSurfaceRestartSuppressed() -> Bool {
+        withRuntimeRestartSuppressionLock { runtimeSurfaceRestartSuppressed }
+    }
+
+    func suppressRuntimeSurfaceRestart(reason: String) {
+        let shouldLog = withRuntimeRestartSuppressionLock {
+            let didChange = !runtimeSurfaceRestartSuppressed
+            runtimeSurfaceRestartSuppressed = true
+            return didChange
+        }
+#if DEBUG
+        if shouldLog {
+            dlog(
+                "surface.lifecycle.restartSuppressed surface=\(id.uuidString.prefix(5)) " +
+                "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason)"
+            )
+        }
+#endif
+    }
+
     private func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live
+        portalLifecycleState == .live && !isRuntimeSurfaceRestartSuppressed()
+    }
+
+    private func liveSurface(reason: String) -> ghostty_surface_t? {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                liveSurfaceForGhosttyAccess(reason: reason)
+            }
+        }
+
+        var liveSurface: ghostty_surface_t?
+        DispatchQueue.main.sync {
+            liveSurface = MainActor.assumeIsolated {
+                liveSurfaceForGhosttyAccess(reason: reason)
+            }
+        }
+        return liveSurface
     }
 
     func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
         guard portalLifecycleState != .closing else { return }
+        suppressRuntimeSurfaceRestart(reason: reason)
         recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
         portalLifecycleGeneration &+= 1
@@ -4056,6 +4129,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private func markPortalLifecycleClosed(reason: String) {
         guard portalLifecycleState != .closed else { return }
+        suppressRuntimeSurfaceRestart(reason: reason)
         portalLifecycleState = .closed
         portalLifecycleGeneration &+= 1
 #if DEBUG
@@ -4114,6 +4188,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func debugDesiredFocusState() -> Bool {
         desiredFocusState
+    }
+
+    func debugRuntimeSurfaceRestartSuppressed() -> Bool {
+        isRuntimeSurfaceRestartSuppressed()
     }
 
     private static func surfaceLog(_ message: String) {
@@ -4185,15 +4263,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // SwiftUI also re-enters this path for ordinary state propagation (drag hover, active
         // markers, visibility flags), so avoid forcing a geometry refresh when the attachment
         // itself is unchanged.
-        if attachedView === view && surface != nil {
+        if attachedView === view, let liveSurface = liveSurface(reason: "surface.attach.reuse") {
 #if DEBUG
             dlog("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view).toOpaque())")
 #endif
             if let screen = view.window?.screen ?? NSScreen.main,
                let displayID = screen.displayID,
-               displayID != 0,
-               let s = surface {
-                ghostty_surface_set_display_id(s, displayID)
+               displayID != 0 {
+                ghostty_surface_set_display_id(liveSurface, displayID)
             }
             return
         }
@@ -4212,7 +4289,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         // If surface doesn't exist yet, create it once the view is in a real window so
         // content scale and pixel geometry are derived from the actual backing context.
-        if surface == nil {
+        if liveSurface(reason: "surface.attach.needsCreate") == nil {
             guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
                 dlog(
@@ -4241,7 +4318,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         } else if let screen = view.window?.screen ?? NSScreen.main,
                   let displayID = screen.displayID,
                   displayID != 0,
-                  let s = surface {
+                  let s = liveSurface(reason: "surface.attach.displayId") {
             // Surface exists but we're (re)attaching after a view hierarchy move; ensure display id.
             ghostty_surface_set_display_id(s, displayID)
 #if DEBUG
@@ -4614,7 +4691,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         layerScale: CGFloat,
         backingSize: CGSize? = nil
     ) -> Bool {
-        guard let surface = surface else { return false }
+        guard let surface = liveSurface(reason: "terminalSurface.updateSize") else { return false }
         _ = layerScale
 
         let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
@@ -4657,7 +4734,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Force a full size recalculation and surface redraw.
     func forceRefresh(reason: String = "unspecified") {
-        let hasSurface = surface != nil
+        let hasSurface = liveSurface(reason: "terminalSurface.forceRefresh.preflight") != nil
         let viewState: String
         if let view = attachedView {
             let inWindow = view.window != nil
@@ -4671,13 +4748,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         dlog("forceRefresh: \(id) reason=\(reason) \(viewState)")
         #endif
         guard let view = attachedView,
-              let surface,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
             return
         }
-        guard let currentSurface = self.surface else { return }
+        guard let currentSurface = liveSurface(reason: "terminalSurface.forceRefresh") else { return }
 
         // Re-read self.surface before each ghostty call to guard against the surface
         // being freed during wake-from-sleep geometry reconciliation (issue #432).
@@ -4693,7 +4769,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         view.forceRefreshSurface()
-        guard let surface = self.surface else { return }
+        guard let surface = liveSurface(reason: "terminalSurface.forceRefresh.final") else { return }
         ghostty_surface_refresh(surface)
     }
 
@@ -4715,7 +4791,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         desiredFocusState = focused
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
-        guard let surface = surface else { return }
+        guard let surface = liveSurface(reason: "terminalSurface.setFocus") else { return }
         ghostty_surface_set_focus(surface, focused)
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
@@ -4732,7 +4808,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func setOcclusion(_ visible: Bool) {
-        guard let surface = surface else { return }
+        guard let surface = liveSurface(reason: "terminalSurface.setOcclusion") else { return }
         ghostty_surface_set_occlusion(surface, visible)
     }
 
@@ -4742,13 +4818,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return needsConfirmCloseOverrideForTesting
         }
 #endif
-        guard let surface = surface else { return false }
+        guard let surface = liveSurface(reason: "terminalSurface.needsConfirmClose") else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
     func sendText(_ text: String) {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
-        guard let surface = surface else {
+        guard let surface = liveSurface(reason: "terminalSurface.sendText") else {
             enqueuePendingSocketInput(.text(data))
             requestBackgroundSurfaceStartIfNeeded()
             return
@@ -4759,7 +4835,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
         guard let event = pendingKeyEvent(for: keyName) else { return false }
-        if let surface = surface {
+        if let surface = liveSurface(reason: "terminalSurface.sendNamedKey") {
             sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
         } else {
             enqueuePendingSocketInput(.key(event))
@@ -4772,7 +4848,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// events so the shell processes them, while regular text is sent via the
     /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
     func sendInput(_ text: String) {
-        guard let surface = surface else { return }
+        guard let surface = liveSurface(reason: "terminalSurface.sendInput") else { return }
         var bufferedText = ""
         var previousWasCR = false
         for scalar in text.unicodeScalars {
@@ -5033,7 +5109,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func flushPendingSocketInputIfNeeded() {
-        guard let surface = surface, !pendingSocketInputQueue.isEmpty else { return }
+        guard let surface = liveSurface(reason: "terminalSurface.flushPendingSocketInput"),
+              !pendingSocketInputQueue.isEmpty else { return }
         let queued = pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
@@ -5058,7 +5135,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
+        guard let surface = liveSurface(reason: "terminalSurface.performBindingAction") else { return false }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
@@ -5088,7 +5165,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func hasSelection() -> Bool {
-        guard let surface = surface else { return false }
+        guard let surface = liveSurface(reason: "terminalSurface.hasSelection") else { return false }
         return ghostty_surface_has_selection(surface)
     }
 
@@ -5608,7 +5685,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             self?.windowDidChangeScreen(notification)
         }
 
-        if let surface = terminalSurface?.surface,
+        if let surface = surface,
            let displayID = window.screen?.displayID,
            displayID != 0 {
             ghostty_surface_set_display_id(surface, displayID)
@@ -5885,7 +5962,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // Convenience accessor for the ghostty surface
     private var surface: ghostty_surface_t? {
-        terminalSurface?.surface
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                terminalSurface?.liveSurfaceForGhosttyAccess(reason: "ghosttyNSView.surface")
+            }
+        }
+
+        var liveSurface: ghostty_surface_t?
+        DispatchQueue.main.sync {
+            liveSurface = MainActor.assumeIsolated {
+                terminalSurface?.liveSurfaceForGhosttyAccess(
+                    reason: "ghosttyNSView.surface.background"
+                )
+            }
+        }
+        return liveSurface
     }
 
     private func applySurfaceColorScheme(force: Bool = false) {
@@ -8403,7 +8494,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let window else { return }
         guard let object = notification.object as? NSWindow, window == object else { return }
         guard let screen = window.screen else { return }
-        guard let surface = terminalSurface?.surface else { return }
+        guard let surface = surface else { return }
 
         if let displayID = screen.displayID,
            displayID != 0 {
@@ -10828,7 +10919,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func reassertTerminalSurfaceFocus(reason: String) {
         guard let terminalSurface = surfaceView.terminalSurface else { return }
-        if terminalSurface.surface == nil {
+        let liveSurface = MainActor.assumeIsolated {
+            terminalSurface.liveSurfaceForGhosttyAccess(reason: "focus.surface.reassert")
+        }
+        if liveSurface == nil {
             terminalSurface.requestBackgroundSurfaceStartIfNeeded()
         }
 #if DEBUG
