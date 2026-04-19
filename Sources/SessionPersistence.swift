@@ -224,6 +224,10 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
+    /// Shell command to resume the agent session that was running in this terminal
+    /// (e.g. `claude --resume <id>`). Populated at snapshot time by matching agent
+    /// PIDs to terminal TTYs, then looking up the session entry on disk.
+    var agentResumeCommand: String?
 }
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {

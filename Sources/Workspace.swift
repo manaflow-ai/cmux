@@ -470,7 +470,8 @@ extension Workspace {
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
-                scrollback: resolvedScrollback
+                scrollback: resolvedScrollback,
+                agentResumeCommand: agentResumeCommand(forPanelId: panelId)
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -543,6 +544,167 @@ extension Workspace {
             restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         }
         return resolved
+    }
+
+    // MARK: - Agent resume command detection
+
+    /// Returns the agent resume command for a terminal panel, if the panel is running
+    /// a known agent. Matches agent PIDs (tracked by the socket API) to terminal TTYs
+    /// to identify which panel hosts the agent process.
+    private func agentResumeCommand(forPanelId panelId: UUID) -> String? {
+        guard !agentPIDs.isEmpty else { return nil }
+        guard let panelTTY = surfaceTTYNames[panelId], !panelTTY.isEmpty else { return nil }
+
+        // Find which agent key is running in this panel by matching PID -> TTY -> panel
+        for (key, pid) in agentPIDs {
+            guard pid > 0 else { continue }
+            guard let pidTTY = Self.ttyForPID(pid), pidTTY == panelTTY else { continue }
+
+            let agent = Self.sessionAgentForKey(key)
+            guard let cwd = currentDirectory.isEmpty ? nil : currentDirectory else { continue }
+            return Self.lookupResumeCommand(agent: agent, cwd: cwd)
+        }
+        return nil
+    }
+
+    /// Map agent status keys to session agent types.
+    private static func sessionAgentForKey(_ key: String) -> SessionAgent? {
+        switch key {
+        case "claude_code": return .claude
+        case "codex": return .codex
+        case "opencode": return .opencode
+        default: return nil
+        }
+    }
+
+    /// Get the controlling TTY for a PID via sysctl.
+    nonisolated private static func ttyForPID(_ pid: pid_t) -> String? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0 else { return nil }
+        let devNum = info.kp_eproc.e_tdev
+        guard devNum != 0, devNum != UInt32.max else { return nil }
+        return "ttys\(String(format: "%03d", devNum & 0xFFFFFF))"
+    }
+
+    /// Look up the most recent session file and construct a resume command.
+    nonisolated private static func lookupResumeCommand(agent: SessionAgent?, cwd: String) -> String? {
+        guard let agent else { return nil }
+        switch agent {
+        case .claude: return claudeResumeCommand(cwd: cwd)
+        case .codex: return codexResumeCommand(cwd: cwd)
+        case .opencode: return opencodeResumeCommand(cwd: cwd)
+        }
+    }
+
+    /// Find the most recent Claude Code session for the given cwd and return its resume command.
+    nonisolated private static func claudeResumeCommand(cwd: String) -> String? {
+        let projectsRoot = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/projects")
+        let projectDir = encodeClaudeProjectDir(cwd)
+        let dirPath = (projectsRoot as NSString).appendingPathComponent(projectDir)
+        return newestSessionResumeCommand(
+            directory: dirPath,
+            suffix: ".jsonl",
+            builder: { sessionId, _ in "claude --resume \(sessionId)" }
+        )
+    }
+
+    /// Find the most recent Codex session for the given cwd and return its resume command.
+    nonisolated private static func codexResumeCommand(cwd: String) -> String? {
+        let sessionsRoot = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/sessions")
+        let fm = FileManager.default
+        // Codex stores sessions under YYYY/MM/DD/rollout-*.jsonl; scan all dates
+        guard let years = try? fm.contentsOfDirectory(atPath: sessionsRoot) else { return nil }
+        var newest: (url: URL, mtime: Date)? = nil
+        for year in years.sorted().reversed().prefix(2) {
+            let yearPath = (sessionsRoot as NSString).appendingPathComponent(year)
+            guard let months = try? fm.contentsOfDirectory(atPath: yearPath) else { continue }
+            for month in months.sorted().reversed() {
+                let monthPath = (yearPath as NSString).appendingPathComponent(month)
+                guard let days = try? fm.contentsOfDirectory(atPath: monthPath) else { continue }
+                for day in days.sorted().reversed() {
+                    let dayPath = (monthPath as NSString).appendingPathComponent(day)
+                    guard let files = try? fm.contentsOfDirectory(atPath: dayPath) else { continue }
+                    for file in files where file.hasPrefix("rollout-") && file.hasSuffix(".jsonl") {
+                        let filePath = (dayPath as NSString).appendingPathComponent(file)
+                        guard let attrs = try? fm.attributesOfItem(atPath: filePath),
+                              let mtime = attrs[.modificationDate] as? Date else { continue }
+                        // Check cwd matches by peeking into the session file
+                        if let current = newest, mtime <= current.mtime { continue }
+                        let url = URL(fileURLWithPath: filePath)
+                        if codexSessionMatchesCwd(url: url, cwd: cwd) {
+                            newest = (url, mtime)
+                        }
+                    }
+                }
+                if newest != nil { break }
+            }
+            if newest != nil { break }
+        }
+        guard let match = newest else { return nil }
+        let sessionId = match.url.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: "rollout-", with: "")
+        return "codex resume \(sessionId)"
+    }
+
+    nonisolated private static func codexSessionMatchesCwd(url: URL, cwd: String) -> Bool {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
+        let head = String(data: data.prefix(8192), encoding: .utf8) ?? ""
+        for line in head.split(separator: "\n", maxSplits: 10) {
+            guard let lineData = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let sessionMeta = obj["session_meta"] as? [String: Any],
+                  let payload = sessionMeta["payload"] as? [String: Any],
+                  let sessionCwd = payload["cwd"] as? String else { continue }
+            return (sessionCwd as NSString).standardizingPath == (cwd as NSString).standardizingPath
+        }
+        return false
+    }
+
+    nonisolated private static func opencodeResumeCommand(cwd: String) -> String? {
+        let dbPath = (NSHomeDirectory() as NSString).appendingPathComponent(".local/share/opencode/opencode.db")
+        guard FileManager.default.fileExists(atPath: dbPath) else { return nil }
+        var db: OpaquePointer? = nil
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_close(db) }
+        let query = "SELECT id FROM sessions WHERE directory = ? ORDER BY updated_at DESC LIMIT 1"
+        var stmt: OpaquePointer? = nil
+        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(stmt, 1, cwd, -1, SQLITE_TRANSIENT_FN)
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let idPtr = sqlite3_column_text(stmt, 0) else { return nil }
+        let sessionId = String(cString: idPtr)
+        return "opencode --session \(sessionId)"
+    }
+
+    /// Encode a cwd path into the Claude project directory name format.
+    nonisolated private static func encodeClaudeProjectDir(_ path: String) -> String {
+        path.replacingOccurrences(of: "/", with: "-")
+    }
+
+    /// Find the newest file with the given suffix in a directory and build a resume command.
+    nonisolated private static func newestSessionResumeCommand(
+        directory: String,
+        suffix: String,
+        builder: (_ sessionId: String, _ url: URL) -> String
+    ) -> String? {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(atPath: directory) else { return nil }
+        var newest: (name: String, mtime: Date)? = nil
+        for name in contents where name.hasSuffix(suffix) {
+            let filePath = (directory as NSString).appendingPathComponent(name)
+            guard let attrs = try? fm.attributesOfItem(atPath: filePath),
+                  let mtime = attrs[.modificationDate] as? Date else { continue }
+            if let current = newest, mtime <= current.mtime { continue }
+            newest = (name, mtime)
+        }
+        guard let match = newest else { return nil }
+        let sessionId = String(match.name.dropLast(suffix.count))
+        let url = URL(fileURLWithPath: (directory as NSString).appendingPathComponent(match.name))
+        return builder(sessionId, url)
     }
 
     private func restoreSessionLayout(_ layout: SessionWorkspaceLayoutSnapshot) -> [SessionPaneRestoreEntry] {
@@ -645,10 +807,12 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: snapshot.terminal?.scrollback
             )
+            let resumeInput = snapshot.terminal?.agentResumeCommand.map { $0 + "\n" }
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: workingDirectory,
+                initialInput: resumeInput,
                 startupEnvironment: replayEnvironment
             ) else {
                 return nil
