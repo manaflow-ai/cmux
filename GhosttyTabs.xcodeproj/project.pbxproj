@@ -45,7 +45,9 @@
 		A5007422 /* BrowserWebAuthnSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007423 /* BrowserWebAuthnSupport.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
-		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
+		C1A2B3C4D5E6F70900000001 /* VendoredRunestone.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70900000002 /* VendoredRunestone.swift */; };
+		C1A2B3C4D5E6F70900000003 /* RunestoneVendoringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70900000004 /* RunestoneVendoringTests.swift */; };
+		C1A2B3C4D5E6F70900000007 /* Runestone in Frameworks */ = {isa = PBXBuildFile; productRef = C1A2B3C4D5E6F70900000006 /* Runestone */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
@@ -258,6 +260,7 @@
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E6F70900000002 /* VendoredRunestone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VendoredRunestone.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -350,6 +353,7 @@
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
+				C1A2B3C4D5E6F70900000004 /* RunestoneVendoringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunestoneVendoringTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -361,7 +365,7 @@
 					A5001230 /* Sparkle in Frameworks */,
 					A5001250 /* Sentry in Frameworks */,
 					A5001270 /* PostHog in Frameworks */,
-					A5001290 /* MarkdownUI in Frameworks */,
+					C1A2B3C4D5E6F70900000007 /* Runestone in Frameworks */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
@@ -515,6 +519,7 @@
 				A5007423 /* BrowserWebAuthnSupport.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
+				C1A2B3C4D5E6F70900000002 /* VendoredRunestone.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
@@ -637,6 +642,7 @@
 					491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */,
 					10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */,
 					C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
+					C1A2B3C4D5E6F70900000004 /* RunestoneVendoringTests.swift */,
 					FE002001 /* FileExplorerRootResolverTests.swift */,
 					FE002002 /* FileExplorerStoreTests.swift */,
 				);
@@ -669,7 +675,7 @@
 					A5001251 /* Sentry */,
 					A5001271 /* PostHog */,
 					A5001261 /* Bonsplit */,
-					A5001291 /* MarkdownUI */,
+					C1A2B3C4D5E6F70900000006 /* Runestone */,
 				);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
@@ -788,8 +794,8 @@
 					A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
 					A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
-					A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
+					C1A2B3C4D5E6F70900000005 /* XCLocalSwiftPackageReference "runestone" */,
 				);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -849,6 +855,7 @@
 				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
 				A5001420 /* MarkdownPanel.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
+				C1A2B3C4D5E6F70900000001 /* VendoredRunestone.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				A5001201 /* UpdateController.swift in Sources */,
@@ -946,6 +953,7 @@
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
 					C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
+					C1A2B3C4D5E6F70900000003 /* RunestoneVendoringTests.swift in Sources */,
 					FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 					FE002102 /* FileExplorerStoreTests.swift in Sources */,
 				);
@@ -1312,17 +1320,13 @@
 					minimumVersion = 3.41.0;
 				};
 			};
-			A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
-				isa = XCRemoteSwiftPackageReference;
-				repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
-				requirement = {
-					kind = upToNextMajorVersion;
-					minimumVersion = 2.4.1;
-				};
-			};
 			A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
 				isa = XCLocalSwiftPackageReference;
 				relativePath = vendor/bonsplit;
+			};
+			C1A2B3C4D5E6F70900000005 /* XCLocalSwiftPackageReference "runestone" */ = {
+				isa = XCLocalSwiftPackageReference;
+				relativePath = vendor/runestone;
 			};
 /* End XCRemoteSwiftPackageReference section */
 
@@ -1347,10 +1351,10 @@
 				package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
 				productName = Bonsplit;
 			};
-			A5001291 /* MarkdownUI */ = {
+			C1A2B3C4D5E6F70900000006 /* Runestone */ = {
 				isa = XCSwiftPackageProductDependency;
-				package = A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
-				productName = MarkdownUI;
+				package = C1A2B3C4D5E6F70900000005 /* XCLocalSwiftPackageReference "runestone" */;
+				productName = Runestone;
 			};
 /* End XCSwiftPackageProductDependency section */
 
