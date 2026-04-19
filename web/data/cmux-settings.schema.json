@@ -578,7 +578,16 @@
               "useSelectionForFind",
               "toggleBrowserDeveloperTools",
               "showBrowserJavaScriptConsole",
-              "toggleReactGrab"
+              "toggleReactGrab",
+              "terminalFontSizeIncrease",
+              "terminalFontSizeDecrease",
+              "terminalFontSizeReset",
+              "terminalFontSizeIncreaseWorkspace",
+              "terminalFontSizeDecreaseWorkspace",
+              "terminalFontSizeResetWorkspace",
+              "terminalFontSizeIncreaseGlobal",
+              "terminalFontSizeDecreaseGlobal",
+              "terminalFontSizeResetGlobal"
             ]
           },
           "additionalProperties": {

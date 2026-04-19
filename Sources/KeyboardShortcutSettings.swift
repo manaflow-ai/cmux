@@ -84,6 +84,19 @@ enum KeyboardShortcutSettings {
         case showBrowserJavaScriptConsole
         case toggleReactGrab
 
+        // Terminal font size (per-surface / per-workspace / global scopes).
+        // Surface-scope defaults to the same keys Ghostty binds natively;
+        // cmux intercepts first so these remain rebindable from Settings.
+        case terminalFontSizeIncrease
+        case terminalFontSizeDecrease
+        case terminalFontSizeReset
+        case terminalFontSizeIncreaseWorkspace
+        case terminalFontSizeDecreaseWorkspace
+        case terminalFontSizeResetWorkspace
+        case terminalFontSizeIncreaseGlobal
+        case terminalFontSizeDecreaseGlobal
+        case terminalFontSizeResetGlobal
+
         var id: String { rawValue }
 
         var label: String {
@@ -145,6 +158,15 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
+            case .terminalFontSizeIncrease: return String(localized: "shortcut.terminalFontSizeIncrease.label", defaultValue: "Increase Font Size — Current Surface")
+            case .terminalFontSizeDecrease: return String(localized: "shortcut.terminalFontSizeDecrease.label", defaultValue: "Decrease Font Size — Current Surface")
+            case .terminalFontSizeReset: return String(localized: "shortcut.terminalFontSizeReset.label", defaultValue: "Reset Font Size — Current Surface")
+            case .terminalFontSizeIncreaseWorkspace: return String(localized: "shortcut.terminalFontSizeIncreaseWorkspace.label", defaultValue: "Increase Font Size — Current Workspace")
+            case .terminalFontSizeDecreaseWorkspace: return String(localized: "shortcut.terminalFontSizeDecreaseWorkspace.label", defaultValue: "Decrease Font Size — Current Workspace")
+            case .terminalFontSizeResetWorkspace: return String(localized: "shortcut.terminalFontSizeResetWorkspace.label", defaultValue: "Reset Font Size — Current Workspace")
+            case .terminalFontSizeIncreaseGlobal: return String(localized: "shortcut.terminalFontSizeIncreaseGlobal.label", defaultValue: "Increase Font Size — All Workspaces")
+            case .terminalFontSizeDecreaseGlobal: return String(localized: "shortcut.terminalFontSizeDecreaseGlobal.label", defaultValue: "Decrease Font Size — All Workspaces")
+            case .terminalFontSizeResetGlobal: return String(localized: "shortcut.terminalFontSizeResetGlobal.label", defaultValue: "Reset Font Size — All Workspaces")
             }
         }
 
@@ -272,6 +294,19 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .terminalFontSizeIncrease:
+                return StoredShortcut(key: "=", command: true, shift: false, option: false, control: false)
+            case .terminalFontSizeDecrease:
+                return StoredShortcut(key: "-", command: true, shift: false, option: false, control: false)
+            case .terminalFontSizeReset:
+                return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
+            case .terminalFontSizeIncreaseWorkspace,
+                 .terminalFontSizeDecreaseWorkspace,
+                 .terminalFontSizeResetWorkspace,
+                 .terminalFontSizeIncreaseGlobal,
+                 .terminalFontSizeDecreaseGlobal,
+                 .terminalFontSizeResetGlobal:
+                return StoredShortcut(key: "", command: false, shift: false, option: false, control: false)
             }
         }
 
@@ -1437,6 +1472,9 @@ struct StoredShortcut: Codable, Equatable {
     }
 
     var displayString: String {
+        if isUnbound {
+            return String(localized: "shortcut.unbound", defaultValue: "Unbound")
+        }
         if let secondStroke {
             return "\(firstStroke.displayString) \(secondStroke.displayString)"
         }
@@ -1444,6 +1482,9 @@ struct StoredShortcut: Codable, Equatable {
     }
 
     var numberedDisplayString: String {
+        if isUnbound {
+            return String(localized: "shortcut.unbound", defaultValue: "Unbound")
+        }
         if hasChord {
             return numberedDigitHintPrefix + "1…9"
         }
@@ -1492,11 +1533,23 @@ struct StoredShortcut: Codable, Equatable {
         return StoredShortcut(first: stroke)
     }
 
+    /// A shortcut with no key and no modifiers represents an intentionally
+    /// unbound action (user hasn't assigned a keystroke).
+    var isUnbound: Bool {
+        !hasChord
+            && firstStroke.key.isEmpty
+            && firstStroke.keyCode == nil
+            && !firstStroke.command
+            && !firstStroke.shift
+            && !firstStroke.option
+            && !firstStroke.control
+    }
+
     func matches(
         event: NSEvent,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
-        guard !hasChord else { return false }
+        guard !hasChord, !isUnbound else { return false }
         return firstStroke.matches(event: event, layoutCharacterProvider: layoutCharacterProvider)
     }
 
@@ -1506,7 +1559,7 @@ struct StoredShortcut: Codable, Equatable {
         eventCharacter: String?,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
-        guard !hasChord else { return false }
+        guard !hasChord, !isUnbound else { return false }
         return firstStroke.matches(
             keyCode: keyCode,
             modifierFlags: modifierFlags,
