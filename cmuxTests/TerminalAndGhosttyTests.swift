@@ -26,6 +26,14 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
     }
 
+    private func makeHTMLDocument(containing text: String) -> String {
+        let escaped = text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        return "<html><body><pre>\(escaped)</pre></body></html>"
+    }
+
     func testHTMLOnlyPasteboardExtractsPlainText() {
         let pasteboard = NSPasteboard(name: .init("cmux-test-html-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -110,6 +118,65 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
     }
 
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/2940.
+    /// Some apps place the same large clipboard payload onto `.string`, `.html`,
+    /// and `.rtf`. cmux should hand the plain text to the terminal quickly
+    /// instead of first rendering the rich-text variants on the paste path.
+    func testLargePlainTextPasteStaysFastWhenRichTextTypesAreAlsoPresent() throws {
+        final class MockPTY {
+            private(set) var receivedText = ""
+
+            func write(_ text: String) {
+                receivedText += text
+            }
+        }
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-large-fast-paste-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let text = String(
+            repeating: "abcdefghijklmnopqrstuvwxyz0123456789\n",
+            count: 65_536
+        )
+        let rtfData = try NSAttributedString(string: text).data(
+            from: NSRange(location: 0, length: text.utf16.count),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        pasteboard.setString(text, forType: .string)
+        pasteboard.setString(makeHTMLDocument(containing: text), forType: .html)
+        pasteboard.setData(rtfData, forType: .rtf)
+
+        let mockPTY = MockPTY()
+        let startedAt = ProcessInfo.processInfo.systemUptime
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .local
+        )
+        TerminalImageTransferPlanner.executeForTesting(
+            plan: plan,
+            uploadWorkspaceRemote: { _, _, _ in
+                XCTFail("large text paste should not trigger remote upload")
+            },
+            uploadDetectedSSH: { _, _, _, _ in
+                XCTFail("large text paste should not trigger SSH upload")
+            },
+            insertText: { mockPTY.write($0) },
+            onFailure: { error in
+                XCTFail("unexpected paste failure: \(error)")
+            }
+        )
+
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        XCTAssertEqual(mockPTY.receivedText, text)
+        XCTAssertLessThan(
+            elapsed,
+            0.5,
+            "large plain-text pastes should not spend hundreds of milliseconds decoding HTML/RTF before writing to the PTY"
+        )
+    }
+
     func testXHTMLTypeFallsBackToRenderedHTMLText() {
         let pasteboard = NSPasteboard(name: .init("cmux-test-xhtml-html-fallback-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -120,6 +187,31 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
 
         XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
+    }
+
+    func testPublicURLPastePreservesOriginalURLText() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-public-url-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let rawURL = "https://example.com?a=1&b=2"
+        let nsURL = try XCTUnwrap(NSURL(string: rawURL))
+        XCTAssertTrue(pasteboard.writeObjects([nsURL]))
+        XCTAssertTrue(pasteboard.types?.contains(.URL) == true)
+        XCTAssertFalse(pasteboard.types?.contains(.fileURL) == true)
+
+        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), rawURL)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .local
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected URL text insertion, got \(plan)")
+        }
+
+        XCTAssertEqual(text, rawURL)
     }
 
     func testImageClipboardWithPlainTextFallbackStillFallsBackToImagePath() throws {
@@ -253,6 +345,38 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     func testAttachmentOnlyRTFDClipboardFallsBackToImagePath() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-attachment-\(UUID().uuidString)"))
         pasteboard.clearContents()
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.orange.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        let attributed = NSAttributedString(attachment: attachment)
+        let data = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        )
+        pasteboard.setData(data, forType: .rtfd)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
+    }
+
+    func testAttachmentOnlyRTFDClipboardWithPlainTextFallbackStillFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-attachment-string-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "https://example.com/keyboard.tiff",
+            forType: .string
+        )
 
         let image = NSImage(size: NSSize(width: 1, height: 1))
         image.lockFocus()
