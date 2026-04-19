@@ -11410,6 +11410,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Terminal font-size dispatcher runs BEFORE browser zoom because the
+        // surface-scope defaults (⌘=/⌘-/⌘0) collide with browserZoomIn/Out/Reset.
+        // The dispatcher short-circuits (returns false) when no terminal is
+        // focused, so browser zoom still wins when a browser pane is up front.
+        if let (fontAction, fontScope) = matchedTerminalFontSizeShortcut(event: event) {
+            if FontSizeSyncDispatcher.dispatch(
+                fontAction,
+                scope: fontScope,
+                tabManager: tabManager,
+                additionalTabManagers: otherTabManagers()
+            ) {
+                return true
+            }
+        }
+
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
             return tabManager?.zoomInFocusedBrowser() ?? false
         }
@@ -12193,8 +12208,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    /// Returns every TabManager other than the currently-focused one so the
+    /// font-size dispatcher's `global` scope can reach terminals in other
+    /// cmux windows.
+    private func otherTabManagers() -> [TabManager] {
+        let focused = tabManager
+        return mainWindowContexts.values.compactMap { context in
+            context.tabManager === focused ? nil : context.tabManager
+        }
+    }
+
+    private func matchedTerminalFontSizeShortcut(
+        event: NSEvent
+    ) -> (FontSizeSyncDispatcher.Action, FontSizeSyncDispatcher.Scope)? {
+        let mapping: [(KeyboardShortcutSettings.Action, FontSizeSyncDispatcher.Action, FontSizeSyncDispatcher.Scope)] = [
+            (.terminalFontSizeIncrease, .increase, .surface),
+            (.terminalFontSizeDecrease, .decrease, .surface),
+            (.terminalFontSizeReset, .reset, .surface),
+            (.terminalFontSizeIncreaseWorkspace, .increase, .workspace),
+            (.terminalFontSizeDecreaseWorkspace, .decrease, .workspace),
+            (.terminalFontSizeResetWorkspace, .reset, .workspace),
+            (.terminalFontSizeIncreaseGlobal, .increase, .global),
+            (.terminalFontSizeDecreaseGlobal, .decrease, .global),
+            (.terminalFontSizeResetGlobal, .reset, .global),
+        ]
+        for (shortcutAction, fontAction, scope) in mapping {
+            if matchConfiguredShortcut(event: event, action: shortcutAction) {
+                return (fontAction, scope)
+            }
+        }
+        return nil
+    }
+
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        if shortcut.isUnbound { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
@@ -12211,6 +12259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        if shortcut.isUnbound { return nil }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
@@ -12229,6 +12278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         arrowKeyCode: UInt16
     ) -> Bool {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        if shortcut.isUnbound { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
@@ -12266,6 +12316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         for action in actions ?? configuredShortcutChordActions {
             let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            if shortcut.isUnbound { continue }
             guard shortcut.hasChord else { continue }
             if matchShortcutStroke(event: event, stroke: shortcut.firstStroke) {
                 pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
