@@ -13,7 +13,15 @@ enum AuthEnvironment {
            !overridden.isEmpty {
             return overridden
         }
+        // Match the Info.plist CFBundleURLSchemes $(CMUX_AUTH_CALLBACK_SCHEME)
+        // expansion: cmux-dev in Debug builds, cmux in Release. Without this
+        // Debug split, beginSignIn() would start an ASWebAuthenticationSession
+        // listening on "cmux" while the OS routes cmux-dev:// → this app.
+        #if DEBUG
+        return "cmux-dev"
+        #else
         return "cmux"
+        #endif
     }
 
     static var callbackURL: URL {

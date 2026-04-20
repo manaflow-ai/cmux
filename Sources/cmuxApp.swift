@@ -6739,8 +6739,14 @@ private struct AuthSettingsRow: View {
     }
 
     private var titleText: String {
-        if authManager.isAuthenticated, let email = authManager.currentUser?.primaryEmail, !email.isEmpty {
-            return email
+        if authManager.isAuthenticated {
+            if let email = authManager.currentUser?.primaryEmail, !email.isEmpty {
+                return email
+            }
+            return String(
+                localized: "settings.account.signedIn.title",
+                defaultValue: "Signed in"
+            )
         }
         return String(
             localized: "settings.account.signedOut.title",

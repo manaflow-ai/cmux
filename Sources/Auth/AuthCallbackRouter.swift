@@ -35,7 +35,13 @@ enum AuthCallbackRouter {
 
     private static func isAllowedScheme(_ scheme: String?) -> Bool {
         guard let normalized = scheme?.lowercased() else { return false }
-        return normalized == "cmux" || normalized == "cmux-dev"
+        if normalized == "cmux" || normalized == "cmux-dev" {
+            return true
+        }
+        // Honor the runtime override so any AuthEnvironment.callbackScheme
+        // chosen via CMUX_AUTH_CALLBACK_SCHEME round-trips through the
+        // router (e.g. per-tag Debug builds with a unique scheme).
+        return normalized == AuthEnvironment.callbackScheme.lowercased()
     }
 
     private static func callbackTarget(for url: URL) -> String {
@@ -49,8 +55,11 @@ enum AuthCallbackRouter {
     }
 
     private static func queryValue(named name: String, in components: URLComponents) -> String? {
+        // Use the first matching query item so a maliciously appended
+        // duplicate (`?stack_refresh=real&stack_refresh=attacker`) can't
+        // override the legitimate value.
         components.queryItems?
-            .last(where: { $0.name == name })?
+            .first(where: { $0.name == name })?
             .value
     }
 

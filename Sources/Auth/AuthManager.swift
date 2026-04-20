@@ -204,14 +204,14 @@ final class AuthManager: ObservableObject {
     }
 
     /// Starts the ASWebAuthenticationSession popup and awaits the user's
-    /// completion by observing isAuthenticated. Resolves when authenticated
-    /// or when the deadline elapses. No polling — the $isAuthenticated
-    /// AsyncPublisher emits as soon as the token exchange in
-    /// handleCallbackURL() flips the flag.
+    /// completion by observing isAuthenticated AND isLoading. Resolves when
+    /// authenticated, when the sign-in attempt settles unsuccessfully (popup
+    /// dismissed/cancelled/error), or when the deadline elapses. No polling
+    /// — the $isAuthenticated / $isLoading AsyncPublishers drive the wait.
     func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
         if isAuthenticated { return true }
         beginSignIn()
-        return await waitForAuthState(target: true, timeout: timeout)
+        return await waitForSignInSettled(timeout: timeout)
     }
 
     /// Signs out and awaits the state to flip. signOut() is already async and
@@ -221,6 +221,38 @@ final class AuthManager: ObservableObject {
         await signOut()
         if !isAuthenticated { return true }
         return await waitForAuthState(target: false, timeout: timeout)
+    }
+
+    private func waitForSignInSettled(timeout: TimeInterval) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return false }
+                for await value in self.$isAuthenticated.values {
+                    if value { return true }
+                }
+                return false
+            }
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return false }
+                // Wait for isLoading to flip false after we started the
+                // popup. If authentication hasn't succeeded by then the
+                // user cancelled/errored and we can resolve early.
+                for await loading in self.$isLoading.values {
+                    if !loading && !self.isAuthenticated { return false }
+                    if self.isAuthenticated { return true }
+                }
+                return false
+            }
+            group.addTask {
+                let maxSeconds: Double = 24 * 60 * 60
+                let clamped = max(0, min(timeout, maxSeconds))
+                try? await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
     }
 
     private func waitForAuthState(target: Bool, timeout: TimeInterval) async -> Bool {
@@ -233,7 +265,12 @@ final class AuthManager: ObservableObject {
                 return false
             }
             group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+                // Clamp to a safe upper bound before converting to nanoseconds.
+                // UInt64 overflow on an oversized Double would trap at runtime.
+                let maxSeconds: Double = 24 * 60 * 60
+                let clamped = max(0, min(timeout, maxSeconds))
+                let ns = UInt64(clamped * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: ns)
                 return false
             }
             let first = await group.next() ?? false
@@ -554,8 +591,14 @@ final class AuthManager: ObservableObject {
         }
     }
 
+    /// DEBUG-only append to /tmp/cmux-auth-debug.log. In Release builds this
+    /// is a no-op so token-derived material and user emails never land in a
+    /// world-traversable file. Call sites still pass PII-bearing strings
+    /// because redacting at the call site is a lot of churn; keeping the
+    /// #if DEBUG guard here is the single bottleneck that makes that safe.
     nonisolated static func authLog(_ message: String) {
-        let line = "[\(ISO8601DateFormatter().string(from: Date()))] auth: \(message)\n"
+        #if DEBUG
+        let line = "[\(Self.logTimestampFormatter.string(from: Date()))] auth: \(message)\n"
         let path = "/tmp/cmux-auth-debug.log"
         if let handle = FileHandle(forWritingAtPath: path) {
             handle.seekToEndOfFile()
@@ -564,7 +607,16 @@ final class AuthManager: ObservableObject {
         } else {
             FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
         }
+        #endif
     }
+
+    // ISO8601DateFormatter is expensive to construct (calendar + locale +
+    // time zone). Reuse one instance across the high-frequency authLog path.
+    private static let logTimestampFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
 
     private func authLog(_ message: String) {
         Self.authLog(message)
@@ -772,7 +824,7 @@ private actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     func setTokens(accessToken: String?, refreshToken: String?) async {
-        AuthManager.authLog("setTokens: access=\(accessToken != nil ? "\(accessToken!.prefix(10))..." : "nil") refresh=\(refreshToken != nil ? "\(refreshToken!.prefix(10))..." : "nil")")
+        AuthManager.authLog("file.setTokens: hasAccess=\(accessToken?.isEmpty == false) hasRefresh=\(refreshToken?.isEmpty == false)")
         var snapshot = loadIfNeeded()
         snapshot.accessToken = (accessToken?.isEmpty == false) ? accessToken : nil
         snapshot.refreshToken = (refreshToken?.isEmpty == false) ? refreshToken : nil
@@ -791,10 +843,10 @@ private actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     ) async {
         let current = loadIfNeeded().refreshToken
         let matches = current == compareRefreshToken
-        AuthManager.authLog("compareAndSet: matches=\(matches) newRefresh=\(newRefreshToken != nil ? "\(newRefreshToken!.prefix(10))..." : "nil") newAccess=\(newAccessToken != nil ? "\(newAccessToken!.prefix(10))..." : "nil")")
+        AuthManager.authLog("file.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false)")
         guard matches else { return }
         if newRefreshToken == nil && newAccessToken == nil {
-            AuthManager.authLog("compareAndSet: blocked double-nil clear (preserving session)")
+            AuthManager.authLog("file.compareAndSet: blocked double-nil clear (preserving session)")
             return
         }
         await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
@@ -865,7 +917,7 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     /// actually succeeded. Used by FallbackTokenStore to decide when to
     /// give up on Keychain and route to the file store.
     func trySetTokens(accessToken: String?, refreshToken: String?) async -> Bool {
-        AuthManager.authLog("setTokens: access=\(accessToken != nil ? "\(accessToken!.prefix(10))..." : "nil") refresh=\(refreshToken != nil ? "\(refreshToken!.prefix(10))..." : "nil")")
+        AuthManager.authLog("keychain.setTokens: hasAccess=\(accessToken?.isEmpty == false) hasRefresh=\(refreshToken?.isEmpty == false)")
         cachedAccessToken = (accessToken?.isEmpty == false) ? accessToken : nil
         cachedRefreshToken = (refreshToken?.isEmpty == false) ? refreshToken : nil
 
@@ -898,13 +950,13 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     ) async {
         let current = keychainRead(account: Self.refreshTokenAccount)
         let matches = current == compareRefreshToken
-        AuthManager.authLog("compareAndSet: matches=\(matches) newRefresh=\(newRefreshToken != nil ? "\(newRefreshToken!.prefix(10))..." : "nil") newAccess=\(newAccessToken != nil ? "\(newAccessToken!.prefix(10))..." : "nil")")
+        AuthManager.authLog("keychain.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false)")
         guard matches else { return }
         // Don't let the StackClientApp's error cleanup path delete both tokens.
         // If both new values are nil, it means the refresh failed and the SDK wants
         // to clear the session. Preserve the refresh token so the user stays signed in.
         if newRefreshToken == nil && newAccessToken == nil {
-            AuthManager.authLog("compareAndSet: blocked double-nil clear (preserving session)")
+            AuthManager.authLog("keychain.compareAndSet: blocked double-nil clear (preserving session)")
             return
         }
         await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)

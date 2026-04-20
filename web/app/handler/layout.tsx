@@ -8,10 +8,14 @@ export default function HandlerLayout({
   children: React.ReactNode;
 }) {
   return (
-    <Suspense>
-      <StackProvider app={stackServerApp}>
-        <StackTheme>{children}</StackTheme>
-      </StackProvider>
-    </Suspense>
+    <html lang="en" suppressHydrationWarning>
+      <body>
+        <Suspense>
+          <StackProvider app={stackServerApp}>
+            <StackTheme>{children}</StackTheme>
+          </StackProvider>
+        </Suspense>
+      </body>
+    </html>
   );
 }

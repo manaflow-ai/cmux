@@ -105,23 +105,32 @@ export default async function AfterSignInPage({ searchParams: searchParamsPromis
     ? searchParams.native_app_return_to
     : null;
 
-  // Native app deep link
-  if (nativeReturnTo?.startsWith(NATIVE_SCHEME) || nativeReturnTo?.startsWith("cmux-dev://")) {
+  // Native app deep link. Only emit the handoff when both tokens are
+  // available; otherwise the OpenNativeClient would launch cmux with an empty
+  // auth payload, which would produce a spurious "not signed in" flash.
+  if (
+    refreshToken &&
+    accessCookie &&
+    (nativeReturnTo?.startsWith(NATIVE_SCHEME) || nativeReturnTo?.startsWith("cmux-dev://"))
+  ) {
     const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
     if (href) return <OpenNativeClient href={href} />;
   }
 
-  // Web redirect (relative paths only)
+  // Web redirect (relative paths only). Reject protocol-relative paths like
+  // "//evil.com" that Next.js would treat as external redirects.
   const afterAuth = typeof searchParams?.after_auth_return_to === "string"
     ? searchParams.after_auth_return_to
     : null;
-  if (afterAuth?.startsWith("/")) {
+  if (afterAuth && afterAuth.startsWith("/") && !afterAuth.startsWith("//")) {
     redirect(afterAuth);
   }
 
-  // Fallback: try native app
-  const fallback = buildNativeHref(null, refreshToken, accessCookie);
-  if (fallback) return <OpenNativeClient href={fallback} />;
+  // Fallback: try native app only when we actually have tokens to hand off.
+  if (refreshToken && accessCookie) {
+    const fallback = buildNativeHref(null, refreshToken, accessCookie);
+    if (fallback) return <OpenNativeClient href={fallback} />;
+  }
 
   redirect("/");
 }
