@@ -1,5 +1,6 @@
 // Root layout: minimal pass-through. The actual layout with <html>/<body> is
-// in app/[locale]/layout.tsx, which sets lang, dir, and wraps with i18n provider.
+// in app/[locale]/layout.tsx for localized routes and app/handler/layout.tsx
+// for Stack Auth handler routes.
 
 export default function RootLayout({
   children,

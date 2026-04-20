@@ -831,6 +831,7 @@ final class CmuxSettingsFileStore {
 
         if let value = jsonBool(section["showModifierHoldHints"]) {
             snapshot.managedUserDefaults[ShortcutHintDebugSettings.showHintsOnCommandHoldKey] = .bool(value)
+            snapshot.managedUserDefaults[ShortcutHintDebugSettings.showHintsOnControlHoldKey] = .bool(value)
         }
 
         var bindings = section["bindings"] as? [String: Any] ?? [:]
@@ -1453,7 +1454,8 @@ final class CmuxSettingsFileStore {
             ],
             [
                 "shortcuts": [
-                    "showModifierHoldHints": ShortcutHintDebugSettings.defaultShowHintsOnCommandHold,
+                    "showModifierHoldHints": ShortcutHintDebugSettings.defaultShowHintsOnCommandHold &&
+                        ShortcutHintDebugSettings.defaultShowHintsOnControlHold,
                     "bindings": shortcutsBindings,
                 ],
             ],

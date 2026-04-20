@@ -5,6 +5,10 @@ import UniformTypeIdentifiers
 
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
+    /// Lives alongside the store but is owned by this view so drag-state
+    /// transitions don't invalidate data-subscribed views elsewhere in the
+    /// sidebar.
+    @StateObject private var dragCoordinator = SessionDragCoordinator()
     /// Sections the user has explicitly collapsed (default is expanded).
     @State private var collapsedSections: Set<SectionKey> = []
     /// Section whose "Show more" popover is currently open.
@@ -115,14 +119,43 @@ struct SessionIndexView: View {
 
     private var sessionsList: some View {
         let sections = store.sectionsForCurrentGrouping()
+        // Read draggedKey once per body eval so every child gets a snapshot
+        // of the same value. Children are Equatable value views, so a
+        // draggedKey transition only re-renders the two sections whose
+        // isDragged flipped — not every section.
+        let draggedKey = dragCoordinator.draggedKey
+
+        // Build closure bundles ONCE per render. Every handle the list
+        // subtree needs is a closure; the subtree never sees `store` or
+        // `dragCoordinator` directly so rows can't observe them.
+        let store = self.store
+        let dragCoordinator = self.dragCoordinator
+        let onResumeClosure = onResume
+        let gapActions = SectionGapActions(
+            currentDraggedKey: { dragCoordinator.draggedKey },
+            moveSection: { key, before in store.moveSection(key, before: before) },
+            clearDraggedKey: { dragCoordinator.draggedKey = nil }
+        )
+        let searchFn: SessionSearchFn = { query, scope, offset, limit in
+            await store.searchSessions(query: query, scope: scope, offset: offset, limit: limit)
+        }
+        let loadSnapshotFn: DirectorySnapshotFn = { cwd in
+            await store.loadDirectorySnapshot(cwd: cwd)
+        }
+
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(sections.enumerated()), id: \.element.key) { index, section in
                     // Drop above this row → insert dragged section BEFORE this section's key.
-                    SectionReorderGap(beforeKey: section.key, store: store)
+                    SectionReorderGap(
+                        beforeKey: section.key,
+                        isValidDrop: draggedKey == nil || draggedKey != section.key,
+                        actions: gapActions
+                    ).equatable()
                     IndexSectionView(
                         section: section,
                         rowLimit: Self.collapsedRowLimit,
+                        isDragged: draggedKey == section.key,
                         isCollapsed: Binding(
                             get: { collapsedSections.contains(section.key) },
                             set: { newValue in
@@ -139,16 +172,27 @@ struct SessionIndexView: View {
                                 openPopoverSection = newValue ? section.key : nil
                             }
                         ),
-                        store: store,
-                        onResume: onResume
-                    )
+                        actions: IndexSectionActions(
+                            onBeginDrag: { dragCoordinator.draggedKey = section.key },
+                            onResume: onResumeClosure,
+                            search: searchFn,
+                            loadSnapshot: loadSnapshotFn
+                        )
+                    ).equatable()
                     let _ = index
                 }
                 // Trailing gap → append.
-                SectionReorderGap(beforeKey: nil, store: store)
+                SectionReorderGap(
+                    beforeKey: nil,
+                    isValidDrop: true,
+                    actions: gapActions
+                ).equatable()
             }
             .padding(.bottom, 8)
         }
+        .background(
+            DragCancelMonitor(dragCoordinator: dragCoordinator)
+        )
     }
 }
 
@@ -182,13 +226,66 @@ private struct GroupingButton: View {
     }
 }
 
-private struct IndexSectionView: View {
+/// Closure type for paginated session search. Handed down into the popover
+/// instead of a `SessionIndexStore` reference so views inside the lazy list
+/// subtree cannot observe the store by accident.
+typealias SessionSearchFn = @MainActor (
+    _ query: String,
+    _ scope: SessionIndexStore.SearchScope,
+    _ offset: Int,
+    _ limit: Int
+) async -> SessionIndexStore.SearchOutcome
+
+/// Closure type for fetching the full merged snapshot of a directory.
+/// The popover uses this on the empty-query scroll path so pagination
+/// becomes an in-memory slice instead of repeated store round-trips.
+typealias DirectorySnapshotFn = @MainActor (_ cwd: String?) async -> DirectorySnapshot
+
+/// Callback bundle handed to `IndexSectionView` in place of a store reference.
+/// Every capability the row needs is expressed as a closure so no child view
+/// below the snapshot boundary can subscribe to `ObservableObject` updates —
+/// a future `@ObservedObject var store` on a row becomes a type error rather
+/// than a silent 100% CPU regression.
+struct IndexSectionActions {
+    let onBeginDrag: @MainActor () -> Void
+    let onResume: ((SessionEntry) -> Void)?
+    let search: SessionSearchFn
+    let loadSnapshot: DirectorySnapshotFn
+}
+
+/// Callback bundle for `SectionReorderGap` / `SectionGapDropDelegate`.
+struct SectionGapActions {
+    let currentDraggedKey: @MainActor () -> SectionKey?
+    let moveSection: @MainActor (SectionKey, SectionKey?) -> Void
+    let clearDraggedKey: @MainActor () -> Void
+}
+
+private struct IndexSectionView: View, Equatable {
     let section: IndexSection
     let rowLimit: Int
+    /// True iff this section is the one currently being dragged. Precomputed
+    /// in the parent from a single `draggedKey` snapshot so the section's
+    /// opacity fade doesn't require observing the drag coordinator here.
+    let isDragged: Bool
     @Binding var isCollapsed: Bool
     @Binding var isPopoverOpen: Bool
-    @ObservedObject var store: SessionIndexStore
-    let onResume: ((SessionEntry) -> Void)?
+    /// Value-type action bundle. See `IndexSectionActions` — replaces the
+    /// earlier `store` / `dragCoordinator` class references so rows can't
+    /// observe the store.
+    let actions: IndexSectionActions
+
+    /// Skip body re-eval when this view's inputs are unchanged. `actions` is
+    /// not comparable (closures) but is expected to be stable (closures
+    /// capture stable object references above the list boundary). Excluding
+    /// it from `==` is the core optimization that keeps LazyVStack's layout
+    /// cache from thrashing when unrelated store fields change.
+    static func == (lhs: IndexSectionView, rhs: IndexSectionView) -> Bool {
+        lhs.section == rhs.section
+            && lhs.rowLimit == rhs.rowLimit
+            && lhs.isDragged == rhs.isDragged
+            && lhs.isCollapsed == rhs.isCollapsed
+            && lhs.isPopoverOpen == rhs.isPopoverOpen
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -202,7 +299,7 @@ private struct IndexSectionView: View {
                         .padding(.vertical, 4)
                 } else {
                     ForEach(Array(section.entries.prefix(rowLimit))) { entry in
-                        SessionRow(entry: entry, onResume: onResume)
+                        SessionRow(entry: entry, onResume: actions.onResume)
                             .equatable()
                     }
                     if section.entries.count > rowLimit {
@@ -212,7 +309,7 @@ private struct IndexSectionView: View {
                 Spacer(minLength: 2)
             }
         }
-        .opacity(store.draggedKey == section.key ? 0.45 : 1.0)
+        .opacity(isDragged ? 0.45 : 1.0)
     }
 
     private var showMoreButton: some View {
@@ -231,8 +328,9 @@ private struct IndexSectionView: View {
             SectionPopoverHost(
                 isPresented: $isPopoverOpen,
                 section: section,
-                store: store,
-                onResume: onResume
+                search: actions.search,
+                loadSnapshot: actions.loadSnapshot,
+                onResume: actions.onResume
             )
         )
     }
@@ -260,7 +358,8 @@ private struct IndexSectionView: View {
         }
         .buttonStyle(.plain)
         .onDrag {
-            DispatchQueue.main.async { store.draggedKey = section.key }
+            let beginDrag = actions.onBeginDrag
+            DispatchQueue.main.async { beginDrag() }
             return NSItemProvider(object: section.key.raw as NSString)
         } preview: {
             HStack(spacing: 8) {
@@ -292,20 +391,28 @@ private struct IndexSectionView: View {
     }
 }
 
-private struct SectionReorderGap: View {
+private struct SectionReorderGap: View, Equatable {
     /// Section the dragged item should land BEFORE if dropped here. `nil` for
     /// the trailing gap (drop appends to the end of persisted order).
     let beforeKey: SectionKey?
-    @ObservedObject var store: SessionIndexStore
+    /// Precomputed in the parent from the single draggedKey snapshot. Keeps
+    /// the gap from reading drag state itself.
+    let isValidDrop: Bool
+    /// Closure bundle — the gap never sees `SessionIndexStore` or
+    /// `SessionDragCoordinator` directly, so it cannot `@ObservedObject` them.
+    let actions: SectionGapActions
     @State private var isDropTarget: Bool = false
 
+    static func == (lhs: SectionReorderGap, rhs: SectionReorderGap) -> Bool {
+        lhs.beforeKey == rhs.beforeKey && lhs.isValidDrop == rhs.isValidDrop
+    }
+
     var body: some View {
-        let isValid = isValidDrop
         Rectangle()
             .fill(Color.clear)
             .frame(height: 4)
             .overlay(alignment: .center) {
-                if isDropTarget && isValid {
+                if isDropTarget && isValidDrop {
                     Capsule()
                         .fill(Color.accentColor)
                         .frame(height: 3)
@@ -316,29 +423,21 @@ private struct SectionReorderGap: View {
                 of: [.text],
                 delegate: SectionGapDropDelegate(
                     beforeKey: beforeKey,
-                    store: store,
+                    actions: actions,
                     isDropTarget: $isDropTarget
                 )
             )
-    }
-
-    private var isValidDrop: Bool {
-        guard let dragged = store.draggedKey else { return true }
-        // Skip no-op drops: dropping on the gap immediately above yourself, or
-        // the trailing gap when you're already last.
-        if dragged == beforeKey { return false }
-        return true
     }
 }
 
 private struct SectionGapDropDelegate: DropDelegate {
     let beforeKey: SectionKey?
-    let store: SessionIndexStore
+    let actions: SectionGapActions
     @Binding var isDropTarget: Bool
 
     func validateDrop(info: DropInfo) -> Bool {
         guard info.hasItemsConforming(to: [.text]) else { return false }
-        guard let dragged = store.draggedKey else { return true }
+        guard let dragged = actions.currentDraggedKey() else { return true }
         return dragged != beforeKey
     }
 
@@ -348,16 +447,17 @@ private struct SectionGapDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         isDropTarget = false
         guard let provider = info.itemProviders(for: [.text]).first else {
-            store.draggedKey = nil
+            actions.clearDraggedKey()
             return false
         }
         let beforeKey = self.beforeKey
+        let actions = self.actions
         provider.loadObject(ofClass: NSString.self) { object, _ in
             DispatchQueue.main.async {
-                defer { store.draggedKey = nil }
+                defer { actions.clearDraggedKey() }
                 guard let raw = object as? String else { return }
                 let key = SectionKey(raw: raw)
-                store.moveSection(key, before: beforeKey)
+                actions.moveSection(key, beforeKey)
             }
         }
         return true
@@ -513,26 +613,39 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
 
 private struct SectionPopoverView: View {
     let section: IndexSection
-    let store: SessionIndexStore
+    /// Closure-typed search handle. The popover never holds a reference to
+    /// `SessionIndexStore`; the parent view is the only owner.
+    let search: SessionSearchFn
+    /// Closure that returns the full merged snapshot for a directory.
+    /// Used on the empty-query directory-scope scroll path so pagination
+    /// is an in-memory array slice, not repeated store round-trips.
+    let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
     let onDismiss: () -> Void
 
     @State private var query: String = ""
     @FocusState private var searchFocused: Bool
 
-    /// Pages of results loaded so far. Each page is `pageSize` rows from the store's
-    /// paginated search.
+    /// Rows currently rendered in the popover. In snapshot mode this is a
+    /// prefix of `fullSnapshot`; in typed-query mode it's the accumulated
+    /// pages from the store.
     @State private var loaded: [SessionEntry] = []
     @State private var hasMore: Bool = true
     @State private var isLoading: Bool = false
     @State private var activeQuery: String = ""
+    /// In-flight pagination task for the typed-query path. Reassigned by
+    /// `loadMore()`; the previous task is cancelled implicitly. The
+    /// initial / query-change load is owned by SwiftUI via
+    /// `.task(id: query)` and doesn't use this slot.
     @State private var loadTask: Task<Void, Never>?
     @State private var errorMessages: [String] = []
-    /// Bumped on each query reset so an in-flight task knows it's been superseded
-    /// even if cancellation hasn't propagated yet.
-    @State private var loadGeneration: Int = 0
+    /// Full merged snapshot of the directory (empty-query directory scope
+    /// only). When non-nil, `loadMore()` slices this array in memory
+    /// instead of hitting the store. `nil` for typed-query and for agent
+    /// scope, which fall back to the paged search path.
+    @State private var fullSnapshot: [SessionEntry]? = nil
 
-    private static let pageSize = 30
+    private static let pageSize = 100
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -622,28 +735,127 @@ private struct SectionPopoverView: View {
                             .equatable()
                         }
                         if hasMore {
+                            // Always visible while more pages exist. Serves
+                            // as both the "Loading…" indicator and the
+                            // pagination sentinel — its .onAppear fires
+                            // loadMore() when it scrolls into view.
                             loadingRow
                                 .onAppear { loadMore() }
+                        } else {
+                            Text(String(localized: "sessionIndex.popover.endOfList",
+                                        defaultValue: "You've reached the end"))
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary.opacity(0.5))
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 8)
                         }
                     }
                 }
                 .padding(.top, 4)
                 .padding(.bottom, 10)
             }
-            .frame(maxHeight: 420)
+            .frame(height: 420)
         }
+        // ScrollView is pinned at fixed 420; the outer VStack's natural
+        // height (chrome + 420) then drives NSHostingController's
+        // preferred content size via sizingOptions. Do NOT pin an outer
+        // fixed height — it made SwiftUI center-distribute slack space
+        // and squashed the top header padding.
         .frame(width: 360)
         .background(
             EscapeKeyCatcher { onDismiss() }
         )
-        .onAppear {
-            resetAndLoad(query: "")
-            DispatchQueue.main.async { searchFocused = true }
-        }
-        .onChange(of: query) { newValue in
-            resetAndLoad(query: newValue)
+        // Single SwiftUI-owned lifecycle for the initial load and every
+        // query change. `.task(id: query)` auto-cancels on view disappear
+        // AND on any `query` change, so we don't need onAppear +
+        // onChange + onDisappear + a manual generation counter to
+        // discard superseded fetches. The 200ms pause doubles as a
+        // debounce: rapid keystrokes bump `id:` which cancels this task
+        // before the sleep completes, preventing an unnecessary search.
+        .task(id: query) {
+            // Any pagination task from the previous query lifecycle is now
+            // superseded. Cancel explicitly — reassigning `loadTask =
+            // Task { … }` later doesn't cancel the previous handle on its
+            // own, so without this a stale page could still land and
+            // append rows that don't match the new query.
+            loadTask?.cancel()
+            loadTask = nil
+
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            activeQuery = trimmed
+            errorMessages = []
+
+            if trimmed.isEmpty {
+                // Fast first frame: render the scan-time top-N we already
+                // have while the full snapshot builds in parallel. On
+                // warm cache the snapshot returns immediately and the
+                // fast-path rows are replaced in the same tick.
+                loaded = section.entries
+                hasMore = !section.entries.isEmpty
+
+                // Focus the search field BEFORE awaiting the snapshot so
+                // a cold-cache deep-directory open still accepts typing
+                // immediately. Snapshot load is async; typing flips the
+                // task id and cancels the in-flight build anyway.
+                if !searchFocused {
+                    searchFocused = true
+                }
+
+                // Build-or-return the full directory snapshot. For
+                // directory scope scrolling this replaces per-page store
+                // fetches with a single merged array + in-memory slice.
+                // Agent-scope popovers keep the old paged flow (no
+                // snapshot needed, store.entries already top-N per agent).
+                if case .directory(let path) = sectionSearchScope {
+                    // Keep isLoading=true while the snapshot builds so the
+                    // sentinel's onAppear can't race and fire a paged
+                    // loadMore() against the store — otherwise we end up
+                    // running both the snapshot path AND a paged search in
+                    // parallel for the same open (observed in logs as
+                    // duplicate session.search.agent lines for the same
+                    // cwd, followed by session.search.total offset=N).
+                    isLoading = true
+                    let snapshot = await loadSnapshot(path)
+                    guard !Task.isCancelled else { return }
+                    fullSnapshot = snapshot.entries
+                    // Show the first page's worth immediately; loadMore
+                    // grows `loaded` from the snapshot on scroll.
+                    let initialWindow = min(Self.pageSize, snapshot.entries.count)
+                    loaded = Array(snapshot.entries.prefix(initialWindow))
+                    hasMore = initialWindow < snapshot.entries.count
+                    errorMessages = snapshot.errors
+                    isLoading = false
+                } else {
+                    fullSnapshot = nil
+                    isLoading = false
+                }
+                return
+            }
+
+            // Typed query — drop any prior snapshot and run a paged
+            // search instead. Cancellation-sensitive debounce: rapid
+            // keystrokes bump id: and SwiftUI cancels before the search
+            // fires.
+            fullSnapshot = nil
+            loaded = []
+            hasMore = true
+            isLoading = true
+
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+            } catch {
+                return
+            }
+
+            let outcome = await search(trimmed, sectionSearchScope, 0, Self.pageSize)
+            guard !Task.isCancelled else { return }
+            applyOutcome(outcome, append: false)
         }
         .onDisappear {
+            // .task(id: query) auto-cancels on disappear, but the
+            // separate loadTask slot (used by loadMore) is ours to
+            // manage. Cancel it so a fetch in flight when the popover
+            // closes doesn't keep running to completion.
             loadTask?.cancel()
             loadTask = nil
             isLoading = false
@@ -663,62 +875,31 @@ private struct SectionPopoverView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Reset the page and load page 0.
-    /// - Empty query: synchronous fast path. Show the cached top-N from
-    ///   `section.entries` immediately so opening the popover never flashes a
-    ///   loading spinner. The sentinel row's loadMore will then fetch any
-    ///   additional pages from disk/SQL when the user scrolls past them.
-    /// - Non-empty query: 200ms debounce then deep search via the store.
-    private func resetAndLoad(query newValue: String) {
-        loadTask?.cancel()
-        loadGeneration += 1
-        let generation = loadGeneration
-        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        activeQuery = trimmed
+    /// Append the next page to `loaded`. Triggered by the sentinel row's
+    /// onAppear. In snapshot mode (empty-query directory scope) this is a
+    /// pure in-memory array slice — zero store calls. In typed-query mode
+    /// it fires a paged search. Explicitly cancels any earlier load-more
+    /// still in flight so a superseded page can't append stale rows after
+    /// a query change.
+    private func loadMore() {
+        guard !isLoading, hasMore else { return }
 
-        if trimmed.isEmpty {
-            loaded = section.entries
-            // Optimistic: assume there might be more on disk; loadMore will
-            // discover the truth and flip hasMore off if a fetch returns nothing.
-            hasMore = !section.entries.isEmpty
-            isLoading = false
-            errorMessages = []
+        if let snapshot = fullSnapshot {
+            let next = min(loaded.count + Self.pageSize, snapshot.count)
+            loaded = Array(snapshot.prefix(next))
+            hasMore = next < snapshot.count
             return
         }
 
-        loaded = []
-        hasMore = true
         isLoading = true
-        errorMessages = []
         let scope = sectionSearchScope
-        let store = self.store
-        loadTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            if Task.isCancelled || generation != loadGeneration { return }
-            let outcome = await store.searchSessions(
-                query: trimmed, scope: scope,
-                offset: 0, limit: Self.pageSize
-            )
-            if Task.isCancelled || generation != loadGeneration { return }
-            applyOutcome(outcome, append: false)
-        }
-    }
-
-    /// Append the next page to `loaded`. Triggered by the sentinel row's onAppear.
-    private func loadMore() {
-        guard !isLoading, hasMore else { return }
-        isLoading = true
-        let generation = loadGeneration
-        let scope = sectionSearchScope
-        let store = self.store
+        let search = self.search
         let query = activeQuery
         let offset = loaded.count
+        loadTask?.cancel()
         loadTask = Task { @MainActor in
-            let outcome = await store.searchSessions(
-                query: query, scope: scope,
-                offset: offset, limit: Self.pageSize
-            )
-            if Task.isCancelled || generation != loadGeneration { return }
+            let outcome = await search(query, scope, offset, Self.pageSize)
+            guard !Task.isCancelled else { return }
             applyOutcome(outcome, append: true)
         }
     }
@@ -728,6 +909,19 @@ private struct SectionPopoverView: View {
     /// error/loading bookkeeping lives in one place.
     @MainActor
     private func applyOutcome(_ outcome: SessionIndexStore.SearchOutcome, append: Bool) {
+        // `append` is only reached from the paged path (typed query or
+        // agent scope). In both cases `offset = loaded.count` is
+        // monotonic against the store's ordering, so raw-append is
+        // correct. The empty-query directory case uses the snapshot
+        // path and never reaches here.
+        //
+        // Earlier revisions of this method dedup-filtered outcome.entries
+        // on entry.id; with `hasMore = outcome.entries.count >=
+        // pageSize` and `offset = loaded.count`, filtering caused
+        // loaded.count to advance more slowly than the raw page size,
+        // which kept hasMore perpetually true and re-requested the
+        // same window. Removing the dedup makes the cursor match the
+        // page boundaries the store actually returns.
         if append {
             loaded.append(contentsOf: outcome.entries)
         } else {
@@ -779,6 +973,32 @@ private struct PopoverRow: View, Equatable {
         lhs.entry == rhs.entry
     }
 
+    fileprivate static func flatten(_ s: String) -> String {
+        var out = s
+        out = out.replacingOccurrences(of: "\r\n", with: " ")
+        out = out.replacingOccurrences(of: "\n", with: " ")
+        out = out.replacingOccurrences(of: "\r", with: " ")
+        out = out.replacingOccurrences(of: "\t", with: " ")
+        return out
+    }
+
+    fileprivate static func refreshInterval(for modified: Date, now: Date = .now) -> TimeInterval {
+        let age = max(0, now.timeIntervalSince(modified))
+        if age < 3_600 { return 60 }
+        if age < 86_400 { return 3_600 }
+        return 86_400
+    }
+
+    @ViewBuilder
+    private var modifiedText: some View {
+        TimelineView(RelativeTimestampSchedule(modified: entry.modified)) { context in
+            Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: context.date))
+        }
+        .font(.system(size: 11).monospacedDigit())
+        .foregroundColor(.secondary.opacity(0.7))
+        .fixedSize()
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             Image(entry.agent.assetName)
@@ -786,16 +1006,17 @@ private struct PopoverRow: View, Equatable {
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 12, height: 12)
-            Text(entry.displayTitle)
+            // Flatten newlines so titles containing `<command-message>…\n…`
+            // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
+            // always constrain a Text that has hard line breaks in the
+            // source string.
+            Text(Self.flatten(entry.displayTitle))
                 .font(.system(size: 12))
                 .foregroundColor(.primary.opacity(0.92))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
-            Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: Date()))
-                .font(.system(size: 11).monospacedDigit())
-                .foregroundColor(.secondary.opacity(0.7))
-                .fixedSize()
+            modifiedText
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -810,6 +1031,25 @@ private struct PopoverRow: View, Equatable {
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+        }
+    }
+}
+
+private struct RelativeTimestampSchedule: TimelineSchedule {
+    let modified: Date
+
+    func entries(from startDate: Date, mode: Mode) -> Entries {
+        Entries(current: startDate, modified: modified)
+    }
+
+    struct Entries: Sequence, IteratorProtocol {
+        var current: Date
+        let modified: Date
+
+        mutating func next() -> Date? {
+            let date = current
+            current = current.addingTimeInterval(PopoverRow.refreshInterval(for: modified, now: date))
+            return date
         }
     }
 }
@@ -899,10 +1139,13 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 /// Hosts SectionPopoverView in a real NSPopover. SwiftUI's native `.popover()`
 /// doesn't reliably let the embedded TextField become first responder in cmux's
 /// focus-managed environment — the terminal keeps grabbing focus back.
-private struct SectionPopoverHost: NSViewRepresentable {
+struct SectionPopoverHost: NSViewRepresentable {
     @Binding var isPresented: Bool
     let section: IndexSection
-    let store: SessionIndexStore
+    /// Closure-typed search handle passed through to the SwiftUI popover
+    /// body. The host no longer holds a `SessionIndexStore` reference.
+    let search: SessionSearchFn
+    let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(isPresented: $isPresented) }
@@ -919,7 +1162,8 @@ private struct SectionPopoverHost: NSViewRepresentable {
         coordinator.anchorView = nsView
         coordinator.update(
             section: section,
-            store: store,
+            search: search,
+            loadSnapshot: loadSnapshot,
             onResume: onResume
         )
         if isPresented {
@@ -936,12 +1180,31 @@ private struct SectionPopoverHost: NSViewRepresentable {
     final class Coordinator: NSObject, NSPopoverDelegate {
         @Binding var isPresented: Bool
         weak var anchorView: NSView?
+        private(set) var debugRefreshContentCallCount = 0
+        var debugIsPopoverShown: Bool { popover?.isShown == true }
 
-        private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
+        private let hostingController: NSHostingController<AnyView> = {
+            NSHostingController(rootView: AnyView(EmptyView()))
+            // DO NOT set sizingOptions here. sizingOptions =
+            // [.preferredContentSize] makes NSHostingController
+            // continuously rewrite its preferredContentSize from SwiftUI
+            // layout; NSPopover observes preferredContentSize and will
+            // override any manual popover.contentSize we set. On first
+            // open SwiftUI layout settles over multiple passes and
+            // preferredContentSize briefly reports a partial height —
+            // NSPopover latches onto that and renders squished (evidence:
+            // /tmp/cmux-debug-spin-fix.log, refreshContent logged
+            // fitting=360x486 at present, but visible popover was ~280).
+            // Instead we drive popover.contentSize manually from
+            // fittingSize on every updateNSView / present call.
+        }()
         private var popover: NSPopover?
         private var currentSection: IndexSection?
-        private var currentStore: SessionIndexStore?
+        private var currentSearch: SessionSearchFn?
+        private var currentLoadSnapshot: DirectorySnapshotFn?
         private var currentOnResume: ((SessionEntry) -> Void)?
+        private var lastRenderedSection: IndexSection?
+        private var lastRenderedPresentationCount: Int?
         /// Bumped on every present(). Used as the SwiftUI view identity so each
         /// open gets fresh @State (empty query, fresh focus, no stale results).
         private var presentationCount = 0
@@ -950,25 +1213,51 @@ private struct SectionPopoverHost: NSViewRepresentable {
             _isPresented = isPresented
         }
 
-        func update(section: IndexSection, store: SessionIndexStore, onResume: ((SessionEntry) -> Void)?) {
+        func update(
+            section: IndexSection,
+            search: @escaping SessionSearchFn,
+            loadSnapshot: @escaping DirectorySnapshotFn,
+            onResume: ((SessionEntry) -> Void)?
+        ) {
             currentSection = section
-            currentStore = store
+            currentSearch = search
+            currentLoadSnapshot = loadSnapshot
             currentOnResume = onResume
+            // When hidden, defer rebuilding the hosting view until `present()`.
+            // Rewriting rootView + forcing layout on every parent re-render was
+            // the 100% CPU loop behind #3010.
+            guard popover?.isShown == true else { return }
+            // Rows capture stable closure bundles above the list boundary, so
+            // the section snapshot is the meaningful input here. Skipping
+            // identical visible-section updates avoids re-laying out the popover
+            // during unrelated parent re-renders while still refreshing when the
+            // visible content actually changes.
+            guard lastRenderedSection != section || lastRenderedPresentationCount != presentationCount else { return }
             refreshContent()
         }
 
         private func refreshContent() {
-            guard let section = currentSection, let store = currentStore else { return }
+            guard let section = currentSection,
+                  let search = currentSearch,
+                  let loadSnapshot = currentLoadSnapshot else { return }
+            debugRefreshContentCallCount += 1
             let onResume = currentOnResume
             let identity = presentationCount
             hostingController.rootView = AnyView(
-                SectionPopoverView(section: section, store: store, onResume: onResume) { [weak self] in
+                SectionPopoverView(
+                    section: section,
+                    search: search,
+                    loadSnapshot: loadSnapshot,
+                    onResume: onResume
+                ) { [weak self] in
                     self?.closeFromContent()
                 }
                 // Tied to presentationCount so reopening the popover discards
                 // the prior open's @State (typed query, scrolled position, etc.).
                 .id(identity)
             )
+            lastRenderedSection = section
+            lastRenderedPresentationCount = presentationCount
             hostingController.view.invalidateIntrinsicContentSize()
             hostingController.view.layoutSubtreeIfNeeded()
             updateContentSize()
@@ -1065,6 +1354,69 @@ private struct EscapeKeyCatcher: NSViewRepresentable {
                 if event.keyCode == 53 { // kVK_Escape
                     self.onEscape?()
                     return nil
+                }
+                return event
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+    }
+}
+
+// MARK: - Drag cancel monitor
+
+/// Clears `dragCoordinator.draggedKey` after any mouseUp OR Escape keypress,
+/// so a cancelled drag (user releases outside any valid drop target, or
+/// presses Esc mid-drag) doesn't leave the section stuck at 0.45 opacity.
+/// Successful drops clear the key themselves via
+/// `SectionGapDropDelegate.performDrop` and that clear happens under
+/// `DispatchQueue.main.async`, so the drop path always wins the race
+/// against this fallback.
+private struct DragCancelMonitor: NSViewRepresentable {
+    let dragCoordinator: SessionDragCoordinator
+
+    func makeNSView(context: Context) -> NSView {
+        let view = DragCancelMonitorView()
+        view.dragCoordinator = dragCoordinator
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? DragCancelMonitorView)?.dragCoordinator = dragCoordinator
+    }
+
+    private final class DragCancelMonitorView: NSView {
+        weak var dragCoordinator: SessionDragCoordinator?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            guard window != nil else { return }
+            // Cover every way a drag can end without a drop firing:
+            // mouse release (default cancellation) and Escape (AppKit
+            // signals drag abort by delivering a keyDown with
+            // kVK_Escape / keyCode 53). Without the Escape branch,
+            // pressing Esc to cancel a section drag leaves the section
+            // stuck at 0.45 opacity until the next mouseUp elsewhere.
+            monitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseUp, .otherMouseUp, .keyDown]
+            ) { [weak self] event in
+                guard let coordinator = self?.dragCoordinator,
+                      coordinator.draggedKey != nil else { return event }
+                if event.type == .keyDown, event.keyCode != 53 { // 53 = kVK_Escape
+                    return event
+                }
+                // Defer the clear so any `performDrop` already queued on the
+                // main actor wins first; this path only matters when no drop
+                // fires, i.e. the drag was cancelled.
+                DispatchQueue.main.async {
+                    coordinator.draggedKey = nil
                 }
                 return event
             }
