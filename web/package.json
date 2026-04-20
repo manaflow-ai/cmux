@@ -10,6 +10,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@stackframe/js": "^2.8.78",
+    "@stackframe/stack": "^2.8.78",
     "@t3-oss/env-nextjs": "^0.13.10",
     "@vercel/firewall": "^1.1.2",
     "next": "16.1.6",
