@@ -1,17 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
-
-const AUTO_RETURN_MS = 2000;
-
 export function OpenNativeClient({ href }: { href: string }) {
-  useEffect(() => {
-    const id = window.setTimeout(() => {
-      window.location.href = href;
-    }, AUTO_RETURN_MS);
-    return () => window.clearTimeout(id);
-  }, [href]);
-
   return (
     <div
       style={{
