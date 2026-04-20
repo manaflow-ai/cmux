@@ -49016,6 +49016,346 @@
         }
       }
     },
+    "settings.app.configWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル設定"
+          }
+        }
+      }
+    },
+    "settings.app.configWindow.openButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Config Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成ウインドウを開く"
+          }
+        }
+      }
+    },
+    "settings.app.configWindow.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の設定、単体の Ghostty 設定、マージ後のプレビューを 1 つのユーティリティウインドウで開きます。"
+          }
+        }
+      }
+    },
+    "settings.config.action.openEditor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Editor…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エディタで開く…"
+          }
+        }
+      }
+    },
+    "settings.config.action.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込み"
+          }
+        }
+      }
+    },
+    "settings.config.action.revealFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで表示"
+          }
+        }
+      }
+    },
+    "settings.config.action.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
+      }
+    },
+    "settings.config.banner.cmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is the config file cmux reads. Edit it here, then Save to reload cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これは cmux が読み込む設定ファイルです。ここで編集し、保存すると cmux が再読み込みされます。"
+          }
+        }
+      }
+    },
+    "settings.config.banner.ghostty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file belongs to standalone Ghostty. cmux does not read it, so edits here do not affect cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは単体の Ghostty 用です。cmux はこれを読み込まないため、ここでの編集は cmux に反映されません。"
+          }
+        }
+      }
+    },
+    "settings.config.banner.ghosttyMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No standalone Ghostty config file was found at the preferred path. cmux still does not read standalone Ghostty config."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先パスに単体の Ghostty 設定ファイルが見つかりませんでした。cmux は単体の Ghostty 設定を読み込みません。"
+          }
+        }
+      }
+    },
+    "settings.config.banner.synced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is a generated preview of the effective config. Edit the cmux tab to change what cmux reads."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これは実効設定の生成プレビューです。cmux が読み込む内容を変更するには cmux タブを編集してください。"
+          }
+        }
+      }
+    },
+    "settings.config.banner.syncedNoGhostty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is a generated preview of the effective config. No standalone Ghostty config file was found, so only cmux overrides are shown."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これは実効設定の生成プレビューです。単体の Ghostty 設定ファイルが見つからなかったため、cmux の上書き設定のみを表示しています。"
+          }
+        }
+      }
+    },
+    "settings.config.source.cmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        }
+      }
+    },
+    "settings.config.source.ghostty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ghostty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ghostty"
+          }
+        }
+      }
+    },
+    "settings.config.source.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Config Source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成ソース"
+          }
+        }
+      }
+    },
+    "settings.config.source.synced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "synced"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期"
+          }
+        }
+      }
+    },
+    "settings.config.status.reloaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reloaded configuration from disk."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクから構成を再読み込みしました。"
+          }
+        }
+      }
+    },
+    "settings.config.status.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save the cmux config."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 設定を保存できませんでした。"
+          }
+        }
+      }
+    },
+    "settings.config.status.saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved to cmux config and reloaded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 設定に保存し、再読み込みしました。"
+          }
+        }
+      }
+    },
+    "settings.config.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成"
+          }
+        }
+      }
+    },
     "settings.app.commandPaletteSearchAllSurfaces": {
       "extractionState": "manual",
       "localizations": {

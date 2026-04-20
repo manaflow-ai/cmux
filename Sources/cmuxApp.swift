@@ -838,6 +838,10 @@ struct cmuxApp: App {
                 }
             }
         }
+
+        Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
+            ConfigSettingsView()
+        }
     }
 
     private func showAboutPanel() {
@@ -4376,6 +4380,7 @@ struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
+    @Environment(\.openWindow) private var openWindow
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -5105,6 +5110,23 @@ struct SettingsView: View {
                             )
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
+                            subtitle: String(
+                                localized: "settings.app.configWindow.subtitle",
+                                defaultValue: "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
+                            )
+                        ) {
+                            Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config Window")) {
+                                openWindow(id: ConfigSettingsView.windowID)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
 
                         SettingsCardDivider()
