@@ -2837,6 +2837,16 @@ struct ContentView: View {
                 sessionIndexStore: sessionIndexStore,
                 onResumeSession: { entry in
                     resumeSession(entry: entry)
+                },
+                onOpenMarkdown: { path in
+                    guard let workspace = tabManager.selectedWorkspace,
+                          let panelId = workspace.focusedPanelId else {
+                        PreferredEditorSettings.open(URL(fileURLWithPath: path))
+                        return
+                    }
+                    if workspace.openOrFocusMarkdownSplit(from: panelId, filePath: path) == nil {
+                        PreferredEditorSettings.open(URL(fileURLWithPath: path))
+                    }
                 }
             )
                 .frame(width: explorerVisible ? fileExplorerWidth : 0)

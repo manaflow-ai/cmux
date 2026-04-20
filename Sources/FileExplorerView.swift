@@ -10,9 +10,12 @@ import SwiftUI
 struct FileExplorerPanelView: NSViewRepresentable {
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
+    /// Called when the user opens a markdown file and the cmux viewer should handle it.
+    /// The parent view routes this to Workspace.openOrFocusMarkdownSplit.
+    var onOpenMarkdown: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(store: store, state: state)
+        Coordinator(store: store, state: state, onOpenMarkdown: onOpenMarkdown)
     }
 
     func makeNSView(context: Context) -> FileExplorerContainerView {
@@ -24,6 +27,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
         context.coordinator.store = store
         context.coordinator.state = state
+        context.coordinator.onOpenMarkdown = onOpenMarkdown
         container.updateHeader(store: store)
         context.coordinator.reloadIfNeeded()
     }
@@ -33,15 +37,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
+        var onOpenMarkdown: ((String) -> Void)?
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
 
-        init(store: FileExplorerStore, state: FileExplorerState) {
+        init(store: FileExplorerStore, state: FileExplorerState, onOpenMarkdown: ((String) -> Void)?) {
             self.store = store
             self.state = state
+            self.onOpenMarkdown = onOpenMarkdown
             super.init()
             observeStore()
             styleObserver = NotificationCenter.default.addObserver(
@@ -269,7 +275,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @objc private func contextMenuOpenInDefaultEditor(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
-            NSWorkspace.shared.open(URL(fileURLWithPath: node.path))
+            if CmdClickMarkdownRouteSettings.shouldRoute(path: node.path),
+               let handler = onOpenMarkdown {
+                handler(node.path)
+                return
+            }
+            PreferredEditorSettings.open(URL(fileURLWithPath: node.path))
         }
 
         @objc private func contextMenuRevealInFinder(_ sender: NSMenuItem) {
