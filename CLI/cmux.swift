@@ -1944,6 +1944,72 @@ struct CMUXCLI {
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
 
+        case "auth":
+            let sub = commandArgs.first?.lowercased() ?? "status"
+            switch sub {
+            case "status":
+                let response = try client.sendV2(method: "auth.status")
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let signedIn = (response["signed_in"] as? Bool) ?? false
+                if !signedIn {
+                    print("Not signed in.")
+                    print("Run: cmux auth login")
+                    break
+                }
+                let user = response["user"] as? [String: Any]
+                let email = user?["email"] as? String
+                let display = user?["display_name"] as? String
+                let userID = user?["id"] as? String
+                print("Signed in.")
+                if let email { print("  email:    \(email)") }
+                if let display { print("  name:     \(display)") }
+                if let userID { print("  user_id:  \(userID)") }
+                if let teamID = response["selected_team_id"] as? String {
+                    print("  team_id:  \(teamID)")
+                }
+
+            case "login":
+                let statusBefore = try client.sendV2(method: "auth.status")
+                if (statusBefore["signed_in"] as? Bool) == true {
+                    let email = (statusBefore["user"] as? [String: Any])?["email"] as? String
+                    print("Already signed in\(email.map { " as \($0)" } ?? ""). Use `cmux auth logout` to sign out first.")
+                    break
+                }
+                print("Opening sign-in popup on the cmux mac app.")
+                // auth.begin_sign_in blocks on the server side until the
+                // popup completes (or 5min timeout). The response is the
+                // callback — no polling.
+                let result = try client.sendV2(method: "auth.begin_sign_in")
+                if (result["signed_in"] as? Bool) == true {
+                    let email = (result["user"] as? [String: Any])?["email"] as? String
+                    print("Signed in\(email.map { " as \($0)" } ?? "").")
+                } else if (result["timed_out"] as? Bool) == true {
+                    print("Timed out waiting for sign-in. Run `cmux auth status` once you've finished in the popup.")
+                } else {
+                    print("Sign-in did not complete. Run `cmux auth status` to check.")
+                }
+
+            case "logout":
+                let statusBefore = try client.sendV2(method: "auth.status")
+                if (statusBefore["signed_in"] as? Bool) != true {
+                    print("Already signed out.")
+                    break
+                }
+                // auth.sign_out awaits the token clear before replying.
+                let result = try client.sendV2(method: "auth.sign_out")
+                if (result["signed_in"] as? Bool) != true {
+                    print("Signed out.")
+                } else {
+                    print("Sign-out requested but state hasn't cleared yet. Run `cmux auth status` to confirm.")
+                }
+
+            default:
+                throw CLIError(message: "Usage: cmux auth <status|login|logout>")
+            }
+
         case "rpc":
             guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !method.isEmpty else {
@@ -6819,6 +6885,14 @@ struct CMUXCLI {
             Usage: cmux capabilities
 
             Print server capabilities as JSON.
+            """
+        case "auth":
+            return """
+            Usage: cmux auth <status|login|logout>
+
+            status   Print whether the user is signed in (add `cmux --json` for JSON).
+            login    Open the sign-in popup on the cmux mac app and wait for it to finish.
+            logout   Clear the current session.
             """
         case "rpc":
             return """
@@ -14373,6 +14447,7 @@ struct CMUXCLI {
           ping
           version
           capabilities
+          auth <status|login|logout>
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
           list-windows

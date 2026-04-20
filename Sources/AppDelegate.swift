@@ -2521,6 +2521,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
+        for url in authCallbacks {
+            Task { @MainActor in
+                do {
+                    try await AuthManager.shared.handleCallbackURL(url)
+                } catch {
+                    NSLog("auth.callback failed: %@", "\(error)")
+                }
+            }
+        }
+
         let directories = externalOpenDirectories(from: urls)
         guard !directories.isEmpty else { return }
 
@@ -2538,6 +2549,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         AppIconLaunchState.markDidFinishLaunching()
+
+        claimAuthCallbackURLSchemes()
 
         DistributedNotificationCenter.default().addObserver(
             self,
@@ -6763,6 +6776,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil
             didAttemptStartupSessionRestore = true
+        }
+    }
+
+    private func claimAuthCallbackURLSchemes() {
+        // Pin the current build as the default for cmux://  and cmux-dev://
+        // so the auth-callback deeplink routes back to this app instead of an
+        // unrelated LaunchServices entry.
+        let bundleURL = Bundle.main.bundleURL
+        for scheme in ["cmux", "cmux-dev"] {
+            NSWorkspace.shared.setDefaultApplication(
+                at: bundleURL,
+                toOpenURLsWithScheme: scheme
+            ) { _ in }
         }
     }
 
