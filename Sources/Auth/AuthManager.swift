@@ -104,16 +104,11 @@ final class AuthManager: ObservableObject {
     static let shared = AuthManager(tokenStore: AuthManager.defaultTokenStore())
 
     private static func defaultTokenStore() -> any StackAuthTokenStoreProtocol {
-        #if DEBUG
-        // Debug builds are ad-hoc signed and change their code signature on every
-        // `reload.sh --tag` build. That breaks the Keychain ACL bound to the
-        // previous signature, so macOS prompts for the login keychain password on
-        // every token read. UserDefaults is fine here: tokens never leave the dev
-        // machine, and release builds still use Keychain below.
-        return UserDefaultsStackTokenStore()
-        #else
+        // Data-protection keychain (kSecUseDataProtectionKeychain) avoids the
+        // login-keychain ACL prompt that fires on every ad-hoc rebuild, and
+        // it persists correctly through ungraceful shutdowns (unlike
+        // UserDefaults which batches writes to disk).
         return KeychainStackTokenStore()
-        #endif
     }
 
     @Published private(set) var isAuthenticated = false
@@ -666,78 +661,43 @@ final class AuthManager: ObservableObject {
 }
 
 
-private actor UserDefaultsStackTokenStore: StackAuthTokenStoreProtocol {
-    private static let accessKey = "cmux.auth.debug.accessToken"
-    private static let refreshKey = "cmux.auth.debug.refreshToken"
-    private let defaults = UserDefaults.standard
-
-    func getStoredAccessToken() async -> String? {
-        defaults.string(forKey: Self.accessKey)
-    }
-
-    func getStoredRefreshToken() async -> String? {
-        defaults.string(forKey: Self.refreshKey)
-    }
-
-    func setTokens(accessToken: String?, refreshToken: String?) async {
-        if let accessToken, !accessToken.isEmpty {
-            defaults.set(accessToken, forKey: Self.accessKey)
-        } else {
-            defaults.removeObject(forKey: Self.accessKey)
-        }
-        if let refreshToken, !refreshToken.isEmpty {
-            defaults.set(refreshToken, forKey: Self.refreshKey)
-        } else {
-            defaults.removeObject(forKey: Self.refreshKey)
-        }
-    }
-
-    func clearTokens() async {
-        defaults.removeObject(forKey: Self.accessKey)
-        defaults.removeObject(forKey: Self.refreshKey)
-    }
-
-    func compareAndSet(
-        compareRefreshToken: String,
-        newRefreshToken: String?,
-        newAccessToken: String?
-    ) async {
-        guard defaults.string(forKey: Self.refreshKey) == compareRefreshToken else { return }
-        if newRefreshToken == nil && newAccessToken == nil { return }
-        await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
-    }
-}
-
+/// Tokens are stored in macOS's *data-protection keychain* (the iOS-style
+/// keychain enabled via kSecUseDataProtectionKeychain). Unlike the login
+/// keychain, this path doesn't gate access on a per-binary ACL, so ad-hoc
+/// Debug rebuilds don't trigger the "cmux DEV wants to use your keychain"
+/// login-password prompt. Access is scoped by bundle id + signing identity,
+/// so only other copies of this same bundle id can read the items.
 private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private static let accessTokenAccount = "cmux-auth-access-token"
     private static let refreshTokenAccount = "cmux-auth-refresh-token"
-    // Each tagged build uses its own keychain service (per bundle ID) to avoid cross-build keychain prompts.
     private let service = AuthKeychainServiceName.make()
 
-    // In-memory cache to avoid keychain prompts in environments where
-    // the login keychain is locked (SSH, background processes).
     private var cachedAccessToken: String?
     private var cachedRefreshToken: String?
 
     func getStoredAccessToken() async -> String? {
-        cachedAccessToken ?? keychainValueSafe(account: Self.accessTokenAccount)
+        if let cachedAccessToken { return cachedAccessToken }
+        return keychainRead(account: Self.accessTokenAccount)
     }
 
     func getStoredRefreshToken() async -> String? {
-        cachedRefreshToken ?? keychainValueSafe(account: Self.refreshTokenAccount)
+        if let cachedRefreshToken { return cachedRefreshToken }
+        return keychainRead(account: Self.refreshTokenAccount)
     }
 
     func setTokens(accessToken: String?, refreshToken: String?) async {
         AuthManager.authLog("setTokens: access=\(accessToken != nil ? "\(accessToken!.prefix(10))..." : "nil") refresh=\(refreshToken != nil ? "\(refreshToken!.prefix(10))..." : "nil")")
-        // Always update in-memory cache (instant, no prompt)
         cachedAccessToken = (accessToken?.isEmpty == false) ? accessToken : nil
         cachedRefreshToken = (refreshToken?.isEmpty == false) ? refreshToken : nil
-        // Best-effort keychain persistence (may block if keychain is locked)
         if let accessToken, !accessToken.isEmpty {
-            setKeychainValueSafe(accessToken, account: Self.accessTokenAccount)
+            keychainWrite(accessToken, account: Self.accessTokenAccount)
+        } else {
+            keychainDelete(account: Self.accessTokenAccount)
         }
         if let refreshToken, !refreshToken.isEmpty {
-            setKeychainValueSafe(refreshToken, account: Self.refreshTokenAccount)
+            keychainWrite(refreshToken, account: Self.refreshTokenAccount)
+        } else {
+            keychainDelete(account: Self.refreshTokenAccount)
         }
     }
 
@@ -745,8 +705,8 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         AuthManager.authLog("clearTokens called")
         cachedAccessToken = nil
         cachedRefreshToken = nil
-        deleteKeychainValue(account: Self.accessTokenAccount)
-        deleteKeychainValue(account: Self.refreshTokenAccount)
+        keychainDelete(account: Self.accessTokenAccount)
+        keychainDelete(account: Self.refreshTokenAccount)
     }
 
     func compareAndSet(
@@ -754,7 +714,7 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         newRefreshToken: String?,
         newAccessToken: String?
     ) async {
-        let current = keychainValue(account: Self.refreshTokenAccount)
+        let current = keychainRead(account: Self.refreshTokenAccount)
         let matches = current == compareRefreshToken
         AuthManager.authLog("compareAndSet: matches=\(matches) newRefresh=\(newRefreshToken != nil ? "\(newRefreshToken!.prefix(10))..." : "nil") newAccess=\(newAccessToken != nil ? "\(newAccessToken!.prefix(10))..." : "nil")")
         guard matches else { return }
@@ -768,101 +728,59 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
     }
 
-    /// Read from keychain without blocking on a password prompt.
-    /// Uses kSecUseAuthenticationUI = kSecUseAuthenticationUISkip to avoid UI prompts.
-    private func keychainValueSafe(account: String) -> String? {
 #if canImport(Security)
-        let query: [String: Any] = [
+    private func baseQuery(account: String) -> [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip,
+            kSecUseDataProtectionKeychain as String: true,
         ]
+    }
+
+    private func keychainRead(account: String) -> String? {
+        var query = baseQuery(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-#else
-        return nil
-#endif
-    }
-
-    /// Write to keychain without blocking. If the keychain is locked, silently fails.
-    private func setKeychainValueSafe(_ value: String, account: String) {
-#if canImport(Security)
-        guard let data = value.data(using: .utf8) else { return }
-        // Try update first
-        let lookup: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        let status = SecItemUpdate(lookup as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var insert = lookup
-            insert[kSecValueData as String] = data
-            SecItemAdd(insert as CFDictionary, nil)
-        }
-#endif
-    }
-
-    private func keychainValue(account: String) -> String? {
-#if canImport(Security)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else {
+        guard status == errSecSuccess, let data = result as? Data else {
+            if status != errSecItemNotFound {
+                AuthManager.authLog("keychain READ status=\(status) account=\(account)")
+            }
             return nil
         }
         return String(data: data, encoding: .utf8)
-#else
-        return nil
-#endif
     }
 
-    private func setKeychainValue(_ value: String, account: String) {
-#if canImport(Security)
+    private func keychainWrite(_ value: String, account: String) {
         guard let data = value.data(using: .utf8) else { return }
-        let lookup: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        let attributes: [String: Any] = [
-            kSecValueData as String: data,
-        ]
-        let status = SecItemUpdate(lookup as CFDictionary, attributes as CFDictionary)
-        if status == errSecItemNotFound {
-            var insert = lookup
-            insert[kSecValueData as String] = data
-            let addStatus = SecItemAdd(insert as CFDictionary, nil)
-            if addStatus != errSecSuccess {
-                AuthManager.authLog("keychain ADD failed: \(addStatus) account=\(account)")
-            }
-        } else if status != errSecSuccess {
-            AuthManager.authLog("keychain UPDATE failed: \(status) account=\(account)")
+        let lookup = baseQuery(account: account)
+        let updateStatus = SecItemUpdate(
+            lookup as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess { return }
+        if updateStatus != errSecItemNotFound {
+            AuthManager.authLog("keychain UPDATE status=\(updateStatus) account=\(account)")
         }
-#endif
+        var insert = lookup
+        insert[kSecValueData as String] = data
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        if addStatus != errSecSuccess {
+            AuthManager.authLog("keychain ADD status=\(addStatus) account=\(account)")
+        }
     }
 
-    private func deleteKeychainValue(account: String) {
-#if canImport(Security)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(query as CFDictionary)
-#endif
+    private func keychainDelete(account: String) {
+        _ = SecItemDelete(baseQuery(account: account) as CFDictionary)
     }
+#else
+    private func keychainRead(account: String) -> String? { nil }
+    private func keychainWrite(_ value: String, account: String) {}
+    private func keychainDelete(account: String) {}
+#endif
 }
 
 actor LiveAuthClient: AuthClientProtocol {
