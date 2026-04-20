@@ -59,6 +59,70 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
+
+    @MainActor
+    func testSetTabColorFeedsSelectedSolidFillSidebarBackground() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        var observedSidebarInvalidation = false
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            observedSidebarInvalidation = true
+        }
+
+        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
+
+        XCTAssertEqual(workspace.customColor, "#C0392B")
+        XCTAssertTrue(observedSidebarInvalidation)
+
+        let background = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: true,
+            isMultiSelected: false,
+            customColorHex: workspace.customColor,
+            colorScheme: .light,
+            sidebarSelectionColorHex: nil
+        )
+
+        XCTAssertEqual(background.color?.hexString(), "#C0392B")
+        XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
+        withExtendedLifetime(cancellable) {}
+    }
+
+    @MainActor
+    func testSetTabColorFeedsSelectedDefaultSidebarBackground() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        var observedSidebarInvalidation = false
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            observedSidebarInvalidation = true
+        }
+
+        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
+
+        XCTAssertEqual(workspace.customColor, "#C0392B")
+        XCTAssertTrue(observedSidebarInvalidation)
+
+        let background = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .leftRail,
+            isActive: true,
+            isMultiSelected: false,
+            customColorHex: workspace.customColor,
+            colorScheme: .light,
+            sidebarSelectionColorHex: nil
+        )
+
+        XCTAssertEqual(background.color?.hexString(), "#C0392B")
+        XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
+        withExtendedLifetime(cancellable) {}
+    }
 }
 
 
