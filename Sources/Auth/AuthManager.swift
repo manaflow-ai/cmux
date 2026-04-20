@@ -203,6 +203,45 @@ final class AuthManager: ObservableObject {
         }
     }
 
+    /// Starts the ASWebAuthenticationSession popup and awaits the user's
+    /// completion by observing isAuthenticated. Resolves when authenticated
+    /// or when the deadline elapses. No polling — the $isAuthenticated
+    /// AsyncPublisher emits as soon as the token exchange in
+    /// handleCallbackURL() flips the flag.
+    func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
+        if isAuthenticated { return true }
+        beginSignIn()
+        return await waitForAuthState(target: true, timeout: timeout)
+    }
+
+    /// Signs out and awaits the state to flip. signOut() is already async and
+    /// clears state before returning, so this is mostly a thin wrapper; the
+    /// deadline exists purely to cap the worst-case hang time.
+    func signOutAndAwait(timeout: TimeInterval) async -> Bool {
+        await signOut()
+        if !isAuthenticated { return true }
+        return await waitForAuthState(target: false, timeout: timeout)
+    }
+
+    private func waitForAuthState(target: Bool, timeout: TimeInterval) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return false }
+                for await value in self.$isAuthenticated.values {
+                    if value == target { return true }
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+    }
+
     /// Shared CLI auth flow: initiate session, open browser, poll for token.
     /// Used by both the Settings sign-in button and `cmux login`.
     static func runCLIAuthFlow(

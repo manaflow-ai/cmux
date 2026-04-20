@@ -1978,23 +1978,18 @@ struct CMUXCLI {
                     print("Already signed in\(email.map { " as \($0)" } ?? ""). Use `cmux auth logout` to sign out first.")
                     break
                 }
-                _ = try client.sendV2(method: "auth.begin_sign_in")
-                print("Opened sign-in popup on the cmux mac app. Waiting for you to finish…")
-                FileHandle.standardOutput.write("".data(using: .utf8) ?? Data())
-                let deadline = Date().addingTimeInterval(180) // 3 minutes
-                var finished = false
-                while Date() < deadline {
-                    Thread.sleep(forTimeInterval: 1.5)
-                    guard let status = try? client.sendV2(method: "auth.status") else { continue }
-                    if (status["signed_in"] as? Bool) == true {
-                        let email = (status["user"] as? [String: Any])?["email"] as? String
-                        print("Signed in\(email.map { " as \($0)" } ?? "").")
-                        finished = true
-                        break
-                    }
-                }
-                if !finished {
+                print("Opening sign-in popup on the cmux mac app.")
+                // auth.begin_sign_in blocks on the server side until the
+                // popup completes (or 5min timeout). The response is the
+                // callback — no polling.
+                let result = try client.sendV2(method: "auth.begin_sign_in")
+                if (result["signed_in"] as? Bool) == true {
+                    let email = (result["user"] as? [String: Any])?["email"] as? String
+                    print("Signed in\(email.map { " as \($0)" } ?? "").")
+                } else if (result["timed_out"] as? Bool) == true {
                     print("Timed out waiting for sign-in. Run `cmux auth status` once you've finished in the popup.")
+                } else {
+                    print("Sign-in did not complete. Run `cmux auth status` to check.")
                 }
 
             case "logout":
@@ -2003,18 +1998,13 @@ struct CMUXCLI {
                     print("Already signed out.")
                     break
                 }
-                _ = try client.sendV2(method: "auth.sign_out")
-                print("Signing out…")
-                let deadline = Date().addingTimeInterval(10)
-                while Date() < deadline {
-                    Thread.sleep(forTimeInterval: 0.5)
-                    guard let status = try? client.sendV2(method: "auth.status") else { continue }
-                    if (status["signed_in"] as? Bool) != true {
-                        print("Signed out.")
-                        return
-                    }
+                // auth.sign_out awaits the token clear before replying.
+                let result = try client.sendV2(method: "auth.sign_out")
+                if (result["signed_in"] as? Bool) != true {
+                    print("Signed out.")
+                } else {
+                    print("Sign-out requested but state hasn't cleared yet. Run `cmux auth status` to confirm.")
                 }
-                print("Sign-out requested but state hasn't cleared yet. Run `cmux auth status` to confirm.")
 
             default:
                 throw CLIError(message: "Usage: cmux auth <status|login|logout>")
