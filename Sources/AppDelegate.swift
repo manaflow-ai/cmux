@@ -1442,9 +1442,22 @@ struct CmuxCLIPathInstaller {
     private static func installWithAdministratorPrivileges(sourceURL: URL, destinationURL: URL) throws {
         let destinationPath = destinationURL.path
         let parentPath = destinationURL.deletingLastPathComponent().path
+        // Create the symlink at a per-invocation temp path (random suffix),
+        // then atomically rename it into the destination with `mv -f`.
+        // This closes the TOCTOU window at the *destination*: the final
+        // placement is a single rename(2) rather than a remove-then-create
+        // pair, so an attacker cannot win the race to place a file at the
+        // destination between those two steps.
+        // Note: a small TOCTOU window remains at the *temp* path itself
+        // (between the `rm -f` and `ln -s`), but the random suffix makes
+        // a pre-planted collision unpractical, and the temp path is not a
+        // security boundary — only the final destination is.
+        let tmpSuffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+        let tmpPath = destinationPath + ".tmp-\(tmpSuffix)"
         let command = "/bin/mkdir -p \(shellQuoted(parentPath)) && " +
-            "/bin/rm -f \(shellQuoted(destinationPath)) && " +
-            "/bin/ln -s \(shellQuoted(sourceURL.path)) \(shellQuoted(destinationPath))"
+            "/bin/rm -f \(shellQuoted(tmpPath)) && " +
+            "/bin/ln -s \(shellQuoted(sourceURL.path)) \(shellQuoted(tmpPath)) && " +
+            "/bin/mv -f \(shellQuoted(tmpPath)) \(shellQuoted(destinationPath))"
         try runPrivilegedShellCommand(command)
     }
 
