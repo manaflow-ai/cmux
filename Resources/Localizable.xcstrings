@@ -69313,19 +69313,19 @@
         }
       }
     },
-    "shortcut.recorder.error.conflictsWithAction.reassign": {
+    "shortcut.recorder.error.conflictsWithAction.swap": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This shortcut conflicts with %@ (%@). Reassign?"
+            "value": "This shortcut conflicts with %@ (%@). Swap shortcuts?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このショートカットは %@（%@）と競合しています。再割り当てしますか？"
+            "value": "このショートカットは %@（%@）と競合しています。ショートカットを入れ替えますか？"
           }
         }
       }
@@ -69381,19 +69381,19 @@
         }
       }
     },
-    "shortcut.recorder.reassign": {
+    "shortcut.recorder.swap": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reassign"
+            "value": "Swap"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再割り当て"
+            "value": "入れ替え"
           }
         }
       }

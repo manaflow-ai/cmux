@@ -7253,15 +7253,20 @@ private struct ShortcutRecorderSettingsControl: View {
             displayString: displayString,
             transformRecordedShortcut: { action.normalizedRecordedShortcutResult($0) },
             validationMessage: validationPresentation?.message,
-            validationButtonTitle: validationPresentation?.reassignButtonTitle,
-            onValidationButtonPressed: validationPresentation?.canReassign == true
-                ? { reassignConflictingShortcut() }
+            validationButtonTitle: validationPresentation?.swapButtonTitle,
+            onValidationButtonPressed: validationPresentation?.canSwap == true
+                ? { swapConflictingShortcut() }
                 : nil,
             isDisabled: isDisabled,
             onRecorderFeedbackChanged: { rejectedAttempt = $0 }
         )
         .onChange(of: shortcut) { _ in
             rejectedAttempt = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification)) { _ in
+            if KeyboardShortcutRecorderActivity.isAnyRecorderActive {
+                rejectedAttempt = nil
+            }
         }
     }
 
@@ -7273,14 +7278,16 @@ private struct ShortcutRecorderSettingsControl: View {
         )
     }
 
-    private func reassignConflictingShortcut() {
+    private func swapConflictingShortcut() {
         guard case let .conflictsWithAction(conflictingAction)? = rejectedAttempt?.reason,
               let proposedShortcut = rejectedAttempt?.proposedShortcut else {
             return
         }
 
+        KeyboardShortcutRecorderActivity.stopAllRecording()
+
         let previousShortcut = shortcut
-        KeyboardShortcutSettings.reassignShortcutConflict(
+        KeyboardShortcutSettings.swapShortcutConflict(
             proposedShortcut: proposedShortcut,
             currentAction: action,
             conflictingAction: conflictingAction,

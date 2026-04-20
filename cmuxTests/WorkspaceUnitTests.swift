@@ -423,6 +423,27 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
 #endif
     }
+
+    func testShortcutRecorderStopAllNotificationStopsActiveRecorder() {
+#if DEBUG
+        let button = ShortcutRecorderNSButton(frame: .zero)
+        button.debugSetPendingChordStart(
+            ShortcutStroke(
+                key: "l",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            )
+        )
+
+        KeyboardShortcutRecorderActivity.stopAllRecording()
+
+        XCTAssertFalse(button.debugIsRecording)
+#else
+        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
+#endif
+    }
 }
 
 final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
@@ -1746,11 +1767,11 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation?.message, "Shortcuts must include ⌘ ⌥ ⌃ or ⇧")
-        XCTAssertNil(presentation?.reassignButtonTitle)
-        XCTAssertFalse(presentation?.canReassign ?? true)
+        XCTAssertNil(presentation?.swapButtonTitle)
+        XCTAssertFalse(presentation?.canSwap ?? true)
     }
 
-    func testShortcutRecorderValidationPresentationSurfacesConflictActionAndReassignAffordance() {
+    func testShortcutRecorderValidationPresentationSurfacesConflictActionAndSwapAffordance() {
         let presentation = ShortcutRecorderValidationPresentation(
             attempt: ShortcutRecorderRejectedAttempt(
                 reason: .conflictsWithAction(.newSurface),
@@ -1762,9 +1783,9 @@ final class StoredShortcutMatchingTests: XCTestCase {
             shortcutForAction: { $0.defaultShortcut }
         )
 
-        XCTAssertEqual(presentation?.message, "This shortcut conflicts with New Surface (⌘T). Reassign?")
-        XCTAssertEqual(presentation?.reassignButtonTitle, "Reassign")
-        XCTAssertTrue(presentation?.canReassign ?? false)
+        XCTAssertEqual(presentation?.message, "This shortcut conflicts with New Surface (⌘T). Swap shortcuts?")
+        XCTAssertEqual(presentation?.swapButtonTitle, "Swap")
+        XCTAssertTrue(presentation?.canSwap ?? false)
     }
 
     func testShortcutRecorderValidationPresentationUsesNumberedDisplayOnlyForNumberedConflicts() {
@@ -1783,8 +1804,8 @@ final class StoredShortcutMatchingTests: XCTestCase {
             presentation?.message,
             "This shortcut conflicts with Select Workspace 1…9 (⌘1…9)."
         )
-        XCTAssertNil(presentation?.reassignButtonTitle)
-        XCTAssertFalse(presentation?.canReassign ?? true)
+        XCTAssertNil(presentation?.swapButtonTitle)
+        XCTAssertFalse(presentation?.canSwap ?? true)
     }
 
     func testShortcutRecorderValidationPresentationSurfacesReservedSystemMessage() {
@@ -1795,8 +1816,8 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation?.message, "This keystroke is reserved by macOS.")
-        XCTAssertNil(presentation?.reassignButtonTitle)
-        XCTAssertFalse(presentation?.canReassign ?? true)
+        XCTAssertNil(presentation?.swapButtonTitle)
+        XCTAssertFalse(presentation?.canSwap ?? true)
     }
 }
 

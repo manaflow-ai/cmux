@@ -628,7 +628,7 @@ enum KeyboardShortcutSettings {
         postDidChangeNotification(action: action)
     }
 
-    static func reassignShortcutConflict(
+    static func swapShortcutConflict(
         proposedShortcut: StoredShortcut,
         currentAction: Action,
         conflictingAction: Action,
@@ -1936,8 +1936,9 @@ struct StoredShortcut: Codable, Equatable {
     }
 }
 
-private enum KeyboardShortcutRecorderActivity {
+enum KeyboardShortcutRecorderActivity {
     static let didChangeNotification = Notification.Name("cmux.keyboardShortcutRecorderActivityDidChange")
+    static let stopAllNotification = Notification.Name("cmux.keyboardShortcutRecorderActivityStopAll")
     private static var activeRecorderCount = 0
 
     static var isAnyRecorderActive: Bool {
@@ -1960,6 +1961,10 @@ private enum KeyboardShortcutRecorderActivity {
             center.post(name: didChangeNotification, object: nil)
         }
     }
+
+    static func stopAllRecording(center: NotificationCenter = .default) {
+        center.post(name: stopAllNotification, object: nil)
+    }
 }
 
 struct ShortcutRecorderRejectedAttempt: Equatable {
@@ -1969,8 +1974,8 @@ struct ShortcutRecorderRejectedAttempt: Equatable {
 
 struct ShortcutRecorderValidationPresentation: Equatable {
     let message: String
-    let reassignButtonTitle: String?
-    let canReassign: Bool
+    let swapButtonTitle: String?
+    let canSwap: Bool
 
     init?(
         attempt: ShortcutRecorderRejectedAttempt?,
@@ -1981,7 +1986,7 @@ struct ShortcutRecorderValidationPresentation: Equatable {
     ) {
         guard let attempt else { return nil }
 
-        let canReassign = Self.canReassignConflict(
+        let canSwap = Self.canSwapConflict(
             attempt: attempt,
             action: action,
             currentShortcut: currentShortcut,
@@ -1990,18 +1995,18 @@ struct ShortcutRecorderValidationPresentation: Equatable {
 
         self.message = Self.message(
             for: attempt.reason,
-            canReassign: canReassign,
+            canSwap: canSwap,
             shortcutForAction: shortcutForAction
         )
-        self.reassignButtonTitle = canReassign
-            ? String(localized: "shortcut.recorder.reassign", defaultValue: "Reassign")
+        self.swapButtonTitle = canSwap
+            ? String(localized: "shortcut.recorder.swap", defaultValue: "Swap")
             : nil
-        self.canReassign = canReassign
+        self.canSwap = canSwap
     }
 
     private static func message(
         for reason: KeyboardShortcutSettings.ShortcutRecordingRejection,
-        canReassign: Bool,
+        canSwap: Bool,
         shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut
     ) -> String {
         switch reason {
@@ -2015,10 +2020,10 @@ struct ShortcutRecorderValidationPresentation: Equatable {
                 for: shortcutForAction(conflictingAction)
             )
             let format: String
-            if canReassign {
+            if canSwap {
                 format = String(
-                    localized: "shortcut.recorder.error.conflictsWithAction.reassign",
-                    defaultValue: "This shortcut conflicts with %@ (%@). Reassign?"
+                    localized: "shortcut.recorder.error.conflictsWithAction.swap",
+                    defaultValue: "This shortcut conflicts with %@ (%@). Swap shortcuts?"
                 )
             } else {
                 format = String(
@@ -2045,7 +2050,7 @@ struct ShortcutRecorderValidationPresentation: Equatable {
         }
     }
 
-    private static func canReassignConflict(
+    private static func canSwapConflict(
         attempt: ShortcutRecorderRejectedAttempt,
         action: KeyboardShortcutSettings.Action,
         currentShortcut: StoredShortcut,
@@ -2212,6 +2217,12 @@ final class ShortcutRecorderNSButton: NSButton {
         setButtonType(.momentaryPushIn)
         target = self
         action = #selector(buttonClicked)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(stopRecordingFromNotification),
+            name: KeyboardShortcutRecorderActivity.stopAllNotification,
+            object: nil
+        )
         updateTitle()
     }
 
@@ -2253,6 +2264,7 @@ final class ShortcutRecorderNSButton: NSButton {
 
     private func startRecording() {
         guard !isRecording else { return }
+        KeyboardShortcutRecorderActivity.stopAllRecording()
         isRecording = true
         pendingChordStart = nil
         registerRecordingActivityIfNeeded()
@@ -2354,6 +2366,10 @@ final class ShortcutRecorderNSButton: NSButton {
         stopRecording()
     }
 
+    @objc private func stopRecordingFromNotification() {
+        stopRecording()
+    }
+
     private func registerRecordingActivityIfNeeded() {
         guard !hasRegisteredRecordingActivity else { return }
         hasRegisteredRecordingActivity = true
@@ -2384,5 +2400,10 @@ final class ShortcutRecorderNSButton: NSButton {
 
     deinit {
         stopRecording()
+        NotificationCenter.default.removeObserver(
+            self,
+            name: KeyboardShortcutRecorderActivity.stopAllNotification,
+            object: nil
+        )
     }
 }
