@@ -2283,18 +2283,20 @@ final class ShortcutRecorderNSButton: NSButton {
             switch ShortcutStroke.recordingResult(from: event, requireModifier: true) {
             case let .accepted(firstStroke):
                 let firstShortcut = StoredShortcut(first: firstStroke)
-                if case let .rejected(reason) = transformRecordedShortcut(firstShortcut),
-                   shouldRejectFirstStrokeImmediately(reason) {
+                switch transformRecordedShortcut(firstShortcut) {
+                case let .accepted(transformedShortcut):
+                    shortcut = transformedShortcut
+                    onShortcutRecorded?(transformedShortcut)
+                    onRecorderFeedbackChanged?(nil)
+                    stopRecording()
+                    return nil
+                case let .rejected(reason):
                     onRecorderFeedbackChanged?(
                         ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: firstShortcut)
                     )
                     stopRecording()
                     return nil
                 }
-
-                pendingChordStart = firstStroke
-                updateTitle()
-                return nil
             case let .rejected(reason):
                 onRecorderFeedbackChanged?(
                     ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: nil)
@@ -2330,19 +2332,6 @@ final class ShortcutRecorderNSButton: NSButton {
 
         // Consume unsupported keys while recording to avoid triggering app shortcuts.
         return nil
-    }
-
-    private func shouldRejectFirstStrokeImmediately(
-        _ reason: KeyboardShortcutSettings.ShortcutRecordingRejection
-    ) -> Bool {
-        switch reason {
-        case .conflictsWithAction(let conflictingAction):
-            return !KeyboardShortcutSettings.shortcut(for: conflictingAction).hasChord
-        case .numberedShortcutRequiresDigit:
-            return false
-        case .bareKeyNotAllowed, .reservedBySystem, .systemWideHotkeyRequiresModifier:
-            return true
-        }
     }
 
     private func stopRecording() {

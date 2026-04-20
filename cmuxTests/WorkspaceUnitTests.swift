@@ -372,6 +372,57 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
 #endif
     }
+
+    func testShortcutRecorderCommitsAcceptedFirstStrokeImmediately() {
+#if DEBUG
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        let button = ShortcutRecorderNSButton(frame: .zero)
+        let recordedShortcut = StoredShortcut(
+            key: "l",
+            command: true,
+            shift: true,
+            option: false,
+            control: false,
+            keyCode: 37
+        )
+        var committedShortcut: StoredShortcut?
+        var feedbackEvents: [ShortcutRecorderRejectedAttempt?] = []
+
+        button.transformRecordedShortcut = { shortcut in
+            XCTAssertEqual(shortcut, recordedShortcut)
+            return .accepted(shortcut)
+        }
+        button.onShortcutRecorded = { committedShortcut = $0 }
+        button.onRecorderFeedbackChanged = { feedbackEvents.append($0) }
+        button.performClick(nil)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "L",
+            charactersIgnoringModifiers: "l",
+            isARepeat: false,
+            keyCode: 37
+        ) else {
+            XCTFail("Failed to construct Command-Shift-L event")
+            return
+        }
+
+        XCTAssertNil(button.debugHandleRecordingEvent(event))
+        XCTAssertEqual(committedShortcut, recordedShortcut)
+        XCTAssertEqual(button.shortcut, recordedShortcut)
+        XCTAssertFalse(button.debugIsRecording)
+        XCTAssertTrue(feedbackEvents.contains { $0 == nil })
+#else
+        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
+#endif
+    }
 }
 
 final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
