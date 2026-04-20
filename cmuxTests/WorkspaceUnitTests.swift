@@ -1633,6 +1633,45 @@ final class StoredShortcutMatchingTests: XCTestCase {
             .rejected(.reservedByMacOS)
         )
     }
+
+    func testShortcutRecorderValidationPresentationSurfacesBareKeyMessage() {
+        let presentation = ShortcutRecorderValidationPresentation(
+            attempt: ShortcutRecorderRejectedAttempt(reason: .bareKeyNotAllowed, proposedShortcut: nil),
+            action: .openBrowser,
+            currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut
+        )
+
+        XCTAssertEqual(presentation?.message, "Shortcuts must include ⌘ ⌥ ⌃ or ⇧")
+        XCTAssertNil(presentation?.reassignButtonTitle)
+        XCTAssertFalse(presentation?.canReassign ?? true)
+    }
+
+    func testShortcutRecorderValidationPresentationSurfacesConflictActionAndReassignAffordance() {
+        let presentation = ShortcutRecorderValidationPresentation(
+            attempt: ShortcutRecorderRejectedAttempt(
+                reason: .conflictsWithAction(.newSurface),
+                proposedShortcut: StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            ),
+            action: .openBrowser,
+            currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut
+        )
+
+        XCTAssertEqual(presentation?.message, "This shortcut is already used by New Surface. Reassign?")
+        XCTAssertEqual(presentation?.reassignButtonTitle, "Reassign")
+        XCTAssertTrue(presentation?.canReassign ?? false)
+    }
+
+    func testShortcutRecorderValidationPresentationSurfacesReservedSystemMessage() {
+        let presentation = ShortcutRecorderValidationPresentation(
+            attempt: ShortcutRecorderRejectedAttempt(reason: .reservedBySystem, proposedShortcut: nil),
+            action: .showHideAllWindows,
+            currentShortcut: KeyboardShortcutSettings.Action.showHideAllWindows.defaultShortcut
+        )
+
+        XCTAssertEqual(presentation?.message, "This keystroke is reserved by macOS.")
+        XCTAssertNil(presentation?.reassignButtonTitle)
+        XCTAssertFalse(presentation?.canReassign ?? true)
+    }
 }
 
 
