@@ -513,6 +513,26 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
+    // MARK: - Agent resume command lookup
+
+    /// Find the most recent session entries for a specific agent and cwd.
+    /// Runs the same loaders used by the sidebar scan but scoped to a single
+    /// agent + cwd, so it's cheap. Called from Workspace when an agent PID is
+    /// registered to cache the resume command off the autosave hot path.
+    nonisolated static func latestEntries(
+        agent: SessionAgent, cwd: String, limit: Int = 1
+    ) async -> [SessionEntry] {
+        let bag = ErrorBag()
+        switch agent {
+        case .claude:
+            return await loadClaudeEntries(needle: "", cwdFilter: cwd, offset: 0, limit: limit)
+        case .codex:
+            return await loadCodexEntries(needle: "", cwdFilter: cwd, offset: 0, limit: limit, errorBag: bag)
+        case .opencode:
+            return loadOpenCodeEntries(needle: "", cwdFilter: cwd, offset: 0, limit: limit, errorBag: bag)
+        }
+    }
+
     // MARK: - Directory snapshot cache
 
     private var directorySnapshotCache: [String: DirectorySnapshot] = [:]

@@ -14692,6 +14692,7 @@ class TerminalController {
                 if let pidValue {
                     tab.agentPIDs[key] = pidValue
                     controller.refreshTrackedAgentPorts(for: tab)
+                    tab.resolveAndCacheResumeCommand(agentKey: key, pid: pidValue)
                 }
                 return
             }
@@ -14708,6 +14709,7 @@ class TerminalController {
             if let pidValue {
                 tab.agentPIDs[key] = pidValue
                 controller.refreshTrackedAgentPorts(for: tab)
+                tab.resolveAndCacheResumeCommand(agentKey: key, pid: pidValue)
             }
         }
         return "OK"
@@ -14749,6 +14751,7 @@ class TerminalController {
         scheduleSidebarMutation(target: target) { controller, tab in
             tab.agentPIDs[key] = pid
             controller.refreshTrackedAgentPorts(for: tab)
+            tab.resolveAndCacheResumeCommand(agentKey: key, pid: pid)
         }
         return "OK"
     }
