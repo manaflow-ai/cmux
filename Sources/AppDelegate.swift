@@ -2550,6 +2550,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         AppIconLaunchState.markDidFinishLaunching()
 
+        claimAuthCallbackURLSchemes()
+
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(handleThemesReloadNotification(_:)),
@@ -6774,6 +6776,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil
             didAttemptStartupSessionRestore = true
+        }
+    }
+
+    private func claimAuthCallbackURLSchemes() {
+        // Multiple apps on dev machines claim "manaflow://" (Electron-based
+        // neighbor projects, older cmux builds). Pin the current build as the
+        // default for our auth-callback schemes so the system prompt doesn't
+        // suggest "Open Electron" when the sign-in deeplink fires.
+        let bundleURL = Bundle.main.bundleURL
+        let schemes = ["manaflow", "manaflow-dev", "cmux", "cmux-dev"]
+        for scheme in schemes {
+            NSWorkspace.shared.setDefaultApplication(
+                at: bundleURL,
+                toOpenURLsWithScheme: scheme
+            ) { _ in }
         }
     }
 

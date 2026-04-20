@@ -76,7 +76,20 @@ enum AuthKeychainServiceName {
 
 @MainActor
 final class AuthManager: ObservableObject {
-    static let shared = AuthManager()
+    static let shared = AuthManager(tokenStore: AuthManager.defaultTokenStore())
+
+    private static func defaultTokenStore() -> any StackAuthTokenStoreProtocol {
+        #if DEBUG
+        // Debug builds are ad-hoc signed and change their code signature on every
+        // `reload.sh --tag` build. That breaks the Keychain ACL bound to the
+        // previous signature, so macOS prompts for the login keychain password on
+        // every token read. UserDefaults is fine here: tokens never leave the dev
+        // machine, and release builds still use Keychain below.
+        return UserDefaultsStackTokenStore()
+        #else
+        return KeychainStackTokenStore()
+        #endif
+    }
 
     @Published private(set) var isAuthenticated = false
     @Published private(set) var currentUser: CMUXAuthUser?
@@ -554,6 +567,48 @@ final class AuthManager: ObservableObject {
     }
 }
 
+
+private actor UserDefaultsStackTokenStore: StackAuthTokenStoreProtocol {
+    private static let accessKey = "cmux.auth.debug.accessToken"
+    private static let refreshKey = "cmux.auth.debug.refreshToken"
+    private let defaults = UserDefaults.standard
+
+    func getStoredAccessToken() async -> String? {
+        defaults.string(forKey: Self.accessKey)
+    }
+
+    func getStoredRefreshToken() async -> String? {
+        defaults.string(forKey: Self.refreshKey)
+    }
+
+    func setTokens(accessToken: String?, refreshToken: String?) async {
+        if let accessToken, !accessToken.isEmpty {
+            defaults.set(accessToken, forKey: Self.accessKey)
+        } else {
+            defaults.removeObject(forKey: Self.accessKey)
+        }
+        if let refreshToken, !refreshToken.isEmpty {
+            defaults.set(refreshToken, forKey: Self.refreshKey)
+        } else {
+            defaults.removeObject(forKey: Self.refreshKey)
+        }
+    }
+
+    func clearTokens() async {
+        defaults.removeObject(forKey: Self.accessKey)
+        defaults.removeObject(forKey: Self.refreshKey)
+    }
+
+    func compareAndSet(
+        compareRefreshToken: String,
+        newRefreshToken: String?,
+        newAccessToken: String?
+    ) async {
+        guard defaults.string(forKey: Self.refreshKey) == compareRefreshToken else { return }
+        if newRefreshToken == nil && newAccessToken == nil { return }
+        await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
+    }
+}
 
 private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private static let accessTokenAccount = "cmux-auth-access-token"
