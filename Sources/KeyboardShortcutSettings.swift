@@ -2189,7 +2189,13 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
 }
 
 final class ShortcutRecorderNSButton: NSButton {
-    var shortcut: StoredShortcut = KeyboardShortcutSettings.showNotificationsDefault
+    var shortcut: StoredShortcut = KeyboardShortcutSettings.showNotificationsDefault {
+        didSet {
+            if shortcut != oldValue {
+                hasPendingRejection = false
+            }
+        }
+    }
     var displayString: (StoredShortcut) -> String = { $0.displayString }
     var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
         .accepted($0)
@@ -2198,6 +2204,7 @@ final class ShortcutRecorderNSButton: NSButton {
     var onRecordingChanged: ((Bool) -> Void)?
     var onRecorderFeedbackChanged: ((ShortcutRecorderRejectedAttempt?) -> Void)?
     private var isRecording = false
+    private var hasPendingRejection = false
     private var eventMonitor: Any?
     private var pendingChordStart: ShortcutStroke?
     private var hasRegisteredRecordingActivity = false
@@ -2254,6 +2261,8 @@ final class ShortcutRecorderNSButton: NSButton {
             } else {
                 title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
             }
+        } else if hasPendingRejection {
+            title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
         } else {
             title = displayString(shortcut)
         }
@@ -2269,6 +2278,7 @@ final class ShortcutRecorderNSButton: NSButton {
                     onShortcutRecorded?(transformedShortcut)
                     onRecorderFeedbackChanged?(nil)
                 case let .rejected(reason):
+                    hasPendingRejection = true
                     onRecorderFeedbackChanged?(
                         ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: storedShortcut)
                     )
@@ -2286,6 +2296,7 @@ final class ShortcutRecorderNSButton: NSButton {
         guard !isRecording else { return }
         KeyboardShortcutRecorderActivity.stopAllRecording()
         isRecording = true
+        hasPendingRejection = false
         pendingChordStart = nil
         previousFirstResponder = window?.firstResponder
         window?.makeFirstResponder(self)
@@ -2325,6 +2336,7 @@ final class ShortcutRecorderNSButton: NSButton {
                     stopRecording()
                     return nil
                 case let .rejected(reason):
+                    hasPendingRejection = true
                     onRecorderFeedbackChanged?(
                         ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: firstShortcut)
                     )
@@ -2332,6 +2344,7 @@ final class ShortcutRecorderNSButton: NSButton {
                     return nil
                 }
             case let .rejected(reason):
+                hasPendingRejection = true
                 onRecorderFeedbackChanged?(
                     ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: nil)
                 )
@@ -2356,6 +2369,7 @@ final class ShortcutRecorderNSButton: NSButton {
                 stopRecording()
                 return nil
             case let .rejected(reason):
+                hasPendingRejection = true
                 onRecorderFeedbackChanged?(
                     ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: newShortcut)
                 )
@@ -2412,6 +2426,10 @@ final class ShortcutRecorderNSButton: NSButton {
 #if DEBUG
     var debugIsRecording: Bool {
         isRecording
+    }
+
+    var debugHasPendingRejection: Bool {
+        hasPendingRejection
     }
 
     func debugSetPendingChordStart(_ stroke: ShortcutStroke?) {
