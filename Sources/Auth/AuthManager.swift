@@ -104,14 +104,16 @@ final class AuthManager: ObservableObject {
     static let shared = AuthManager(tokenStore: AuthManager.defaultTokenStore())
 
     private static func defaultTokenStore() -> any StackAuthTokenStoreProtocol {
-        // A 0600-mode file in Application Support avoids both the
-        // login-keychain ACL prompt on ad-hoc Debug rebuilds AND the
-        // errSecMissingEntitlement failure of the data-protection keychain
-        // when no keychain-access-groups entitlement is in the provisioning
-        // profile. Persistence and security match what UserDefaults offers
-        // (user-scoped, not world-readable) but writes are fsync'd so a
-        // pkill-during-reload doesn't lose the refresh token.
-        return FileStackTokenStore()
+        // Release builds include a keychain-access-groups entitlement (via
+        // Resources/cmux.entitlements) and go through the data-protection
+        // keychain. Debug ad-hoc builds can't carry that entitlement
+        // without a provisioning profile, so Keychain writes fail with
+        // errSecMissingEntitlement and the file store takes over. The
+        // wrapper picks per-run based on the first keychain write result.
+        return FallbackTokenStore(
+            primary: KeychainStackTokenStore(),
+            fallback: FileStackTokenStore()
+        )
     }
 
     @Published private(set) var isAuthenticated = false
@@ -664,6 +666,77 @@ final class AuthManager: ObservableObject {
 }
 
 
+/// Composite store that routes to Keychain first and transparently falls
+/// back to the file store if Keychain signals a real failure (empirically:
+/// errSecMissingEntitlement -34018 on ad-hoc Debug builds without a matching
+/// keychain-access-groups entry in the signed entitlements). Keeps writes
+/// split-brain-free by clearing the file store whenever Keychain succeeds.
+private actor FallbackTokenStore: StackAuthTokenStoreProtocol {
+    private let keychain: KeychainStackTokenStore
+    private let file: FileStackTokenStore
+    private var keychainWorks: Bool = true
+
+    init(primary keychain: KeychainStackTokenStore, fallback file: FileStackTokenStore) {
+        self.keychain = keychain
+        self.file = file
+    }
+
+    func getStoredAccessToken() async -> String? {
+        if keychainWorks, let value = await keychain.getStoredAccessToken() {
+            return value
+        }
+        return await file.getStoredAccessToken()
+    }
+
+    func getStoredRefreshToken() async -> String? {
+        if keychainWorks, let value = await keychain.getStoredRefreshToken() {
+            return value
+        }
+        return await file.getStoredRefreshToken()
+    }
+
+    func setTokens(accessToken: String?, refreshToken: String?) async {
+        if keychainWorks {
+            let ok = await keychain.trySetTokens(
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            )
+            if ok {
+                await file.clearTokens()
+                return
+            }
+            keychainWorks = false
+            AuthManager.authLog("keychain write failed; switching to file fallback for this session")
+        }
+        await file.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+    }
+
+    func clearTokens() async {
+        await keychain.clearTokens()
+        await file.clearTokens()
+    }
+
+    func compareAndSet(
+        compareRefreshToken: String,
+        newRefreshToken: String?,
+        newAccessToken: String?
+    ) async {
+        if keychainWorks {
+            await keychain.compareAndSet(
+                compareRefreshToken: compareRefreshToken,
+                newRefreshToken: newRefreshToken,
+                newAccessToken: newAccessToken
+            )
+            return
+        }
+        await file.compareAndSet(
+            compareRefreshToken: compareRefreshToken,
+            newRefreshToken: newRefreshToken,
+            newAccessToken: newAccessToken
+        )
+    }
+}
+
 /// File-backed token store: writes to a JSON document with 0600 mode in
 /// Application Support, namespaced by bundle id. Chosen over both the login
 /// keychain (prompts on every ad-hoc Debug rebuild) and the data-protection
@@ -785,19 +858,29 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     func setTokens(accessToken: String?, refreshToken: String?) async {
+        _ = await trySetTokens(accessToken: accessToken, refreshToken: refreshToken)
+    }
+
+    /// Same as setTokens but returns whether every keychain operation
+    /// actually succeeded. Used by FallbackTokenStore to decide when to
+    /// give up on Keychain and route to the file store.
+    func trySetTokens(accessToken: String?, refreshToken: String?) async -> Bool {
         AuthManager.authLog("setTokens: access=\(accessToken != nil ? "\(accessToken!.prefix(10))..." : "nil") refresh=\(refreshToken != nil ? "\(refreshToken!.prefix(10))..." : "nil")")
         cachedAccessToken = (accessToken?.isEmpty == false) ? accessToken : nil
         cachedRefreshToken = (refreshToken?.isEmpty == false) ? refreshToken : nil
+
+        var allOK = true
         if let accessToken, !accessToken.isEmpty {
-            keychainWrite(accessToken, account: Self.accessTokenAccount)
+            allOK = keychainWrite(accessToken, account: Self.accessTokenAccount) && allOK
         } else {
             keychainDelete(account: Self.accessTokenAccount)
         }
         if let refreshToken, !refreshToken.isEmpty {
-            keychainWrite(refreshToken, account: Self.refreshTokenAccount)
+            allOK = keychainWrite(refreshToken, account: Self.refreshTokenAccount) && allOK
         } else {
             keychainDelete(account: Self.refreshTokenAccount)
         }
+        return allOK
     }
 
     func clearTokens() async {
@@ -852,14 +935,14 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return String(data: data, encoding: .utf8)
     }
 
-    private func keychainWrite(_ value: String, account: String) {
-        guard let data = value.data(using: .utf8) else { return }
+    private func keychainWrite(_ value: String, account: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
         let lookup = baseQuery(account: account)
         let updateStatus = SecItemUpdate(
             lookup as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
         )
-        if updateStatus == errSecSuccess { return }
+        if updateStatus == errSecSuccess { return true }
         if updateStatus != errSecItemNotFound {
             AuthManager.authLog("keychain UPDATE status=\(updateStatus) account=\(account)")
         }
@@ -869,7 +952,9 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
         if addStatus != errSecSuccess {
             AuthManager.authLog("keychain ADD status=\(addStatus) account=\(account)")
+            return false
         }
+        return true
     }
 
     private func keychainDelete(account: String) {
@@ -877,7 +962,7 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     }
 #else
     private func keychainRead(account: String) -> String? { nil }
-    private func keychainWrite(_ value: String, account: String) {}
+    private func keychainWrite(_ value: String, account: String) -> Bool { false }
     private func keychainDelete(account: String) {}
 #endif
 }
