@@ -1976,7 +1976,8 @@ struct ShortcutRecorderValidationPresentation: Equatable {
         attempt: ShortcutRecorderRejectedAttempt?,
         action: KeyboardShortcutSettings.Action,
         currentShortcut: StoredShortcut,
-        isManagedBySettingsFile: (KeyboardShortcutSettings.Action) -> Bool = KeyboardShortcutSettings.isManagedBySettingsFile
+        isManagedBySettingsFile: (KeyboardShortcutSettings.Action) -> Bool = KeyboardShortcutSettings.isManagedBySettingsFile,
+        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
     ) {
         guard let attempt else { return nil }
 
@@ -1987,7 +1988,11 @@ struct ShortcutRecorderValidationPresentation: Equatable {
             isManagedBySettingsFile: isManagedBySettingsFile
         )
 
-        self.message = Self.message(for: attempt.reason)
+        self.message = Self.message(
+            for: attempt.reason,
+            canReassign: canReassign,
+            shortcutForAction: shortcutForAction
+        )
         self.reassignButtonTitle = canReassign
             ? String(localized: "shortcut.recorder.reassign", defaultValue: "Reassign")
             : nil
@@ -1995,7 +2000,9 @@ struct ShortcutRecorderValidationPresentation: Equatable {
     }
 
     private static func message(
-        for reason: KeyboardShortcutSettings.ShortcutRecordingRejection
+        for reason: KeyboardShortcutSettings.ShortcutRecordingRejection,
+        canReassign: Bool,
+        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut
     ) -> String {
         switch reason {
         case .bareKeyNotAllowed:
@@ -2004,11 +2011,22 @@ struct ShortcutRecorderValidationPresentation: Equatable {
                 defaultValue: "Shortcuts must include ⌘ ⌥ ⌃ or ⇧"
             )
         case let .conflictsWithAction(conflictingAction):
-            let format = String(
-                localized: "shortcut.recorder.error.conflictsWithAction",
-                defaultValue: "This shortcut is already used by %@. Reassign?"
+            let conflictingShortcut = conflictingAction.displayedShortcutString(
+                for: shortcutForAction(conflictingAction)
             )
-            return String.localizedStringWithFormat(format, conflictingAction.label)
+            let format: String
+            if canReassign {
+                format = String(
+                    localized: "shortcut.recorder.error.conflictsWithAction.reassign",
+                    defaultValue: "This shortcut conflicts with %@ (%@). Reassign?"
+                )
+            } else {
+                format = String(
+                    localized: "shortcut.recorder.error.conflictsWithAction",
+                    defaultValue: "This shortcut conflicts with %@ (%@)."
+                )
+            }
+            return String.localizedStringWithFormat(format, conflictingAction.label, conflictingShortcut)
         case .reservedBySystem:
             return String(
                 localized: "shortcut.recorder.error.reservedBySystem",
@@ -2094,9 +2112,14 @@ struct KeyboardShortcutRecorder: View {
 
             if let validationMessage {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+
                     Text(validationMessage)
                         .font(.caption)
                         .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     if let validationButtonTitle, let onValidationButtonPressed {
                         Button(validationButtonTitle, action: onValidationButtonPressed)
@@ -2104,7 +2127,18 @@ struct KeyboardShortcutRecorder: View {
                             .font(.caption)
                     }
                 }
-                .padding(.leading, 2)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.red.opacity(0.12))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.red.opacity(0.35), lineWidth: 1)
+                }
+                .accessibilityIdentifier("ShortcutRecorderValidationMessage")
             }
         }
     }
@@ -2227,54 +2261,7 @@ final class ShortcutRecorderNSButton: NSButton {
         updateTitle()
 
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .systemDefined]) { [weak self] event in
-            guard let self = self else { return event }
-
-            if ShortcutStroke.isEscapeCancelEvent(event) {
-                self.stopRecording()
-                return nil
-            }
-
-            if self.pendingChordStart == nil {
-                switch ShortcutStroke.recordingResult(from: event, requireModifier: true) {
-                case let .accepted(firstStroke):
-                    self.pendingChordStart = firstStroke
-                    self.updateTitle()
-                    return nil
-                case let .rejected(reason):
-                    self.onRecorderFeedbackChanged?(
-                        ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: nil)
-                    )
-                    self.stopRecording()
-                    return nil
-                case .unsupportedKey:
-                    return nil
-                }
-            }
-
-            guard let pendingChordStart = self.pendingChordStart else {
-                return nil
-            }
-
-            if let secondStroke = ShortcutStroke.from(event: event, requireModifier: false) {
-                let newShortcut = StoredShortcut(first: pendingChordStart, second: secondStroke)
-                switch self.transformRecordedShortcut(newShortcut) {
-                case let .accepted(transformedShortcut):
-                    self.shortcut = transformedShortcut
-                    self.onShortcutRecorded?(transformedShortcut)
-                    self.onRecorderFeedbackChanged?(nil)
-                    self.stopRecording()
-                    return nil
-                case let .rejected(reason):
-                    self.onRecorderFeedbackChanged?(
-                        ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: newShortcut)
-                    )
-                    self.stopRecording()
-                    return nil
-                }
-            }
-
-            // Consume unsupported keys while recording to avoid triggering app shortcuts.
-            return nil
+            self?.handleRecordingEvent(event) ?? event
         }
 
         // Also stop recording if window loses focus
@@ -2284,6 +2271,78 @@ final class ShortcutRecorderNSButton: NSButton {
             name: NSWindow.didResignKeyNotification,
             object: window
         )
+    }
+
+    private func handleRecordingEvent(_ event: NSEvent) -> NSEvent? {
+        if ShortcutStroke.isEscapeCancelEvent(event) {
+            stopRecording()
+            return nil
+        }
+
+        if pendingChordStart == nil {
+            switch ShortcutStroke.recordingResult(from: event, requireModifier: true) {
+            case let .accepted(firstStroke):
+                let firstShortcut = StoredShortcut(first: firstStroke)
+                if case let .rejected(reason) = transformRecordedShortcut(firstShortcut),
+                   shouldRejectFirstStrokeImmediately(reason) {
+                    onRecorderFeedbackChanged?(
+                        ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: firstShortcut)
+                    )
+                    stopRecording()
+                    return nil
+                }
+
+                pendingChordStart = firstStroke
+                updateTitle()
+                return nil
+            case let .rejected(reason):
+                onRecorderFeedbackChanged?(
+                    ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: nil)
+                )
+                stopRecording()
+                return nil
+            case .unsupportedKey:
+                return nil
+            }
+        }
+
+        guard let pendingChordStart else {
+            return nil
+        }
+
+        if let secondStroke = ShortcutStroke.from(event: event, requireModifier: false) {
+            let newShortcut = StoredShortcut(first: pendingChordStart, second: secondStroke)
+            switch transformRecordedShortcut(newShortcut) {
+            case let .accepted(transformedShortcut):
+                shortcut = transformedShortcut
+                onShortcutRecorded?(transformedShortcut)
+                onRecorderFeedbackChanged?(nil)
+                stopRecording()
+                return nil
+            case let .rejected(reason):
+                onRecorderFeedbackChanged?(
+                    ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: newShortcut)
+                )
+                stopRecording()
+                return nil
+            }
+        }
+
+        // Consume unsupported keys while recording to avoid triggering app shortcuts.
+        return nil
+    }
+
+    private func shouldRejectFirstStrokeImmediately(
+        _ reason: KeyboardShortcutSettings.ShortcutRecordingRejection
+    ) -> Bool {
+        switch reason {
+        case .conflictsWithAction(let conflictingAction):
+            return !KeyboardShortcutSettings.shortcut(for: conflictingAction).hasChord
+        case .numberedShortcutRequiresDigit:
+            return false
+        case .bareKeyNotAllowed, .reservedBySystem, .systemWideHotkeyRequiresModifier:
+            return true
+        }
     }
 
     private func stopRecording() {
@@ -2327,6 +2386,10 @@ final class ShortcutRecorderNSButton: NSButton {
         isRecording = true
         pendingChordStart = stroke
         updateTitle()
+    }
+
+    func debugHandleRecordingEvent(_ event: NSEvent) -> NSEvent? {
+        handleRecordingEvent(event)
     }
 #endif
 

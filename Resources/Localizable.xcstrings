@@ -69302,13 +69302,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This shortcut is already used by %@. Reassign?"
+            "value": "This shortcut conflicts with %@ (%@)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このショートカットはすでに %@ で使われています。再割り当てしますか？"
+            "value": "このショートカットは %@（%@）と競合しています。"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.error.conflictsWithAction.reassign": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This shortcut conflicts with %@ (%@). Reassign?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このショートカットは %@（%@）と競合しています。再割り当てしますか？"
           }
         }
       }
