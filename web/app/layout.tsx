@@ -1,10 +1,15 @@
-// Root layout: minimal pass-through. The actual layout with <html>/<body> is
-// in app/[locale]/layout.tsx, which sets lang, dir, and wraps with i18n provider.
+// Root layout: provides required <html>/<body> tags for Next.js 16.
+// The locale-specific layout in app/[locale]/layout.tsx overrides these
+// with lang, dir, fonts, and providers.
 
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  return (
+    <html suppressHydrationWarning>
+      <body>{children}</body>
+    </html>
+  );
 }
