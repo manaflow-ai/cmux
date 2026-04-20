@@ -6780,13 +6780,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func claimAuthCallbackURLSchemes() {
-        // Multiple apps on dev machines claim "manaflow://" (Electron-based
-        // neighbor projects, older cmux builds). Pin the current build as the
-        // default for our auth-callback schemes so the system prompt doesn't
-        // suggest "Open Electron" when the sign-in deeplink fires.
+        // Pin the current build as the default for cmux://  and cmux-dev://
+        // so the auth-callback deeplink routes back to this app instead of an
+        // unrelated LaunchServices entry.
         let bundleURL = Bundle.main.bundleURL
-        let schemes = ["manaflow", "manaflow-dev", "cmux", "cmux-dev"]
-        for scheme in schemes {
+        for scheme in ["cmux", "cmux-dev"] {
             NSWorkspace.shared.setDefaultApplication(
                 at: bundleURL,
                 toOpenURLsWithScheme: scheme

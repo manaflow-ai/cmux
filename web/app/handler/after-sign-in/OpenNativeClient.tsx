@@ -1,23 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 export function OpenNativeClient({ href }: { href: string }) {
-  const firedRef = useRef(false);
-
   useEffect(() => {
-    if (firedRef.current) return;
-    firedRef.current = true;
-    // Fire the deeplink in a hidden iframe so the current tab stays put on
-    // the success message instead of unloading into a "did you mean to open
-    // cmux?" handoff page.
-    const iframe = document.createElement("iframe");
-    iframe.style.display = "none";
-    iframe.src = href;
-    document.body.appendChild(iframe);
-    return () => {
-      iframe.remove();
-    };
+    window.location.href = href;
   }, [href]);
 
   return (
@@ -36,7 +23,7 @@ export function OpenNativeClient({ href }: { href: string }) {
           Signed in to cmux
         </h1>
         <p style={{ color: "#555", lineHeight: 1.5, margin: "0 0 20px" }}>
-          It&apos;s safe to close this window. cmux should have the rest.
+          Returning you to the app.
         </p>
         <p style={{ fontSize: 13, color: "#888" }}>
           If cmux didn&apos;t open, <a href={href}>click here to return to it</a>.

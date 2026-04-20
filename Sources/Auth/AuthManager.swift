@@ -1,10 +1,22 @@
 import AppKit
+import AuthenticationServices
 import CMUXAuthCore
 import Foundation
 import StackAuth
 #if canImport(Security)
 import Security
 #endif
+
+@MainActor
+private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    static let shared = AuthPresentationContext()
+
+    nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        MainActor.assumeIsolated {
+            NSApp.keyWindow ?? NSApp.mainWindow ?? (NSApp.windows.first ?? NSWindow())
+        }
+    }
+}
 
 enum AuthManagerError: LocalizedError {
     case invalidCallback
@@ -134,14 +146,48 @@ final class AuthManager: ObservableObject {
     }
 
     private var loginPollTask: Task<Void, Never>?
+    private var webAuthSession: ASWebAuthenticationSession?
 
     func beginSignIn() {
         loginPollTask?.cancel()
+        webAuthSession?.cancel()
+        webAuthSession = nil
+        isLoading = true
+
         let signInURL = AuthEnvironment.signInURL()
-        urlOpener(signInURL)
-        // isLoading/isAuthenticated flip via handleCallbackURL() once the
-        // browser fires the manaflow[-dev]:// deeplink back through
-        // AppDelegate.application(_:open:).
+        let callbackScheme = AuthEnvironment.callbackScheme
+
+        let session = ASWebAuthenticationSession(
+            url: signInURL,
+            callbackURLScheme: callbackScheme
+        ) { [weak self] callbackURL, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer {
+                    self.isLoading = false
+                    self.webAuthSession = nil
+                }
+                if let error {
+                    NSLog("auth.webauth failed: %@", "\(error)")
+                    return
+                }
+                guard let callbackURL else { return }
+                do {
+                    try await self.handleCallbackURL(callbackURL)
+                } catch {
+                    NSLog("auth.webauth callback failed: %@", "\(error)")
+                }
+            }
+        }
+        session.presentationContextProvider = AuthPresentationContext.shared
+        session.prefersEphemeralWebBrowserSession = false
+
+        if session.start() {
+            webAuthSession = session
+        } else {
+            NSLog("auth.webauth: session.start() returned false")
+            isLoading = false
+        }
     }
 
     /// Shared CLI auth flow: initiate session, open browser, poll for token.

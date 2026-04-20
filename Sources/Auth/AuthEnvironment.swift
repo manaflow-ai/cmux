@@ -13,7 +13,7 @@ enum AuthEnvironment {
            !overridden.isEmpty {
             return overridden
         }
-        return "manaflow"
+        return "cmux"
     }
 
     static var callbackURL: URL {
@@ -122,7 +122,7 @@ enum AuthEnvironment {
     static func signInURL() -> URL {
         // Build the after-sign-in callback URL that includes the native app return scheme.
         // The after-sign-in handler extracts tokens from the Stack Auth session
-        // and redirects to the native app via the manaflow:// callback scheme.
+        // and redirects to the native app via the cmux:// callback scheme.
         var afterSignInComponents = URLComponents(
             url: afterSignInOrigin.appendingPathComponent("handler/after-sign-in", isDirectory: false),
             resolvingAgainstBaseURL: false

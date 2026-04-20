@@ -6,7 +6,7 @@ import { OpenNativeClient } from "./OpenNativeClient";
 
 export const dynamic = "force-dynamic";
 
-const NATIVE_SCHEME = "manaflow://";
+const NATIVE_SCHEME = "cmux://";
 
 function findStackCookie(
   cookieStore: { getAll: () => { name: string; value: string }[] },
@@ -106,7 +106,7 @@ export default async function AfterSignInPage({ searchParams: searchParamsPromis
     : null;
 
   // Native app deep link
-  if (nativeReturnTo?.startsWith(NATIVE_SCHEME) || nativeReturnTo?.startsWith("manaflow-dev://")) {
+  if (nativeReturnTo?.startsWith(NATIVE_SCHEME) || nativeReturnTo?.startsWith("cmux-dev://")) {
     const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
     if (href) return <OpenNativeClient href={href} />;
   }
