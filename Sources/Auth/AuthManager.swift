@@ -1,22 +1,10 @@
 import AppKit
-import AuthenticationServices
 import CMUXAuthCore
 import Foundation
 import StackAuth
 #if canImport(Security)
 import Security
 #endif
-
-@MainActor
-private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
-    static let shared = AuthPresentationContext()
-
-    nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        MainActor.assumeIsolated {
-            NSApp.keyWindow ?? NSApp.mainWindow ?? (NSApp.windows.first ?? NSWindow())
-        }
-    }
-}
 
 enum AuthManagerError: LocalizedError {
     case invalidCallback
@@ -133,51 +121,14 @@ final class AuthManager: ObservableObject {
     }
 
     private var loginPollTask: Task<Void, Never>?
-    private var webAuthSession: ASWebAuthenticationSession?
 
     func beginSignIn() {
         loginPollTask?.cancel()
-        webAuthSession?.cancel()
-        webAuthSession = nil
-        isLoading = true
-
         let signInURL = AuthEnvironment.signInURL()
-        let callbackScheme = AuthEnvironment.callbackScheme
-
-        let session = ASWebAuthenticationSession(
-            url: signInURL,
-            callbackURLScheme: callbackScheme
-        ) { [weak self] callbackURL, error in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                defer {
-                    self.isLoading = false
-                    self.webAuthSession = nil
-                }
-                if let error {
-                    NSLog("auth.webauth failed: %@", "\(error)")
-                    return
-                }
-                guard let callbackURL else {
-                    NSLog("auth.webauth: no callback URL")
-                    return
-                }
-                do {
-                    try await self.handleCallbackURL(callbackURL)
-                } catch {
-                    NSLog("auth.webauth callback failed: %@", "\(error)")
-                }
-            }
-        }
-        session.presentationContextProvider = AuthPresentationContext.shared
-        session.prefersEphemeralWebBrowserSession = false
-
-        if session.start() {
-            webAuthSession = session
-        } else {
-            NSLog("auth.webauth: session.start() returned false")
-            isLoading = false
-        }
+        urlOpener(signInURL)
+        // isLoading/isAuthenticated flip via handleCallbackURL() once the
+        // browser fires the manaflow[-dev]:// deeplink back through
+        // AppDelegate.application(_:open:).
     }
 
     /// Shared CLI auth flow: initiate session, open browser, poll for token.
@@ -565,14 +516,27 @@ final class AuthManager: ObservableObject {
             )
             return
         }
-        // Open in the system's default web browser, not cmux's built-in browser.
-        // NSWorkspace.shared.open(url) would open in cmux if it registered as HTTP handler.
+        // Open in the user's actual default browser. urlsForApplications(toOpen:)
+        // returns candidates in LaunchServices priority order (user's chosen
+        // default first). Skip cmux itself, since Info.plist advertises http/https
+        // at LSHandlerRank=Default and otherwise the app could re-open the URL in
+        // its own embedded WebView.
+        let ownBundleIDs: Set<String> = {
+            var ids: Set<String> = []
+            if let id = Bundle.main.bundleIdentifier { ids.insert(id) }
+            return ids
+        }()
+        let candidates = NSWorkspace.shared.urlsForApplications(toOpen: url)
+        let browserURL = candidates.first { appURL in
+            guard let id = Bundle(url: appURL)?.bundleIdentifier else { return true }
+            if ownBundleIDs.contains(id) { return false }
+            let lower = id.lowercased()
+            return !lower.hasPrefix("dev.cmux.") && !lower.hasPrefix("com.cmuxterm.")
+        }
         let config = NSWorkspace.OpenConfiguration()
         config.createsNewApplicationInstance = false
-        if let safariURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") {
-            NSWorkspace.shared.open([url], withApplicationAt: safariURL, configuration: config)
-        } else if let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
-            NSWorkspace.shared.open([url], withApplicationAt: chromeURL, configuration: config)
+        if let browserURL {
+            NSWorkspace.shared.open([url], withApplicationAt: browserURL, configuration: config)
         } else {
             NSWorkspace.shared.open(url)
         }
