@@ -1878,6 +1878,40 @@ private func installFileDropOverlayWhenReady(
     }
 }
 
+@MainActor
+private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
+    @Published private(set) var directoryChangeGeneration: UInt64 = 0
+    private weak var tabManager: TabManager?
+    private var cancellable: AnyCancellable?
+
+    func wire(tabManager: TabManager) {
+        guard self.tabManager !== tabManager || cancellable == nil else { return }
+        self.tabManager = tabManager
+        cancellable = tabManager.$selectedTabId
+            .map { [weak tabManager] tabId -> Workspace? in
+                guard let tabId, let tabManager else { return nil }
+                return tabManager.tabs.first(where: { $0.id == tabId })
+            }
+            .removeDuplicates(by: { $0?.id == $1?.id })
+            .map { workspace -> AnyPublisher<(UUID?, String?), Never> in
+                guard let workspace else {
+                    return Just<(UUID?, String?)>((nil, nil)).eraseToAnyPublisher()
+                }
+                return workspace.$currentDirectory
+                    .map { (Optional(workspace.id), Optional($0)) }
+                    .eraseToAnyPublisher()
+            }
+            .switchToLatest()
+            .removeDuplicates { previous, next in
+                previous.0 == next.0 && previous.1 == next.1
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.directoryChangeGeneration &+= 1
+            }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
@@ -1900,6 +1934,7 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
+    @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
@@ -3074,21 +3109,21 @@ struct ContentView: View {
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             // No selection means we have no local cwd to scope by; clear so the
             // sessions panel doesn't keep filtering by a stale previous tab.
-            sessionIndexStore.currentDirectory = nil
+            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             return
         }
 
         let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !dir.isEmpty else {
-            sessionIndexStore.currentDirectory = nil
+            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             return
         }
 
         fileExplorerStore.showHiddenFiles = true
         if !tab.isRemoteWorkspace {
-            sessionIndexStore.currentDirectory = dir
+            sessionIndexStore.setCurrentDirectoryIfChanged(dir)
         } else {
-            sessionIndexStore.currentDirectory = nil
+            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
         }
 
         if tab.isRemoteWorkspace {
@@ -3215,6 +3250,7 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
+            selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -3309,21 +3345,8 @@ struct ContentView: View {
             syncSidebarSelectedWorkspaceIds()
         })
 
-        // File explorer: reactively sync CWD when selected workspace or its directory changes.
-        // Uses switchToLatest to automatically unsubscribe from the old workspace's publisher.
-        view = AnyView(view.onReceive(
-            tabManager.$selectedTabId
-                .compactMap { [weak tabManager] tabId -> Workspace? in
-                    guard let tabId, let tabManager else { return nil }
-                    return tabManager.tabs.first(where: { $0.id == tabId })
-                }
-                .map { workspace -> AnyPublisher<String, Never> in
-                    workspace.$currentDirectory.eraseToAnyPublisher()
-                }
-                .switchToLatest()
-                .removeDuplicates()
-                .receive(on: DispatchQueue.main)
-        ) { _ in
+        // File explorer: keep the Combine subscription stable across body re-evaluations.
+        view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
             syncFileExplorerDirectory()
         })
 

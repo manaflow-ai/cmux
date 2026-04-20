@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import XCTest
 
@@ -10,6 +11,20 @@ import XCTest
 
 @MainActor
 final class SessionIndexViewTests: XCTestCase {
+    func testCurrentDirectorySetterDoesNotPublishEqualValue() {
+        let store = SessionIndexStore()
+        var emittedValues: [String?] = []
+        let cancellable = store.$currentDirectory
+            .dropFirst()
+            .sink { emittedValues.append($0) }
+        defer { cancellable.cancel() }
+
+        store.setCurrentDirectoryIfChanged("/foo")
+        store.setCurrentDirectoryIfChanged("/foo")
+
+        XCTAssertEqual(emittedValues, ["/foo"])
+    }
+
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
         let harness = makeHarness()
         let coordinator = harness.host.makeCoordinator()
@@ -87,7 +102,8 @@ final class SessionIndexViewTests: XCTestCase {
         let section = IndexSection(
             key: .directory("/tmp"),
             title: "tmp",
-            icon: .folder
+            icon: .folder,
+            entries: []
         )
         let search: SessionSearchFn = { _, _, _, _ in
             SessionIndexStore.SearchOutcome(entries: [], errors: [])
