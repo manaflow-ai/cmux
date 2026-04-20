@@ -47,9 +47,7 @@ struct RightSidebarPanelView: View {
                     if fileExplorerState.mode != mode {
                         fileExplorerState.mode = mode
                         if mode == .sessions {
-                            sessionIndexStore.currentDirectory = fileExplorerStore.rootPath.isEmpty
-                                ? nil
-                                : fileExplorerStore.rootPath
+                            sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                             if sessionIndexStore.entries.isEmpty {
                                 sessionIndexStore.reload()
                             }
@@ -73,11 +71,13 @@ struct RightSidebarPanelView: View {
         case .sessions:
             SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
                 .onAppear {
-                    sessionIndexStore.currentDirectory = fileExplorerStore.rootPath.isEmpty
-                        ? nil
-                        : fileExplorerStore.rootPath
+                    sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
         }
+    }
+
+    private var sessionIndexDirectory: String? {
+        fileExplorerStore.rootPath.isEmpty ? nil : fileExplorerStore.rootPath
     }
 }
 
