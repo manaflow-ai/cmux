@@ -920,6 +920,19 @@ func browserShouldOpenURLExternally(_ url: URL) -> Bool {
     return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
+@MainActor
+enum BrowserCertBypassSettings {
+    static let defaultsKey = "browserIgnoreCertificateErrors"
+    // Set by --ignore-certificate-errors at launch or by browser.cert_bypass set (session-only).
+    // Never written by this enum; callers set it directly.
+    static var runtimeOverride: Bool? = nil
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if let override = runtimeOverride { return override }
+        return defaults.bool(forKey: defaultsKey)
+    }
+}
+
 enum BrowserUserAgentSettings {
     // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
@@ -6215,6 +6228,20 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        // When certificate bypass is active (--ignore-certificate-errors or browser.cert_bypass set true),
+        // unconditionally trust server certificates. This covers self-signed and unknown-root certs
+        // common in local development (e.g. https://localhost:8443). Only server trust challenges
+        // are bypassed; client cert and other challenge types still use default handling.
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           BrowserCertBypassSettings.isEnabled(),
+           let serverTrust = challenge.protectionSpace.serverTrust {
+            #if DEBUG
+            dlog("browser.cert_bypass: accepting server trust for \(challenge.protectionSpace.host)")
+            #endif
+            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+            return
+        }
+
         // WKWebView rejects all authentication challenges by default when this
         // delegate method is not implemented (.rejectProtectionSpace). This
         // breaks TLS client-certificate flows such as Microsoft Entra ID

@@ -5484,7 +5484,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "cert-bypass"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -6736,6 +6736,21 @@ struct CMUXCLI {
             let sid = try requireSurface()
             let payload = try client.sendV2(method: "browser.\(subcommand)", params: ["surface_id": sid])
             output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "cert-bypass" {
+            let action = subArgs.first ?? "get"
+            var params: [String: Any] = ["action": action]
+            if let value = subArgs.dropFirst().first {
+                params["value"] = value
+            }
+            let payload = try client.sendV2(method: "browser.cert_bypass", params: params)
+            if let enabled = payload["enabled"] as? Bool {
+                output(payload, fallback: enabled ? "true" : "false")
+            } else {
+                output(payload, fallback: "OK")
+            }
             return
         }
 
@@ -8135,6 +8150,7 @@ struct CMUXCLI {
               viewport <width> <height>
               geolocation|geo <latitude> <longitude>
               offline <true|false>
+              cert-bypass [get | set <true|false>]
               trace <start|stop> [path]
               network <route|unroute|requests> ...
                 route <pattern> [--abort] [--body <text>]
