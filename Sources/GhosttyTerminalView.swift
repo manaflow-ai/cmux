@@ -1960,8 +1960,14 @@ class GhosttyApp {
     private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
         guard let mappings = Self.autoInjectedCJKFontMappings() else { return }
 
+        var resolvedFonts: [String: String] = [:]
         let lines = mappings.map { range, font in
-            "font-codepoint-map = \(range)=\(font)"
+            let resolvedFont = resolvedFonts[font] ?? {
+                let resolved = Self.resolvedInjectedCJKFontName(named: font)
+                resolvedFonts[font] = resolved
+                return resolved
+            }()
+            return "font-codepoint-map = \(range)=\(resolvedFont)"
         }.joined(separator: "\n")
         loadInlineGhosttyConfig(
             lines,
@@ -2136,6 +2142,45 @@ class GhosttyApp {
         ) != nil
     }
 
+    /// Resolve auto-injected CJK families through the regular-weight descriptor
+    /// path first so locale-sensitive families such as Hiragino Sans don't fall
+    /// back to ultra-light faces like W0 when Ghostty later matches by name.
+    static func resolvedInjectedCJKFontName(
+        named name: String,
+        size: CGFloat = 12
+    ) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return name }
+        guard let regularWeightFont = discoveredCTFont(named: trimmed, size: size, weightTrait: 0.0) else {
+            return trimmed
+        }
+
+        let candidateNames = [
+            CTFontCopyName(regularWeightFont, kCTFontFullNameKey) as String?,
+            CTFontCopyName(regularWeightFont, kCTFontPostScriptNameKey) as String?,
+        ].compactMap { $0 }
+        let expectedFullName = CTFontCopyFullName(regularWeightFont) as String
+        let expectedPostScriptName = CTFontCopyPostScriptName(regularWeightFont) as String
+
+        for candidate in candidateNames {
+            guard let verifiedFont = discoveredCTFont(named: candidate, size: size) else { continue }
+            let verifiedNames = [
+                CTFontCopyName(verifiedFont, kCTFontFamilyNameKey) as String?,
+                CTFontCopyName(verifiedFont, kCTFontFullNameKey) as String?,
+                CTFontCopyName(verifiedFont, kCTFontPostScriptNameKey) as String?,
+            ].compactMap { $0 }
+            let matchesRegularWeightFace = verifiedNames.contains {
+                normalizedFontName($0) == normalizedFontName(expectedFullName) ||
+                normalizedFontName($0) == normalizedFontName(expectedPostScriptName)
+            }
+            if matchesRegularWeightFace {
+                return candidate
+            }
+        }
+
+        return trimmed
+    }
+
     private static func configuredCTFont(
         named name: String,
         size: CGFloat = 12
@@ -2156,6 +2201,34 @@ class GhosttyApp {
         }
 
         return font
+    }
+
+    /// Mirror Ghostty's family-name CoreText discovery path so injected
+    /// `font-codepoint-map` values are validated against the same lookup mode.
+    static func discoveredCTFont(
+        named name: String,
+        size: CGFloat = 12,
+        weightTrait: CGFloat? = nil
+    ) -> CTFont? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        var attributes: [CFString: Any] = [
+            kCTFontFamilyNameAttribute: trimmed,
+            kCTFontSizeAttribute: size,
+        ]
+        if let weightTrait {
+            attributes[kCTFontTraitsAttribute] = [
+                kCTFontWeightTrait: weightTrait,
+            ] as CFDictionary
+        }
+
+        let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
+        let collection = CTFontCollectionCreateWithFontDescriptors([descriptor] as CFArray, nil)
+        guard let match = (CTFontCollectionCreateMatchingFontDescriptors(collection) as? [CTFontDescriptor])?.first else {
+            return nil
+        }
+        return CTFontCreateWithFontDescriptor(match, size, nil)
     }
 
     private static func fontContainsGlyphs(

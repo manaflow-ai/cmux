@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CoreText
 import WebKit
 import Darwin
 
@@ -2328,6 +2329,38 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertTrue(hiraginoRanges.contains("U+4E00-U+9FFF"), "Shared CJK → first lang font")
         XCTAssertFalse(mappings.contains { $0.1 == "Apple SD Gothic Neo" }, "No Korean font mapping")
         XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul NOT in Hiragino")
+    }
+
+    func testResolvedInjectedCJKFontNamePinsRegularWeightForHiraginoSans() throws {
+        guard let plain = GhosttyApp.discoveredCTFont(named: "Hiragino Sans"),
+              let pinned = GhosttyApp.discoveredCTFont(
+                  named: GhosttyApp.resolvedInjectedCJKFontName(named: "Hiragino Sans")
+              ) else {
+            throw XCTSkip("Hiragino Sans is unavailable on this runner")
+        }
+
+        let plainFullName = CTFontCopyFullName(plain) as String
+        let pinnedFullName = CTFontCopyFullName(pinned) as String
+
+        XCTAssertEqual(CTFontCopyFamilyName(pinned) as String, "Hiragino Sans")
+        XCTAssertFalse(pinnedFullName.contains(" W0"))
+        if plainFullName.contains(" W0") {
+            XCTAssertNotEqual(
+                CTFontCopyPostScriptName(plain) as String,
+                CTFontCopyPostScriptName(pinned) as String
+            )
+        }
+    }
+
+    func testResolvedInjectedCJKFontNameLeavesPingFangSCStable() throws {
+        guard GhosttyApp.discoveredCTFont(named: "PingFang SC") != nil else {
+            throw XCTSkip("PingFang SC is unavailable on this runner")
+        }
+
+        XCTAssertEqual(
+            GhosttyApp.resolvedInjectedCJKFontName(named: "PingFang SC"),
+            "PingFang SC"
+        )
     }
 
     // MARK: autoInjectedCJKFontMappings
