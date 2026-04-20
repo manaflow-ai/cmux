@@ -7376,6 +7376,9 @@ private struct ShortcutRecorderSettingsControl: View {
             onValidationButtonPressed: validationPresentation?.canSwap == true
                 ? { swapConflictingShortcut() }
                 : nil,
+            undoButtonTitle: validationPresentation?.undoButtonTitle,
+            onUndoButtonPressed: rejectedAttempt != nil ? { rejectedAttempt = nil } : nil,
+            hasPendingRejection: rejectedAttempt != nil,
             isDisabled: isDisabled,
             onRecorderFeedbackChanged: { rejectedAttempt = $0 }
         )

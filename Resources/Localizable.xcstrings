@@ -69738,6 +69738,23 @@
         }
       }
     },
+    "shortcut.recorder.undo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元に戻す"
+          }
+        }
+      }
+    },
     "shortcut.key.mediaBrightnessDown": {
       "extractionState": "manual",
       "localizations": {

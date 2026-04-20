@@ -1975,6 +1975,7 @@ struct ShortcutRecorderRejectedAttempt: Equatable {
 struct ShortcutRecorderValidationPresentation: Equatable {
     let message: String
     let swapButtonTitle: String?
+    let undoButtonTitle: String
     let canSwap: Bool
 
     init?(
@@ -2001,6 +2002,7 @@ struct ShortcutRecorderValidationPresentation: Equatable {
         self.swapButtonTitle = canSwap
             ? String(localized: "shortcut.recorder.swap", defaultValue: "Swap")
             : nil
+        self.undoButtonTitle = String(localized: "shortcut.recorder.undo", defaultValue: "Undo")
         self.canSwap = canSwap
     }
 
@@ -2084,6 +2086,9 @@ struct KeyboardShortcutRecorder: View {
     var validationMessage: String? = nil
     var validationButtonTitle: String? = nil
     var onValidationButtonPressed: (() -> Void)? = nil
+    var undoButtonTitle: String? = nil
+    var onUndoButtonPressed: (() -> Void)? = nil
+    var hasPendingRejection: Bool = false
     var isDisabled: Bool = false
     var onRecordingChanged: (Bool) -> Void = { _ in }
     var onRecorderFeedbackChanged: (ShortcutRecorderRejectedAttempt?) -> Void = { _ in }
@@ -2106,6 +2111,7 @@ struct KeyboardShortcutRecorder: View {
                 ShortcutRecorderButton(
                     shortcut: $shortcut,
                     isRecording: $isRecording,
+                    hasPendingRejection: hasPendingRejection,
                     displayString: displayString,
                     transformRecordedShortcut: transformRecordedShortcut,
                     onRecordingChanged: onRecordingChanged,
@@ -2131,6 +2137,12 @@ struct KeyboardShortcutRecorder: View {
                             .buttonStyle(.link)
                             .font(.caption)
                     }
+
+                    if let undoButtonTitle, let onUndoButtonPressed {
+                        Button(undoButtonTitle, action: onUndoButtonPressed)
+                            .buttonStyle(.link)
+                            .font(.caption)
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -2152,6 +2164,7 @@ struct KeyboardShortcutRecorder: View {
 private struct ShortcutRecorderButton: NSViewRepresentable {
     @Binding var shortcut: StoredShortcut
     @Binding var isRecording: Bool
+    var hasPendingRejection: Bool = false
     let displayString: (StoredShortcut) -> String
     let transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution
     let onRecordingChanged: (Bool) -> Void
@@ -2184,6 +2197,9 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
             onRecordingChanged(recording)
         }
         nsView.onRecorderFeedbackChanged = onRecorderFeedbackChanged
+        if !hasPendingRejection {
+            nsView.clearPendingRejection()
+        }
         nsView.updateTitle()
     }
 }
@@ -2409,6 +2425,12 @@ final class ShortcutRecorderNSButton: NSButton {
 
     @objc private func stopRecordingFromNotification() {
         stopRecording()
+    }
+
+    func clearPendingRejection() {
+        guard hasPendingRejection else { return }
+        hasPendingRejection = false
+        updateTitle()
     }
 
     private func registerRecordingActivityIfNeeded() {

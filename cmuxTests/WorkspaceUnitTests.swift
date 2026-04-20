@@ -1816,6 +1816,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
         XCTAssertEqual(presentation?.message, "Shortcuts must include ⌘ ⌥ ⌃ or ⇧")
         XCTAssertNil(presentation?.swapButtonTitle)
         XCTAssertFalse(presentation?.canSwap ?? true)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
     }
 
     func testShortcutRecorderValidationPresentationSurfacesConflictActionAndSwapAffordance() {
@@ -1833,6 +1834,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
         XCTAssertEqual(presentation?.message, "This shortcut conflicts with New Surface (⌘T). Swap shortcuts?")
         XCTAssertEqual(presentation?.swapButtonTitle, "Swap")
         XCTAssertTrue(presentation?.canSwap ?? false)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
     }
 
     func testShortcutRecorderValidationPresentationUsesNumberedDisplayOnlyForNumberedConflicts() {
@@ -1853,6 +1855,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
         XCTAssertNil(presentation?.swapButtonTitle)
         XCTAssertFalse(presentation?.canSwap ?? true)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
     }
 
     func testShortcutRecorderValidationPresentationSurfacesReservedSystemMessage() {
@@ -1865,6 +1868,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
         XCTAssertEqual(presentation?.message, "This keystroke is reserved by macOS.")
         XCTAssertNil(presentation?.swapButtonTitle)
         XCTAssertFalse(presentation?.canSwap ?? true)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
     }
 }
 
