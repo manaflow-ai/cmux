@@ -1944,6 +1944,37 @@ struct CMUXCLI {
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
 
+        case "auth":
+            let sub = commandArgs.first?.lowercased() ?? "status"
+            switch sub {
+            case "status":
+                let response = try client.sendV2(method: "auth.status")
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let result = (response as? [String: Any])?["result"] as? [String: Any] ?? response as? [String: Any] ?? [:]
+                let signedIn = (result["signed_in"] as? Bool) ?? false
+                if !signedIn {
+                    print("Not signed in.")
+                    print("Run: open Settings → Account → Sign In…")
+                    break
+                }
+                let user = result["user"] as? [String: Any]
+                let email = user?["email"] as? String
+                let display = user?["display_name"] as? String
+                let userID = user?["id"] as? String
+                print("Signed in.")
+                if let email { print("  email:    \(email)") }
+                if let display { print("  name:     \(display)") }
+                if let userID { print("  user_id:  \(userID)") }
+                if let teamID = result["selected_team_id"] as? String {
+                    print("  team_id:  \(teamID)")
+                }
+            default:
+                throw CLIError(message: "Usage: cmux auth status")
+            }
+
         case "rpc":
             guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !method.isEmpty else {
@@ -6819,6 +6850,13 @@ struct CMUXCLI {
             Usage: cmux capabilities
 
             Print server capabilities as JSON.
+            """
+        case "auth":
+            return """
+            Usage: cmux auth status [--json]
+
+            Print whether the user is signed in. With --json, prints the raw
+            auth.status RPC response.
             """
         case "rpc":
             return """
@@ -14373,6 +14411,7 @@ struct CMUXCLI {
           ping
           version
           capabilities
+          auth status [--json]
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
           list-windows
