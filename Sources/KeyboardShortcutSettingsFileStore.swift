@@ -862,9 +862,9 @@ final class CmuxSettingsFileStore {
     ) -> StoredShortcut? {
         let shortcut: StoredShortcut?
         if let stroke = jsonString(rawValue) {
-            shortcut = parseStoredShortcut(strokes: [stroke])
+            shortcut = StoredShortcut.parse(rawValue: stroke)
         } else if let strokes = jsonStringArray(rawValue) {
-            shortcut = parseStoredShortcut(strokes: strokes)
+            shortcut = StoredShortcut.parse(strokes: strokes)
         } else {
             shortcut = nil
         }
@@ -874,102 +874,6 @@ final class CmuxSettingsFileStore {
             return normalized
         }
         return action.usesNumberedDigitMatching ? nil : shortcut
-    }
-
-    private func parseStoredShortcut(strokes: [String]) -> StoredShortcut? {
-        guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
-        let parsedStrokes = strokes.compactMap(parseStroke(_:))
-        guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
-            return nil
-        }
-        guard !firstStroke.modifierFlags.isEmpty else { return nil }
-        let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
-        return StoredShortcut(first: firstStroke, second: secondStroke)
-    }
-
-    private func parseStroke(_ rawValue: String) -> ShortcutStroke? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let parts = trimmed.split(separator: "+", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard !parts.isEmpty, let lastPart = parts.last, !lastPart.isEmpty else {
-            return nil
-        }
-
-        var command = false
-        var shift = false
-        var option = false
-        var control = false
-
-        for modifier in parts.dropLast() {
-            switch modifier.lowercased() {
-            case "cmd", "command", "⌘":
-                command = true
-            case "shift", "⇧":
-                shift = true
-            case "opt", "option", "alt", "⌥":
-                option = true
-            case "ctrl", "control", "ctl", "⌃":
-                control = true
-            default:
-                return nil
-            }
-        }
-
-        guard let key = parseKeyToken(lastPart) else { return nil }
-        return ShortcutStroke(
-            key: key,
-            command: command,
-            shift: shift,
-            option: option,
-            control: control
-        )
-    }
-
-    private func parseKeyToken(_ rawValue: String) -> String? {
-        let lowered = rawValue.lowercased()
-        switch lowered {
-        case "left", "arrowleft", "leftarrow", "←":
-            return "←"
-        case "right", "arrowright", "rightarrow", "→":
-            return "→"
-        case "up", "arrowup", "uparrow", "↑":
-            return "↑"
-        case "down", "arrowdown", "downarrow", "↓":
-            return "↓"
-        case "tab":
-            return "\t"
-        case "return", "enter", "↩":
-            return "\r"
-        case "space":
-            return " "
-        case "comma":
-            return ","
-        case "period", "dot":
-            return "."
-        case "slash":
-            return "/"
-        case "backslash":
-            return "\\"
-        case "semicolon":
-            return ";"
-        case "quote", "apostrophe":
-            return "'"
-        case "backtick", "grave":
-            return "`"
-        case "minus", "hyphen":
-            return "-"
-        case "plus", "equals":
-            return "="
-        case "leftbracket", "openbracket":
-            return "["
-        case "rightbracket", "closebracket":
-            return "]"
-        default:
-            guard lowered.count == 1 else { return nil }
-            return lowered
-        }
     }
 
     private func parseNullableHex(
@@ -1623,7 +1527,7 @@ private enum BackupValue: Codable, Equatable {
     }
 }
 
-private enum JSONCParser {
+enum JSONCParser {
     static func preprocess(data: Data) throws -> Data {
         guard let source = String(data: data, encoding: .utf8) else {
             throw JSONCError.invalidUTF8
@@ -1749,7 +1653,7 @@ private enum JSONCParser {
     }
 }
 
-private final class ShortcutSettingsFileWatcher {
+final class ShortcutSettingsFileWatcher {
     private let path: String
     private let fileManager: FileManager
     private let onChange: () -> Void

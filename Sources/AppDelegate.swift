@@ -2584,6 +2584,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
+        _ = CustomCommandStore.shared
+
         if telemetryEnabled {
             // Pre-warm locale before Sentry to avoid a startup data race.
             // Locale initialization (os.locale.ensureLocale / NSLocale._preferredLanguages)
@@ -11439,6 +11441,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .newSurface) {
             tabManager?.newSurface()
             return true
+        }
+
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           let customCommand = KeyboardShortcutSettings.matchingCustomCommand(for: event) {
+            return tabManager?.openSurfaceAndRunCommand(
+                target: customCommand.target,
+                cwd: customCommand.resolvedWorkingDirectory,
+                command: customCommand.command,
+                customCommandID: customCommand.id
+            ) ?? false
         }
 
         // Open browser: Cmd+Shift+L

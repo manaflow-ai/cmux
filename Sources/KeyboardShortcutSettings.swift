@@ -8,11 +8,13 @@ enum KeyboardShortcutSettings {
     static let didChangeNotification = Notification.Name("cmux.keyboardShortcutSettingsDidChange")
     static let actionUserInfoKey = "action"
     static let settingsFileDisplayPath = "~/.config/cmux/settings.json"
+    static let keybindingsFileDisplayPath = "~/.config/cmux/keybindings.json"
     static var settingsFileStore: KeyboardShortcutSettingsFileStore = .shared {
         didSet {
             notifySettingsFileDidChange()
         }
     }
+    static var customCommandStore: CustomCommandStore = .shared
 
     enum Action: String, CaseIterable, Identifiable {
         // App / window
@@ -405,6 +407,10 @@ enum KeyboardShortcutSettings {
     static func settingsFileManagedSubtitle(for action: Action) -> String? {
         guard isManagedBySettingsFile(action) else { return nil }
         return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in settings.json")
+    }
+
+    static func matchingCustomCommand(for event: NSEvent) -> CustomCommandBinding? {
+        customCommandStore.matchingCommand(for: event)
     }
 
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
@@ -1009,6 +1015,46 @@ struct ShortcutStroke: Equatable {
         return stroke
     }
 
+    static func parse(rawValue: String) -> ShortcutStroke? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let parts = trimmed.split(separator: "+", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard !parts.isEmpty, let lastPart = parts.last, !lastPart.isEmpty else {
+            return nil
+        }
+
+        var command = false
+        var shift = false
+        var option = false
+        var control = false
+
+        for modifier in parts.dropLast() {
+            switch modifier.lowercased() {
+            case "cmd", "command", "⌘":
+                command = true
+            case "shift", "⇧":
+                shift = true
+            case "opt", "option", "alt", "⌥":
+                option = true
+            case "ctrl", "control", "ctl", "⌃":
+                control = true
+            default:
+                return nil
+            }
+        }
+
+        guard let key = parseKeyToken(String(lastPart)) else { return nil }
+        return ShortcutStroke(
+            key: key,
+            command: command,
+            shift: shift,
+            option: option,
+            control: control
+        )
+    }
+
     static func normalizedModifierFlags(from flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
         flags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
@@ -1135,6 +1181,52 @@ struct ShortcutStroke: Equatable {
             return String(char)
         }
         return nil
+    }
+
+    static func parseKeyToken(_ rawValue: String) -> String? {
+        let lowered = rawValue.lowercased()
+        switch lowered {
+        case "left", "arrowleft", "leftarrow", "←":
+            return "←"
+        case "right", "arrowright", "rightarrow", "→":
+            return "→"
+        case "up", "arrowup", "uparrow", "↑":
+            return "↑"
+        case "down", "arrowdown", "downarrow", "↓":
+            return "↓"
+        case "tab":
+            return "\t"
+        case "return", "enter", "↩":
+            return "\r"
+        case "space":
+            return " "
+        case "comma":
+            return ","
+        case "period", "dot":
+            return "."
+        case "slash":
+            return "/"
+        case "backslash":
+            return "\\"
+        case "semicolon":
+            return ";"
+        case "quote", "apostrophe":
+            return "'"
+        case "backtick", "grave":
+            return "`"
+        case "minus", "hyphen":
+            return "-"
+        case "plus", "equals":
+            return "="
+        case "leftbracket", "openbracket":
+            return "["
+        case "rightbracket", "closebracket":
+            return "]"
+        default:
+            let normalized = lowered.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard normalized.count == 1 else { return nil }
+            return normalized
+        }
     }
 
     static func normalizedShortcutEventCharacter(
@@ -1490,6 +1582,21 @@ struct StoredShortcut: Codable, Equatable {
     static func from(event: NSEvent) -> StoredShortcut? {
         guard let stroke = ShortcutStroke.from(event: event) else { return nil }
         return StoredShortcut(first: stroke)
+    }
+
+    static func parse(rawValue: String) -> StoredShortcut? {
+        parse(strokes: [rawValue])
+    }
+
+    static func parse(strokes: [String]) -> StoredShortcut? {
+        guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
+        let parsedStrokes = strokes.compactMap(ShortcutStroke.parse(rawValue:))
+        guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
+            return nil
+        }
+        guard !firstStroke.modifierFlags.isEmpty else { return nil }
+        let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
+        return StoredShortcut(first: firstStroke, second: secondStroke)
     }
 
     func matches(

@@ -4972,6 +4972,159 @@ class TabManager: ObservableObject {
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
+    @discardableResult
+    func openSurfaceAndRunCommand(
+        target: CustomCommandTarget,
+        cwd: CustomCommandWorkingDirectory = .workspace,
+        command: String,
+        customCommandID: String? = nil
+    ) -> Bool {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty else { return false }
+
+        let launchContext = customCommandLaunchContext()
+        let fallbackDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+        let workspaceDirectory = launchContext?.workspaceDirectory ?? fallbackDirectory
+        let paneDirectory = launchContext?.paneDirectory ?? workspaceDirectory
+        let resolvedWorkingDirectory = resolvedCustomCommandWorkingDirectory(
+            cwd,
+            workspaceDirectory: workspaceDirectory,
+            paneDirectory: paneDirectory
+        )
+        let environment = customCommandEnvironment(
+            customCommandID: customCommandID,
+            workspaceDirectory: workspaceDirectory,
+            paneDirectory: paneDirectory
+        )
+        let input = trimmedCommand + "\n"
+
+        switch target {
+        case .splitRight, .splitDown:
+            guard let workspace = launchContext?.workspace,
+                  let sourcePanelId = launchContext?.sourcePanelId else {
+                return false
+            }
+            workspace.clearSplitZoom()
+            let orientation: SplitOrientation = (target == .splitRight) ? .horizontal : .vertical
+            guard let panel = workspace.newTerminalSplit(
+                from: sourcePanelId,
+                orientation: orientation,
+                insertFirst: false,
+                focus: true,
+                workingDirectory: resolvedWorkingDirectory,
+                startupEnvironment: environment
+            ) else {
+                return false
+            }
+            workspace.sendTerminalInputWhenReady(input, to: panel)
+            scheduleInitialWorkspaceGitMetadataRefreshIfPossible(workspaceId: workspace.id, panelId: panel.id, reason: "custom_command")
+            return true
+
+        case .newSurface:
+            guard let workspace = launchContext?.workspace else { return false }
+            let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+            guard let paneId else { return false }
+            workspace.clearSplitZoom()
+            guard let panel = workspace.newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                workingDirectory: resolvedWorkingDirectory,
+                startupEnvironment: environment
+            ) else {
+                return false
+            }
+            workspace.sendTerminalInputWhenReady(input, to: panel)
+            scheduleInitialWorkspaceGitMetadataRefreshIfPossible(workspaceId: workspace.id, panelId: panel.id, reason: "custom_command")
+            return true
+
+        case .newTab, .newWorkspace:
+            let workspace = addWorkspace(
+                workingDirectory: resolvedWorkingDirectory,
+                initialTerminalEnvironment: environment,
+                select: true
+            )
+            guard let panel = workspace.focusedTerminalPanel else { return false }
+            workspace.sendTerminalInputWhenReady(input, to: panel)
+            scheduleInitialWorkspaceGitMetadataRefreshIfPossible(workspaceId: workspace.id, panelId: panel.id, reason: "custom_command")
+            return true
+        }
+    }
+
+    private struct CustomCommandLaunchContext {
+        let workspace: Workspace
+        let sourcePanelId: UUID?
+        let workspaceDirectory: String?
+        let paneDirectory: String?
+    }
+
+    private func customCommandLaunchContext() -> CustomCommandLaunchContext? {
+        guard let workspace = selectedWorkspace else { return nil }
+        let sourcePanelId = preferredSurfaceCreationPanelId(in: workspace)
+        let workspaceDirectory = resolvedWorkspaceDirectory(for: workspace)
+        let paneDirectory = sourcePanelId.flatMap { gitProbeDirectory(for: workspace, panelId: $0) } ?? workspaceDirectory
+        return CustomCommandLaunchContext(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            workspaceDirectory: workspaceDirectory,
+            paneDirectory: paneDirectory
+        )
+    }
+
+    private func preferredSurfaceCreationPanelId(in workspace: Workspace) -> UUID? {
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.panels[focusedPanelId] != nil {
+            return focusedPanelId
+        }
+
+        let candidatePane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        if let candidatePane,
+           let selectedTabId = workspace.bonsplitController.selectedTab(inPane: candidatePane)?.id
+                ?? workspace.bonsplitController.tabs(inPane: candidatePane).first?.id,
+           let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
+           workspace.panels[panelId] != nil {
+            return panelId
+        }
+
+        return workspace.panels.keys.first
+    }
+
+    private func resolvedWorkspaceDirectory(for workspace: Workspace) -> String? {
+        normalizedWorkingDirectory(workspace.currentDirectory)
+            ?? preferredWorkingDirectoryForNewTab(workspace: workspace)
+            ?? workspace.focusedPanelId.flatMap { gitProbeDirectory(for: workspace, panelId: $0) }
+    }
+
+    private func resolvedCustomCommandWorkingDirectory(
+        _ cwd: CustomCommandWorkingDirectory,
+        workspaceDirectory: String,
+        paneDirectory: String
+    ) -> String {
+        switch cwd {
+        case .workspace:
+            return workspaceDirectory
+        case .pane:
+            return paneDirectory
+        case .absolutePath(let path):
+            return path
+        }
+    }
+
+    private func customCommandEnvironment(
+        customCommandID: String?,
+        workspaceDirectory: String,
+        paneDirectory: String
+    ) -> [String: String] {
+        var environment: [String: String] = [
+            "CMUX_WORKSPACE_CWD": workspaceDirectory,
+            "CMUX_PANE_CWD": paneDirectory,
+        ]
+        if let customCommandID,
+           !customCommandID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            environment["CMUX_CUSTOM_COMMAND_ID"] = customCommandID
+        }
+        return environment
+    }
+
     // MARK: - Split Creation
 
     /// Create a new split in the current tab
