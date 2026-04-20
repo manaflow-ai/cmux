@@ -2084,6 +2084,14 @@ class TerminalController {
                 }
             }
             return v2Ok(id: id, result: status)
+        case "auth.begin_sign_in":
+            AuthManager.shared.beginSignIn()
+            return v2Ok(id: id, result: ["started": true])
+        case "auth.sign_out":
+            Task { @MainActor in
+                await AuthManager.shared.signOut()
+            }
+            return v2Ok(id: id, result: ["started": true])
 
         // Windows
         case "window.list":
@@ -2486,6 +2494,8 @@ class TerminalController {
             "system.tree",
             "auth.login",
             "auth.status",
+            "auth.begin_sign_in",
+            "auth.sign_out",
             "window.list",
             "window.current",
             "window.focus",
