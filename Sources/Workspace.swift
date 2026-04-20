@@ -469,10 +469,11 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback
             )
+            let isRemoteBacked = remoteDetectedSurfaceIds.contains(panelId) || isRemoteTerminalSurface(panelId)
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
                 scrollback: resolvedScrollback,
-                agentResumeCommand: agentResumeCommand(forPanelId: panelId)
+                agentResumeCommand: isRemoteBacked ? nil : agentResumeCommand(forPanelId: panelId)
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -549,12 +550,6 @@ extension Workspace {
 
     // MARK: - Agent resume command cache
 
-    /// Cached resume commands for terminal panels running known agents, keyed by panel ID.
-    /// Populated asynchronously when agent PIDs are registered via the socket API
-    /// (set_agent_pid / report_status). Read during session snapshot to persist
-    /// without blocking the autosave hot path.
-    var cachedAgentResumeCommands: [UUID: String] = [:]
-
     /// Returns the cached resume command for a panel, if one was resolved.
     private func agentResumeCommand(forPanelId panelId: UUID) -> String? {
         cachedAgentResumeCommands[panelId]
@@ -585,6 +580,7 @@ extension Workspace {
     /// Called from TerminalController when agent PIDs are registered. Runs the
     /// SessionIndexStore lookup off-main, then stores the result on the main actor.
     func resolveAndCacheResumeCommand(agentKey: String, pid: pid_t) {
+        guard !isRemoteWorkspace else { return }
         guard let agent = Self.sessionAgentForKey(agentKey) else { return }
         guard pid > 0 else { return }
 
@@ -6680,6 +6676,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
+    var cachedAgentResumeCommands: [UUID: String] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
     private func sidebarObservationSignal<Value: Equatable>(
@@ -11972,6 +11969,7 @@ extension Workspace: BonsplitDelegate {
         surfaceTTYNames.removeValue(forKey: panelId)
         syncRemotePortScanTTYs()
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        cachedAgentResumeCommands.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
         if lastTerminalConfigInheritancePanelId == panelId {
@@ -12125,6 +12123,7 @@ extension Workspace: BonsplitDelegate {
                 surfaceTTYNames.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+                cachedAgentResumeCommands.removeValue(forKey: panelId)
                 PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
             }
 
