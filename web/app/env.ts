@@ -1,16 +1,21 @@
 import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
 
+// `.trim()` guards against trailing whitespace/newlines in Vercel env var
+// values, which has tripped Stack Auth's UUID validator ("Invalid project
+// ID: <uuid>\n") on production deploys.
+const trimmedString = () => z.string().trim().min(1);
+
 export const env = createEnv({
   server: {
-    RESEND_API_KEY: z.string().min(1),
-    CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
-    CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1),
-    STACK_SECRET_SERVER_KEY: z.string().min(1),
+    RESEND_API_KEY: trimmedString(),
+    CMUX_FEEDBACK_FROM_EMAIL: z.string().trim().email(),
+    CMUX_FEEDBACK_RATE_LIMIT_ID: trimmedString(),
+    STACK_SECRET_SERVER_KEY: trimmedString(),
   },
   client: {
-    NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
-    NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: z.string().min(1),
+    NEXT_PUBLIC_STACK_PROJECT_ID: trimmedString(),
+    NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: trimmedString(),
   },
   runtimeEnv: {
     RESEND_API_KEY: process.env.RESEND_API_KEY,
