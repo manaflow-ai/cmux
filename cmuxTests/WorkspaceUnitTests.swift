@@ -1307,6 +1307,25 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 }
 
 final class StoredShortcutMatchingTests: XCTestCase {
+    private func makeMediaKeyEvent(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = [],
+        keyState: UInt8 = 0x0A
+    ) -> NSEvent? {
+        let data1 = Int((UInt32(keyCode) << 16) | (UInt32(keyState) << 8))
+        return NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: Int16(8),
+            data1: data1,
+            data2: -1
+        )
+    }
+
     func testMatchingIgnoresCapsLock() {
         let shortcut = StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
 
@@ -1452,6 +1471,53 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
     }
 
+    func testMediaShortcutDoesNotMatchOrdinaryKeyDownWithSameKeyCode() {
+        let shortcut = ShortcutStroke(
+            key: "media.volumeUp",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 0
+        )
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ) else {
+            XCTFail("Failed to construct A key event")
+            return
+        }
+
+        XCTAssertFalse(shortcut.matches(event: event))
+    }
+
+    func testMediaShortcutMatchesSystemDefinedMediaEvent() {
+        let shortcut = ShortcutStroke(
+            key: "media.volumeUp",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 0
+        )
+
+        guard let event = makeMediaKeyEvent(keyCode: 0) else {
+            XCTFail("Failed to construct media key event")
+            return
+        }
+
+        XCTAssertTrue(shortcut.matches(event: event))
+    }
+
     func testShortcutRecorderResolutionReportsConflictingAction() {
         KeyboardShortcutSettings.resetAll()
         defer { KeyboardShortcutSettings.resetAll() }
@@ -1461,6 +1527,79 @@ final class StoredShortcutMatchingTests: XCTestCase {
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.openBrowser.normalizedRecordedShortcutResult(shortcut),
             .rejected(.conflictsWithAction(.newSurface))
+        )
+    }
+
+    func testShortcutRecorderResolutionRejectsNumberedShortcutAgainstReservedDigitFamily() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "3", command: true, shift: false, option: false, control: false),
+            for: .openBrowser
+        )
+
+        let shortcut = StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.selectWorkspaceByNumber.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.conflictsWithAction(.openBrowser))
+        )
+    }
+
+    func testShortcutRecorderResolutionRejectsSingleStrokeThatMatchesChordPrefix() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "k",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                chordKey: "c",
+                chordCommand: true,
+                chordShift: false,
+                chordOption: false,
+                chordControl: false
+            ),
+            for: .openBrowser
+        )
+
+        let shortcut = StoredShortcut(key: "k", command: true, shift: false, option: false, control: false)
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.newTab.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.conflictsWithAction(.openBrowser))
+        )
+    }
+
+    func testShortcutRecorderResolutionRejectsChordThatMatchesExistingSingleStrokePrefix() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "k", command: true, shift: false, option: false, control: false),
+            for: .openBrowser
+        )
+
+        let shortcut = StoredShortcut(
+            key: "k",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "c",
+            chordCommand: true,
+            chordShift: false,
+            chordOption: false,
+            chordControl: false
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.newTab.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.conflictsWithAction(.openBrowser))
         )
     }
 
