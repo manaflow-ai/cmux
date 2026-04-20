@@ -7415,15 +7415,26 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        // Resolve cwd as explicit request, source reported cwd, source requested
-        // startup cwd, then workspace currentDirectory.
-        let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+        let ghosttyInheritedWd = inheritedConfig?
+            .workingDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let ghosttyInheritedNonEmpty: String? = {
+            guard let ghosttyInheritedWd, !ghosttyInheritedWd.isEmpty else { return nil }
+            return ghosttyInheritedWd
+        }()
+
+        // Prefer libghostty's inherited working directory (same source as standalone Ghostty
+        // when splitting). cmux's explicit TerminalSurface `workingDirectory` wins over
+        // configTemplate in TerminalSurface.createSurface; a stale sidebar cache or workspace
+        // `currentDirectory` must not clobber the live cwd Ghostty already tracks on the source
+        // surface when shell integration events lag or do not run.
+        let splitWorkingDirectory = ghosttyInheritedNonEmpty ?? resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory,
             sourcePanelId: panelId
         )
 #if DEBUG
         cmuxDebugLog(
-            "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
+            "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) inherited=\(ghosttyInheritedNonEmpty ?? "nil") resolved=\(splitWorkingDirectory ?? "nil")"
         )
 #endif
 
