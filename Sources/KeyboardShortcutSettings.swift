@@ -2201,6 +2201,26 @@ final class ShortcutRecorderNSButton: NSButton {
     private var eventMonitor: Any?
     private var pendingChordStart: ShortcutStroke?
     private var hasRegisteredRecordingActivity = false
+    private weak var previousFirstResponder: NSResponder?
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard isRecording else {
+            return super.performKeyEquivalent(with: event)
+        }
+        return handleRecordingEvent(event) == nil
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard isRecording else {
+            super.keyDown(with: event)
+            return
+        }
+        _ = handleRecordingEvent(event)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2267,6 +2287,8 @@ final class ShortcutRecorderNSButton: NSButton {
         KeyboardShortcutRecorderActivity.stopAllRecording()
         isRecording = true
         pendingChordStart = nil
+        previousFirstResponder = window?.firstResponder
+        window?.makeFirstResponder(self)
         registerRecordingActivityIfNeeded()
         onRecordingChanged?(true)
         onRecorderFeedbackChanged?(nil)
@@ -2360,6 +2382,11 @@ final class ShortcutRecorderNSButton: NSButton {
         }
 
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
+
+        if window?.firstResponder === self {
+            window?.makeFirstResponder(previousFirstResponder)
+        }
+        previousFirstResponder = nil
     }
 
     @objc private func windowResigned() {
