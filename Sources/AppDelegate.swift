@@ -4687,6 +4687,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         lastSessionAutosavePersistedAt = persistedAt
     }
 
+    func persistSessionMutationImmediately(reason: String) {
+        guard !isTerminatingApp, !isApplyingStartupSessionRestore else { return }
+
+        let persistedAt = Date()
+        let fingerprint = sessionAutosaveFingerprint(includeScrollback: false)
+        guard saveSessionSnapshot(includeScrollback: false) else { return }
+        updateSessionAutosaveSaveState(
+            includeScrollback: false,
+            persistedAt: persistedAt,
+            fingerprint: fingerprint
+        )
+
+#if DEBUG
+        dlog("session.save.immediate includeScrollback=0 reason=\(reason)")
+#endif
+    }
+
     private nonisolated static func hashFrame(_ frame: NSRect, into hasher: inout Hasher) {
         let standardized = frame.standardized
         let quantized = [

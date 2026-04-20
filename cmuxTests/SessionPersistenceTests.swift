@@ -872,6 +872,108 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(resolved)
     }
 
+    @MainActor
+    func testPinningWorkspacePersistsImmediatelyToSessionSnapshot() throws {
+        guard let snapshotURL = SessionPersistenceStore.defaultSnapshotFileURL() else {
+            XCTFail("Expected default session snapshot URL")
+            return
+        }
+
+        let fileManager = FileManager.default
+        let snapshotBackup = try? Data(contentsOf: snapshotURL)
+        let geometryDefaultsKey = "cmux.session.lastWindowGeometry.v1"
+        let geometryBackup = UserDefaults.standard.object(forKey: geometryDefaultsKey)
+
+        defer {
+            if let snapshotBackup {
+                try? snapshotBackup.write(to: snapshotURL, options: .atomic)
+            } else {
+                try? fileManager.removeItem(at: snapshotURL)
+            }
+
+            if let geometryBackup {
+                UserDefaults.standard.set(geometryBackup, forKey: geometryDefaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: geometryDefaultsKey)
+            }
+
+            AppDelegate.shared = nil
+        }
+
+        try? fileManager.createDirectory(
+            at: snapshotURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try? fileManager.removeItem(at: snapshotURL)
+
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let sidebarState = SidebarState()
+        let sidebarSelectionState = SidebarSelectionState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+
+        appDelegate.registerMainWindow(
+            window,
+            windowId: UUID(),
+            tabManager: tabManager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState
+        )
+
+        let initialSnapshot = try waitForSessionSnapshot(
+            at: snapshotURL,
+            description: "initial session snapshot"
+        ) { snapshot in
+            snapshot.windows.first?.tabManager.workspaces.first?.isPinned == false
+        }
+        XCTAssertFalse(
+            try XCTUnwrap(initialSnapshot.windows.first?.tabManager.workspaces.first).isPinned
+        )
+
+        let workspace = try XCTUnwrap(tabManager.selectedWorkspace)
+        tabManager.setPinned(workspace, pinned: true)
+
+        let updatedSnapshot = try waitForSessionSnapshot(
+            at: snapshotURL,
+            description: "pinned workspace session snapshot"
+        ) { snapshot in
+            snapshot.windows.first?.tabManager.workspaces.first?.isPinned == true
+        }
+        XCTAssertTrue(
+            try XCTUnwrap(updatedSnapshot.windows.first?.tabManager.workspaces.first).isPinned
+        )
+    }
+
+    @MainActor
+    private func waitForSessionSnapshot(
+        at snapshotURL: URL,
+        description: String,
+        timeout: TimeInterval = 1.5,
+        condition: (AppSessionSnapshot) -> Bool
+    ) throws -> AppSessionSnapshot {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if let snapshot = SessionPersistenceStore.load(fileURL: snapshotURL),
+               condition(snapshot) {
+                return snapshot
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        throw NSError(
+            domain: "SessionPersistenceTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(description)"]
+        )
+    }
+
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
