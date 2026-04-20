@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -166,19 +165,68 @@ func parseTmuxArgs(args []string, valueFlags, boolFlags []string) *tmuxParsed {
 
 // --- Format string rendering ---
 
-var tmuxFormatVarRe = regexp.MustCompile(`#\{[^}]+\}`)
+// tmuxShortFormKeys maps tmux single-char format codes (#S #I etc) to
+// context keys populated by tmuxFormatContext. See tmux(1) FORMATS.
+// Unknown short forms fall through and are emitted as the literal characters.
+var tmuxShortFormKeys = map[byte]string{
+	'S': "session_name",
+	'I': "window_index",
+	'W': "window_name",
+	'P': "pane_index",
+	'D': "pane_id",
+	'F': "window_flags",
+	'h': "host_short",
+	'H': "host",
+	'T': "pane_title",
+}
 
+// tmuxRenderFormat substitutes tmux format placeholders. A single-pass scanner
+// recognizes '##' (literal '#'), '#{name}' (long form), and '#X' (short form).
+// Unresolved variables collapse to empty (matching prior long-form behavior).
 func tmuxRenderFormat(format string, context map[string]string, fallback string) string {
 	if format == "" {
 		return fallback
 	}
-	rendered := format
-	for key, value := range context {
-		rendered = strings.ReplaceAll(rendered, "#{"+key+"}", value)
+	var b strings.Builder
+	b.Grow(len(format))
+	n := len(format)
+	for i := 0; i < n; {
+		c := format[i]
+		if c != '#' || i+1 >= n {
+			b.WriteByte(c)
+			i++
+			continue
+		}
+		next := format[i+1]
+		switch {
+		case next == '#':
+			b.WriteByte('#')
+			i += 2
+		case next == '{':
+			end := strings.IndexByte(format[i+2:], '}')
+			if end < 0 {
+				b.WriteByte(c)
+				i++
+				continue
+			}
+			key := format[i+2 : i+2+end]
+			if v, ok := context[key]; ok {
+				b.WriteString(v)
+			}
+			i += end + 3
+		default:
+			if key, ok := tmuxShortFormKeys[next]; ok {
+				if v, ok2 := context[key]; ok2 {
+					b.WriteString(v)
+				}
+				i += 2
+				continue
+			}
+			b.WriteByte(c)
+			i++
+		}
 	}
-	// Remove any remaining unresolved #{...} variables
-	rendered = tmuxFormatVarRe.ReplaceAllString(rendered, "")
-	rendered = strings.TrimSpace(rendered)
+	rendered := strings.TrimSpace(b.String())
 	if rendered == "" {
 		return fallback
 	}
@@ -201,6 +249,14 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 		"window_active": "1",
 		"window_flags":  "*",
 		"pane_active":   "1",
+	}
+	if host, hostErr := os.Hostname(); hostErr == nil && host != "" {
+		ctx["host"] = host
+		short := host
+		if dot := strings.IndexByte(short, '.'); dot > 0 {
+			short = short[:dot]
+		}
+		ctx["host_short"] = short
 	}
 
 	// Get workspace list for index/title
