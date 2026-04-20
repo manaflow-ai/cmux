@@ -7,14 +7,27 @@ import StackAuth
 import Security
 #endif
 
-@MainActor
 private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = AuthPresentationContext()
 
-    nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        MainActor.assumeIsolated {
-            NSApp.keyWindow ?? NSApp.mainWindow ?? (NSApp.windows.first ?? NSWindow())
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        // ASWebAuthenticationSession invokes this on whichever thread called
+        // session.start(). When beginSignIn() fires from the socket command
+        // dispatch thread (cmux auth login), this callback lands off-main,
+        // and any NSApp access must hop to main before returning.
+        if Thread.isMainThread {
+            return Self.currentAnchor()
         }
+        var result: ASPresentationAnchor = NSWindow()
+        DispatchQueue.main.sync {
+            result = Self.currentAnchor()
+        }
+        return result
+    }
+
+    @MainActor
+    private static func currentAnchor() -> ASPresentationAnchor {
+        NSApp.keyWindow ?? NSApp.mainWindow ?? (NSApp.windows.first ?? NSWindow())
     }
 }
 

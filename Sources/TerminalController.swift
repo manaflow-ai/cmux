@@ -2085,11 +2085,17 @@ class TerminalController {
             }
             return v2Ok(id: id, result: status)
         case "auth.begin_sign_in":
-            AuthManager.shared.beginSignIn()
+            // ASWebAuthenticationSession.start() must run on the main thread;
+            // socket dispatch happens on a worker thread.
+            DispatchQueue.main.async {
+                AuthManager.shared.beginSignIn()
+            }
             return v2Ok(id: id, result: ["started": true])
         case "auth.sign_out":
-            Task { @MainActor in
-                await AuthManager.shared.signOut()
+            DispatchQueue.main.async {
+                Task { @MainActor in
+                    await AuthManager.shared.signOut()
+                }
             }
             return v2Ok(id: id, result: ["started": true])
 
