@@ -128,7 +128,9 @@ def main() -> int:
     cli = _find_cli_binary()
     help_text = _run_cli(cli, ["ssh", "--help"], json_output=False)
     _must("cmux ssh" in help_text, "ssh --help output should include command header")
-    _must("Create or reuse a remote SSH workspace" in help_text, "ssh --help output should describe workspace reuse")
+    _must("Create a new remote SSH workspace" in help_text, "ssh --help output should describe default workspace creation")
+    _must("Create or reuse" not in help_text, "ssh --help output should not describe implicit workspace reuse")
+    _must("--attach" in help_text, "ssh --help output should document explicit attach")
     _must("--new" in help_text, "ssh --help output should document --new")
 
     workspace_id = ""

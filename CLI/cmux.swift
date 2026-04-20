@@ -4061,6 +4061,7 @@ struct CMUXCLI {
         let workspaceName: String?
         let noFocus: Bool
         let forceNewWorkspace: Bool
+        let attachExistingWorkspace: Bool
         let sshOptions: [String]
         let extraArguments: [String]
         let localSocketPath: String
@@ -4338,6 +4339,7 @@ struct CMUXCLI {
 
 
     private func findReusableSSHWorkspace(options: SSHCommandOptions, client: SocketClient) throws -> [String: Any]? {
+        guard options.attachExistingWorkspace else { return nil }
         guard !options.forceNewWorkspace else { return nil }
         // Remote command arguments imply a new foreground SSH command should be run.
         guard options.extraArguments.isEmpty else { return nil }
@@ -4448,6 +4450,7 @@ struct CMUXCLI {
         var workspaceName: String?
         var noFocus = false
         var forceNewWorkspace = false
+        var attachExistingWorkspace = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
 
@@ -4492,6 +4495,9 @@ struct CMUXCLI {
             case "--new":
                 forceNewWorkspace = true
                 index += 1
+            case "--attach":
+                attachExistingWorkspace = true
+                index += 1
             case "--ssh-option":
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh: --ssh-option requires a value")
@@ -4529,6 +4535,7 @@ struct CMUXCLI {
             workspaceName: workspaceName,
             noFocus: noFocus,
             forceNewWorkspace: forceNewWorkspace,
+            attachExistingWorkspace: attachExistingWorkspace,
             sshOptions: sshOptions,
             extraArguments: extraArguments,
             localSocketPath: localSocketPath,
@@ -7378,16 +7385,17 @@ struct CMUXCLI {
             return """
             Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]
 
-            Create or reuse a remote SSH workspace, then start or attach to an SSH session for that destination.
+            Create a new remote SSH workspace, then start an SSH session for that destination.
             cmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.
 
             Flags:
-              --name <title>          Optional workspace title for newly-created workspaces
+              --name <title>          Optional workspace title
               --port <n>              SSH port
               --identity <path>       SSH identity file path
               --ssh-option <opt>      Extra SSH -o option (repeatable)
-              --new                   Always create a new workspace instead of reusing a match
-              --no-focus              Do not switch to the created or reused workspace
+              --attach                Reuse and focus a connected matching workspace instead of creating
+              --new                   Always create a new workspace (overrides --attach)
+              --no-focus              Do not switch to the created or attached workspace
 
             Example:
               cmux ssh dev@my-host
@@ -14521,7 +14529,7 @@ struct CMUXCLI {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           list-workspaces
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--new] [--no-focus] [-- <remote-command-args>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--attach] [--new] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]

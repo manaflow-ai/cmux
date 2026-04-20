@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: `cmux ssh` reuses matching remote SSH workspaces only when connected."""
+"""Regression: `cmux ssh` creates by default and only attaches explicitly."""
 
 from __future__ import annotations
 
@@ -89,7 +89,9 @@ def _workspace_count(client: cmux) -> int:
 def main() -> int:
     cli = _find_cli_binary()
     help_text = _run_cli(cli, ["ssh", "--help"], json_output=False)
-    _must("Create or reuse a remote SSH workspace" in help_text, "ssh --help output should describe reuse")
+    _must("Create a new remote SSH workspace" in help_text, "ssh --help output should describe default creation")
+    _must("Create or reuse" not in help_text, "ssh --help output should not advertise implicit reuse")
+    _must("--attach" in help_text, "ssh --help output should document explicit attach")
     _must("--new" in help_text, "ssh --help output should document --new")
 
     workspaces_to_close: list[str] = []
@@ -166,7 +168,7 @@ def main() -> int:
                 except Exception:
                     pass
 
-    print("PASS: cmux ssh skips disconnected workspaces and --new always creates a fresh workspace")
+    print("PASS: cmux ssh creates by default and reserves reuse for explicit attach")
     return 0
 
 
