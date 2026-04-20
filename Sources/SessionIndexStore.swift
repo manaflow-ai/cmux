@@ -291,6 +291,11 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
+    func setCurrentDirectoryIfChanged(_ next: String?) {
+        guard currentDirectory != next else { return }
+        currentDirectory = next
+    }
+
     @Published var grouping: SessionGrouping {
         didSet {
             guard grouping != oldValue else { return }
