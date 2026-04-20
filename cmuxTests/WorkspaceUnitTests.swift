@@ -1643,6 +1643,29 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
     }
 
+    func testShortcutRecordingResultSafelyIgnoresNonMediaSystemDefinedEvent() {
+        guard let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: 0,
+            data1: 0,
+            data2: 0
+        ) else {
+            XCTFail("Failed to construct non-media system-defined event")
+            return
+        }
+
+        XCTAssertFalse(ShortcutStroke.isEscapeCancelEvent(event))
+        XCTAssertEqual(
+            ShortcutStroke.recordingResult(from: event, requireModifier: true),
+            .unsupportedKey
+        )
+    }
+
     func testMediaShortcutDoesNotMatchOrdinaryKeyDownWithSameKeyCode() {
         let shortcut = ShortcutStroke(
             key: "media.volumeUp",
