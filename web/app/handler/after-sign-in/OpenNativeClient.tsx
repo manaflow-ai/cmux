@@ -1,15 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
-
 export function OpenNativeClient({ href }: { href: string }) {
-  useEffect(() => {
-    // Fire the deeplink immediately. ASWebAuthenticationSession will
-    // intercept and close the popup; the button below is a fallback for
-    // users who opened this page in a regular browser (outside the popup).
-    window.location.href = href;
-  }, [href]);
-
   return (
     <div
       style={{
@@ -26,7 +17,7 @@ export function OpenNativeClient({ href }: { href: string }) {
           Signed in to cmux
         </h1>
         <p style={{ color: "#555", lineHeight: 1.5, margin: "0 0 24px" }}>
-          Returning you to the app. You can close this window.
+          You can close this window.
         </p>
         <a
           href={href}

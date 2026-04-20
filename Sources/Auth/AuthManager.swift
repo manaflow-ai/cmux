@@ -104,11 +104,14 @@ final class AuthManager: ObservableObject {
     static let shared = AuthManager(tokenStore: AuthManager.defaultTokenStore())
 
     private static func defaultTokenStore() -> any StackAuthTokenStoreProtocol {
-        // Data-protection keychain (kSecUseDataProtectionKeychain) avoids the
-        // login-keychain ACL prompt that fires on every ad-hoc rebuild, and
-        // it persists correctly through ungraceful shutdowns (unlike
-        // UserDefaults which batches writes to disk).
-        return KeychainStackTokenStore()
+        // A 0600-mode file in Application Support avoids both the
+        // login-keychain ACL prompt on ad-hoc Debug rebuilds AND the
+        // errSecMissingEntitlement failure of the data-protection keychain
+        // when no keychain-access-groups entitlement is in the provisioning
+        // profile. Persistence and security match what UserDefaults offers
+        // (user-scoped, not world-readable) but writes are fsync'd so a
+        // pkill-during-reload doesn't lose the refresh token.
+        return FileStackTokenStore()
     }
 
     @Published private(set) var isAuthenticated = false
@@ -661,12 +664,108 @@ final class AuthManager: ObservableObject {
 }
 
 
-/// Tokens are stored in macOS's *data-protection keychain* (the iOS-style
-/// keychain enabled via kSecUseDataProtectionKeychain). Unlike the login
-/// keychain, this path doesn't gate access on a per-binary ACL, so ad-hoc
-/// Debug rebuilds don't trigger the "cmux DEV wants to use your keychain"
-/// login-password prompt. Access is scoped by bundle id + signing identity,
-/// so only other copies of this same bundle id can read the items.
+/// File-backed token store: writes to a JSON document with 0600 mode in
+/// Application Support, namespaced by bundle id. Chosen over both the login
+/// keychain (prompts on every ad-hoc Debug rebuild) and the data-protection
+/// keychain (fails with errSecMissingEntitlement without a keychain-access-
+/// groups entitlement we don't have on Debug). `fsync` on write so a
+/// pkill-during-reload can't drop the refresh token.
+private actor FileStackTokenStore: StackAuthTokenStoreProtocol {
+    private struct Snapshot: Codable {
+        var accessToken: String?
+        var refreshToken: String?
+    }
+
+    private let fileURL: URL = {
+        let support = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let bundleID = Bundle.main.bundleIdentifier ?? "cmux"
+        return support
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent(bundleID, isDirectory: true)
+            .appendingPathComponent("credentials.json", isDirectory: false)
+    }()
+
+    private var cache: Snapshot?
+
+    func getStoredAccessToken() async -> String? {
+        loadIfNeeded().accessToken
+    }
+
+    func getStoredRefreshToken() async -> String? {
+        loadIfNeeded().refreshToken
+    }
+
+    func setTokens(accessToken: String?, refreshToken: String?) async {
+        AuthManager.authLog("setTokens: access=\(accessToken != nil ? "\(accessToken!.prefix(10))..." : "nil") refresh=\(refreshToken != nil ? "\(refreshToken!.prefix(10))..." : "nil")")
+        var snapshot = loadIfNeeded()
+        snapshot.accessToken = (accessToken?.isEmpty == false) ? accessToken : nil
+        snapshot.refreshToken = (refreshToken?.isEmpty == false) ? refreshToken : nil
+        write(snapshot)
+    }
+
+    func clearTokens() async {
+        AuthManager.authLog("clearTokens called")
+        write(Snapshot(accessToken: nil, refreshToken: nil))
+    }
+
+    func compareAndSet(
+        compareRefreshToken: String,
+        newRefreshToken: String?,
+        newAccessToken: String?
+    ) async {
+        let current = loadIfNeeded().refreshToken
+        let matches = current == compareRefreshToken
+        AuthManager.authLog("compareAndSet: matches=\(matches) newRefresh=\(newRefreshToken != nil ? "\(newRefreshToken!.prefix(10))..." : "nil") newAccess=\(newAccessToken != nil ? "\(newAccessToken!.prefix(10))..." : "nil")")
+        guard matches else { return }
+        if newRefreshToken == nil && newAccessToken == nil {
+            AuthManager.authLog("compareAndSet: blocked double-nil clear (preserving session)")
+            return
+        }
+        await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
+    }
+
+    private func loadIfNeeded() -> Snapshot {
+        if let cache { return cache }
+        let snapshot = readFromDisk()
+        cache = snapshot
+        return snapshot
+    }
+
+    private func readFromDisk() -> Snapshot {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: fileURL.path) else { return Snapshot() }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let snapshot = try JSONDecoder().decode(Snapshot.self, from: data)
+            return snapshot
+        } catch {
+            AuthManager.authLog("credentials read failed: \(error)")
+            return Snapshot()
+        }
+    }
+
+    private func write(_ snapshot: Snapshot) {
+        cache = snapshot
+        let fm = FileManager.default
+        let dir = fileURL.deletingLastPathComponent()
+        do {
+            try fm.createDirectory(
+                at: dir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            let data = try JSONEncoder().encode(snapshot)
+            try data.write(to: fileURL, options: [.atomic])
+            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        } catch {
+            AuthManager.authLog("credentials write failed: \(error)")
+        }
+    }
+}
+
 private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private static let accessTokenAccount = "cmux-auth-access-token"
     private static let refreshTokenAccount = "cmux-auth-refresh-token"
