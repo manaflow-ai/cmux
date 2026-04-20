@@ -14,6 +14,13 @@ struct MarkdownPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @Environment(\.colorScheme) private var colorScheme
 
+    /// Directory swift-markdown-ui uses to resolve relative image references
+    /// in `panel.content`. Scoped to images so regular markdown link resolution
+    /// stays unchanged.
+    private var imageBaseURL: URL {
+        URL(fileURLWithPath: panel.filePath).deletingLastPathComponent()
+    }
+
     var body: some View {
         Group {
             if panel.isFileUnavailable {
@@ -58,7 +65,8 @@ struct MarkdownPanelView: View {
                     .padding(.horizontal, 16)
 
                 // Rendered markdown
-                Markdown(panel.content)
+                Markdown(panel.content, imageBaseURL: imageBaseURL)
+                    .markdownImageProvider(LocalFileImageProvider())
                     .markdownTheme(cmuxMarkdownTheme)
                     .textSelection(.enabled)
                     .padding(.horizontal, 24)
