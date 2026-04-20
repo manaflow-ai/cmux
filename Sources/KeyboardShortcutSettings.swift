@@ -1239,6 +1239,8 @@ struct ShortcutStroke: Equatable {
     }
 
     static func isEscapeCancelEvent(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown || event.type == .keyUp else { return false }
+
         if event.keyCode == 53 {
             return true
         }
@@ -1400,13 +1402,17 @@ struct ShortcutStroke: Equatable {
     }
 
     private static func recordableKey(from event: NSEvent) -> RecordableKey? {
+        if event.type == .systemDefined {
+            return mediaKey(from: event)
+        }
+
+        guard event.type == .keyDown || event.type == .keyUp else {
+            return nil
+        }
+
         if let specialKey = event.specialKey,
            let recordableKey = recordableKey(from: specialKey, eventKeyCode: event.keyCode) {
             return recordableKey
-        }
-
-        if let mediaKey = mediaKey(from: event) {
-            return mediaKey
         }
 
         guard let storedKey = storedKey(
