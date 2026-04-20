@@ -69285,13 +69285,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bare letters and digits aren't allowed here. Use a modifier, or choose a function or media key."
+            "value": "Shortcuts must include ⌘ ⌥ ⌃ or ⇧"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "文字キーや数字キーを修飾キーなしでは使えません。修飾キーを付けるか、ファンクションキーまたはメディアキーを選んでください。"
+            "value": "ショートカットには ⌘ ⌥ ⌃ または ⇧ を含める必要があります"
           }
         }
       }
@@ -69302,13 +69302,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This shortcut is already used by %@."
+            "value": "This shortcut is already used by %@. Reassign?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このショートカットはすでに %@ で使われています。"
+            "value": "このショートカットはすでに %@ で使われています。再割り当てしますか？"
           }
         }
       }
@@ -69330,19 +69330,19 @@
         }
       }
     },
-    "shortcut.recorder.error.reservedByMacOS": {
+    "shortcut.recorder.error.reservedBySystem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This keystroke is reserved by macOS or another app."
+            "value": "This keystroke is reserved by macOS."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このキー入力は macOS または別のアプリによって予約されています。"
+            "value": "このキー入力は macOS によって予約されています。"
           }
         }
       }
@@ -69364,19 +69364,19 @@
         }
       }
     },
-    "shortcut.recorder.replace": {
+    "shortcut.recorder.reassign": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Replace"
+            "value": "Reassign"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "置き換える"
+            "value": "再割り当て"
           }
         }
       }

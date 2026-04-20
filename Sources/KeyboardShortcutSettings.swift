@@ -14,17 +14,17 @@ enum KeyboardShortcutSettings {
         }
     }
 
-    enum RecorderRejection: Equatable {
+    enum ShortcutRecordingRejection: Equatable {
         case bareKeyNotAllowed
         case conflictsWithAction(Action)
-        case reservedByMacOS
+        case reservedBySystem
         case numberedShortcutRequiresDigit
         case systemWideHotkeyRequiresModifier
     }
 
     enum RecordedShortcutResolution: Equatable {
         case accepted(StoredShortcut)
-        case rejected(RecorderRejection)
+        case rejected(ShortcutRecordingRejection)
     }
 
     enum Action: String, CaseIterable, Identifiable {
@@ -365,14 +365,14 @@ enum KeyboardShortcutSettings {
 
     private static func normalizedSystemWideHotkeyShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {
         guard !shortcut.hasChord else {
-            return .rejected(.reservedByMacOS)
+            return .rejected(.reservedBySystem)
         }
         guard shortcut.hasPrimaryModifier else {
             return .rejected(.systemWideHotkeyRequiresModifier)
         }
         guard shortcut.carbonHotKeyRegistration != nil,
               !systemWideHotkeyConflicts(with: shortcut) else {
-            return .rejected(.reservedByMacOS)
+            return .rejected(.reservedBySystem)
         }
         return .accepted(shortcut)
     }
@@ -628,7 +628,7 @@ enum KeyboardShortcutSettings {
         postDidChangeNotification(action: action)
     }
 
-    static func replaceShortcutConflict(
+    static func reassignShortcutConflict(
         proposedShortcut: StoredShortcut,
         currentAction: Action,
         conflictingAction: Action,
@@ -1079,7 +1079,7 @@ final class SystemWideHotkeyController {
 struct ShortcutStroke: Equatable {
     enum RecordingResult: Equatable {
         case accepted(ShortcutStroke)
-        case rejected(KeyboardShortcutSettings.RecorderRejection)
+        case rejected(KeyboardShortcutSettings.ShortcutRecordingRejection)
         case unsupportedKey
     }
 
@@ -1963,8 +1963,90 @@ private enum KeyboardShortcutRecorderActivity {
 }
 
 struct ShortcutRecorderRejectedAttempt: Equatable {
-    let reason: KeyboardShortcutSettings.RecorderRejection
+    let reason: KeyboardShortcutSettings.ShortcutRecordingRejection
     let proposedShortcut: StoredShortcut?
+}
+
+struct ShortcutRecorderValidationPresentation: Equatable {
+    let message: String
+    let reassignButtonTitle: String?
+    let canReassign: Bool
+
+    init?(
+        attempt: ShortcutRecorderRejectedAttempt?,
+        action: KeyboardShortcutSettings.Action,
+        currentShortcut: StoredShortcut,
+        isManagedBySettingsFile: (KeyboardShortcutSettings.Action) -> Bool = KeyboardShortcutSettings.isManagedBySettingsFile
+    ) {
+        guard let attempt else { return nil }
+
+        let canReassign = Self.canReassignConflict(
+            attempt: attempt,
+            action: action,
+            currentShortcut: currentShortcut,
+            isManagedBySettingsFile: isManagedBySettingsFile
+        )
+
+        self.message = Self.message(for: attempt.reason)
+        self.reassignButtonTitle = canReassign
+            ? String(localized: "shortcut.recorder.reassign", defaultValue: "Reassign")
+            : nil
+        self.canReassign = canReassign
+    }
+
+    private static func message(
+        for reason: KeyboardShortcutSettings.ShortcutRecordingRejection
+    ) -> String {
+        switch reason {
+        case .bareKeyNotAllowed:
+            return String(
+                localized: "shortcut.recorder.error.bareKeyNotAllowed",
+                defaultValue: "Shortcuts must include ⌘ ⌥ ⌃ or ⇧"
+            )
+        case let .conflictsWithAction(conflictingAction):
+            let format = String(
+                localized: "shortcut.recorder.error.conflictsWithAction",
+                defaultValue: "This shortcut is already used by %@. Reassign?"
+            )
+            return String.localizedStringWithFormat(format, conflictingAction.label)
+        case .reservedBySystem:
+            return String(
+                localized: "shortcut.recorder.error.reservedBySystem",
+                defaultValue: "This keystroke is reserved by macOS."
+            )
+        case .numberedShortcutRequiresDigit:
+            return String(
+                localized: "shortcut.recorder.error.numberedShortcutRequiresDigit",
+                defaultValue: "Use a digit from 1 through 9."
+            )
+        case .systemWideHotkeyRequiresModifier:
+            return String(
+                localized: "shortcut.recorder.error.systemWideHotkeyRequiresModifier",
+                defaultValue: "System-wide hotkeys must include Command, Option, or Control."
+            )
+        }
+    }
+
+    private static func canReassignConflict(
+        attempt: ShortcutRecorderRejectedAttempt,
+        action: KeyboardShortcutSettings.Action,
+        currentShortcut: StoredShortcut,
+        isManagedBySettingsFile: (KeyboardShortcutSettings.Action) -> Bool
+    ) -> Bool {
+        guard case let .conflictsWithAction(conflictingAction) = attempt.reason,
+              let proposedShortcut = attempt.proposedShortcut,
+              !isManagedBySettingsFile(action),
+              !isManagedBySettingsFile(conflictingAction) else {
+            return false
+        }
+
+        guard case .accepted = action.resolvedRecordedShortcutIgnoringConflicts(proposedShortcut),
+              case .accepted = conflictingAction.resolvedRecordedShortcutIgnoringConflicts(currentShortcut) else {
+            return false
+        }
+
+        return true
+    }
 }
 
 /// View for recording a keyboard shortcut
@@ -2122,7 +2204,6 @@ final class ShortcutRecorderNSButton: NSButton {
                     onShortcutRecorded?(transformedShortcut)
                     onRecorderFeedbackChanged?(nil)
                 case let .rejected(reason):
-                    NSSound.beep()
                     onRecorderFeedbackChanged?(
                         ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: storedShortcut)
                     )
@@ -2160,7 +2241,6 @@ final class ShortcutRecorderNSButton: NSButton {
                     self.updateTitle()
                     return nil
                 case let .rejected(reason):
-                    NSSound.beep()
                     self.onRecorderFeedbackChanged?(
                         ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: nil)
                     )
@@ -2185,7 +2265,6 @@ final class ShortcutRecorderNSButton: NSButton {
                     self.stopRecording()
                     return nil
                 case let .rejected(reason):
-                    NSSound.beep()
                     self.onRecorderFeedbackChanged?(
                         ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: newShortcut)
                     )

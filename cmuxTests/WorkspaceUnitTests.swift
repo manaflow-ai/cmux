@@ -301,7 +301,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testShortcutRecorderStopsRecordingWhenFirstStrokeConfirmationIsRejected() {
 #if DEBUG
         let button = ShortcutRecorderNSButton(frame: .zero)
-        button.transformRecordedShortcut = { _ in .rejected(.reservedByMacOS) }
+        button.transformRecordedShortcut = { _ in .rejected(.reservedBySystem) }
         button.debugSetPendingChordStart(
             ShortcutStroke(
                 key: "x",
@@ -1630,7 +1630,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
 
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(shortcut),
-            .rejected(.reservedByMacOS)
+            .rejected(.reservedBySystem)
         )
     }
 

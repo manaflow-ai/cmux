@@ -7252,9 +7252,11 @@ private struct ShortcutRecorderSettingsControl: View {
             shortcut: $shortcut,
             displayString: displayString,
             transformRecordedShortcut: { action.normalizedRecordedShortcutResult($0) },
-            validationMessage: validationMessage,
-            validationButtonTitle: replaceButtonTitle,
-            onValidationButtonPressed: canReplaceConflict ? { replaceConflictingShortcut() } : nil,
+            validationMessage: validationPresentation?.message,
+            validationButtonTitle: validationPresentation?.reassignButtonTitle,
+            onValidationButtonPressed: validationPresentation?.canReassign == true
+                ? { reassignConflictingShortcut() }
+                : nil,
             isDisabled: isDisabled,
             onRecorderFeedbackChanged: { rejectedAttempt = $0 }
         )
@@ -7263,68 +7265,22 @@ private struct ShortcutRecorderSettingsControl: View {
         }
     }
 
-    private var validationMessage: String? {
-        guard let rejectedAttempt else { return nil }
-
-        switch rejectedAttempt.reason {
-        case .bareKeyNotAllowed:
-            return String(
-                localized: "shortcut.recorder.error.bareKeyNotAllowed",
-                defaultValue: "Bare letters and digits aren’t allowed here. Use a modifier, or choose a function or media key."
-            )
-        case let .conflictsWithAction(conflictingAction):
-            let format = String(
-                localized: "shortcut.recorder.error.conflictsWithAction",
-                defaultValue: "This shortcut is already used by %@."
-            )
-            return String.localizedStringWithFormat(format, conflictingAction.label)
-        case .reservedByMacOS:
-            return String(
-                localized: "shortcut.recorder.error.reservedByMacOS",
-                defaultValue: "This keystroke is reserved by macOS or another app."
-            )
-        case .numberedShortcutRequiresDigit:
-            return String(
-                localized: "shortcut.recorder.error.numberedShortcutRequiresDigit",
-                defaultValue: "Use a digit from 1 through 9."
-            )
-        case .systemWideHotkeyRequiresModifier:
-            return String(
-                localized: "shortcut.recorder.error.systemWideHotkeyRequiresModifier",
-                defaultValue: "System-wide hotkeys must include Command, Option, or Control."
-            )
-        }
+    private var validationPresentation: ShortcutRecorderValidationPresentation? {
+        ShortcutRecorderValidationPresentation(
+            attempt: rejectedAttempt,
+            action: action,
+            currentShortcut: shortcut
+        )
     }
 
-    private var replaceButtonTitle: String? {
-        canReplaceConflict
-            ? String(localized: "shortcut.recorder.replace", defaultValue: "Replace")
-            : nil
-    }
-
-    private var canReplaceConflict: Bool {
-        guard case let .conflictsWithAction(conflictingAction)? = rejectedAttempt?.reason,
-              let proposedShortcut = rejectedAttempt?.proposedShortcut,
-              KeyboardShortcutSettings.isManagedBySettingsFile(conflictingAction) == false else {
-            return false
-        }
-
-        guard case .accepted = action.resolvedRecordedShortcutIgnoringConflicts(proposedShortcut),
-              case .accepted = conflictingAction.resolvedRecordedShortcutIgnoringConflicts(shortcut) else {
-            return false
-        }
-
-        return true
-    }
-
-    private func replaceConflictingShortcut() {
+    private func reassignConflictingShortcut() {
         guard case let .conflictsWithAction(conflictingAction)? = rejectedAttempt?.reason,
               let proposedShortcut = rejectedAttempt?.proposedShortcut else {
             return
         }
 
         let previousShortcut = shortcut
-        KeyboardShortcutSettings.replaceShortcutConflict(
+        KeyboardShortcutSettings.reassignShortcutConflict(
             proposedShortcut: proposedShortcut,
             currentAction: action,
             conflictingAction: conflictingAction,
