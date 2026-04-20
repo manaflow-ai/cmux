@@ -2839,8 +2839,15 @@ struct ContentView: View {
                     resumeSession(entry: entry)
                 },
                 onOpenMarkdown: { path in
-                    guard let workspace = tabManager.selectedWorkspace,
-                          let panelId = workspace.focusedPanelId else {
+                    guard let workspace = tabManager.selectedWorkspace else {
+                        PreferredEditorSettings.open(URL(fileURLWithPath: path))
+                        return
+                    }
+                    let panelId = workspace.focusedPanelId
+                        ?? workspace.bonsplitController.allPaneIds.first.flatMap {
+                            workspace.effectiveSelectedPanelId(inPane: $0)
+                        }
+                    guard let panelId else {
                         PreferredEditorSettings.open(URL(fileURLWithPath: path))
                         return
                     }
