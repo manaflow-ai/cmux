@@ -3870,6 +3870,13 @@ class TerminalController {
     }
 
     private func v2WorkspaceRemoteConfigure(params: [String: Any]) -> V2CallResult {
+        guard SSHFeaturesSettings.isEnabled() else {
+            return .err(
+                code: "ssh_disabled",
+                message: "SSH features are disabled in Settings.",
+                data: nil
+            )
+        }
         let requestedWorkspaceId = v2UUID(params, "workspace_id")
         if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -4021,6 +4028,13 @@ class TerminalController {
     }
 
     private func v2WorkspaceRemoteReconnect(params: [String: Any]) -> V2CallResult {
+        guard SSHFeaturesSettings.isEnabled() else {
+            return .err(
+                code: "ssh_disabled",
+                message: "SSH features are disabled in Settings.",
+                data: nil
+            )
+        }
         let requestedWorkspaceId = v2UUID(params, "workspace_id")
         if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)

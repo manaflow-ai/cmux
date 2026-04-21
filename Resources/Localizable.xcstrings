@@ -53770,6 +53770,363 @@
         }
       }
     },
+    "settings.app.sshFeatures": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH Features"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH機能"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 功能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 功能"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 기능"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Funktionen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Funciones SSH"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonctionnalités SSH"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Funzionalità SSH"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-funktioner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Funkcje SSH"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Функции SSH"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH funkcije"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ميزات SSH"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-funksjoner"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos SSH"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฟีเจอร์ SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH Özellikleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Функції SSH"
+          }
+        }
+      }
+    },
+    "settings.app.sshFeatures.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All SSH functionality is disabled. `cmux ssh`, remote workspaces, the SSH file explorer, and scp uploads will be blocked."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのSSH機能は無効です。`cmux ssh`、リモートワークスペース、SSHファイルエクスプローラー、scpアップロードはブロックされます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有 SSH 功能已禁用。`cmux ssh`、远程工作区、SSH 文件浏览器和 scp 上传将被阻止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有 SSH 功能已停用。`cmux ssh`、遠端工作區、SSH 檔案瀏覽器和 scp 上傳將被封鎖。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 SSH 기능이 비활성화되었습니다. `cmux ssh`, 원격 워크스페이스, SSH 파일 탐색기 및 scp 업로드가 차단됩니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle SSH-Funktionen sind deaktiviert. `cmux ssh`, entfernte Arbeitsbereiche, der SSH-Datei-Explorer und scp-Uploads werden blockiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toda la funcionalidad SSH está deshabilitada. Se bloquearán `cmux ssh`, los espacios de trabajo remotos, el explorador de archivos SSH y las cargas scp."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les fonctionnalités SSH sont désactivées. `cmux ssh`, les espaces de travail distants, l'explorateur de fichiers SSH et les téléversements scp seront bloqués."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutte le funzionalità SSH sono disabilitate. `cmux ssh`, gli spazi di lavoro remoti, l'esploratore di file SSH e i caricamenti scp verranno bloccati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al SSH-funktionalitet er deaktiveret. `cmux ssh`, eksterne arbejdsområder, SSH-filfinderen og scp-uploads vil blive blokeret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cała funkcjonalność SSH jest wyłączona. `cmux ssh`, zdalne obszary robocze, eksplorator plików SSH i przesyłanie scp zostaną zablokowane."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вся функциональность SSH отключена. `cmux ssh`, удалённые рабочие области, файловый проводник SSH и загрузки scp будут заблокированы."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sva SSH funkcionalnost je onemogućena. `cmux ssh`, udaljeni radni prostori, SSH pretraživač datoteka i scp prijenosi bit će blokirani."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تعطيل جميع وظائف SSH. سيتم حظر `cmux ssh` ومساحات العمل البعيدة ومستعرض ملفات SSH وعمليات رفع scp."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All SSH-funksjonalitet er deaktivert. `cmux ssh`, eksterne arbeidsområder, SSH-filutforskeren og scp-opplastinger vil bli blokkert."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toda a funcionalidade SSH está desativada. `cmux ssh`, espaços de trabalho remotos, o explorador de arquivos SSH e uploads scp serão bloqueados."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฟังก์ชัน SSH ทั้งหมดถูกปิดใช้งาน `cmux ssh` เวิร์กสเปซระยะไกล ตัวจัดการไฟล์ SSH และการอัปโหลด scp จะถูกบล็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm SSH işlevselliği devre dışı. `cmux ssh`, uzak çalışma alanları, SSH dosya gezgini ve scp yüklemeleri engellenecek."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усі функції SSH вимкнено. `cmux ssh`, віддалені робочі простори, файловий провідник SSH та завантаження scp будуть заблоковані."
+          }
+        }
+      }
+    },
+    "settings.app.sshFeatures.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux may establish outbound SSH connections for remote workspaces, the file explorer, and scp uploads."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはリモートワークスペース、ファイルエクスプローラー、scpアップロードのために送信SSH接続を確立できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 可以为远程工作区、文件浏览器和 scp 上传建立出站 SSH 连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 可以為遠端工作區、檔案瀏覽器和 scp 上傳建立外送 SSH 連線。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux는 원격 워크스페이스, 파일 탐색기 및 scp 업로드를 위해 아웃바운드 SSH 연결을 설정할 수 있습니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann ausgehende SSH-Verbindungen für entfernte Arbeitsbereiche, den Datei-Explorer und scp-Uploads herstellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux puede establecer conexiones SSH salientes para espacios de trabajo remotos, el explorador de archivos y las cargas scp."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux peut établir des connexions SSH sortantes pour les espaces de travail distants, l'explorateur de fichiers et les téléversements scp."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux può stabilire connessioni SSH in uscita per spazi di lavoro remoti, esploratore file e caricamenti scp."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan oprette udgående SSH-forbindelser til eksterne arbejdsområder, filfinderen og scp-uploads."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux może nawiązywać wychodzące połączenia SSH dla zdalnych obszarów roboczych, eksploratora plików i przesyłania scp."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux может устанавливать исходящие SSH-соединения для удалённых рабочих областей, файлового проводника и загрузок scp."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux može uspostaviti odlazne SSH veze za udaljene radne prostore, pretraživač datoteka i scp prijenose."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لـ cmux إنشاء اتصالات SSH الصادرة لمساحات العمل البعيدة ومستعرض الملفات وعمليات رفع scp."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan opprette utgående SSH-tilkoblinger for eksterne arbeidsområder, filutforskeren og scp-opplastinger."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pode estabelecer conexões SSH de saída para espaços de trabalho remotos, o explorador de arquivos e uploads scp."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux อาจสร้างการเชื่อมต่อ SSH ขาออกสำหรับเวิร์กสเปซระยะไกล ตัวจัดการไฟล์ และการอัปโหลด scp"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, uzak çalışma alanları, dosya gezgini ve scp yüklemeleri için giden SSH bağlantıları kurabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux може встановлювати вихідні SSH-з'єднання для віддалених робочих просторів, файлового провідника та завантажень scp."
+          }
+        }
+      }
+    },
     "settings.app.sshFileUpload": {
       "extractionState": "manual",
       "localizations": {

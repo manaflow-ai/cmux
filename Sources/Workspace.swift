@@ -8115,6 +8115,20 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
+        guard SSHFeaturesSettings.isEnabled() else {
+            let previousController = remoteSessionController
+            activeRemoteSessionControllerID = nil
+            remoteSessionController = nil
+            previousController?.stop()
+            remoteConfiguration = nil
+            pendingRemoteForegroundAuthToken = nil
+            applyRemoteConnectionStateUpdate(
+                .error,
+                detail: "SSH features are disabled in Settings.",
+                target: configuration.destination
+            )
+            return
+        }
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         remoteConfiguration = configuration
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
