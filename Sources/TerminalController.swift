@@ -3873,7 +3873,10 @@ class TerminalController {
         guard SSHFeaturesSettings.isEnabled() else {
             return .err(
                 code: "ssh_disabled",
-                message: "SSH features are disabled in Settings.",
+                message: String(
+                    localized: "workspace.remote.sshFeaturesDisabled",
+                    defaultValue: "SSH features are disabled in Settings."
+                ),
                 data: nil
             )
         }
@@ -4031,7 +4034,10 @@ class TerminalController {
         guard SSHFeaturesSettings.isEnabled() else {
             return .err(
                 code: "ssh_disabled",
-                message: "SSH features are disabled in Settings.",
+                message: String(
+                    localized: "workspace.remote.sshFeaturesDisabled",
+                    defaultValue: "SSH features are disabled in Settings."
+                ),
                 data: nil
             )
         }

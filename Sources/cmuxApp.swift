@@ -5387,9 +5387,11 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("app.enableSSHFileUpload"),
                             String(localized: "settings.app.sshFileUpload", defaultValue: "SSH File Upload"),
-                            subtitle: enableSSHFileUpload
-                                ? String(localized: "settings.app.sshFileUpload.subtitleOn", defaultValue: "Files dragged into SSH sessions are uploaded via scp.")
-                                : String(localized: "settings.app.sshFileUpload.subtitleOff", defaultValue: "SSH file upload is disabled. Dragged files insert their local path instead.")
+                            subtitle: !enableSSHFeatures
+                                ? String(localized: "settings.app.sshFileUpload.subtitleDisabledBySSHFeatures", defaultValue: "SSH features are disabled. No scp uploads occur regardless of this toggle.")
+                                : (enableSSHFileUpload
+                                    ? String(localized: "settings.app.sshFileUpload.subtitleOn", defaultValue: "Files dragged into SSH sessions are uploaded via scp.")
+                                    : String(localized: "settings.app.sshFileUpload.subtitleOff", defaultValue: "SSH file upload is disabled. Dragged files insert their local path instead."))
                         ) {
                             Toggle("", isOn: $enableSSHFileUpload)
                                 .labelsHidden()
