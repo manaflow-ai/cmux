@@ -36,6 +36,7 @@ final class CmuxSettingsFileStore {
         "app.openMarkdownInCmuxViewer",
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
+        "app.enableSSHFileUpload",
         "app.warnBeforeQuit",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
