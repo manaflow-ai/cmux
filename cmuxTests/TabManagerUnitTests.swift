@@ -393,6 +393,47 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testPullRequestMapDropsStaleMergedHeadPullRequestForLongLivedBaseBranch() throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let pullRequests = [
+            TabManager.GitHubPullRequestProbeItem(
+                number: 2400,
+                state: "MERGED",
+                url: "https://github.com/manaflow-ai/cmux/pull/2400",
+                updatedAt: "2026-03-06T12:00:00Z",
+                mergedAt: "2026-03-06T12:00:00Z",
+                headRefName: "develop",
+                baseRefName: "main"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 2501,
+                state: "MERGED",
+                url: "https://github.com/manaflow-ai/cmux/pull/2501",
+                updatedAt: "2026-04-19T12:00:00Z",
+                mergedAt: "2026-04-19T12:00:00Z",
+                headRefName: "feature/recent-one",
+                baseRefName: "develop"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 2502,
+                state: "OPEN",
+                url: "https://github.com/manaflow-ai/cmux/pull/2502",
+                updatedAt: "2026-04-20T12:00:00Z",
+                headRefName: "feature/recent-two",
+                baseRefName: "develop"
+            ),
+        ]
+
+        let pullRequestsByBranch = TabManager.pullRequestMapByNormalizedBranchForTesting(
+            from: pullRequests,
+            now: now
+        )
+
+        XCTAssertNil(pullRequestsByBranch["develop"])
+        XCTAssertEqual(pullRequestsByBranch["feature/recent-one"]?.number, 2501)
+        XCTAssertEqual(pullRequestsByBranch["feature/recent-two"]?.number, 2502)
+    }
+
     func testShouldSkipWorkspacePullRequestLookupOnlyForExactMainAndMaster() {
         XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "main"))
         XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "master"))
