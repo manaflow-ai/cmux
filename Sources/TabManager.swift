@@ -292,6 +292,60 @@ enum WorkspaceWorkingDirectoryInheritanceSettings {
     }
 }
 
+enum TabCloseButtonPosition: String, CaseIterable, Identifiable {
+    case leading
+    case trailing
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .leading:
+            return String(
+                localized: "settings.tabCloseButton.leading",
+                defaultValue: "Left"
+            )
+        case .trailing:
+            return String(
+                localized: "settings.tabCloseButton.trailing",
+                defaultValue: "Right"
+            )
+        }
+    }
+
+    var bonsplitValue: BonsplitConfiguration.CloseButtonPosition {
+        switch self {
+        case .leading: return .leading
+        case .trailing: return .trailing
+        }
+    }
+}
+
+enum TabCloseButtonPositionSettings {
+    /// `@AppStorage` key.
+    static let storageKey = "tabCloseButtonPosition"
+
+    /// Default matches the macOS Safari/Finder convention.
+    static let defaultPosition: TabCloseButtonPosition = .leading
+
+    static let didChangeNotification = Notification.Name("cmux.tabCloseButtonPositionSettingsDidChange")
+
+    static func resolved(rawValue: String?) -> TabCloseButtonPosition {
+        guard let rawValue, let value = TabCloseButtonPosition(rawValue: rawValue) else {
+            return defaultPosition
+        }
+        return value
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> TabCloseButtonPosition {
+        resolved(rawValue: defaults.string(forKey: storageKey))
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 struct WorkspaceTabColorEntry: Equatable, Identifiable {
     let name: String
     let hex: String
