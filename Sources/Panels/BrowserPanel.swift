@@ -546,8 +546,25 @@ enum BrowserLinkOpenSettings {
 
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""
+    static let browserHostListModeKey = "browserHostListMode"
+    static let defaultBrowserHostListMode: String = "whitelist"
     static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
     static let defaultBrowserExternalOpenPatterns: String = ""
+
+    /// The two supported host-list modes.
+    /// - `whitelist`: only listed hosts open in cmux (empty list = allow all).
+    /// - `blacklist`: listed hosts always open externally (empty list = allow all in cmux).
+    enum HostListMode: String, CaseIterable, Identifiable {
+        case whitelist
+        case blacklist
+
+        var id: String { rawValue }
+    }
+
+    static func hostListMode(defaults: UserDefaults = .standard) -> HostListMode {
+        let raw = defaults.string(forKey: browserHostListModeKey) ?? defaultBrowserHostListMode
+        return HostListMode(rawValue: raw) ?? .whitelist
+    }
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
@@ -627,12 +644,26 @@ enum BrowserLinkOpenSettings {
         return false
     }
 
-    /// Check whether a hostname matches the configured whitelist.
-    /// Empty whitelist means "allow all" (no filtering).
-    /// Supports exact match and wildcard prefix (`*.example.com`).
-    static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+    /// Determine whether a host should open in the cmux embedded browser,
+    /// respecting the configured host-list mode (whitelist or blacklist).
+    ///
+    /// - Whitelist mode (default): empty list = allow all; non-empty = only listed hosts open in cmux.
+    /// - Blacklist mode: empty list = allow all; non-empty = listed hosts open externally, everything else in cmux.
+    static func shouldOpenInCmuxBrowser(host: String, defaults: UserDefaults = .standard) -> Bool {
         let rawPatterns = hostWhitelist(defaults: defaults)
         if rawPatterns.isEmpty { return true }
+
+        let matchesEntry = hostMatchesEntry(host, rawPatterns: rawPatterns)
+        switch hostListMode(defaults: defaults) {
+        case .whitelist:
+            return matchesEntry
+        case .blacklist:
+            return !matchesEntry
+        }
+    }
+
+    /// Check whether a host matches any entry in the provided raw patterns list.
+    private static func hostMatchesEntry(_ host: String, rawPatterns: [String]) -> Bool {
         guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
         for rawPattern in rawPatterns {
             guard let pattern = normalizeWhitelistPattern(rawPattern) else { continue }

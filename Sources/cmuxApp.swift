@@ -4413,6 +4413,23 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
+    @AppStorage(BrowserLinkOpenSettings.browserHostListModeKey) private var browserHostListMode = BrowserLinkOpenSettings.defaultBrowserHostListMode
+
+    private var resolvedBrowserHostListMode: BrowserLinkOpenSettings.HostListMode {
+        BrowserLinkOpenSettings.HostListMode(rawValue: browserHostListMode) ?? .whitelist
+    }
+
+    private var browserHostListModeSelection: Binding<String> {
+        Binding(
+            get: { resolvedBrowserHostListMode.rawValue },
+            set: { newValue in
+                browserHostListMode =
+                    BrowserLinkOpenSettings.HostListMode(rawValue: newValue)?.rawValue
+                    ?? BrowserLinkOpenSettings.defaultBrowserHostListMode
+            }
+        )
+    }
+
     @AppStorage(BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
     private var browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
@@ -6061,57 +6078,7 @@ struct SettingsView: View {
                         }
 
                         if openTerminalLinksInCmuxBrowser || interceptTerminalOpenCommandInCmuxBrowser {
-                            SettingsCardDivider()
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                SettingsCardRow(
-                                    configurationReview: .json("browser.hostsToOpenInEmbeddedBrowser"),
-                                    String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"),
-                                    subtitle: String(localized: "settings.browser.hostWhitelist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
-                                ) {
-                                    EmptyView()
-                                }
-
-                                TextEditor(text: $browserHostWhitelist)
-                                    .font(.system(.body, design: .monospaced))
-                                    .frame(minHeight: 60, maxHeight: 120)
-                                    .scrollContentBackground(.hidden)
-                                    .padding(6)
-                                    .background(Color(nsColor: .controlBackgroundColor))
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                                    )
-                                    .padding(.horizontal, 16)
-                                    .padding(.bottom, 12)
-                            }
-
-                            SettingsCardDivider()
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                SettingsCardRow(
-                                    configurationReview: .json("browser.urlsToAlwaysOpenExternally"),
-                                    String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
-                                    subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring, or prefix with `re:` for regex (for example: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage)).")
-                                ) {
-                                    EmptyView()
-                                }
-
-                                TextEditor(text: $browserExternalOpenPatterns)
-                                    .font(.system(.body, design: .monospaced))
-                                    .frame(minHeight: 60, maxHeight: 120)
-                                    .scrollContentBackground(.hidden)
-                                    .padding(6)
-                                    .background(Color(nsColor: .controlBackgroundColor))
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                                    )
-                                    .padding(.horizontal, 16)
-                                    .padding(.bottom, 12)
-                            }
+                            browserHostListSettingsSection()
                         }
 
                         SettingsCardDivider()
@@ -6549,6 +6516,85 @@ struct SettingsView: View {
         NSApplication.shared.terminate(nil)
     }
 
+    @ViewBuilder
+    private func browserHostListSettingsSection() -> some View {
+        SettingsCardDivider()
+
+        SettingsCardRow(
+            configurationReview: .json("browser.hostListMode"),
+            String(localized: "settings.browser.hostListMode", defaultValue: "Host List Mode"),
+            subtitle: String(localized: "settings.browser.hostListMode.subtitle", defaultValue: "Whitelist: only listed hosts open in cmux. Blacklist: listed hosts always open in your default browser.")
+        ) {
+            Picker("", selection: browserHostListModeSelection) {
+                Text(String(localized: "settings.browser.hostListMode.whitelist", defaultValue: "Whitelist"))
+                    .tag(BrowserLinkOpenSettings.HostListMode.whitelist.rawValue)
+                Text(String(localized: "settings.browser.hostListMode.blacklist", defaultValue: "Blacklist"))
+                    .tag(BrowserLinkOpenSettings.HostListMode.blacklist.rawValue)
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: 180)
+        }
+
+        SettingsCardDivider()
+
+        VStack(alignment: .leading, spacing: 6) {
+            let hostListTitle: String = resolvedBrowserHostListMode == .blacklist
+                ? String(localized: "settings.browser.hostBlacklist", defaultValue: "Hosts to Block from Embedded Browser")
+                : String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser")
+            let hostListSubtitle: String = resolvedBrowserHostListMode == .blacklist
+                ? String(localized: "settings.browser.hostBlacklist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. These hosts always open in your default browser. All other hosts open in cmux. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
+                : String(localized: "settings.browser.hostWhitelist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
+            SettingsCardRow(
+                configurationReview: .json("browser.hostsToOpenInEmbeddedBrowser"),
+                hostListTitle,
+                subtitle: hostListSubtitle
+            ) {
+                EmptyView()
+            }
+
+            TextEditor(text: $browserHostWhitelist)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 60, maxHeight: 120)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+        }
+
+        SettingsCardDivider()
+
+        VStack(alignment: .leading, spacing: 6) {
+            SettingsCardRow(
+                configurationReview: .json("browser.urlsToAlwaysOpenExternally"),
+                String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
+                subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring, or prefix with `re:` for regex (for example: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage)).")
+            ) {
+                EmptyView()
+            }
+
+            TextEditor(text: $browserExternalOpenPatterns)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 60, maxHeight: 120)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+        }
+    }
+
     private func resetAllSettings() {
         isResettingSettings = true
         appLanguage = LanguageSettings.defaultLanguage.rawValue
@@ -6576,6 +6622,7 @@ struct SettingsView: View {
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
+        browserHostListMode = BrowserLinkOpenSettings.defaultBrowserHostListMode
         browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText

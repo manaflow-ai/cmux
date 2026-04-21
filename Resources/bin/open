@@ -27,8 +27,9 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 
 settings_domain="${CMUX_BUNDLE_ID:-}"
-whitelist_raw=""
-whitelist_patterns=()
+host_list_raw=""
+host_list_patterns=()
+host_list_mode="whitelist"
 
 system_open() {
     exec "$SYSTEM_OPEN_BIN" "$@"
@@ -338,15 +339,15 @@ host_matches_pattern() {
     [[ "$host" == "$pattern" ]]
 }
 
-host_matches_whitelist() {
+host_matches_list_pattern() {
     local url="$1"
-    if [[ ${#whitelist_patterns[@]} -eq 0 ]]; then
+    if [[ ${#host_list_patterns[@]} -eq 0 ]]; then
         return 0
     fi
 
     local host
     host="$(normalize_host "$url")" || return 1
-    for pattern in "${whitelist_patterns[@]}"; do
+    for pattern in "${host_list_patterns[@]}"; do
         if host_matches_pattern "$host" "$pattern"; then
             return 0
         fi
@@ -354,13 +355,33 @@ host_matches_whitelist() {
     return 1
 }
 
-load_whitelist_patterns() {
+# Determine whether a URL's host should open in cmux, respecting the
+# configured host-list mode (whitelist or blacklist).
+should_open_in_cmux() {
+    local url="$1"
+    if [[ ${#host_list_patterns[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "$host_list_mode" == "blacklist" ]]; then
+        # Blacklist mode: if the host matches a pattern, it should NOT open in cmux.
+        if host_matches_list_pattern "$url"; then
+            return 1
+        fi
+        return 0
+    fi
+
+    # Whitelist mode (default): delegate directly.
+    host_matches_list_pattern "$url"
+}
+
+load_host_list_patterns() {
     local raw="$1"
     local line
     while IFS= read -r line || [[ -n "$line" ]]; do
         local normalized
         normalized="$(normalize_whitelist_pattern "$line")" || continue
-        whitelist_patterns+=("$normalized")
+        host_list_patterns+=("$normalized")
     done <<< "$raw"
 }
 
@@ -433,9 +454,14 @@ if [[ -n "$settings_domain" ]]; then
         system_open "$@"
     fi
 
-    whitelist_raw="$("$DEFAULTS_BIN" read "$settings_domain" browserHostWhitelist 2>/dev/null || true)"
-    if [[ -n "$whitelist_raw" ]]; then
-        load_whitelist_patterns "$whitelist_raw"
+    host_list_raw="$("$DEFAULTS_BIN" read "$settings_domain" browserHostWhitelist 2>/dev/null || true)"
+    if [[ -n "$host_list_raw" ]]; then
+        load_host_list_patterns "$host_list_raw"
+    fi
+
+    host_list_mode_raw="$("$DEFAULTS_BIN" read "$settings_domain" browserHostListMode 2>/dev/null || true)"
+    if [[ "$host_list_mode_raw" == "blacklist" ]]; then
+        host_list_mode="blacklist"
     fi
 
 fi
@@ -453,7 +479,7 @@ fi
 # terminal link clicks and intercepted `open` commands share one regex dialect.
 failed_urls=()
 for url in "${cmux_targets[@]}"; do
-    if is_http_url "$url" && ! host_matches_whitelist "$url"; then
+    if is_http_url "$url" && ! should_open_in_cmux "$url"; then
         failed_urls+=("$url")
         continue
     fi

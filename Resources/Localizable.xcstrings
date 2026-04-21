@@ -60326,6 +60326,108 @@
         }
       }
     },
+    "settings.browser.hostBlacklist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts to Block from Embedded Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "内蔵ブラウザからブロックするホスト"
+          }
+        }
+      }
+    },
+    "settings.browser.hostBlacklist.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to terminal link clicks and intercepted `open https://...` calls. These hosts always open in your default browser. All other hosts open in cmux. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルのリンククリックおよびインターセプトされた`open https://...`呼び出しに適用されます。これらのホストは常にデフォルトブラウザで開きます。その他のホストはcmuxで開きます。1行に1つのホストまたはワイルドカード（例: example.com, *.internal.example）。空欄にするとすべてのホストをcmuxで開きます。"
+          }
+        }
+      }
+    },
+    "settings.browser.hostListMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host List Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホストリストモード"
+          }
+        }
+      }
+    },
+    "settings.browser.hostListMode.blacklist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blacklist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブラックリスト"
+          }
+        }
+      }
+    },
+    "settings.browser.hostListMode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whitelist: only listed hosts open in cmux. Blacklist: listed hosts always open in your default browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホワイトリスト：リストのホストのみcmuxで開きます。ブラックリスト：リストのホストは常にデフォルトブラウザで開きます。"
+          }
+        }
+      }
+    },
+    "settings.browser.hostListMode.whitelist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whitelist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホワイトリスト"
+          }
+        }
+      }
+    },
     "settings.browser.hostWhitelist": {
       "extractionState": "manual",
       "localizations": {

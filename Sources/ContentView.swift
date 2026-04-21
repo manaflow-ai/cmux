@@ -9144,9 +9144,18 @@ struct ContentView: View {
         var openedCount = 0
         if openSidebarPullRequestLinksInCmuxBrowser {
             for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
+                let url = pullRequest.url
+                // Respect external-open patterns and host whitelist/blacklist settings.
+                let shouldOpenExternally = BrowserLinkOpenSettings.shouldOpenExternally(url)
+                    || {
+                        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return false }
+                        return !BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: host)
+                    }()
+                if shouldOpenExternally {
+                    if NSWorkspace.shared.open(url) { openedCount += 1 }
+                } else if tabManager.openBrowser(url: url, insertAtEnd: true) != nil {
                     openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
+                } else if NSWorkspace.shared.open(url) {
                     openedCount += 1
                 }
             }
@@ -14336,6 +14345,16 @@ private struct TabItemView: View, Equatable {
     private func openPullRequestLink(_ url: URL) {
         updateSelection()
         if openSidebarPullRequestLinksInCmuxBrowser {
+            // Respect external-open patterns and host whitelist/blacklist settings.
+            if BrowserLinkOpenSettings.shouldOpenExternally(url) {
+                NSWorkspace.shared.open(url)
+                return
+            }
+            if let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? ""),
+               !BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: host) {
+                NSWorkspace.shared.open(url)
+                return
+            }
             if tabManager.openBrowser(
                 inWorkspace: tab.id,
                 url: url,

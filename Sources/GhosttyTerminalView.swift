@@ -3421,10 +3421,11 @@ class GhosttyApp {
                     }
                 }
 
-                // If a host whitelist is configured and this host isn't in it, open externally.
-                if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
+                // If the host-list rules (whitelist or blacklist mode) say this host should not
+                // open in cmux, open externally.
+                if !BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: host) {
                     #if DEBUG
-                    dlog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
+                    dlog("link.openURL target=embedded but hostList miss host=\(host) url=\(url)")
                     #endif
                     return performOnMain {
                         NSWorkspace.shared.open(url)
