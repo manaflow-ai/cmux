@@ -347,7 +347,8 @@ extension TerminalSurface {
         if workspace.isRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }
-        if let ttyName = workspace.surfaceTTYNames[id],
+        if SSHFileUploadSettings.isEnabled(),
+           let ttyName = workspace.surfaceTTYNames[id],
            let session = TerminalSSHSessionDetector.detect(forTTY: ttyName) {
             return .remote(.detectedSSH(session))
         }
