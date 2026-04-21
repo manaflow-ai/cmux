@@ -12,7 +12,7 @@ enum SessionPersistencePolicy {
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     static let minimumWindowHeight: Double = 200
-    static let autosaveInterval: TimeInterval = 8.0
+    static let autosaveInterval: TimeInterval = 30.0
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
@@ -365,12 +365,14 @@ struct AppSessionSnapshot: Codable, Sendable {
 enum SessionPersistenceStore {
     static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        let decoder = JSONDecoder()
-        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return nil }
-        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return nil }
-        guard !snapshot.windows.isEmpty else { return nil }
-        return snapshot
+        return autoreleasepool {
+            guard let data = try? Data(contentsOf: fileURL) else { return nil }
+            let decoder = JSONDecoder()
+            guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return nil }
+            guard snapshot.version == SessionSnapshotSchema.currentVersion else { return nil }
+            guard !snapshot.windows.isEmpty else { return nil }
+            return snapshot
+        }
     }
 
     @discardableResult
@@ -379,14 +381,21 @@ enum SessionPersistenceStore {
         let directory = fileURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let data = try encodedSnapshotData(snapshot)
-            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
-                return true
-            }
-            try data.write(to: fileURL, options: .atomic)
-            return true
         } catch {
             return false
+        }
+
+        return autoreleasepool {
+            do {
+                let data = try encodedSnapshotData(snapshot)
+                if let existingData = try? Data(contentsOf: fileURL), existingData == data {
+                    return true
+                }
+                try data.write(to: fileURL, options: .atomic)
+                return true
+            } catch {
+                return false
+            }
         }
     }
 

@@ -864,7 +864,14 @@ class TabManager: ObservableObject {
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
-    @Published var tabs: [Workspace] = []
+    @Published var tabs: [Workspace] = [] {
+        didSet {
+            let oldWorkspaceIds = oldValue.map(\.id)
+            let newWorkspaceIds = tabs.map(\.id)
+            guard oldWorkspaceIds != newWorkspaceIds else { return }
+            markSessionSnapshotDirty(reason: "workspaces")
+        }
+    }
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
@@ -882,6 +889,11 @@ class TabManager: ObservableObject {
     private nonisolated static let workspacePullRequestTerminalStateSweepInterval: TimeInterval = 15 * 60
     private nonisolated static let workspacePullRequestPollJitterFraction = 0.10
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
+
+    private func markSessionSnapshotDirty(reason: String) {
+        AppDelegate.requestSessionSnapshotDirty(reason: "tabManager.\(reason)")
+    }
+
     @Published var selectedTabId: UUID? {
         willSet {
 #if DEBUG
@@ -912,6 +924,7 @@ class TabManager: ObservableObject {
         }
         didSet {
             guard selectedTabId != oldValue else { return }
+            markSessionSnapshotDirty(reason: "selectedWorkspace")
             sentryBreadcrumb("workspace.switch", data: [
                 "tabCount": tabs.count
             ])
@@ -6798,49 +6811,6 @@ class TabManager: ObservableObject {
 }
 
 extension TabManager {
-    func sessionAutosaveFingerprint() -> Int {
-        var hasher = Hasher()
-        hasher.combine(selectedTabId)
-        hasher.combine(tabs.count)
-
-        for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
-            hasher.combine(workspace.id)
-            hasher.combine(workspace.focusedPanelId)
-            hasher.combine(workspace.currentDirectory)
-            hasher.combine(workspace.customTitle ?? "")
-            hasher.combine(workspace.customDescription ?? "")
-            hasher.combine(workspace.customColor ?? "")
-            hasher.combine(workspace.isPinned)
-            hasher.combine(workspace.terminalScrollBarHidden)
-            hasher.combine(workspace.panels.count)
-            hasher.combine(workspace.statusEntries.count)
-            hasher.combine(workspace.metadataBlocks.count)
-            hasher.combine(workspace.logEntries.count)
-            hasher.combine(workspace.panelDirectories.count)
-            hasher.combine(workspace.panelTitles.count)
-            hasher.combine(workspace.panelPullRequests.count)
-            hasher.combine(workspace.panelGitBranches.count)
-            hasher.combine(workspace.surfaceListeningPorts.count)
-
-            if let progress = workspace.progress {
-                hasher.combine(Int((progress.value * 1000).rounded()))
-                hasher.combine(progress.label)
-            } else {
-                hasher.combine(-1)
-            }
-
-            if let gitBranch = workspace.gitBranch {
-                hasher.combine(gitBranch.branch)
-                hasher.combine(gitBranch.isDirty)
-            } else {
-                hasher.combine("")
-                hasher.combine(false)
-            }
-        }
-
-        return hasher.finalize()
-    }
-
     func sessionSnapshot(includeScrollback: Bool) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs
             .filter { !$0.isRemoteWorkspace }

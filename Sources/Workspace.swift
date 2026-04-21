@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Bonsplit
 import Combine
+import Observation
 import CryptoKit
 import Darwin
 import Network
@@ -440,12 +441,10 @@ extension Workspace {
         let branchSnapshot = panelGitBranches[panelId].map {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
-        let listeningPorts: [Int]
-        if remoteDetectedSurfaceIds.contains(panelId) || isRemoteTerminalSurface(panelId) {
-            listeningPorts = []
-        } else {
-            listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
-        }
+        let listeningPorts = persistedSessionSnapshotListeningPorts(
+            for: panelId,
+            source: surfaceListeningPorts
+        )
         let ttyName = surfaceTTYNames[panelId]
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
@@ -510,6 +509,30 @@ extension Workspace {
             browser: browserSnapshot,
             markdown: markdownSnapshot
         )
+    }
+
+    private func shouldPersistListeningPortsInSessionSnapshot(for panelId: UUID) -> Bool {
+        !remoteDetectedSurfaceIds.contains(panelId) && !isRemoteTerminalSurface(panelId)
+    }
+
+    private func persistedSessionSnapshotListeningPorts(
+        for panelId: UUID,
+        source: [UUID: [Int]]
+    ) -> [Int] {
+        guard shouldPersistListeningPortsInSessionSnapshot(for: panelId) else { return [] }
+        return (source[panelId] ?? []).sorted()
+    }
+
+    private func persistedSessionSnapshotListeningPortsSubset(
+        from source: [UUID: [Int]]
+    ) -> [UUID: [Int]] {
+        var subset: [UUID: [Int]] = [:]
+        for (panelId, _) in source {
+            let persistedPorts = persistedSessionSnapshotListeningPorts(for: panelId, source: source)
+            guard !persistedPorts.isEmpty else { continue }
+            subset[panelId] = persistedPorts
+        }
+        return subset
     }
 
     nonisolated static func resolvedSnapshotTerminalScrollback(
@@ -6482,19 +6505,100 @@ struct ClosedBrowserPanelRestoreSnapshot {
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
 final class Workspace: Identifiable, ObservableObject {
+    private struct SessionPaneTabOrderSnapshot: Equatable {
+        let paneId: String
+        let tabIds: [String]
+    }
+
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
 
     let id: UUID
     @Published var title: String
-    @Published var customTitle: String?
-    @Published var customDescription: String?
-    @Published var isPinned: Bool = false
-    @Published var customColor: String?  // hex string, e.g. "#C0392B"
-    @Published private(set) var terminalScrollBarHidden: Bool = false
-    @Published var currentDirectory: String
+    @Published var customTitle: String? {
+        didSet {
+            guard customTitle != oldValue else { return }
+            markSessionSnapshotDirty(reason: "customTitle")
+        }
+    }
+    @Published var customDescription: String? {
+        didSet {
+            guard customDescription != oldValue else { return }
+            markSessionSnapshotDirty(reason: "customDescription")
+        }
+    }
+    @Published var isPinned: Bool = false {
+        didSet {
+            guard isPinned != oldValue else { return }
+            markSessionSnapshotDirty(reason: "isPinned")
+        }
+    }
+    @Published var customColor: String? {  // hex string, e.g. "#C0392B"
+        didSet {
+            guard customColor != oldValue else { return }
+            markSessionSnapshotDirty(reason: "customColor")
+        }
+    }
+    @Published var currentDirectory: String {
+        didSet {
+            guard currentDirectory != oldValue else { return }
+            markSessionSnapshotDirty(reason: "currentDirectory")
+        }
+    }
+    @Published private(set) var terminalScrollBarHidden: Bool = false {
+        didSet {
+            guard terminalScrollBarHidden != oldValue else { return }
+            markSessionSnapshotDirty(reason: "terminalScrollBarHidden")
+        }
+    }
     private(set) var preferredBrowserProfileID: UUID?
+    private var observedSessionPaneTabOrderSnapshot: [SessionPaneTabOrderSnapshot] = []
+    private var observedSessionSnapshotFocusedPanelId: UUID?
+
+    private func markSessionSnapshotDirty(reason: String) {
+        AppDelegate.requestSessionSnapshotDirty(reason: "workspace.\(reason)")
+    }
+
+    private func noteSessionSnapshotFocusedPanelChanged(to panelId: UUID?) {
+        guard observedSessionSnapshotFocusedPanelId != panelId else { return }
+        observedSessionSnapshotFocusedPanelId = panelId
+        markSessionSnapshotDirty(reason: "focusedPanel")
+    }
+
+    private func currentSessionPaneTabOrderSnapshot() -> [SessionPaneTabOrderSnapshot] {
+        bonsplitController.layoutSnapshot().panes.map { pane in
+            SessionPaneTabOrderSnapshot(paneId: pane.paneId, tabIds: pane.tabIds)
+        }
+    }
+
+    private func installSessionPaneTabOrderObserver() {
+        observedSessionPaneTabOrderSnapshot = currentSessionPaneTabOrderSnapshot()
+        observeSessionPaneTabOrderChanges()
+    }
+
+    private func observeSessionPaneTabOrderChanges() {
+        _ = withObservationTracking {
+            currentSessionPaneTabOrderSnapshot()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.handleSessionPaneTabOrderChange()
+            }
+        }
+    }
+
+    private func handleSessionPaneTabOrderChange() {
+        let previousSnapshot = observedSessionPaneTabOrderSnapshot
+        let nextSnapshot = currentSessionPaneTabOrderSnapshot()
+        observedSessionPaneTabOrderSnapshot = nextSnapshot
+        observeSessionPaneTabOrderChanges()
+
+        guard nextSnapshot != previousSnapshot else { return }
+
+        // Same-pane tab drags inside Bonsplit can reorder tabs without going through
+        // Workspace.reorderSurface or Bonsplit's geometry delegate callback.
+        markSessionSnapshotDirty(reason: "bonsplitTabOrder")
+    }
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -6503,7 +6607,14 @@ final class Workspace: Identifiable, ObservableObject {
     let bonsplitController: BonsplitController
 
     /// Mapping from bonsplit TabID to our Panel instances
-    @Published private(set) var panels: [UUID: any Panel] = [:]
+    @Published private(set) var panels: [UUID: any Panel] = [:] {
+        didSet {
+            let oldPanelIds = oldValue.keys.sorted { $0.uuidString < $1.uuidString }
+            let newPanelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
+            guard oldPanelIds != newPanelIds else { return }
+            markSessionSnapshotDirty(reason: "panels")
+        }
+    }
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     private var panelSubscriptions: [UUID: AnyCancellable] = [:]
@@ -6557,11 +6668,36 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Published directory for each panel
-    @Published var panelDirectories: [UUID: String] = [:]
-    @Published var panelTitles: [UUID: String] = [:]
-    @Published private(set) var panelCustomTitles: [UUID: String] = [:]
-    @Published private(set) var pinnedPanelIds: Set<UUID> = []
-    @Published private(set) var manualUnreadPanelIds: Set<UUID> = []
+    @Published var panelDirectories: [UUID: String] = [:] {
+        didSet {
+            guard panelDirectories != oldValue else { return }
+            markSessionSnapshotDirty(reason: "panelDirectories")
+        }
+    }
+    @Published var panelTitles: [UUID: String] = [:] {
+        didSet {
+            guard panelTitles != oldValue else { return }
+            markSessionSnapshotDirty(reason: "panelTitles")
+        }
+    }
+    @Published private(set) var panelCustomTitles: [UUID: String] = [:] {
+        didSet {
+            guard panelCustomTitles != oldValue else { return }
+            markSessionSnapshotDirty(reason: "panelCustomTitles")
+        }
+    }
+    @Published private(set) var pinnedPanelIds: Set<UUID> = [] {
+        didSet {
+            guard pinnedPanelIds != oldValue else { return }
+            markSessionSnapshotDirty(reason: "pinnedPanels")
+        }
+    }
+    @Published private(set) var manualUnreadPanelIds: Set<UUID> = [] {
+        didSet {
+            guard manualUnreadPanelIds != oldValue else { return }
+            markSessionSnapshotDirty(reason: "manualUnreadPanels")
+        }
+    }
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
@@ -6569,17 +6705,51 @@ final class Workspace: Identifiable, ObservableObject {
     private var manualUnreadMarkedAt: [UUID: Date] = [:]
     nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
+    // Runtime-only sidebar status is restored empty, so it should not drive autosave.
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
-    @Published var logEntries: [SidebarLogEntry] = []
-    @Published var progress: SidebarProgressState?
-    @Published var gitBranch: SidebarGitBranchState?
-    @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
+    @Published var logEntries: [SidebarLogEntry] = [] {
+        didSet {
+            guard logEntries != oldValue else { return }
+            markSessionSnapshotDirty(reason: "logEntries")
+        }
+    }
+    @Published var progress: SidebarProgressState? {
+        didSet {
+            guard progress != oldValue else { return }
+            markSessionSnapshotDirty(reason: "progress")
+        }
+    }
+    @Published var gitBranch: SidebarGitBranchState? {
+        didSet {
+            guard gitBranch != oldValue else { return }
+            markSessionSnapshotDirty(reason: "gitBranch")
+        }
+    }
+    @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:] {
+        didSet {
+            guard panelGitBranches != oldValue else { return }
+            markSessionSnapshotDirty(reason: "panelGitBranches")
+        }
+    }
     @Published var pullRequest: SidebarPullRequestState?
     @Published var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
-    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    @Published var surfaceListeningPorts: [UUID: [Int]] = [:] {
+        didSet {
+            guard persistedSessionSnapshotListeningPortsSubset(from: surfaceListeningPorts)
+                    != persistedSessionSnapshotListeningPortsSubset(from: oldValue) else {
+                return
+            }
+            markSessionSnapshotDirty(reason: "surfaceListeningPorts")
+        }
+    }
     var agentListeningPorts: [Int] = []
-    @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
+    @Published var remoteConfiguration: WorkspaceRemoteConfiguration? {
+        didSet {
+            guard (remoteConfiguration != nil) != (oldValue != nil) else { return }
+            markSessionSnapshotDirty(reason: "remoteConfiguration")
+        }
+    }
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
     @Published var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
@@ -6591,7 +6761,12 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
-    var surfaceTTYNames: [UUID: String] = [:]
+    var surfaceTTYNames: [UUID: String] = [:] {
+        didSet {
+            guard surfaceTTYNames != oldValue else { return }
+            markSessionSnapshotDirty(reason: "surfaceTTYNames")
+        }
+    }
     private var remoteSessionController: WorkspaceRemoteSessionController?
     private var pendingRemoteForegroundAuthToken: String?
     fileprivate var activeRemoteSessionControllerID: UUID?
@@ -6710,7 +6885,12 @@ final class Workspace: Identifiable, ObservableObject {
         set { panelDirectories = newValue }
     }
 
-    private var processTitle: String
+    private var processTitle: String {
+        didSet {
+            guard processTitle != oldValue else { return }
+            markSessionSnapshotDirty(reason: "processTitle")
+        }
+    }
 
     private enum SurfaceKind {
         static let terminal = "terminal"
@@ -6968,6 +7148,8 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+        installSessionPaneTabOrderObserver()
+        observedSessionSnapshotFocusedPanelId = focusedPanelId
     }
 
     deinit {
@@ -7136,6 +7318,12 @@ final class Workspace: Identifiable, ObservableObject {
 
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
+        browserPanel.onSessionPersistenceStateChange = { [weak self, weak browserPanel] reason in
+            guard let self, let browserPanel else { return }
+            guard self.panels[browserPanel.id] != nil else { return }
+            self.markSessionSnapshotDirty(reason: "browser.\(reason)")
+        }
+
         let subscription = Publishers.CombineLatest3(
             browserPanel.$pageTitle.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(),
@@ -9695,6 +9883,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         guard bonsplitController.allPaneIds.contains(paneId) else { return false }
         guard bonsplitController.moveTab(tabId, toPane: paneId, atIndex: index) else { return false }
+        markSessionSnapshotDirty(reason: "moveSurface")
 
         if focus {
             bonsplitController.focusPane(paneId)
@@ -9711,6 +9900,7 @@ final class Workspace: Identifiable, ObservableObject {
     func reorderSurface(panelId: UUID, toIndex index: Int) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
+        markSessionSnapshotDirty(reason: "reorderSurface")
 
         if let paneId = paneId(forPanelId: panelId) {
             applyTabSelection(tabId: tabId, inPane: paneId)
@@ -11458,6 +11648,7 @@ extension Workspace: BonsplitDelegate {
         guard let panel = panels[effectiveFocusedPanelId] else {
             return
         }
+        noteSessionSnapshotFocusedPanelChanged(to: effectiveFocusedPanelId)
 
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
@@ -12354,6 +12545,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
+        markSessionSnapshotDirty(reason: "splitGeometry")
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

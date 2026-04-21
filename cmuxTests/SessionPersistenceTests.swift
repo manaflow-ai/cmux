@@ -1,4 +1,6 @@
+import AppKit
 import XCTest
+@testable import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,6 +12,18 @@ final class SessionPersistenceTests: XCTestCase {
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
+    }
+
+    @MainActor
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
     }
 
     @MainActor
@@ -70,6 +84,124 @@ final class SessionPersistenceTests: XCTestCase {
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
 
         XCTAssertTrue(panelSnapshot.listeningPorts.isEmpty)
+    }
+
+    @MainActor
+    func testTabManagerSessionSnapshotReflectsRemoteWorkspaceTransitions() throws {
+        let tabManager = TabManager()
+        let workspace = try XCTUnwrap(tabManager.tabs.first)
+
+        XCTAssertEqual(tabManager.sessionSnapshot(includeScrollback: false).workspaces.count, 1)
+
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64001,
+            relayID: "relay-test",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.remoteConfiguration = configuration
+        XCTAssertEqual(tabManager.sessionSnapshot(includeScrollback: false).workspaces.count, 0)
+
+        workspace.remoteConfiguration = nil
+        XCTAssertEqual(tabManager.sessionSnapshot(includeScrollback: false).workspaces.count, 1)
+    }
+
+    @MainActor
+    func testDirectBonsplitSamePaneReorderMarksSessionDirty() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        _ = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+
+        let pane = try XCTUnwrap(workspace.bonsplitController.internalController.rootNode.findPane(paneId))
+        let originalOrder = pane.tabs.map(\.id)
+        XCTAssertEqual(originalOrder.count, 2)
+
+        let dirtyExpectation = expectation(description: "session dirty after same-pane bonsplit reorder")
+        AppDelegate.sessionSnapshotDirtyRequestObserverForTesting = { reason in
+            guard reason == "workspace.bonsplitTabOrder" else { return }
+            dirtyExpectation.fulfill()
+        }
+        defer { AppDelegate.sessionSnapshotDirtyRequestObserverForTesting = nil }
+
+        pane.moveTab(from: 0, to: 2)
+
+        wait(for: [dirtyExpectation], timeout: 1.0)
+        XCTAssertEqual(pane.tabs.map(\.id), [originalOrder[1], originalOrder[0]])
+    }
+
+    @MainActor
+    func testDirectBonsplitPaneFocusMarksSessionDirty() throws {
+        let workspace = Workspace()
+        let originalFocusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let splitPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: originalFocusedPanelId,
+                orientation: .horizontal,
+                insertFirst: false,
+                focus: false
+            )
+        )
+        let targetPaneId = try XCTUnwrap(workspace.paneId(forPanelId: splitPanel.id))
+
+        let dirtyExpectation = expectation(description: "session dirty after bonsplit pane focus")
+        AppDelegate.sessionSnapshotDirtyRequestObserverForTesting = { reason in
+            guard reason == "workspace.focusedPanel" else { return }
+            dirtyExpectation.fulfill()
+        }
+        defer { AppDelegate.sessionSnapshotDirtyRequestObserverForTesting = nil }
+
+        workspace.bonsplitController.focusPane(targetPaneId)
+
+        wait(for: [dirtyExpectation], timeout: 1.0)
+        XCTAssertEqual(workspace.focusedPanelId, splitPanel.id)
+    }
+
+    @MainActor
+    func testCompleteStartupSessionRestorePersistsSnapshotImmediately() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let tabManager = TabManager()
+        let sidebarState = SidebarState()
+        let sidebarSelectionState = SidebarSelectionState()
+
+        defer {
+            AppDelegate.sessionSnapshotSaveObserverForTesting = nil
+            AppDelegate.sessionSnapshotDirtyRequestObserverForTesting = nil
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState
+        )
+
+        var observedImmediateSave = false
+        var observedDirtyReasons: [String] = []
+        AppDelegate.sessionSnapshotSaveObserverForTesting = { includeScrollback, removeWhenEmpty in
+            guard !includeScrollback, !removeWhenEmpty else { return }
+            observedImmediateSave = true
+        }
+        AppDelegate.sessionSnapshotDirtyRequestObserverForTesting = { reason in
+            observedDirtyReasons.append(reason)
+        }
+
+        app.setStartupRestoreInProgressForTesting(true)
+        app.completeStartupSessionRestoreForTesting()
+
+        XCTAssertTrue(observedImmediateSave)
+        XCTAssertFalse(observedDirtyReasons.contains("session.restore.completed"))
     }
 
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
@@ -490,56 +622,46 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testUnchangedAutosaveFingerprintSkipsWithinStalenessWindow() {
-        let now = Date()
+    func testSessionAutosaveUsesThirtySecondDefaultInterval() {
+        XCTAssertEqual(SessionPersistencePolicy.autosaveInterval, 30.0, accuracy: 0.001)
+    }
+
+    func testSessionAutosaveScheduleKeepsExistingDeadlineWhenDelayExtensionIsDisabled() {
         XCTAssertTrue(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
-                isTerminatingApp: false,
-                includeScrollback: false,
-                previousFingerprint: 1234,
-                currentFingerprint: 1234,
-                lastPersistedAt: now.addingTimeInterval(-5),
-                now: now,
-                maximumAutosaveSkippableInterval: 60
+            AppDelegate.shouldKeepExistingSessionAutosaveSchedule(
+                allowDelayExtension: false,
+                existingDeadlineUptime: 200,
+                targetDeadlineUptime: 230
             )
         )
     }
 
-    func testUnchangedAutosaveFingerprintDoesNotSkipAfterStalenessWindow() {
-        let now = Date()
+    func testSessionAutosaveScheduleAcceptsEarlierDeadlineWhenDelayExtensionIsDisabled() {
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
-                isTerminatingApp: false,
-                includeScrollback: false,
-                previousFingerprint: 1234,
-                currentFingerprint: 1234,
-                lastPersistedAt: now.addingTimeInterval(-120),
-                now: now,
-                maximumAutosaveSkippableInterval: 60
+            AppDelegate.shouldKeepExistingSessionAutosaveSchedule(
+                allowDelayExtension: false,
+                existingDeadlineUptime: 200,
+                targetDeadlineUptime: 170
             )
         )
     }
 
-    func testUnchangedAutosaveFingerprintNeverSkipsTerminatingOrScrollbackWrites() {
-        let now = Date()
+    func testSessionAutosaveScheduleAllowsDelayExtensionWhenRequested() {
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
-                isTerminatingApp: true,
-                includeScrollback: false,
-                previousFingerprint: 1234,
-                currentFingerprint: 1234,
-                lastPersistedAt: now.addingTimeInterval(-1),
-                now: now
+            AppDelegate.shouldKeepExistingSessionAutosaveSchedule(
+                allowDelayExtension: true,
+                existingDeadlineUptime: 200,
+                targetDeadlineUptime: 230
             )
         )
-        XCTAssertFalse(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
-                isTerminatingApp: false,
-                includeScrollback: true,
-                previousFingerprint: 1234,
-                currentFingerprint: 1234,
-                lastPersistedAt: now.addingTimeInterval(-1),
-                now: now
+    }
+
+    func testSessionAutosaveScheduleKeepsWhenDeadlinesAreEqual() {
+        XCTAssertTrue(
+            AppDelegate.shouldKeepExistingSessionAutosaveSchedule(
+                allowDelayExtension: false,
+                existingDeadlineUptime: 200,
+                targetDeadlineUptime: 200
             )
         )
     }
