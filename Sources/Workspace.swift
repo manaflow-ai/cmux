@@ -6989,7 +6989,9 @@ final class Workspace: Identifiable, ObservableObject {
     private func tearDownRemoteSessionIfSSHFeaturesDisabled() {
         guard !SSHFeaturesSettings.isEnabled() else { return }
         guard let destination = remoteConfiguration?.destination else { return }
-        disconnectRemoteConnection(clearConfiguration: true)
+        disconnectRemoteConnection(clearConfiguration: false)
+        remoteConfiguration = nil
+        skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         applyRemoteConnectionStateUpdate(
             .error,
             detail: String(
