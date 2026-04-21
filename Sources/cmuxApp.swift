@@ -4630,6 +4630,73 @@ struct SettingsView: View {
         "\(Int((QuickTerminalSettings.clampRatio(ratio) * 100).rounded()))%"
     }
 
+    private var quickTerminalSettingsRows: AnyView {
+        AnyView(Group {
+            SettingsPickerRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.quickTerminal.position", defaultValue: "Quick Terminal Position"),
+                subtitle: String(localized: "settings.quickTerminal.position.subtitle", defaultValue: "Choose which edge the quick terminal slides from."),
+                controlWidth: pickerColumnWidth,
+                selection: quickTerminalPositionSelection
+            ) {
+                ForEach(Array(QuickTerminalPosition.allCases), id: \.rawValue) { position in
+                    Text(verbatim: quickTerminalPositionDisplayName(position))
+                        .tag(position.rawValue)
+                }
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.quickTerminal.primarySize", defaultValue: "Quick Terminal Primary Size"),
+                subtitle: String(localized: "settings.quickTerminal.primarySize.subtitle", defaultValue: "Size along the deployment axis.")
+            ) {
+                HStack(spacing: 8) {
+                    Slider(value: quickTerminalPrimarySizeBinding, in: 0.2...1.0)
+                        .frame(width: 132)
+                    Text(quickTerminalRatioPercentLabel(quickTerminalPrimarySizeRatio))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 42, alignment: .trailing)
+                }
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.quickTerminal.secondarySize", defaultValue: "Quick Terminal Secondary Size"),
+                subtitle: String(localized: "settings.quickTerminal.secondarySize.subtitle", defaultValue: "Size on the opposite axis.")
+            ) {
+                HStack(spacing: 8) {
+                    Slider(value: quickTerminalSecondarySizeBinding, in: 0.2...1.0)
+                        .frame(width: 132)
+                    Text(quickTerminalRatioPercentLabel(quickTerminalSecondarySizeRatio))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 42, alignment: .trailing)
+                }
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.quickTerminal.autoHide", defaultValue: "Quick Terminal Auto-Hide"),
+                subtitle: quickTerminalAutoHide
+                    ? String(localized: "settings.quickTerminal.autoHide.subtitleOn", defaultValue: "Hide automatically when it loses focus.")
+                    : String(localized: "settings.quickTerminal.autoHide.subtitleOff", defaultValue: "Keep visible when focus moves to another app/window.")
+            ) {
+                Toggle("", isOn: $quickTerminalAutoHide)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            SettingsCardDivider()
+        })
+    }
+
     private var sidebarIndicatorStyleSelection: Binding<String> {
         Binding(
             get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
@@ -5134,63 +5201,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsPickerRow(
-                            String(localized: "settings.quickTerminal.position", defaultValue: "Quick Terminal Position"),
-                            subtitle: String(localized: "settings.quickTerminal.position.subtitle", defaultValue: "Choose which edge the quick terminal slides from."),
-                            controlWidth: pickerColumnWidth,
-                            selection: quickTerminalPositionSelection
-                        ) {
-                            ForEach(QuickTerminalPosition.allCases) { position in
-                                Text(quickTerminalPositionDisplayName(position)).tag(position.rawValue)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.quickTerminal.primarySize", defaultValue: "Quick Terminal Primary Size"),
-                            subtitle: String(localized: "settings.quickTerminal.primarySize.subtitle", defaultValue: "Size along the deployment axis.")
-                        ) {
-                            HStack(spacing: 8) {
-                                Slider(value: quickTerminalPrimarySizeBinding, in: 0.2...1.0)
-                                    .frame(width: 132)
-                                Text(quickTerminalRatioPercentLabel(quickTerminalPrimarySizeRatio))
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 42, alignment: .trailing)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.quickTerminal.secondarySize", defaultValue: "Quick Terminal Secondary Size"),
-                            subtitle: String(localized: "settings.quickTerminal.secondarySize.subtitle", defaultValue: "Size on the opposite axis.")
-                        ) {
-                            HStack(spacing: 8) {
-                                Slider(value: quickTerminalSecondarySizeBinding, in: 0.2...1.0)
-                                    .frame(width: 132)
-                                Text(quickTerminalRatioPercentLabel(quickTerminalSecondarySizeRatio))
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 42, alignment: .trailing)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.quickTerminal.autoHide", defaultValue: "Quick Terminal Auto-Hide"),
-                            subtitle: quickTerminalAutoHide
-                                ? String(localized: "settings.quickTerminal.autoHide.subtitleOn", defaultValue: "Hide automatically when it loses focus.")
-                                : String(localized: "settings.quickTerminal.autoHide.subtitleOff", defaultValue: "Keep visible when focus moves to another app/window.")
-                        ) {
-                            Toggle("", isOn: $quickTerminalAutoHide)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
+                        quickTerminalSettingsRows
 
                         SettingsCardRow(
                             configurationReview: .json("app.keepWorkspaceOpenWhenClosingLastSurface"),

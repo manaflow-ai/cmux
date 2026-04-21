@@ -532,6 +532,7 @@
               "toggleFullScreen",
               "quit",
               "toggleSidebar",
+              "toggleQuickTerminal",
               "newTab",
               "openFolder",
               "goToWorkspace",
