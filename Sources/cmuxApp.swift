@@ -379,7 +379,7 @@ struct cmuxApp: App {
                     openCmuxSettingsFileInEditor()
                 }
                 Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
-                    GhosttyApp.shared.openConfigurationInTextEdit()
+                    openGhosttyConfigInEditor()
                 }
                 splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
                     GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
@@ -4366,6 +4366,28 @@ private func openCmuxSettingsFileInEditor() {
     PreferredEditorSettings.open(url)
 }
 
+private func openGhosttyConfigInEditor() {
+    let configPaths = [
+        "~/.config/ghostty/config",
+        "~/.config/ghostty/config.ghostty",
+        "~/Library/Application Support/com.mitchellh.ghostty/config",
+        "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+    ].map { NSString(string: $0).expandingTildeInPath }
+
+    let resolvedPath: String
+    if let existing = configPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+        resolvedPath = existing
+    } else {
+        let defaultPath = configPaths[0]
+        let dir = (defaultPath as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: defaultPath, contents: nil)
+        resolvedPath = defaultPath
+    }
+
+    PreferredEditorSettings.open(URL(fileURLWithPath: resolvedPath))
+}
+
 private func openCmuxSettingsFileInTextEdit() {
     #if os(macOS)
     let fileURL = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
@@ -6290,7 +6312,7 @@ struct SettingsView: View {
                                     .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
 
                                 Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
-                                    openCmuxSettingsFileInTextEdit()
+                                    openCmuxSettingsFileInEditor()
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
@@ -6422,7 +6444,7 @@ struct SettingsView: View {
                             title: String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json"),
                             helpText: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath(),
                             accessibilityIdentifier: "SettingsFileOpenButton",
-                            action: openCmuxSettingsFileInTextEdit
+                            action: openCmuxSettingsFileInEditor
                         )
                     }
                 }
