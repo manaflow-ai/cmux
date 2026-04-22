@@ -2540,6 +2540,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
 
+    /// Per-display window frame cache for restoring positions when external displays reconnect.
+    /// Keyed by CGDirectDisplayID, values map stable window UUID to the last known frame on that display.
+    private var displayWindowFrameCache: [UInt32: [UUID: CGRect]] = [:]
+    /// Set of display IDs that were connected at last check, used to detect reconnections.
+    private var knownConnectedDisplayIDs: Set<UInt32> = []
+    /// Brief flag set during system-driven display relayout to suppress pruning
+    /// of disconnected display cache entries.
+    private var isHandlingDisplayDisconnect = false
+
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
@@ -2681,6 +2690,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self,
             selector: #selector(handleReactGrabDidCopySelection(_:)),
             name: .reactGrabDidCopySelection,
+            object: nil
+        )
+
+        // Track external display connect/disconnect for window position restoration.
+        knownConnectedDisplayIDs = Set(NSScreen.screens.compactMap { $0.cmuxDisplayID })
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreenParametersDidChange(_:)),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWindowDidChangeScreen(_:)),
+            name: NSWindow.didChangeScreenNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWindowDidMove(_:)),
+            name: NSWindow.didMoveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWindowDidResize(_:)),
+            name: NSWindow.didResizeNotification,
             object: nil
         )
 
@@ -4444,6 +4480,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    // MARK: - Display reconnection window restoration
+
+    /// Cache the current frame of a managed window, keyed by its current display.
+    /// During system-driven relayout (display disconnect), disconnected display
+    /// entries are preserved. User-initiated moves clear all other entries so
+    /// the window won't snap back to a display it was moved away from.
+    private func cacheWindowFrameForDisplay(_ window: NSWindow) {
+        guard let ctx = mainWindowContexts[ObjectIdentifier(window)] else { return }
+        guard let displayID = window.screen?.cmuxDisplayID else { return }
+        let windowID = ctx.windowId
+        for otherDisplayID in displayWindowFrameCache.keys where otherDisplayID != displayID {
+            if isHandlingDisplayDisconnect && !knownConnectedDisplayIDs.contains(otherDisplayID) {
+                // Preserve disconnected display entries during system relayout.
+                continue
+            }
+            displayWindowFrameCache[otherDisplayID]?.removeValue(forKey: windowID)
+        }
+        displayWindowFrameCache[displayID, default: [:]][windowID] = window.frame
+    }
+
+    @objc private func handleWindowDidMove(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        cacheWindowFrameForDisplay(window)
+    }
+
+    @objc private func handleWindowDidResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        cacheWindowFrameForDisplay(window)
+    }
+
+    @objc private func handleWindowDidChangeScreen(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        cacheWindowFrameForDisplay(window)
+    }
+
+    @objc private func handleScreenParametersDidChange(_ notification: Notification) {
+        let currentDisplayIDs = Set(NSScreen.screens.compactMap { $0.cmuxDisplayID })
+        let reconnected = currentDisplayIDs.subtracting(knownConnectedDisplayIDs)
+        let disconnected = knownConnectedDisplayIDs.subtracting(currentDisplayIDs)
+        knownConnectedDisplayIDs = currentDisplayIDs
+
+        // Briefly suppress pruning of disconnected display entries so that
+        // the system-driven window relocation preserves the restore frame.
+        if !disconnected.isEmpty {
+            isHandlingDisplayDisconnect = true
+            DispatchQueue.main.async { [weak self] in
+                self?.isHandlingDisplayDisconnect = false
+            }
+        }
+
+        guard !reconnected.isEmpty else { return }
+
+        for displayID in reconnected {
+            guard let cachedFrames = displayWindowFrameCache[displayID],
+                  let screen = NSScreen.screens.first(where: { $0.cmuxDisplayID == displayID }) else {
+                continue
+            }
+            for (windowUUID, frame) in cachedFrames {
+                guard let ctx = mainWindowContexts.values.first(where: { $0.windowId == windowUUID }),
+                      let window = ctx.window else {
+                    continue
+                }
+                let clamped = Self.clampFrame(
+                    frame,
+                    within: screen.visibleFrame,
+                    minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+                    minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+                )
+                window.setFrame(clamped, display: true, animate: true)
+            }
+        }
+    }
+
     private func startSessionAutosaveTimerIfNeeded() {
         guard sessionAutosaveTimer == nil else { return }
         let env = ProcessInfo.processInfo.environment
@@ -4983,6 +5092,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         notifyMainWindowContextsDidChange()
+        cacheWindowFrameForDisplay(window)
         if window.isKeyWindow {
             setActiveMainWindow(window)
         }
@@ -9457,9 +9567,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         })();
         """
 
-        panel.webView.evaluateJavaScript(script) { [weak self] result, _ in
+        panel.webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { [weak self] callResult in
             guard let self else { return }
-            let payload = result as? [String: Any]
+            let payload = (try? callResult.get()) as? [String: Any]
             let focused = (payload?["focused"] as? Bool) ?? false
             let inputId = (payload?["id"] as? String) ?? ""
             let secondaryInputId = (payload?["secondaryId"] as? String) ?? ""
@@ -9665,8 +9775,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         })();
         """
 
-        panel.webView.evaluateJavaScript(script) { result, _ in
-            let payload = result as? [String: Any]
+        panel.webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { callResult in
+            let payload = (try? callResult.get()) as? [String: Any]
             completion([
                 "id": (payload?["id"] as? String) ?? "",
                 "tag": (payload?["tag"] as? String) ?? "",
@@ -13121,6 +13231,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
+
+        // Purge per-display frame cache for the closing window.
+        for displayID in displayWindowFrameCache.keys {
+            displayWindowFrameCache[displayID]?.removeValue(forKey: removed.windowId)
+        }
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
