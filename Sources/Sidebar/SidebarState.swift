@@ -15,6 +15,7 @@ final class SidebarState: ObservableObject {
         isVisible.toggle()
     }
 }
+
 enum SidebarResizeInteraction {
     // Keep a generous drag target inside the sidebar itself, but make the
     // terminal-side overlap very small so column-0 text selection still wins.

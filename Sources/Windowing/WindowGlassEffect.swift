@@ -89,18 +89,8 @@ enum WindowGlassEffect {
 
         // Add tint overlay between glass and content (for fallback)
         if let tintColor, !usingGlassEffectView {
-            let tintOverlay = NSView(frame: bounds)
-            tintOverlay.translatesAutoresizingMaskIntoConstraints = false
-            tintOverlay.wantsLayer = true
+            let tintOverlay = ensureTintOverlay(on: glassView, window: window)
             tintOverlay.layer?.backgroundColor = tintColor.cgColor
-            glassView.addSubview(tintOverlay)
-            NSLayoutConstraint.activate([
-                tintOverlay.topAnchor.constraint(equalTo: glassView.topAnchor),
-                tintOverlay.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
-                tintOverlay.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
-                tintOverlay.trailingAnchor.constraint(equalTo: glassView.trailingAnchor)
-            ])
-            objc_setAssociatedObject(window, &tintOverlayKey, tintOverlay, .OBJC_ASSOCIATION_RETAIN)
         }
 
         // Store reference
@@ -122,10 +112,32 @@ enum WindowGlassEffect {
             }
         } else {
             // For NSVisualEffectView fallback, update the tint overlay
-            if let tintOverlay = objc_getAssociatedObject(window, &tintOverlayKey) as? NSView {
+            if let color {
+                let tintOverlay = ensureTintOverlay(on: glassView, window: window)
+                tintOverlay.layer?.backgroundColor = color.cgColor
+            } else if let tintOverlay = objc_getAssociatedObject(window, &tintOverlayKey) as? NSView {
                 tintOverlay.layer?.backgroundColor = color?.cgColor
             }
         }
+    }
+
+    private static func ensureTintOverlay(on glassView: NSView, window: NSWindow) -> NSView {
+        if let tintOverlay = objc_getAssociatedObject(window, &tintOverlayKey) as? NSView {
+            return tintOverlay
+        }
+
+        let tintOverlay = NSView(frame: glassView.bounds)
+        tintOverlay.translatesAutoresizingMaskIntoConstraints = false
+        tintOverlay.wantsLayer = true
+        glassView.addSubview(tintOverlay)
+        NSLayoutConstraint.activate([
+            tintOverlay.topAnchor.constraint(equalTo: glassView.topAnchor),
+            tintOverlay.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
+            tintOverlay.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+            tintOverlay.trailingAnchor.constraint(equalTo: glassView.trailingAnchor)
+        ])
+        objc_setAssociatedObject(window, &tintOverlayKey, tintOverlay, .OBJC_ASSOCIATION_RETAIN)
+        return tintOverlay
     }
 
     static func remove(from window: NSWindow) {
