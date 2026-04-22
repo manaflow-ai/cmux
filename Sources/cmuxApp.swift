@@ -4343,7 +4343,6 @@ struct SettingsView: View {
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
-    @State private var trustedDirectoriesDraft: String = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -4583,14 +4582,6 @@ struct SettingsView: View {
 
     private var browserInsecureHTTPAllowlistHasUnsavedChanges: Bool {
         browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
-    }
-
-    private func saveTrustedDirectories() {
-        let paths = trustedDirectoriesDraft
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        CmuxDirectoryTrust.shared.replaceAll(with: paths)
     }
 
     private var hasCustomNotificationSoundFilePath: Bool {
@@ -5811,39 +5802,6 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
-                    }
-
-                    SettingsSectionHeader(title: String(localized: "settings.section.customCommands", defaultValue: "Custom Commands"))
-                    SettingsCard {
-                        VStack(alignment: .leading, spacing: 6) {
-                            SettingsCardRow(
-                                configurationReview: .json("customCommands.trustedDirectories"),
-                                String(localized: "settings.customCommands.trustedDirectories", defaultValue: "Trusted Directories"),
-                                subtitle: String(localized: "settings.customCommands.trustedDirectories.subtitle", defaultValue: "Commands from cmux.json in these directories run without confirmation. One path per line.")
-                            ) {
-                                EmptyView()
-                            }
-
-                            TextEditor(text: $trustedDirectoriesDraft)
-                                .font(.system(.body, design: .monospaced))
-                                .frame(minHeight: 60, maxHeight: 120)
-                                .scrollContentBackground(.hidden)
-                                .padding(6)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(6)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                                )
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 12)
-                                .onChange(of: trustedDirectoriesDraft) { _ in
-                                    saveTrustedDirectories()
-                                }
-                        }
-
-                        SettingsCardDivider()
-                        SettingsCardNote(String(localized: "settings.customCommands.trustedDirectories.note", defaultValue: "Place a cmux.json in your project root to define custom commands. Trust a directory from the confirmation dialog, or add paths here. For git repos, trusting the root covers all subdirectories."))
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))

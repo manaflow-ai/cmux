@@ -9512,8 +9512,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
+        let configuredCmuxShortcutActions = configuredCmuxShortcutActions(for: configuredCmuxShortcutContext)
+
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           armConfiguredShortcutChordIfNeeded(event: event) {
+           armConfiguredShortcutChordIfNeeded(
+               event: event,
+               shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
+           ) {
             return true
         }
 
@@ -9547,6 +9553,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             targetWindow.toggleFullScreen(nil)
+            return true
+        }
+
+        if handleConfiguredCmuxShortcut(
+            event: event,
+            actions: configuredCmuxShortcutActions,
+            context: configuredCmuxShortcutContext
+        ) {
             return true
         }
 
@@ -10832,8 +10846,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
@@ -10843,6 +10856,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard !shortcut.hasChord else { return false }
         return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+    }
+
+    private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
+        matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
 
     private func numberedConfiguredShortcutDigit(
@@ -10901,10 +10918,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func armConfiguredShortcutChordIfNeeded(
         event: NSEvent,
-        actions: [KeyboardShortcutSettings.Action]? = nil
+        actions: [KeyboardShortcutSettings.Action]? = nil,
+        shortcuts: [StoredShortcut] = []
     ) -> Bool {
-        for action in actions ?? configuredShortcutChordActions {
-            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        var seen = Set<StoredShortcut>()
+        let configuredShortcuts = (actions ?? configuredShortcutChordActions).map {
+            KeyboardShortcutSettings.shortcut(for: $0)
+        } + shortcuts
+        for shortcut in configuredShortcuts {
+            guard seen.insert(shortcut).inserted else { continue }
             guard shortcut.hasChord else { continue }
             if matchShortcutStroke(event: event, stroke: shortcut.firstStroke) {
                 pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
@@ -10915,6 +10937,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return false
+    }
+
+    private func configuredCmuxShortcutActions(
+        for context: MainWindowContext?
+    ) -> [CmuxResolvedConfigAction] {
+        context?.cmuxConfigStore?.shortcutActions() ?? []
+    }
+
+    private func handleConfiguredCmuxShortcut(
+        event: NSEvent,
+        actions: [CmuxResolvedConfigAction],
+        context: MainWindowContext?
+    ) -> Bool {
+        for action in actions {
+            guard let shortcut = action.shortcut,
+                  matchConfiguredShortcut(event: event, shortcut: shortcut) else {
+                continue
+            }
+            return executeConfiguredCmuxActionShortcut(
+                action,
+                event: event,
+                context: context
+            )
+        }
+        return false
+    }
+
+    private func executeConfiguredCmuxActionShortcut(
+        _ action: CmuxResolvedConfigAction,
+        event: NSEvent,
+        context: MainWindowContext?
+    ) -> Bool {
+        switch action.action {
+        case .builtIn(let builtIn):
+            switch builtIn {
+            case .newTerminal:
+                tabManager?.newSurface()
+                return true
+            case .newBrowser:
+                _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
+                return true
+            case .splitRight:
+                if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
+                    return true
+                }
+                _ = performSplitShortcut(
+                    direction: .right,
+                    preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+                )
+                return true
+            case .splitDown:
+                if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .down) {
+                    return true
+                }
+                _ = performSplitShortcut(
+                    direction: .down,
+                    preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+                )
+                return true
+            }
+        case .command, .agent, .workspaceCommand:
+            guard let context,
+                  let cmuxConfigStore = context.cmuxConfigStore else {
+                return false
+            }
+            let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
+            let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+                : FileManager.default.homeDirectoryForCurrentUser.path
+            return CmuxConfigExecutor.execute(
+                action: action,
+                commands: cmuxConfigStore.loadedCommands,
+                commandSourcePaths: cmuxConfigStore.commandSourcePaths,
+                tabManager: context.tabManager,
+                baseCwd: baseCwd,
+                globalConfigPath: cmuxConfigStore.globalConfigPath
+            )
+        case .actionReference:
+            return false
+        }
     }
 
     /// Match a shortcut stroke against an event, handling normal keys.

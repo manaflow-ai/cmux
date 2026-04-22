@@ -1076,7 +1076,7 @@ final class SystemWideHotkeyController {
     }
 }
 
-struct ShortcutStroke: Equatable {
+struct ShortcutStroke: Equatable, Hashable {
     enum RecordingResult: Equatable {
         case accepted(ShortcutStroke)
         case rejected(KeyboardShortcutSettings.ShortcutRecordingRejection)
@@ -1738,7 +1738,7 @@ struct ShortcutStroke: Equatable {
 }
 
 /// A keyboard shortcut that can be stored in UserDefaults
-struct StoredShortcut: Codable, Equatable {
+struct StoredShortcut: Codable, Equatable, Hashable {
     var key: String
     var command: Bool
     var shift: Bool
@@ -1939,6 +1939,134 @@ struct StoredShortcut: Codable, Equatable {
     var carbonHotKeyRegistration: CarbonHotKeyRegistration? {
         guard !hasChord else { return nil }
         return firstStroke.carbonHotKeyRegistration
+    }
+}
+
+extension ShortcutStroke {
+    static func parseConfig(_ rawValue: String) -> ShortcutStroke? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let parts = trimmed.split(separator: "+", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard !parts.isEmpty, let lastPart = parts.last, !lastPart.isEmpty else {
+            return nil
+        }
+
+        var command = false
+        var shift = false
+        var option = false
+        var control = false
+
+        for modifier in parts.dropLast() {
+            switch modifier.lowercased() {
+            case "cmd", "command", "⌘":
+                command = true
+            case "shift", "⇧":
+                shift = true
+            case "opt", "option", "alt", "⌥":
+                option = true
+            case "ctrl", "control", "ctl", "⌃":
+                control = true
+            default:
+                return nil
+            }
+        }
+
+        guard let key = parseConfigKeyToken(lastPart) else { return nil }
+        return ShortcutStroke(
+            key: key,
+            command: command,
+            shift: shift,
+            option: option,
+            control: control
+        )
+    }
+
+    func configString(preserveDigit: Bool = true) -> String {
+        var parts: [String] = []
+        if command { parts.append("cmd") }
+        if shift { parts.append("shift") }
+        if option { parts.append("opt") }
+        if control { parts.append("ctrl") }
+        parts.append(configKeyString(preserveDigit: preserveDigit))
+        return parts.joined(separator: "+")
+    }
+
+    private func configKeyString(preserveDigit: Bool) -> String {
+        if preserveDigit {
+            return key
+        }
+        return key
+    }
+
+    private static func parseConfigKeyToken(_ rawValue: String) -> String? {
+        let lowered = rawValue.lowercased()
+        switch lowered {
+        case "left", "arrowleft", "leftarrow", "←":
+            return "←"
+        case "right", "arrowright", "rightarrow", "→":
+            return "→"
+        case "up", "arrowup", "uparrow", "↑":
+            return "↑"
+        case "down", "arrowdown", "downarrow", "↓":
+            return "↓"
+        case "tab":
+            return "\t"
+        case "return", "enter", "↩":
+            return "\r"
+        case "space":
+            return " "
+        case "comma":
+            return ","
+        case "period", "dot":
+            return "."
+        case "slash":
+            return "/"
+        case "backslash":
+            return "\\"
+        case "semicolon":
+            return ";"
+        case "quote", "apostrophe":
+            return "'"
+        case "backtick", "grave":
+            return "`"
+        case "minus", "hyphen":
+            return "-"
+        case "plus", "equals":
+            return "="
+        case "leftbracket", "openbracket":
+            return "["
+        case "rightbracket", "closebracket":
+            return "]"
+        default:
+            guard lowered.count == 1 else { return nil }
+            return lowered
+        }
+    }
+}
+
+extension StoredShortcut {
+    static func parseConfig(_ rawValue: String) -> StoredShortcut? {
+        parseConfig(strokes: [rawValue])
+    }
+
+    static func parseConfig(strokes: [String]) -> StoredShortcut? {
+        guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
+        let parsedStrokes = strokes.compactMap(ShortcutStroke.parseConfig(_:))
+        guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
+            return nil
+        }
+        guard !firstStroke.modifierFlags.isEmpty else { return nil }
+        let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
+        return StoredShortcut(first: firstStroke, second: secondStroke)
+    }
+
+    var configIdentifier: String {
+        if let secondStroke {
+            return "\(firstStroke.configString()) \(secondStroke.configString())"
+        }
+        return firstStroke.configString()
     }
 }
 

@@ -6999,7 +6999,7 @@ final class Workspace: Identifiable, ObservableObject {
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
-        surfaceTabBarCommandButtons = Dictionary(
+        let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
                 if button.terminalCommand != nil {
                     return (
@@ -7007,7 +7007,7 @@ final class Workspace: Identifiable, ObservableObject {
                         SurfaceTabBarExecutableButton(
                             button: button,
                             workspaceCommand: nil,
-                            terminalCommandSourcePath: terminalCommandSourcePaths[button.id]
+                            terminalCommandSourcePath: button.actionSourcePath ?? terminalCommandSourcePaths[button.id]
                         )
                     )
                 }
@@ -7024,11 +7024,25 @@ final class Workspace: Identifiable, ObservableObject {
                 return nil
             }
         )
+        surfaceTabBarCommandButtons = executableButtons
         surfaceTabBarButtonSourcePath = sourcePath
         surfaceTabBarButtonGlobalConfigPath = globalConfigPath
 
         let bonsplitButtons = buttons.map { button in
-            button.bonsplitActionButton(configSourcePath: sourcePath)
+            let executable = executableButtons[button.id]
+            let allowProjectLocalIcon = executable.map {
+                CmuxConfigExecutor.isTrustedSurfaceButton(
+                    $0.button,
+                    workspaceCommand: $0.workspaceCommand,
+                    terminalCommandSourcePath: $0.terminalCommandSourcePath,
+                    globalConfigPath: globalConfigPath
+                )
+            } ?? true
+            return button.bonsplitActionButton(
+                configSourcePath: sourcePath,
+                globalConfigPath: globalConfigPath,
+                allowProjectLocalIcon: allowProjectLocalIcon
+            )
         }
         var configuration = bonsplitController.configuration
         guard configuration.appearance.splitButtons != bonsplitButtons else { return }
@@ -10263,9 +10277,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
-    func newTerminalSurfaceInFocusedPane(focus: Bool? = nil) -> TerminalPanel? {
+    func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
-        return newTerminalSurface(inPane: focusedPaneId, focus: focus)
+        return newTerminalSurface(inPane: focusedPaneId, focus: focus, initialInput: initialInput)
     }
 
     @discardableResult
@@ -12389,7 +12403,10 @@ extension Workspace: BonsplitDelegate {
                 tabManager: tabManager,
                 baseCwd: baseCwd,
                 configSourcePath: workspaceCommand.sourcePath,
-                globalConfigPath: globalConfigPath
+                globalConfigPath: globalConfigPath,
+                actionID: executable.button.id,
+                icon: executable.button.icon ?? executable.button.action.defaultButtonIcon,
+                iconSourcePath: executable.button.iconSourcePath
             )
             return
         }
@@ -12398,14 +12415,23 @@ extension Workspace: BonsplitDelegate {
         guard let shellInput = CmuxConfigExecutor.preparedShellInput(
             command,
             confirm: executable.button.confirm ?? false,
+            actionID: executable.button.id,
+            target: executable.button.resolvedTerminalCommandTarget,
             configSourcePath: executable.terminalCommandSourcePath ?? surfaceTabBarButtonSourcePath,
-            globalConfigPath: globalConfigPath
+            globalConfigPath: globalConfigPath,
+            icon: executable.button.icon ?? executable.button.action.defaultButtonIcon,
+            iconSourcePath: executable.button.iconSourcePath
         ) else {
             return
         }
 
         bonsplitController.focusPane(pane)
-        _ = newTerminalSurface(inPane: pane, focus: true, initialInput: shellInput)
+        switch executable.button.resolvedTerminalCommandTarget {
+        case .currentTerminal:
+            selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
+        case .newTabInCurrentPane:
+            _ = newTerminalSurface(inPane: pane, focus: true, initialInput: shellInput)
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {

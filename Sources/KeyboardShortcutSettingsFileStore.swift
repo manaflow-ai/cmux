@@ -78,7 +78,6 @@ final class CmuxSettingsFileStore {
         "automation.geminiIntegration",
         "automation.portBase",
         "automation.portRange",
-        "customCommands.trustedDirectories",
         "browser.defaultSearchEngine",
         "browser.showSearchSuggestions",
         "browser.theme",
@@ -95,7 +94,6 @@ final class CmuxSettingsFileStore {
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    fileprivate static let trustedDirectoriesBackupIdentifier = "customCommands.trustedDirectories"
     fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
 
     static var defaultPrimaryPath: String {
@@ -125,7 +123,6 @@ final class CmuxSettingsFileStore {
     private var primaryWatcher: ShortcutSettingsFileWatcher?
     private var fallbackWatcher: ShortcutSettingsFileWatcher?
     private var defaultsCancellable: AnyCancellable?
-    private var trustObserver: NSObjectProtocol?
     private var socketPasswordObserver: NSObjectProtocol?
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
@@ -167,13 +164,6 @@ final class CmuxSettingsFileStore {
             .sink { [weak self] _ in
                 self?.reapplyManagedSettingsIfNeeded()
             }
-        trustObserver = notificationCenter.addObserver(
-            forName: CmuxDirectoryTrust.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            self?.reapplyManagedSettingsIfNeeded()
-        }
         socketPasswordObserver = notificationCenter.addObserver(
             forName: SocketControlPasswordStore.didChangeNotification,
             object: nil,
@@ -187,9 +177,6 @@ final class CmuxSettingsFileStore {
         primaryWatcher?.stop()
         fallbackWatcher?.stop()
         defaultsCancellable?.cancel()
-        if let trustObserver {
-            notificationCenter.removeObserver(trustObserver)
-        }
         if let socketPasswordObserver {
             notificationCenter.removeObserver(socketPasswordObserver)
         }
@@ -369,9 +356,6 @@ final class CmuxSettingsFileStore {
         }
         if let automationSection = root["automation"] as? [String: Any] {
             parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
-        }
-        if let customCommandsSection = root["customCommands"] as? [String: Any] {
-            parseCustomCommandsSection(customCommandsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
@@ -740,21 +724,6 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func parseCustomCommandsSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        if let values = jsonStringArray(section["trustedDirectories"]) {
-            let normalized = values
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            snapshot.managedCustomSettings.trustedDirectories = normalized
-        } else if section.keys.contains("trustedDirectories") {
-            logInvalid("customCommands.trustedDirectories", sourcePath: sourcePath)
-        }
-    }
-
     private func parseBrowserSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -862,9 +831,9 @@ final class CmuxSettingsFileStore {
     ) -> StoredShortcut? {
         let shortcut: StoredShortcut?
         if let stroke = jsonString(rawValue) {
-            shortcut = parseStoredShortcut(strokes: [stroke])
+            shortcut = StoredShortcut.parseConfig(stroke)
         } else if let strokes = jsonStringArray(rawValue) {
-            shortcut = parseStoredShortcut(strokes: strokes)
+            shortcut = StoredShortcut.parseConfig(strokes: strokes)
         } else {
             shortcut = nil
         }
@@ -874,102 +843,6 @@ final class CmuxSettingsFileStore {
             return normalized
         }
         return action.usesNumberedDigitMatching ? nil : shortcut
-    }
-
-    private func parseStoredShortcut(strokes: [String]) -> StoredShortcut? {
-        guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
-        let parsedStrokes = strokes.compactMap(parseStroke(_:))
-        guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
-            return nil
-        }
-        guard !firstStroke.modifierFlags.isEmpty else { return nil }
-        let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
-        return StoredShortcut(first: firstStroke, second: secondStroke)
-    }
-
-    private func parseStroke(_ rawValue: String) -> ShortcutStroke? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let parts = trimmed.split(separator: "+", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard !parts.isEmpty, let lastPart = parts.last, !lastPart.isEmpty else {
-            return nil
-        }
-
-        var command = false
-        var shift = false
-        var option = false
-        var control = false
-
-        for modifier in parts.dropLast() {
-            switch modifier.lowercased() {
-            case "cmd", "command", "⌘":
-                command = true
-            case "shift", "⇧":
-                shift = true
-            case "opt", "option", "alt", "⌥":
-                option = true
-            case "ctrl", "control", "ctl", "⌃":
-                control = true
-            default:
-                return nil
-            }
-        }
-
-        guard let key = parseKeyToken(lastPart) else { return nil }
-        return ShortcutStroke(
-            key: key,
-            command: command,
-            shift: shift,
-            option: option,
-            control: control
-        )
-    }
-
-    private func parseKeyToken(_ rawValue: String) -> String? {
-        let lowered = rawValue.lowercased()
-        switch lowered {
-        case "left", "arrowleft", "leftarrow", "←":
-            return "←"
-        case "right", "arrowright", "rightarrow", "→":
-            return "→"
-        case "up", "arrowup", "uparrow", "↑":
-            return "↑"
-        case "down", "arrowdown", "downarrow", "↓":
-            return "↓"
-        case "tab":
-            return "\t"
-        case "return", "enter", "↩":
-            return "\r"
-        case "space":
-            return " "
-        case "comma":
-            return ","
-        case "period", "dot":
-            return "."
-        case "slash":
-            return "/"
-        case "backslash":
-            return "\\"
-        case "semicolon":
-            return ";"
-        case "quote", "apostrophe":
-            return "'"
-        case "backtick", "grave":
-            return "`"
-        case "minus", "hyphen":
-            return "-"
-        case "plus", "equals":
-            return "="
-        case "leftbracket", "openbracket":
-            return "["
-        case "rightbracket", "closebracket":
-            return "]"
-        default:
-            guard lowered.count == 1 else { return nil }
-            return lowered
-        }
     }
 
     private func parseNullableHex(
@@ -1010,10 +883,6 @@ final class CmuxSettingsFileStore {
             for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil {
                 backups[defaultsKey] = backupValueForUserDefaultsKey(defaultsKey, managedValue: value)
             }
-            if snapshot.managedCustomSettings.trustedDirectories != nil,
-               backups[Self.trustedDirectoriesBackupIdentifier] == nil {
-                backups[Self.trustedDirectoriesBackupIdentifier] = .stringArray(CmuxDirectoryTrust.shared.allTrustedPaths)
-            }
             if snapshot.managedCustomSettings.socketPassword != nil,
                backups[Self.socketPasswordBackupIdentifier] == nil {
                 backups[Self.socketPasswordBackupIdentifier] = currentSocketPasswordBackupValue()
@@ -1037,11 +906,6 @@ final class CmuxSettingsFileStore {
     }
 
     private func applyManagedCustomSettings(_ settings: ManagedCustomSettings) {
-        if let trustedDirectories = settings.trustedDirectories,
-           CmuxDirectoryTrust.shared.allTrustedPaths != trustedDirectories {
-            CmuxDirectoryTrust.shared.replaceAll(with: trustedDirectories)
-        }
-
         if let socketPassword = settings.socketPassword {
             switch socketPassword {
             case .set(let value):
@@ -1060,12 +924,6 @@ final class CmuxSettingsFileStore {
 
     private func restoreBackup(_ backup: BackupValue, for identifier: String) {
         switch identifier {
-        case Self.trustedDirectoriesBackupIdentifier:
-            if case .stringArray(let values) = backup {
-                CmuxDirectoryTrust.shared.replaceAll(with: values)
-            } else {
-                CmuxDirectoryTrust.shared.replaceAll(with: [])
-            }
         case Self.socketPasswordBackupIdentifier:
             switch backup {
             case .string(let value):
@@ -1434,11 +1292,6 @@ final class CmuxSettingsFileStore {
                 ],
             ],
             [
-                "customCommands": [
-                    "trustedDirectories": [String](),
-                ],
-            ],
-            [
                 "browser": [
                     "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
                     "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
@@ -1467,31 +1320,14 @@ final class CmuxSettingsFileStore {
         usesNumberedDigits: Bool
     ) -> Any {
         let defaultShortcut = usesNumberedDigits ? (shortcut.secondStroke ?? shortcut.firstStroke) : nil
-        let rendered = renderShortcutStroke(shortcut.firstStroke, preserveDigit: !usesNumberedDigits)
+        let rendered = shortcut.firstStroke.configString(preserveDigit: !usesNumberedDigits)
         if let secondStroke = shortcut.secondStroke {
-            return [rendered, renderShortcutStroke(secondStroke, preserveDigit: true)]
+            return [rendered, secondStroke.configString(preserveDigit: true)]
         }
         if let defaultShortcut {
-            return renderShortcutStroke(defaultShortcut, preserveDigit: true)
+            return defaultShortcut.configString(preserveDigit: true)
         }
         return rendered
-    }
-
-    private static func renderShortcutStroke(_ stroke: ShortcutStroke, preserveDigit: Bool) -> String {
-        var parts: [String] = []
-        if stroke.command { parts.append("cmd") }
-        if stroke.shift { parts.append("shift") }
-        if stroke.option { parts.append("opt") }
-        if stroke.control { parts.append("ctrl") }
-        parts.append(renderShortcutKey(stroke.key, preserveDigit: preserveDigit))
-        return parts.joined(separator: "+")
-    }
-
-    private static func renderShortcutKey(_ key: String, preserveDigit: Bool) -> String {
-        if preserveDigit {
-            return key
-        }
-        return key
     }
 
     private static func prettyJSONString(_ value: Any) -> String {
@@ -1518,18 +1354,14 @@ private enum ManagedStringOverride: Equatable {
 }
 
 private struct ManagedCustomSettings: Equatable {
-    var trustedDirectories: [String]?
     var socketPassword: ManagedStringOverride?
 
     var isEmpty: Bool {
-        trustedDirectories == nil && socketPassword == nil
+        socketPassword == nil
     }
 
     var managedIdentifiers: Set<String> {
         var identifiers: Set<String> = []
-        if trustedDirectories != nil {
-            identifiers.insert(CmuxSettingsFileStore.trustedDirectoriesBackupIdentifier)
-        }
         if socketPassword != nil {
             identifiers.insert(CmuxSettingsFileStore.socketPasswordBackupIdentifier)
         }

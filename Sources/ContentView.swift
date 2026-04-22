@@ -6053,6 +6053,11 @@ struct ContentView: View {
         var nextRank = 0
 
         for contribution in contributions {
+            let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId)
+                .flatMap { cmuxConfigStore.resolvedAction(id: $0) }
+            if let configuredPaletteAction, !configuredPaletteAction.palette {
+                continue
+            }
             guard contribution.when(context), contribution.enablement(context) else { continue }
             guard let action = handlerRegistry.handler(for: contribution.commandId) else {
                 assertionFailure("No command palette handler registered for \(contribution.commandId)")
@@ -6062,11 +6067,13 @@ struct ContentView: View {
                 CommandPaletteCommand(
                     id: contribution.commandId,
                     rank: nextRank,
-                    title: contribution.title(context),
-                    subtitle: contribution.subtitle(context),
+                    title: configuredPaletteAction?.title ?? contribution.title(context),
+                    subtitle: configuredPaletteAction?.subtitle ?? contribution.subtitle(context),
                     shortcutHint: commandPaletteShortcutHint(for: contribution, context: context),
                     kindLabel: nil,
-                    keywords: contribution.keywords,
+                    keywords: configuredPaletteAction?.keywords.isEmpty == false
+                        ? configuredPaletteAction?.keywords ?? contribution.keywords
+                        : contribution.keywords,
                     dismissOnRun: contribution.dismissOnRun,
                     action: action
                 )
@@ -6077,6 +6084,21 @@ struct ContentView: View {
         return commands
     }
 
+    private func commandPaletteConfigActionID(for commandId: String) -> String? {
+        switch commandId {
+        case "palette.newTerminalTab":
+            return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID
+        case "palette.newBrowserTab":
+            return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
+        case "palette.terminalSplitRight":
+            return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
+        case "palette.terminalSplitDown":
+            return CmuxSurfaceTabBarBuiltInAction.splitDown.configID
+        default:
+            return nil
+        }
+    }
+
     private func commandPaletteShortcutHint(
         for contribution: CommandPaletteCommandContribution,
         context: CommandPaletteContextSnapshot
@@ -6085,6 +6107,13 @@ struct ContentView: View {
         if contribution.commandId == "palette.renameTab",
            context.bool(CommandPaletteContextKeys.panelIsBrowser) {
             return nil
+        }
+        if let configuredShortcut = cmuxConfigStore.resolvedAction(id: contribution.commandId)?.shortcut {
+            return configuredShortcut.displayString
+        }
+        if let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId),
+           let configuredShortcut = cmuxConfigStore.resolvedAction(id: configuredPaletteAction)?.shortcut {
+            return configuredShortcut.displayString
         }
         if let action = commandPaletteShortcutAction(for: contribution.commandId) {
             return KeyboardShortcutSettings.shortcut(for: action).displayString
@@ -7028,19 +7057,19 @@ struct ContentView: View {
             )
         )
 
-        let cmuxConfigDefaultSubtitle = constant(String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"))
-        for command in cmuxConfigStore.loadedCommands {
-            let commandName = sanitizeCmuxConfigPaletteText(command.name)
-            let subtitle = command.description
+        let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
+        for action in cmuxConfigStore.paletteCustomActions() {
+            let actionTitle = sanitizeCmuxConfigPaletteText(action.title)
+            let subtitleText = action.subtitle
                 .map { sanitizeCmuxConfigPaletteText($0) }
-                .flatMap { $0.isEmpty ? nil : constant($0) }
+                .flatMap { $0.isEmpty ? nil : $0 }
                 ?? cmuxConfigDefaultSubtitle
             contributions.append(
                 CommandPaletteCommandContribution(
-                    commandId: command.id,
-                    title: constant(String(localized: "command.cmuxConfig.customTitle", defaultValue: "Custom: \(commandName)")),
-                    subtitle: subtitle,
-                    keywords: command.keywords ?? []
+                    commandId: action.id,
+                    title: constant(actionTitle),
+                    subtitle: constant(subtitleText),
+                    keywords: action.keywords
                 )
             )
         }
@@ -7095,9 +7124,14 @@ struct ContentView: View {
             AppDelegate.shared?.uninstallCmuxCLIInPath(nil)
         }
         registry.register(commandId: "palette.newTerminalTab") {
-            tabManager.newSurface()
+            if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID) {
+                tabManager.newSurface()
+            }
         }
         registry.register(commandId: "palette.newBrowserTab") {
+            if executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newBrowser.configID) {
+                return
+            }
             // Let command-palette dismissal complete first so omnibar focus
             // is not blocked by the palette visibility guard.
             DispatchQueue.main.async {
@@ -7387,10 +7421,14 @@ struct ContentView: View {
             tabManager.searchSelection()
         }
         registry.register(commandId: "palette.terminalSplitRight") {
-            tabManager.createSplit(direction: .right)
+            if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitRight.configID) {
+                tabManager.createSplit(direction: .right)
+            }
         }
         registry.register(commandId: "palette.terminalSplitDown") {
-            tabManager.createSplit(direction: .down)
+            if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
+                tabManager.createSplit(direction: .down)
+            }
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
             _ = tabManager.createBrowserSplit(direction: .right)
@@ -7411,23 +7449,35 @@ struct ContentView: View {
             }
         }
 
-        for command in cmuxConfigStore.loadedCommands {
-            let captured = command
-            let sourcePath = cmuxConfigStore.commandSourcePaths[command.id]
-            let globalPath = cmuxConfigStore.globalConfigPath
-            registry.register(commandId: command.id) {
-                let rawCwd = tabManager.selectedWorkspace?.currentDirectory
-                let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
-                    : FileManager.default.homeDirectoryForCurrentUser.path
-                CmuxConfigExecutor.execute(
-                    command: captured,
-                    tabManager: tabManager,
-                    baseCwd: baseCwd,
-                    configSourcePath: sourcePath,
-                    globalConfigPath: globalPath
-                )
+        for action in cmuxConfigStore.paletteCustomActions() {
+            let captured = action
+            registry.register(commandId: action.id) {
+                executeConfiguredAction(captured)
             }
         }
+    }
+
+    @discardableResult
+    private func executeConfiguredAction(id: String) -> Bool {
+        guard let action = cmuxConfigStore.resolvedAction(id: id) else {
+            return false
+        }
+        return executeConfiguredAction(action)
+    }
+
+    @discardableResult
+    private func executeConfiguredAction(_ action: CmuxResolvedConfigAction) -> Bool {
+        let rawCwd = tabManager.selectedWorkspace?.currentDirectory
+        let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+            : FileManager.default.homeDirectoryForCurrentUser.path
+        return CmuxConfigExecutor.execute(
+            action: action,
+            commands: cmuxConfigStore.loadedCommands,
+            commandSourcePaths: cmuxConfigStore.commandSourcePaths,
+            tabManager: tabManager,
+            baseCwd: baseCwd,
+            globalConfigPath: cmuxConfigStore.globalConfigPath
+        )
     }
 
     private var focusedPanelContext: (workspace: Workspace, panelId: UUID, panel: any Panel)? {

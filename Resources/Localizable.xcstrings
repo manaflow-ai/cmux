@@ -16813,121 +16813,19 @@
         }
       }
     },
-    "dialog.cmuxConfig.confirmCommand.message": {
+    "dialog.cmuxConfig.confirmCommand.messageWithCommand": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هل أنت متأكد أنك تريد تشغيل هذا الأمر؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jeste li sigurni da želite pokrenuti ovu naredbu?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Er du sikker på, at du vil køre denne kommando?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Möchten Sie diesen Befehl wirklich ausführen?"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Are you sure you want to run this command?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Estás seguro de que deseas ejecutar este comando?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Êtes-vous sûr de vouloir exécuter cette commande ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sei sicuro di voler eseguire questo comando?"
+            "value": "This project action comes from %@.\n\nIt will run:\n\n%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコマンドを実行してもよろしいですか？"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 명령을 실행하시겠습니까?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Er du sikker på at du vil kjøre denne kommandoen?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Czy na pewno chcesz uruchomić to polecenie?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tem certeza de que deseja executar este comando?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вы уверены, что хотите выполнить эту команду?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คุณแน่ใจหรือไม่ว่าต้องการรันคำสั่งนี้?"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu komutu çalıştırmak istediğinizden emin misiniz?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "确定要运行此命令吗？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確定要執行此命令嗎？"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ви впевнені, що хочете виконати цю команду?"
+            "value": "このプロジェクトアクションは %@ から読み込まれました。\n\n実行内容:\n\n%@"
           }
         }
       }
@@ -16962,7 +16860,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run"
+            "value": "Run Once"
           }
         },
         "es": {
@@ -16986,7 +16884,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行"
+            "value": "1回のみ実行"
           }
         },
         "ko": {
@@ -17051,6 +16949,23 @@
         }
       }
     },
+    "dialog.cmuxConfig.confirmCommand.trustAndRun": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trust and Run"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼して実行"
+          }
+        }
+      }
+    },
     "dialog.cmuxConfig.confirmCommand.title": {
       "extractionState": "manual",
       "localizations": {
@@ -17081,7 +16996,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run Command"
+            "value": "Run Project Action?"
           }
         },
         "es": {
@@ -17105,7 +17020,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドを実行"
+            "value": "プロジェクトアクションを実行しますか？"
           }
         },
         "ko": {

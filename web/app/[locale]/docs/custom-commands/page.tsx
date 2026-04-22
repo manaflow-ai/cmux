@@ -26,92 +26,107 @@ export default function CustomCommandsPage() {
       <p>{t("fileLocationsDesc")}</p>
       <ul>
         <li>
-          <strong>{t("localConfig")}</strong> <code>./cmux.json</code> &mdash; {t("localConfigDesc")}
+          <strong>{t("localConfig")}</strong> <code>./.cmux/cmux.json</code> - canonical project config
         </li>
         <li>
-          <strong>{t("globalConfig")}</strong> <code>~/.config/cmux/cmux.json</code> &mdash; {t("globalConfigDesc")}
+          <strong>Fallback local:</strong> <code>./cmux.json</code> - still supported for existing repos
+        </li>
+        <li>
+          <strong>{t("globalConfig")}</strong> <code>~/.config/cmux/cmux.json</code> - {t("globalConfigDesc")}
         </li>
       </ul>
       <Callout type="info">{t("precedenceNote")}</Callout>
       <Callout type="info">
-        Custom action buttons are a nightly feature. Install the latest nightly build before using the
-        <code>actions</code> and <code>ui</code> fields below.
+        The action registry is a nightly feature. Install the latest nightly build before using
+        <code>actions</code>, <code>shortcut</code>, or <code>ui.surfaceTabBar.buttons</code>.
+      </Callout>
+      <Callout type="info">
+        Project-local actions show up in the surface tab bar and Command Palette immediately. The first run
+        still prompts for trust. Trust is per exact action fingerprint, not per repo. Project-local image
+        icons stay locked until that action is trusted.
       </Callout>
       <p>{t("liveReload")}</p>
 
       <h2>{t("schema")}</h2>
-      <p>{t("schemaDesc")}</p>
       <p>
-        Nightly builds also support an <code>actions</code> registry and <code>ui</code> placements for
-        the new-workspace button and the surface tab bar.
+        <code>commands</code> still define reusable shell commands and workspace layouts. Nightly builds add
+        an <code>actions</code> registry. Actions are the public IDs shared by the surface tab bar, the
+        Command Palette, and action-level shortcuts.
       </p>
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
-    "new-dev": { "type": "workspaceCommand", "commandName": "Start Dev" },
-    "start-codex": { "type": "command", "command": "codex" },
-    "start-claude": { "type": "command", "command": "claude" },
-    "start-opencode": { "type": "command", "command": "opencode" },
-    "run-tests": { "type": "command", "command": "npm test", "confirm": true }
+    "cmux.newTerminal": {
+      "type": "command",
+      "title": "Codex",
+      "subtitle": "Open Codex in a new terminal tab",
+      "command": "codex --dangerously-bypass-approvals-and-sandbox",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+t",
+      "icon": { "type": "image", "path": "./icons/codex.svg" }
+    },
+    "claude": {
+      "type": "command",
+      "title": "Claude Code",
+      "command": "claude --dangerously-skip-permissions",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+shift+c",
+      "icon": { "type": "image", "path": "./icons/claude.svg" }
+    },
+    "opencode": {
+      "type": "command",
+      "title": "OpenCode",
+      "command": "opencode",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": "emoji:🧪"
+    },
+    "web-dev": {
+      "type": "workspaceCommand",
+      "title": "Web Dev",
+      "commandName": "Web Dev"
+    }
   },
   "ui": {
-    "newWorkspace": { "action": "new-dev" },
     "surfaceTabBar": {
       "buttons": [
-        { "action": "newTerminal", "icon": "terminal", "tooltip": "New terminal" },
-        { "action": "newBrowser", "icon": "globe", "tooltip": "New browser" },
-        { "action": "start-codex", "icon": { "type": "image", "path": "./icons/codex.svg" }, "tooltip": "Start Codex" },
-        { "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.svg" }, "tooltip": "Start Claude Code" },
-        { "action": "start-opencode", "icon": { "type": "image", "path": "./icons/opencode.svg" }, "tooltip": "Start OpenCode" },
-        { "action": "run-tests", "icon": { "type": "emoji", "value": "✅" }, "tooltip": "Run tests" }
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        "cmux.splitRight",
+        "cmux.splitDown",
+        "claude"
       ]
     }
   },
   "commands": [
     {
-      "name": "Start Dev",
+      "name": "Web Dev",
       "keywords": ["dev", "start"],
       "workspace": { ... }
-    },
-    {
-      "name": "Run Tests",
-      "command": "npm test",
-      "confirm": true
     }
   ]
 }`}</CodeBlock>
-      <h3>Nightly action buttons</h3>
+      <h3>Nightly action registry</h3>
       <p>
-        <code>ui.surfaceTabBar.buttons</code> replaces the default buttons when present, so omit built-ins
-        like <code>newTerminal</code>, <code>newBrowser</code>, <code>splitRight</code>, or <code>splitDown</code>
-        to hide them. Button icons accept macOS SF Symbol names, emoji, or image paths relative to the
-        <code>cmux.json</code> file. SVG, PDF, PNG, JPEG, GIF, TIFF, BMP, HEIC, HEIF, WebP, AVIF, ICO,
-        and ICNS paths are recognized. Image decoding follows what macOS AppKit can load on the current system.
-        Command and agent buttons create a new terminal surface in the clicked pane, then run the configured
-        command there.
+        <code>actions</code> maps stable IDs to runnable behavior. Use the built-in IDs
+        <code>cmux.newTerminal</code>, <code>cmux.newBrowser</code>, <code>cmux.splitRight</code>, and
+        <code>cmux.splitDown</code> to override the defaults. Use your own IDs for project-specific tools.
       </p>
       <p>
-        Put any CLI approval or permission flags you already use directly in the command string. For example,
-        use <code>codex &lt;your approval flags&gt;</code>, <code>claude &lt;your permission flags&gt;</code>,
-        or an OpenCode permission env or flag string for trusted disposable worktrees.
+        <code>palette</code> defaults to <code>true</code>. Set it to <code>false</code> to keep an action
+        out of Command Palette while still making it available to the surface tab bar or a shortcut.
+        <code>shortcut</code> uses the same syntax as settings shortcuts, for example
+        <code>cmd+shift+c</code> or <code>["cmd+k", "cmd+c"]</code>.
       </p>
-      <CodeBlock title="cmux.json" lang="json">{`{
-  "actions": {
-    "start-codex": { "type": "command", "command": "codex" },
-    "start-claude": { "type": "command", "command": "claude" },
-    "start-opencode": { "type": "command", "command": "opencode" }
-  },
-  "ui": {
-    "surfaceTabBar": {
-      "buttons": [
-        { "id": "codex-symbol", "action": "start-codex", "icon": "sparkles", "tooltip": "Start Codex" },
-        { "id": "claude-emoji", "action": "start-claude", "icon": "emoji:🤖", "tooltip": "Start Claude Code" },
-        { "id": "codex-svg", "action": "start-codex", "icon": "./icons/codex.svg", "tooltip": "Start Codex with an SVG icon" },
-        { "id": "claude-svg", "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.svg" } },
-        { "id": "opencode-svg", "action": "start-opencode", "icon": { "type": "image", "path": "./icons/opencode.svg" } }
-      ]
-    }
-  }
-}`}</CodeBlock>
+      <p>
+        <code>ui.surfaceTabBar.buttons</code> replaces the default button list when present. Leave out a
+        built-in ID to hide it. Icons accept SF Symbols, emoji, or image paths relative to the config file.
+        SVG, PDF, PNG, JPEG, GIF, TIFF, BMP, HEIC, HEIF, WebP, AVIF, ICO, and ICNS are supported.
+      </p>
+      <p>
+        Put any approval or permission flags directly in the command string you actually want to run. The
+        default action target is <code>newTabInCurrentPane</code>, so the common pattern is to open a new
+        terminal tab in the current pane and start Codex, Claude Code, or OpenCode there.
+      </p>
 
       <h2>{t("simpleCommands")}</h2>
       <p>{t("simpleCommandsDesc")}</p>
@@ -236,21 +251,39 @@ export default function CustomCommandsPage() {
       <h2>{t("fullExample")}</h2>
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
-    "new-web-dev": { "type": "workspaceCommand", "commandName": "Web Dev" },
-    "start-dev": { "type": "command", "command": "npm run dev" },
-    "start-codex": { "type": "command", "command": "codex" },
-    "start-claude": { "type": "command", "command": "claude" },
-    "start-opencode": { "type": "command", "command": "opencode" }
+    "web-dev": { "type": "workspaceCommand", "commandName": "Web Dev" },
+    "cmux.newTerminal": {
+      "type": "command",
+      "title": "Codex",
+      "command": "codex --dangerously-bypass-approvals-and-sandbox",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+t",
+      "icon": "./icons/codex.svg"
+    },
+    "claude": {
+      "type": "command",
+      "title": "Claude Code",
+      "command": "claude --dangerously-skip-permissions",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+shift+c",
+      "icon": "./icons/claude.svg"
+    },
+    "start-dev": {
+      "type": "command",
+      "command": "npm run dev",
+      "target": "newTabInCurrentPane",
+      "icon": "play.circle"
+    }
   },
   "ui": {
-    "newWorkspace": { "action": "new-web-dev" },
     "surfaceTabBar": {
       "buttons": [
-        { "action": "start-dev", "icon": "play.circle", "tooltip": "Start dev" },
-        { "action": "newBrowser", "icon": "globe", "tooltip": "New browser" },
-        { "action": "start-codex", "icon": "./icons/codex.svg", "tooltip": "Start Codex" },
-        { "action": "start-claude", "icon": "emoji:🤖", "tooltip": "Start Claude Code" },
-        { "action": "start-opencode", "icon": "./icons/opencode.svg", "tooltip": "Start OpenCode" }
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        "cmux.splitRight",
+        "cmux.splitDown",
+        "claude",
+        "start-dev"
       ]
     }
   },

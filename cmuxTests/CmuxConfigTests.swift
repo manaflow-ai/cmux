@@ -15,6 +15,21 @@ final class CmuxConfigDecodingTests: XCTestCase {
         return try JSONDecoder().decode(CmuxConfigFile.self, from: data)
     }
 
+    private func resolvedActions(
+        from config: CmuxConfigFile,
+        sourcePath: String? = nil
+    ) -> [String: CmuxResolvedConfigAction] {
+        Dictionary(
+            uniqueKeysWithValues: config.actions.compactMap { id, definition in
+                CmuxResolvedConfigAction.fromDefinition(
+                    id: id,
+                    definition: definition,
+                    sourcePath: sourcePath
+                ).map { (id, $0) }
+            }
+        )
+    }
+
     // MARK: Simple commands
 
     func testDecodeSimpleCommand() throws {
@@ -190,7 +205,9 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         let config = try decode(json)
         let rawButtons = try XCTUnwrap(config.surfaceTabBarButtons)
-        let buttons = try rawButtons.map { try $0.resolved(actions: config.actions, codingPath: []) }
+        let buttons = try rawButtons.map {
+            try $0.resolved(actions: resolvedActions(from: config), codingPath: [])
+        }
         XCTAssertEqual(buttons.count, 2)
         XCTAssertEqual(buttons[0].id, "start-codex")
         XCTAssertEqual(buttons[0].icon, .imagePath("./icons/codex.png"))
@@ -295,6 +312,106 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.surfaceTabBarButtons?[7].icon, .imagePath("./icons/logo.ico"))
     }
 
+    func testGlobalSVGIconAllowsNamespaceAndInternalGradient() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-svg-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let iconsDirectory = root.appendingPathComponent("icons", isDirectory: true)
+        try FileManager.default.createDirectory(at: iconsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configPath = root.appendingPathComponent("cmux.json").path
+        let iconPath = iconsDirectory.appendingPathComponent("codex.svg")
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs>
+            <linearGradient id="grad">
+              <stop offset="0%" stop-color="#000"/>
+              <stop offset="100%" stop-color="#fff"/>
+            </linearGradient>
+          </defs>
+          <rect width="24" height="24" fill="url(#grad)"/>
+        </svg>
+        """
+        let data = Data(svg.utf8)
+        try data.write(to: iconPath)
+
+        let icon = CmuxButtonIcon.imagePath("icons/codex.svg")
+        XCTAssertEqual(
+            icon.bonsplitIcon(
+                configSourcePath: configPath,
+                globalConfigPath: configPath
+            ),
+            .imageData(data)
+        )
+    }
+
+    func testProjectLocalSVGIconRejectsExternalReferences() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-svg-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let iconsDirectory = projectDirectory.appendingPathComponent("icons", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: iconsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigPath = globalDirectory.appendingPathComponent("cmux.json").path
+        let projectConfigPath = projectDirectory.appendingPathComponent("cmux.json").path
+        let iconPath = iconsDirectory.appendingPathComponent("bad.svg")
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <image href="https://example.com/icon.png" width="24" height="24"/>
+        </svg>
+        """
+        try Data(svg.utf8).write(to: iconPath)
+
+        let icon = CmuxButtonIcon.imagePath("icons/bad.svg")
+        XCTAssertEqual(
+            icon.bonsplitIcon(
+                configSourcePath: projectConfigPath,
+                globalConfigPath: globalConfigPath
+            ),
+            .systemImage("questionmark.circle")
+        )
+    }
+
+    func testUntrustedProjectLocalIconUsesLockPlaceholder() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-svg-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let iconsDirectory = projectDirectory.appendingPathComponent("icons", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: iconsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigPath = globalDirectory.appendingPathComponent("cmux.json").path
+        let projectConfigPath = projectDirectory.appendingPathComponent("cmux.json").path
+        let iconPath = iconsDirectory.appendingPathComponent("safe.svg")
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" fill="#000"/>
+        </svg>
+        """
+        try Data(svg.utf8).write(to: iconPath)
+
+        let icon = CmuxButtonIcon.imagePath("icons/safe.svg")
+        XCTAssertEqual(
+            icon.bonsplitIcon(
+                configSourcePath: projectConfigPath,
+                globalConfigPath: globalConfigPath,
+                allowProjectLocalImage: false
+            ),
+            .systemImage("lock.fill")
+        )
+    }
+
     func testDecodeNewWorkspaceAction() throws {
         let json = """
         {
@@ -312,7 +429,45 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         let config = try decode(json)
         XCTAssertEqual(config.ui?.newWorkspace?.action, "new-dev")
-        XCTAssertEqual(config.actions["new-dev"]?.action.workspaceCommandName, "Dev Environment")
+        XCTAssertEqual(config.actions["new-dev"]?.action?.workspaceCommandName, "Dev Environment")
+    }
+
+    func testDecodeActionShortcutString() throws {
+        let json = """
+        {
+          "actions": {
+            "start-codex": {
+              "type": "command",
+              "command": "codex --dangerously-bypass-approvals-and-sandbox",
+              "shortcut": "cmd+shift+c"
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(
+            config.actions["start-codex"]?.shortcut,
+            StoredShortcut.parseConfig("cmd+shift+c")
+        )
+    }
+
+    func testDecodeActionShortcutChord() throws {
+        let json = """
+        {
+          "actions": {
+            "start-claude": {
+              "type": "command",
+              "command": "claude --dangerously-skip-permissions",
+              "shortcut": ["cmd+k", "cmd+c"]
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(
+            config.actions["start-claude"]?.shortcut,
+            StoredShortcut.parseConfig(strokes: ["cmd+k", "cmd+c"])
+        )
     }
 
     @MainActor
@@ -470,7 +625,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         let config = try decode(json)
         let rawButton = try XCTUnwrap(config.surfaceTabBarButtons?.first)
-        let button = try rawButton.resolved(actions: config.actions, codingPath: [])
+        let button = try rawButton.resolved(actions: resolvedActions(from: config), codingPath: [])
         XCTAssertEqual(button.workspaceCommandName, "Dev Environment")
         XCTAssertNil(button.terminalCommand)
     }
@@ -828,7 +983,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let config = try decode(json)
         XCTAssertTrue(config.commands.isEmpty)
         let rawButton = try XCTUnwrap(config.surfaceTabBarButtons?.first)
-        let button = try rawButton.resolved(actions: config.actions, codingPath: [])
+        let button = try rawButton.resolved(actions: resolvedActions(from: config), codingPath: [])
         XCTAssertEqual(button.terminalCommand, "codex")
     }
 

@@ -5238,6 +5238,11 @@ class TabManager: ObservableObject {
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
+    func newSurface(initialInput: String) {
+        selectedWorkspace?.clearSplitZoom()
+        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+    }
+
     // MARK: - Split Creation
 
     /// Create a new split in the current tab
