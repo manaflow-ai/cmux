@@ -261,26 +261,44 @@ struct CmuxCLIPathInstaller {
         ]
         let stdout = Pipe()
         let stderr = Pipe()
+        let stdoutBuffer = PrivilegedCommandOutputBuffer()
+        let stderrBuffer = PrivilegedCommandOutputBuffer()
         process.standardOutput = stdout
         process.standardError = stderr
+        startDraining(stdout, into: stdoutBuffer)
+        startDraining(stderr, into: stderrBuffer)
+        defer {
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stderr.fileHandleForReading.readabilityHandler = nil
+        }
         try process.run()
         process.waitUntilExit()
+        drainRemainingOutput(from: stdout, into: stdoutBuffer)
+        drainRemainingOutput(from: stderr, into: stderrBuffer)
 
         guard process.terminationStatus == 0 else {
-            let stderrText = String(
-                data: stderr.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let stdoutText = String(
-                data: stdout.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let stderrText = stderrBuffer.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stdoutText = stdoutBuffer.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let details = stderrText.isEmpty ? stdoutText : stderrText
             let message = details.isEmpty
                 ? "osascript exited with status \(process.terminationStatus)."
                 : details
             throw InstallerError.privilegedCommandFailed(message: message)
         }
+    }
+
+    private static func startDraining(_ pipe: Pipe, into buffer: PrivilegedCommandOutputBuffer) {
+        pipe.fileHandleForReading.readabilityHandler = { fileHandle in
+            let data = fileHandle.availableData
+            guard !data.isEmpty else { return }
+            buffer.append(data)
+        }
+    }
+
+    private static func drainRemainingOutput(from pipe: Pipe, into buffer: PrivilegedCommandOutputBuffer) {
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard !data.isEmpty else { return }
+        buffer.append(data)
     }
 
     private static func shellQuoted(_ value: String) -> String {
@@ -315,3 +333,20 @@ struct CmuxCLIPathInstaller {
     }
 }
 
+private final class PrivilegedCommandOutputBuffer {
+    private let lock = NSLock()
+    private var data = Data()
+
+    var text: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
+    }
+}
