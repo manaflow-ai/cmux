@@ -124,6 +124,22 @@ final class FinderServicePathResolverTests: XCTestCase {
         }
     }
 
+    func testOrderedUniqueDirectoriesDedupesSymlinkAndRealPaths() throws {
+        try withTemporaryDirectory { root in
+            let actualDirectory = root.appendingPathComponent("actual/project", isDirectory: true)
+            let aliasDirectory = root.appendingPathComponent("alias-project", isDirectory: true)
+
+            try FileManager.default.createDirectory(at: actualDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(at: aliasDirectory, withDestinationURL: actualDirectory)
+
+            let directories = FinderServicePathResolver.orderedUniqueDirectories(
+                from: [aliasDirectory, actualDirectory]
+            )
+
+            XCTAssertEqual(directories, [aliasDirectory.standardizedFileURL.path])
+        }
+    }
+
     func testOrderedUniqueDirectoriesResolvesSymlinksOnlyForExcludedRootComparison() throws {
         try withTemporaryDirectory { root in
             let applicationsDirectory = root.appendingPathComponent("Applications", isDirectory: true)
