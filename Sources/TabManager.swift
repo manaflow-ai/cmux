@@ -1018,6 +1018,7 @@ class TabManager: ObservableObject {
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     private var sidebarSelectedWorkspaceIds: Set<UUID> = []
+    private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private struct WorkspaceCreationTabSnapshot {
@@ -2010,13 +2011,26 @@ class TabManager: ObservableObject {
         to newWorkspace: Workspace,
         from sourceWorkspace: Workspace?
     ) {
-        guard let sourceWorkspace else { return }
         // Sidebar-toggle relayout updates the live Bonsplit leading inset so minimal-mode
         // workspaces reserve traffic-light space. New workspaces need that same inset
         // copied immediately because creation itself does not trigger the resync path.
-        let inheritedLeadingInset = sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset
-        if newWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset != inheritedLeadingInset {
-            newWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = inheritedLeadingInset
+        let inheritedLeadingInset = currentWindowTabBarLeadingInset
+            ?? sourceWorkspace?.bonsplitController.configuration.appearance.tabBarLeadingInset
+        guard let inheritedLeadingInset else { return }
+        applyTabBarLeadingInset(inheritedLeadingInset, to: newWorkspace)
+    }
+
+    func syncWorkspaceTabBarLeadingInset(_ inset: CGFloat) {
+        let normalizedInset = max(0, inset)
+        currentWindowTabBarLeadingInset = normalizedInset
+        for tab in tabs {
+            applyTabBarLeadingInset(normalizedInset, to: tab)
+        }
+    }
+
+    private func applyTabBarLeadingInset(_ inset: CGFloat, to workspace: Workspace) {
+        if workspace.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
+            workspace.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
         }
     }
 

@@ -2919,6 +2919,9 @@ struct ContentView: View {
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
     /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
     @State private var titlebarPadding: CGFloat = 32
+    /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
+    /// main windows use MainWindowHostingView and report zero.
+    @State private var hostingSafeAreaTop: CGFloat = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
 
@@ -2927,10 +2930,23 @@ struct ContentView: View {
     }
 
     private var effectiveTitlebarPadding: CGFloat {
-        if isMinimalMode {
-            return isFullScreen ? 0 : -titlebarPadding
-        }
-        return titlebarPadding
+        Self.effectiveTitlebarPadding(
+            isMinimalMode: isMinimalMode,
+            isFullScreen: isFullScreen,
+            titlebarPadding: titlebarPadding,
+            hostingSafeAreaTop: hostingSafeAreaTop
+        )
+    }
+
+    static func effectiveTitlebarPadding(
+        isMinimalMode: Bool,
+        isFullScreen: Bool,
+        titlebarPadding: CGFloat,
+        hostingSafeAreaTop: CGFloat
+    ) -> CGFloat {
+        guard isMinimalMode else { return titlebarPadding }
+        guard !isFullScreen else { return 0 }
+        return -max(0, min(titlebarPadding, hostingSafeAreaTop))
     }
 
     private var terminalContent: some View {
@@ -3142,11 +3158,7 @@ struct ContentView: View {
 
     private func syncTrafficLightInset() {
         let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen) ? 80 : 0
-        for tab in tabManager.tabs {
-            if tab.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
-                tab.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
-            }
-        }
+        tabManager.syncWorkspaceTabBarLeadingInset(inset)
     }
 
     private func updateTitlebarText() {
@@ -3880,6 +3892,10 @@ struct ContentView: View {
             syncTrafficLightInset()
         })
 
+        view = AnyView(view.onChange(of: tabManager.tabs.map(\.id)) { _ in
+            syncTrafficLightInset()
+        })
+
         view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
             let sanitized = normalizedSidebarWidth(newValue)
             if abs(newValue - sanitized) > 0.5 {
@@ -3933,9 +3949,15 @@ struct ContentView: View {
             // get interpreted as window drags.
             let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
             let nextPadding = max(28, min(72, computedTitlebarHeight))
+            let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
             if abs(titlebarPadding - nextPadding) > 0.5 {
                 DispatchQueue.main.async {
                     titlebarPadding = nextPadding
+                }
+            }
+            if abs(hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
+                DispatchQueue.main.async {
+                    hostingSafeAreaTop = nextSafeAreaTop
                 }
             }
 #if DEBUG

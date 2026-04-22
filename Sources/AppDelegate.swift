@@ -7249,6 +7249,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarSelectionState = SidebarSelectionState(
             selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
         )
+
+        // Seed the per-window Bonsplit tab-bar leading inset before ContentView first
+        // renders. The initial workspace is created inside TabManager.init, at which
+        // point there is no source workspace or prior window inset to inherit from, so
+        // applyCreationChromeInheritance returns early and leaves the Bonsplit inset
+        // at 0 — which is wrong in minimal mode with the sidebar collapsed, where the
+        // native traffic lights need an 80pt reserved strip on the tab bar. Without
+        // this seed, the first-frame layout can mispaint in the new window until
+        // ContentView.onAppear eventually runs syncTrafficLightInset (#2737).
+        let initialTabBarLeadingInset: CGFloat =
+            (WorkspacePresentationModeSettings.isMinimal() && !sidebarState.isVisible)
+                ? 80
+                : 0
+        tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
 
         let cmuxConfigStore = CmuxConfigStore()
