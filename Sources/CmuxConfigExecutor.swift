@@ -16,13 +16,13 @@ struct CmuxConfigExecutor {
             executeWorkspaceCommand(command: command, workspace: workspace, tabManager: tabManager, baseCwd: baseCwd)
             return true
         } else if let rawCommand = command.command {
+            guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
             guard let shellInput = preparedShellInput(
                 rawCommand,
                 confirm: command.confirm ?? false,
                 configSourcePath: configSourcePath,
                 globalConfigPath: globalConfigPath
             ) else { return false }
-            guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
             terminal.sendInput(shellInput)
             return true
         }
@@ -38,7 +38,8 @@ struct CmuxConfigExecutor {
         let shellCommand = sanitizeForDisplay(rawCommand)
         guard !shellCommand.isEmpty else { return nil }
 
-        if confirm, let sourcePath = configSourcePath {
+        if confirm {
+            let sourcePath = configSourcePath ?? globalConfigPath
             let trusted = CmuxDirectoryTrust.shared.isTrusted(
                 configPath: sourcePath,
                 globalConfigPath: globalConfigPath
