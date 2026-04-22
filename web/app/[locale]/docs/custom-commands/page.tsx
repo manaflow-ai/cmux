@@ -38,6 +38,7 @@ export default function CustomCommandsPage() {
       <h2>{t("schema")}</h2>
       <p>{t("schemaDesc")}</p>
       <CodeBlock title="cmux.json" lang="json">{`{
+  "newWorkspaceCommand": "Start Dev",
   "commands": [
     {
       "name": "Start Dev",
@@ -174,6 +175,7 @@ export default function CustomCommandsPage() {
 
       <h2>{t("fullExample")}</h2>
       <CodeBlock title="cmux.json" lang="json">{`{
+  "newWorkspaceCommand": "Web Dev",
   "commands": [
     {
       "name": "Web Dev",

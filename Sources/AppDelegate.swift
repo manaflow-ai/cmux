@@ -2223,6 +2223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let tabManager: TabManager
         let sidebarState: SidebarState
         let sidebarSelectionState: SidebarSelectionState
+        var cmuxConfigStore: CmuxConfigStore?
         weak var window: NSWindow?
 
         init(
@@ -2230,12 +2231,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: TabManager,
             sidebarState: SidebarState,
             sidebarSelectionState: SidebarSelectionState,
+            cmuxConfigStore: CmuxConfigStore?,
             window: NSWindow?
         ) {
             self.windowId = windowId
             self.tabManager = tabManager
             self.sidebarState = sidebarState
             self.sidebarSelectionState = sidebarSelectionState
+            self.cmuxConfigStore = cmuxConfigStore
             self.window = window
         }
     }
@@ -4825,7 +4828,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID,
         tabManager: TabManager,
         sidebarState: SidebarState,
-        sidebarSelectionState: SidebarSelectionState
+        sidebarSelectionState: SidebarSelectionState,
+        cmuxConfigStore: CmuxConfigStore? = nil
     ) {
         tabManager.window = window
 
@@ -4835,8 +4839,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
         if let existing = mainWindowContexts[key] {
             existing.window = window
+            existing.cmuxConfigStore = cmuxConfigStore
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             existing.window = window
+            existing.cmuxConfigStore = cmuxConfigStore
             reindexMainWindowContextIfNeeded(existing, for: window)
         } else {
             mainWindowContexts[key] = MainWindowContext(
@@ -4844,6 +4850,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: tabManager,
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState,
+                cmuxConfigStore: cmuxConfigStore,
                 window: window
             )
             NotificationCenter.default.addObserver(
@@ -6583,6 +6590,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = createMainWindow()
     }
 
+    @discardableResult
+    func performNewWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "newWorkspace"
+    ) -> Bool {
+        let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+        if mainWindowContexts.isEmpty && preferredContext == nil {
+#if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "fallback_new_window",
+                source: debugSource,
+                reason: "no_main_windows",
+                event: event,
+                chosenContext: nil
+            )
+#endif
+            openNewMainWindow(nil)
+            return true
+        }
+
+        let context = preferredContext
+            ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
+
+        if let context,
+           executeConfiguredNewWorkspaceCommandIfAvailable(in: context, debugSource: debugSource) {
+            return true
+        }
+
+        if let preferredTabManager, preferredContext != nil {
+            preferredTabManager.addWorkspace()
+            return true
+        }
+
+        if addWorkspaceInPreferredMainWindow(event: event, debugSource: debugSource) == nil {
+#if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "fallback_new_window",
+                source: debugSource,
+                reason: "workspace_creation_returned_nil",
+                event: event,
+                chosenContext: nil
+            )
+#endif
+            openNewMainWindow(nil)
+        }
+        return true
+    }
+
+    private func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
+        mainWindowContexts.values.first(where: { $0.tabManager === tabManager })
+    }
+
+    private func executeConfiguredNewWorkspaceCommandIfAvailable(
+        in context: MainWindowContext,
+        debugSource: String
+    ) -> Bool {
+        guard let cmuxConfigStore = context.cmuxConfigStore,
+              let configured = cmuxConfigStore.resolvedNewWorkspaceCommand() else {
+            return false
+        }
+        let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
+        let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+            : FileManager.default.homeDirectoryForCurrentUser.path
+#if DEBUG
+        dlog(
+            "newWorkspace.configCommand source=\(debugSource) " +
+            "command=\(configured.command.name) windowId=\(String(context.windowId.uuidString.prefix(8)))"
+        )
+#endif
+        CmuxConfigExecutor.execute(
+            command: configured.command,
+            tabManager: context.tabManager,
+            baseCwd: baseCwd,
+            configSourcePath: configured.sourcePath,
+            globalConfigPath: cmuxConfigStore.globalConfigPath
+        )
+        return true
+    }
+
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.
     /// Called from both the SwiftUI menu and `handleCustomShortcut`.
     func showOpenFolderPanel() {
@@ -7225,7 +7312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: sidebarState,
-            sidebarSelectionState: sidebarSelectionState
+            sidebarSelectionState: sidebarSelectionState,
+            cmuxConfigStore: cmuxConfigStore
         )
         installFileDropOverlay(on: window, tabManager: tabManager)
         if TerminalController.shouldSuppressSocketCommandActivation() {
@@ -11071,32 +11159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             dlog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            // Cmd+N semantics:
-            // - If there are no main windows, create a new window.
-            // - Otherwise, create a new workspace in the active window.
-            if mainWindowContexts.isEmpty {
-                #if DEBUG
-                logWorkspaceCreationRouting(
-                    phase: "fallback_new_window",
-                    source: "shortcut.cmdN",
-                    reason: "no_main_windows",
-                    event: event,
-                    chosenContext: nil
-                )
-                #endif
-                openNewMainWindow(nil)
-            } else if addWorkspaceInPreferredMainWindow(event: event, debugSource: "shortcut.cmdN") == nil {
-                #if DEBUG
-                logWorkspaceCreationRouting(
-                    phase: "fallback_new_window",
-                    source: "shortcut.cmdN",
-                    reason: "workspace_creation_returned_nil",
-                    event: event,
-                    chosenContext: nil
-                )
-                #endif
-                openNewMainWindow(nil)
-            }
+            performNewWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
             return true
         }
 

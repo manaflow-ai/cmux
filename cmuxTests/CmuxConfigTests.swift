@@ -69,6 +69,20 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.commands.map(\.name), ["Build", "Test", "Lint"])
     }
 
+    func testDecodeNewWorkspaceCommand() throws {
+        let json = """
+        {
+          "newWorkspaceCommand": "Dev Environment",
+          "commands": [{
+            "name": "Dev Environment",
+            "workspace": { "name": "Dev" }
+          }]
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.newWorkspaceCommand, "Dev Environment")
+    }
+
     func testDecodeEmptyCommandsArray() throws {
         let json = """
         { "commands": [] }
@@ -504,6 +518,16 @@ final class CmuxConfigDecodingTests: XCTestCase {
             "name": "test",
             "command": "   "
           }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeBlankNewWorkspaceCommandThrows() {
+        let json = """
+        {
+          "newWorkspaceCommand": "   ",
+          "commands": []
         }
         """
         XCTAssertThrowsError(try decode(json))

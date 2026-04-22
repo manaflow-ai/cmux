@@ -3,7 +3,37 @@ import Combine
 import Foundation
 
 struct CmuxConfigFile: Codable, Sendable {
+    var newWorkspaceCommand: String?
     var commands: [CmuxCommandDefinition]
+
+    private enum CodingKeys: String, CodingKey {
+        case newWorkspaceCommand
+        case commands
+    }
+
+    init(newWorkspaceCommand: String? = nil, commands: [CmuxCommandDefinition]) {
+        self.newWorkspaceCommand = newWorkspaceCommand
+        self.commands = commands
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let rawNewWorkspaceCommand = try container.decodeIfPresent(String.self, forKey: .newWorkspaceCommand) {
+            let trimmed = rawNewWorkspaceCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath + [CodingKeys.newWorkspaceCommand],
+                        debugDescription: "newWorkspaceCommand must not be blank"
+                    )
+                )
+            }
+            newWorkspaceCommand = trimmed
+        } else {
+            newWorkspaceCommand = nil
+        }
+        commands = try container.decode([CmuxCommandDefinition].self, forKey: .commands)
+    }
 }
 
 struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
@@ -256,9 +286,15 @@ enum CmuxSurfaceType: String, Codable, Sendable {
     case browser
 }
 
+struct CmuxResolvedCommand: Sendable {
+    let command: CmuxCommandDefinition
+    let sourcePath: String?
+}
+
 @MainActor
 final class CmuxConfigStore: ObservableObject {
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
+    @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var configRevision: UInt64 = 0
 
     /// Which config file each command came from, keyed by command id.
@@ -353,10 +389,14 @@ final class CmuxConfigStore: ObservableObject {
         var commands: [CmuxCommandDefinition] = []
         var seenNames = Set<String>()
         var sourcePaths: [String: String] = [:]
+        var configuredNewWorkspaceCommandName: String?
 
         // Local config takes precedence
         if let localPath = localConfigPath {
             if let localConfig = parseConfig(at: localPath) {
+                if let newWorkspaceCommand = localConfig.newWorkspaceCommand {
+                    configuredNewWorkspaceCommandName = newWorkspaceCommand
+                }
                 for command in localConfig.commands {
                     if !seenNames.contains(command.name) {
                         commands.append(command)
@@ -369,6 +409,10 @@ final class CmuxConfigStore: ObservableObject {
 
         // Global config fills in the rest
         if let globalConfig = parseConfig(at: globalConfigPath) {
+            if configuredNewWorkspaceCommandName == nil,
+               let newWorkspaceCommand = globalConfig.newWorkspaceCommand {
+                configuredNewWorkspaceCommandName = newWorkspaceCommand
+            }
             for command in globalConfig.commands {
                 if !seenNames.contains(command.name) {
                     commands.append(command)
@@ -380,7 +424,21 @@ final class CmuxConfigStore: ObservableObject {
 
         loadedCommands = commands
         commandSourcePaths = sourcePaths
+        newWorkspaceCommandName = configuredNewWorkspaceCommandName
         configRevision &+= 1
+    }
+
+    func resolvedNewWorkspaceCommand() -> CmuxResolvedCommand? {
+        guard let commandName = newWorkspaceCommandName else { return nil }
+        guard let command = loadedCommands.first(where: { $0.name == commandName }) else {
+            NSLog("[CmuxConfig] newWorkspaceCommand '%@' does not match any loaded command", commandName)
+            return nil
+        }
+        guard command.workspace != nil else {
+            NSLog("[CmuxConfig] newWorkspaceCommand '%@' must reference a workspace command", commandName)
+            return nil
+        }
+        return CmuxResolvedCommand(command: command, sourcePath: commandSourcePaths[command.id])
     }
 
     // MARK: - Parsing
