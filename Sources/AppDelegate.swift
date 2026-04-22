@@ -6736,7 +6736,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             let windowId = createMainWindow()
             if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
-                _ = executeConfiguredNewWorkspaceCommandIfAvailable(in: context, debugSource: debugSource)
+                let initialWorkspace = context.tabManager.selectedWorkspace
+                _ = executeConfiguredNewWorkspaceCommandIfAvailable(
+                    in: context,
+                    debugSource: debugSource,
+                    replacingInitialWorkspace: initialWorkspace
+                )
             }
             return true
         }
@@ -6775,7 +6780,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func executeConfiguredNewWorkspaceCommandIfAvailable(
         in context: MainWindowContext,
-        debugSource: String
+        debugSource: String,
+        replacingInitialWorkspace initialWorkspace: Workspace? = nil
     ) -> Bool {
         guard let cmuxConfigStore = context.cmuxConfigStore,
               let configured = cmuxConfigStore.resolvedNewWorkspaceCommand() else {
@@ -6794,13 +6800,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "command=\(configured.command.name) windowId=\(String(context.windowId.uuidString.prefix(8)))"
         )
 #endif
-        return CmuxConfigExecutor.execute(
+        let didExecute = CmuxConfigExecutor.execute(
             command: configured.command,
             tabManager: context.tabManager,
             baseCwd: baseCwd,
             configSourcePath: configured.sourcePath,
             globalConfigPath: cmuxConfigStore.globalConfigPath
         )
+        if didExecute,
+           let initialWorkspace,
+           context.tabManager.tabs.count > 1,
+           context.tabManager.tabs.contains(where: { $0 === initialWorkspace }),
+           context.tabManager.selectedWorkspace !== initialWorkspace {
+            context.tabManager.closeWorkspace(initialWorkspace)
+        }
+        return didExecute
     }
 
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.
