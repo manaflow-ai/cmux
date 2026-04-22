@@ -3,9 +3,14 @@ import SwiftUI
 import WebKit
 import AppKit
 import ObjectiveC
+import os
 
 private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
+private let browserSurfaceLogger = Logger(
+    subsystem: "com.manaflow.cmux",
+    category: "browser-surface"
+)
 
 private func browserPanelViewObjectID(_ object: AnyObject?) -> String {
     guard let object else { return "nil" }
@@ -5249,6 +5254,12 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            let hostID = browserPanelViewObjectID(self)
+            let windowID = browserPanelViewObjectID(window)
+            let hostedWebViewID = browserPanelViewObjectID(hostedWebView)
+            browserSurfaceLogger.info(
+                "host viewDidMoveToWindow host=\(hostID, privacy: .public) window=\(windowID, privacy: .public) hostedWebView=\(hostedWebViewID, privacy: .public)"
+            )
             if window == nil {
                 notifyHostedWebKitHidden(reason: "viewDidMoveToWindow")
                 clearActiveDividerCursor(restoreArrow: false)
@@ -5270,12 +5281,38 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
+            let hostID = browserPanelViewObjectID(self)
+            let superviewID = browserPanelViewObjectID(superview)
+            let hostedWebViewID = browserPanelViewObjectID(hostedWebView)
+            browserSurfaceLogger.info(
+                "host viewDidMoveToSuperview host=\(hostID, privacy: .public) superview=\(superviewID, privacy: .public) hostedWebView=\(hostedWebViewID, privacy: .public)"
+            )
             scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToSuperview")
             scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToSuperview")
             notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToSuperview")
 #endif
+        }
+
+        override func viewWillMove(toSuperview newSuperview: NSView?) {
+            let hostID = browserPanelViewObjectID(self)
+            let newSuperviewID = browserPanelViewObjectID(newSuperview)
+            let hostedWebViewID = browserPanelViewObjectID(hostedWebView)
+            browserSurfaceLogger.info(
+                "host viewWillMoveToSuperview host=\(hostID, privacy: .public) newSuperview=\(newSuperviewID, privacy: .public) hostedWebView=\(hostedWebViewID, privacy: .public)"
+            )
+            super.viewWillMove(toSuperview: newSuperview)
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            let hostID = browserPanelViewObjectID(self)
+            let newWindowID = browserPanelViewObjectID(newWindow)
+            let hostedWebViewID = browserPanelViewObjectID(hostedWebView)
+            browserSurfaceLogger.info(
+                "host viewWillMoveToWindow host=\(hostID, privacy: .public) newWindow=\(newWindowID, privacy: .public) hostedWebView=\(hostedWebViewID, privacy: .public)"
+            )
+            super.viewWillMove(toWindow: newWindow)
         }
 
         override func layout() {
@@ -6026,6 +6063,9 @@ struct WebViewRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
         container.wantsLayer = true
+        browserSurfaceLogger.info(
+            "makeNSView panel=\(panel.id.uuidString, privacy: .public) workspace=\(panel.workspaceId.uuidString, privacy: .public) host=\(browserPanelViewObjectID(container), privacy: .public) webView=\(browserPanelViewObjectID(panel.webView), privacy: .public)"
+        )
         return container
     }
 
@@ -6734,6 +6774,9 @@ struct WebViewRepresentable: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
         clearPortalCallbacks(for: nsView)
+        browserSurfaceLogger.info(
+            "dismantleNSView.begin host=\(browserPanelViewObjectID(nsView), privacy: .public) panel=\(coordinator.panel?.id.uuidString ?? "nil", privacy: .public) workspace=\(coordinator.panel?.workspaceId.uuidString ?? "nil", privacy: .public) webView=\(browserPanelViewObjectID(coordinator.webView), privacy: .public)"
+        )
         if let panel = coordinator.panel, let host = nsView as? HostContainerView {
             panel.releasePortalHostIfOwned(
                 hostId: ObjectIdentifier(host),
@@ -6773,6 +6816,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         BrowserWindowPortalRegistry.updateDropZoneOverlay(for: webView, zone: nil)
         coordinator.lastPortalHostId = nil
         coordinator.lastSynchronizedHostGeometryRevision = 0
+        browserSurfaceLogger.info(
+            "dismantleNSView.end host=\(browserPanelViewObjectID(nsView), privacy: .public) panel=\(panel?.id.uuidString ?? "nil", privacy: .public) workspace=\(panel?.workspaceId.uuidString ?? "nil", privacy: .public) webView=\(browserPanelViewObjectID(webView), privacy: .public)"
+        )
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {

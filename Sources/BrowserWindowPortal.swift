@@ -1,8 +1,14 @@
 import AppKit
 import Bonsplit
 import ObjectiveC
+import os
 import SwiftUI
 import WebKit
+
+private let browserSurfaceLogger = Logger(
+    subsystem: "com.manaflow.cmux",
+    category: "browser-surface"
+)
 
 private var cmuxWindowBrowserPortalKey: UInt8 = 0
 private var cmuxWindowBrowserPortalCloseObserverKey: UInt8 = 0
@@ -10,11 +16,14 @@ private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
 private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 
+private func browserPortalObjectToken(_ object: AnyObject?) -> String {
+    guard let object else { return "nil" }
+    return String(describing: Unmanaged.passUnretained(object).toOpaque())
+}
+
 #if DEBUG
 private func browserPortalDebugToken(_ view: NSView?) -> String {
-    guard let view else { return "nil" }
-    let ptr = Unmanaged.passUnretained(view).toOpaque()
-    return String(describing: ptr)
+    browserPortalObjectToken(view)
 }
 
 private func browserPortalDebugFrame(_ rect: NSRect) -> String {
@@ -2668,6 +2677,31 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
+    private func detachHiddenHostedWebKitSubviewsIfNeeded(
+        in containerView: WindowBrowserSlotView,
+        primaryWebView: WKWebView,
+        reason: String
+    ) {
+        let hostedSubviews = hostedWebKitSubviews(
+            in: containerView,
+            primaryWebView: primaryWebView
+        )
+        guard !hostedSubviews.isEmpty else { return }
+
+        notifyHostedWebKitHidden(
+            in: containerView,
+            primaryWebView: primaryWebView,
+            reason: reason
+        )
+
+        for hostedSubview in hostedSubviews where hostedSubview.superview != nil {
+            browserSurfaceLogger.info(
+                "portal hide detach webView=\(browserPortalObjectToken(hostedSubview), privacy: .public) container=\(browserPortalObjectToken(containerView), privacy: .public) reason=\(reason, privacy: .public)"
+            )
+            hostedSubview.removeFromSuperview()
+        }
+    }
+
     private func ensureContainerView(for entry: Entry, webView: WKWebView) -> WindowBrowserSlotView {
         if let existing = entry.containerView {
             existing.setPaneDropContext(entry.paneDropContext)
@@ -2931,6 +2965,9 @@ final class WindowBrowserPortal: NSObject {
         if let anchor = entry.anchorView {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
+        browserSurfaceLogger.info(
+            "portal detach webView=\(browserPortalObjectToken(entry.webView), privacy: .public) container=\(browserPortalObjectToken(entry.containerView), privacy: .public) anchor=\(browserPortalObjectToken(entry.anchorView), privacy: .public)"
+        )
 #if DEBUG
         let hadContainerSuperview = (entry.containerView?.superview === hostView) ? 1 : 0
         let hadWebSuperview = entry.webView?.superview == nil ? 0 : 1
@@ -2966,6 +3003,9 @@ final class WindowBrowserPortal: NSObject {
         }
 
         let portalOwnsWebView = entry.webView?.superview === entry.containerView
+        browserSurfaceLogger.info(
+            "portal discard webView=\(browserPortalObjectToken(entry.webView), privacy: .public) container=\(browserPortalObjectToken(entry.containerView), privacy: .public) anchor=\(browserPortalObjectToken(entry.anchorView), privacy: .public) source=\(source, privacy: .public) preserveSuperview=\(preserveCurrentSuperview)"
+        )
 #if DEBUG
         dlog(
             "browser.portal.discard web=\(browserPortalDebugToken(entry.webView)) " +
@@ -3014,6 +3054,9 @@ final class WindowBrowserPortal: NSObject {
         entry.visibleInUI = false
         entry.zPriority = 0
         entriesByWebViewId[webViewId] = entry
+        browserSurfaceLogger.info(
+            "portal hide webView=\(browserPortalObjectToken(entry.webView), privacy: .public) container=\(browserPortalObjectToken(entry.containerView), privacy: .public) source=\(source, privacy: .public)"
+        )
         synchronizeWebView(withId: webViewId, source: source)
     }
 
@@ -3098,6 +3141,9 @@ final class WindowBrowserPortal: NSObject {
 
     func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
         guard ensureInstalled() else { return }
+        browserSurfaceLogger.info(
+            "portal bind webView=\(browserPortalObjectToken(webView), privacy: .public) anchor=\(browserPortalObjectToken(anchorView), privacy: .public) visible=\(visibleInUI) zPriority=\(zPriority)"
+        )
 
         let webViewId = ObjectIdentifier(webView)
         let anchorId = ObjectIdentifier(anchorView)
@@ -3462,6 +3508,13 @@ final class WindowBrowserPortal: NSObject {
         }
         let shouldPreserveExternalFullscreenHost =
             webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
+        if !entry.visibleInUI, webView.superview === containerView {
+            detachHiddenHostedWebKitSubviewsIfNeeded(
+                in: containerView,
+                primaryWebView: webView,
+                reason: "hidden:\(source)"
+            )
+        }
         let shouldPreserveExternalHostForHiddenEntry =
             !shouldPreserveExternalFullscreenHost &&
             !entry.visibleInUI &&

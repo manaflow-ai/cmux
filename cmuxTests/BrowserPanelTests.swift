@@ -2089,6 +2089,17 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
     }
 
+    private func containsDescendant(_ target: NSView, in root: NSView?) -> Bool {
+        guard let root else { return false }
+        if root === target {
+            return true
+        }
+        for subview in root.subviews where containsDescendant(target, in: subview) {
+            return true
+        }
+        return false
+    }
+
     private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
         let candidates = slot.subviews + (slot.superview?.subviews ?? [])
         return candidates.first(where: {
@@ -3025,7 +3036,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertNil(webView.superview)
     }
 
-    func testRegistryHideKeepsPortalHostedWebViewAttachedButHidden() {
+    func testRegistryHideDetachesPortalHostedWebViewFromActiveWindowHierarchy() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -3056,7 +3067,11 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         BrowserWindowPortalRegistry.hide(webView: webView, source: "unitTest")
         advanceAnimations()
 
-        XCTAssertTrue(webView.superview === slot, "Hiding should preserve the hosted WKWebView attachment")
+        XCTAssertNil(webView.superview, "Hiding should detach the hosted WKWebView from the portal slot")
+        XCTAssertFalse(
+            containsDescendant(webView, in: window.contentView?.superview),
+            "Hiding should remove the WKWebView from the active window hierarchy so WebKit cannot leak a ghost layer"
+        )
         XCTAssertTrue(slot.isHidden, "Hiding should immediately hide the existing portal slot")
     }
 
@@ -3094,15 +3109,13 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(oldAnchor)
         advanceAnimations()
         XCTAssertTrue(slot.isHidden, "Workspace handoff should hide the retiring browser before unmount")
+        XCTAssertNil(webView.superview, "Hidden workspace browsers should leave the window hierarchy during handoff")
 
         oldAnchor.removeFromSuperview()
         portal.synchronizeWebViewForAnchor(oldAnchor)
         advanceAnimations()
 
-        XCTAssertTrue(
-            webView.superview === slot,
-            "Hidden workspace browsers should stay attached while their SwiftUI anchor is temporarily unmounted"
-        )
+        XCTAssertNil(webView.superview, "Hidden workspace browsers should stay detached while their anchor is unmounted")
         XCTAssertTrue(slot.isHidden, "Unmounted hidden workspace browser should remain hidden until rebound")
         XCTAssertEqual(portal.debugEntryCount(), 1, "Workspace handoff should keep the hidden browser portal entry alive")
 

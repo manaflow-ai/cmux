@@ -4,8 +4,14 @@ import Combine
 import ImageIO
 import SwiftUI
 import ObjectiveC
+import os
 import UniformTypeIdentifiers
 import WebKit
+
+private let browserSurfaceLogger = Logger(
+    subsystem: "com.manaflow.cmux",
+    category: "browser-surface"
+)
 
 private extension Color {
     init?(hex: String) {
@@ -4256,6 +4262,12 @@ struct ContentView: View {
         let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackTask?.cancel()
+        browserSurfaceLogger.info(
+            "workspace handoff start oldWorkspace=\(oldSelectedId.uuidString, privacy: .public) newWorkspace=\(newSelectedId.uuidString, privacy: .public) generation=\(generation)"
+        )
+        if let retiringWorkspace = tabManager.tabs.first(where: { $0.id == oldSelectedId }) {
+            retiringWorkspace.hideAllBrowserPortalViews(source: "workspaceHandoffStart")
+        }
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
@@ -4318,6 +4330,9 @@ struct ContentView: View {
         workspaceHandoffFallbackTask?.cancel()
         workspaceHandoffFallbackTask = nil
         let retiring = retiringWorkspaceId
+        browserSurfaceLogger.info(
+            "workspace handoff complete retiringWorkspace=\(retiring?.uuidString ?? "nil", privacy: .public) selectedWorkspace=\(tabManager.selectedTabId?.uuidString ?? "nil", privacy: .public) reason=\(reason, privacy: .public)"
+        )
 
         // Hide portal-hosted views for the retiring workspace BEFORE clearing
         // retiringWorkspaceId. Once cleared, reconcileMountedWorkspaceIds unmounts
@@ -4326,7 +4341,7 @@ struct ContentView: View {
         // portals from covering the newly selected workspace.
         if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
             workspace.hideAllTerminalPortalViews()
-            workspace.hideAllBrowserPortalViews()
+            workspace.hideAllBrowserPortalViews(source: "workspaceHandoffComplete")
         }
 
         retiringWorkspaceId = nil

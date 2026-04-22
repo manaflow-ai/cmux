@@ -10307,10 +10307,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func hideAllBrowserPortalViews() {
+    func hideAllBrowserPortalViews(source: String = "workspaceRetire") {
         for panel in panels.values {
             guard let browser = panel as? BrowserPanel else { continue }
-            browser.hideBrowserPortalView(source: "workspaceRetire")
+            browser.hideBrowserPortalView(source: source)
         }
     }
 
