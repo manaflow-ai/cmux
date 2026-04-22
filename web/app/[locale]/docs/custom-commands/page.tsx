@@ -33,12 +33,37 @@ export default function CustomCommandsPage() {
         </li>
       </ul>
       <Callout type="info">{t("precedenceNote")}</Callout>
+      <Callout type="info">
+        Custom action buttons are a nightly feature. Install the latest nightly build before using the
+        <code>actions</code> and <code>ui</code> fields below.
+      </Callout>
       <p>{t("liveReload")}</p>
 
       <h2>{t("schema")}</h2>
       <p>{t("schemaDesc")}</p>
+      <p>
+        Nightly builds also support an <code>actions</code> registry and <code>ui</code> placements for
+        the new-workspace button and the surface tab bar.
+      </p>
       <CodeBlock title="cmux.json" lang="json">{`{
-  "newWorkspaceCommand": "Start Dev",
+  "actions": {
+    "new-dev": { "type": "workspaceCommand", "commandName": "Start Dev" },
+    "start-codex": { "type": "agent", "agent": "codex" },
+    "start-claude": { "type": "agent", "agent": "claude" },
+    "run-tests": { "type": "command", "command": "npm test", "confirm": true }
+  },
+  "ui": {
+    "newWorkspace": { "action": "new-dev" },
+    "surfaceTabBar": {
+      "buttons": [
+        { "action": "newTerminal", "icon": "terminal", "tooltip": "New terminal" },
+        { "action": "newBrowser", "icon": "globe", "tooltip": "New browser" },
+        { "action": "start-codex", "icon": { "type": "image", "path": "./icons/codex.png" }, "tooltip": "Start Codex" },
+        { "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.jpg" }, "tooltip": "Start Claude Code" },
+        { "action": "run-tests", "icon": { "type": "emoji", "value": "✅" }, "tooltip": "Run tests" }
+      ]
+    }
+  },
   "commands": [
     {
       "name": "Start Dev",
@@ -51,6 +76,29 @@ export default function CustomCommandsPage() {
       "confirm": true
     }
   ]
+}`}</CodeBlock>
+      <h3>Nightly action buttons</h3>
+      <p>
+        <code>ui.surfaceTabBar.buttons</code> replaces the default buttons when present, so omit built-ins
+        like <code>newTerminal</code>, <code>newBrowser</code>, <code>splitRight</code>, or <code>splitDown</code>
+        to hide them. Button icons accept macOS SF Symbol names, emoji, or image paths relative to the
+        <code>cmux.json</code> file. PNG, JPEG, GIF, TIFF, HEIC, WebP, and ICNS files are supported.
+      </p>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "actions": {
+    "start-codex": { "type": "agent", "agent": "codex" },
+    "start-claude": { "type": "agent", "agent": "claude", "args": "--permission-mode acceptEdits" }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        { "id": "codex-symbol", "action": "start-codex", "icon": "sparkles", "tooltip": "Start Codex" },
+        { "id": "claude-emoji", "action": "start-claude", "icon": "emoji:🤖", "tooltip": "Start Claude Code" },
+        { "id": "codex-png", "action": "start-codex", "icon": "./icons/codex.png", "tooltip": "Start Codex with a PNG icon" },
+        { "id": "claude-jpeg", "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.jpeg" } }
+      ]
+    }
+  }
 }`}</CodeBlock>
 
       <h2>{t("simpleCommands")}</h2>
@@ -175,7 +223,23 @@ export default function CustomCommandsPage() {
 
       <h2>{t("fullExample")}</h2>
       <CodeBlock title="cmux.json" lang="json">{`{
-  "newWorkspaceCommand": "Web Dev",
+  "actions": {
+    "new-web-dev": { "type": "workspaceCommand", "commandName": "Web Dev" },
+    "start-dev": { "type": "command", "command": "npm run dev" },
+    "start-codex": { "type": "agent", "agent": "codex" },
+    "start-claude": { "type": "agent", "agent": "claude" }
+  },
+  "ui": {
+    "newWorkspace": { "action": "new-web-dev" },
+    "surfaceTabBar": {
+      "buttons": [
+        { "action": "start-dev", "icon": "play.circle", "tooltip": "Start dev" },
+        { "action": "newBrowser", "icon": "globe", "tooltip": "New browser" },
+        { "action": "start-codex", "icon": "./icons/codex.png", "tooltip": "Start Codex" },
+        { "action": "start-claude", "icon": "emoji:🤖", "tooltip": "Start Claude Code" }
+      ]
+    }
+  },
   "commands": [
     {
       "name": "Web Dev",

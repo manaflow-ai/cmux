@@ -83,6 +83,154 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.newWorkspaceCommand, "Dev Environment")
     }
 
+    func testDecodeLegacySurfaceTabBarButtons() throws {
+        let json = """
+        {
+          "surfaceTabBarButtons": ["newTerminal", "splitRight"],
+          "commands": []
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.surfaceTabBarButtons, [.newTerminal, .splitRight])
+    }
+
+    func testDecodeSurfaceTabBarButtonObjects() throws {
+        let json = """
+        {
+          "surfaceTabBarButtons": [
+            {
+              "id": "newTerminal",
+              "icon": "terminal.fill",
+              "tooltip": "New shell",
+              "action": "newTerminal"
+            },
+            {
+              "id": "run-tests",
+              "icon": "checkmark.circle",
+              "tooltip": "Run tests",
+              "command": "npm test",
+              "confirm": true
+            }
+          ],
+          "commands": []
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.surfaceTabBarButtons?.count, 2)
+        XCTAssertEqual(
+            config.surfaceTabBarButtons?[0],
+            .builtIn(.newTerminal, id: "newTerminal", icon: .symbol("terminal.fill"), tooltip: "New shell")
+        )
+        XCTAssertEqual(config.surfaceTabBarButtons?[1].id, "run-tests")
+        XCTAssertEqual(config.surfaceTabBarButtons?[1].icon, .symbol("checkmark.circle"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[1].tooltip, "Run tests")
+        XCTAssertEqual(config.surfaceTabBarButtons?[1].action, .command("npm test"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[1].confirm, true)
+    }
+
+    func testDecodeSurfaceTabBarButtonCanOverrideBuiltInWithCommand() throws {
+        let json = """
+        {
+          "surfaceTabBarButtons": [
+            {
+              "id": "newTerminal",
+              "icon": "play.circle",
+              "command": "npm run dev"
+            }
+          ]
+        }
+        """
+        let config = try decode(json)
+        let button = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        XCTAssertEqual(button.id, "newTerminal")
+        XCTAssertEqual(button.icon, .symbol("play.circle"))
+        XCTAssertEqual(button.command, "npm run dev")
+    }
+
+    func testDecodeActionsSurfaceTabBarButtons() throws {
+        let json = """
+        {
+          "actions": {
+            "start-codex": { "type": "agent", "agent": "codex" },
+            "start-claude": { "type": "agent", "agent": "claude", "args": "--permission-mode acceptEdits" }
+          },
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                {
+                  "action": "start-codex",
+                  "icon": { "type": "image", "path": "./icons/codex.png" },
+                  "tooltip": "Start Codex"
+                },
+                {
+                  "action": "start-claude",
+                  "icon": { "type": "emoji", "value": "🤖" },
+                  "tooltip": "Start Claude Code"
+                }
+              ]
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.surfaceTabBarButtons?.count, 2)
+        XCTAssertEqual(config.surfaceTabBarButtons?[0].id, "start-codex")
+        XCTAssertEqual(config.surfaceTabBarButtons?[0].icon, .imagePath("./icons/codex.png"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[0].terminalCommand, "codex")
+        XCTAssertEqual(config.surfaceTabBarButtons?[1].id, "start-claude")
+        XCTAssertEqual(config.surfaceTabBarButtons?[1].icon, .emoji("🤖"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[1].terminalCommand, "claude --permission-mode acceptEdits")
+    }
+
+    func testDecodeActionIconShorthand() throws {
+        let json = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "id": "emoji", "icon": "emoji:🤖", "command": "codex" },
+                { "id": "jpeg", "icon": "./icons/claude.jpg", "command": "claude" }
+              ]
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.surfaceTabBarButtons?[0].icon, .emoji("🤖"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[1].icon, .imagePath("./icons/claude.jpg"))
+    }
+
+    func testDecodeNewWorkspaceAction() throws {
+        let json = """
+        {
+          "actions": {
+            "new-dev": { "type": "workspaceCommand", "commandName": "Dev Environment" }
+          },
+          "ui": {
+            "newWorkspace": { "action": "new-dev" }
+          },
+          "commands": [{
+            "name": "Dev Environment",
+            "workspace": { "name": "Dev" }
+          }]
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.ui?.newWorkspace?.action, "new-dev")
+        XCTAssertEqual(config.actions["new-dev"]?.action.workspaceCommandName, "Dev Environment")
+    }
+
+    func testDecodeEmptySurfaceTabBarButtons() throws {
+        let json = """
+        {
+          "surfaceTabBarButtons": []
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.surfaceTabBarButtons, [])
+        XCTAssertTrue(config.commands.isEmpty)
+    }
+
     func testDecodeEmptyCommandsArray() throws {
         let json = """
         { "commands": [] }
@@ -345,11 +493,24 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeMissingCommandsKeyThrows() {
+    func testDecodeMissingCommandsKeyAllowsActionOnlyConfig() throws {
         let json = """
-        { "notCommands": [] }
+        {
+          "actions": {
+            "start-codex": { "type": "agent", "agent": "codex" }
+          },
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "action": "start-codex", "icon": "sparkles" }
+              ]
+            }
+          }
+        }
         """
-        XCTAssertThrowsError(try decode(json))
+        let config = try decode(json)
+        XCTAssertTrue(config.commands.isEmpty)
+        XCTAssertEqual(config.surfaceTabBarButtons?.first?.terminalCommand, "codex")
     }
 
     func testDecodeInvalidSurfaceTypeThrows() {
@@ -527,6 +688,29 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let json = """
         {
           "newWorkspaceCommand": "   ",
+          "commands": []
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeDuplicateSurfaceTabBarButtonsThrows() {
+        let json = """
+        {
+          "surfaceTabBarButtons": ["newTerminal", "newTerminal"],
+          "commands": []
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeDuplicateSurfaceTabBarButtonIdsThrows() {
+        let json = """
+        {
+          "surfaceTabBarButtons": [
+            { "id": "run", "icon": "play", "command": "npm run dev" },
+            { "id": "run", "icon": "checkmark", "command": "npm test" }
+          ],
           "commands": []
         }
         """

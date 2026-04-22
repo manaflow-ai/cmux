@@ -14,20 +14,37 @@ struct CmuxConfigExecutor {
         if let workspace = command.workspace {
             executeWorkspaceCommand(command: command, workspace: workspace, tabManager: tabManager, baseCwd: baseCwd)
         } else if let rawCommand = command.command {
-            let shellCommand = sanitizeForDisplay(rawCommand)
-            let needsConfirm = command.confirm ?? false
-            if needsConfirm, let sourcePath = configSourcePath {
-                let trusted = CmuxDirectoryTrust.shared.isTrusted(
-                    configPath: sourcePath,
-                    globalConfigPath: globalConfigPath
-                )
-                if !trusted {
-                    guard showConfirmDialog(command: shellCommand, configPath: sourcePath) else { return }
-                }
-            }
+            guard let shellInput = preparedShellInput(
+                rawCommand,
+                confirm: command.confirm ?? false,
+                configSourcePath: configSourcePath,
+                globalConfigPath: globalConfigPath
+            ) else { return }
             guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return }
-            terminal.sendInput(shellCommand + "\n")
+            terminal.sendInput(shellInput)
         }
+    }
+
+    static func preparedShellInput(
+        _ rawCommand: String,
+        confirm: Bool,
+        configSourcePath: String?,
+        globalConfigPath: String
+    ) -> String? {
+        let shellCommand = sanitizeForDisplay(rawCommand)
+        guard !shellCommand.isEmpty else { return nil }
+
+        if confirm, let sourcePath = configSourcePath {
+            let trusted = CmuxDirectoryTrust.shared.isTrusted(
+                configPath: sourcePath,
+                globalConfigPath: globalConfigPath
+            )
+            if !trusted {
+                guard showConfirmDialog(command: shellCommand, configPath: sourcePath) else { return nil }
+            }
+        }
+
+        return shellCommand + "\n"
     }
 
     /// Show a confirmation dialog with the command text and a "trust this directory" checkbox.

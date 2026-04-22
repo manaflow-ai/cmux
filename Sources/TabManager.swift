@@ -5072,6 +5072,20 @@ class TabManager: ObservableObject {
         }
     }
 
+    func applySurfaceTabBarButtons(
+        _ buttons: [CmuxSurfaceTabBarButton],
+        sourcePath: String?,
+        globalConfigPath: String
+    ) {
+        for workspace in tabs {
+            workspace.applySurfaceTabBarButtons(
+                buttons,
+                sourcePath: sourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        }
+    }
+
     // MARK: - Pane Focus Navigation
 
     /// Move focus to an adjacent pane in the specified direction
