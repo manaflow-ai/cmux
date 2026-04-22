@@ -4,6 +4,71 @@ import Foundation
 
 struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
+
+    private enum CodingKeys: String, CodingKey { case commands }
+
+    init(commands: [CmuxCommandDefinition]) {
+        self.commands = commands
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.commands = try container.decode([CmuxCommandDefinition].self, forKey: .commands)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(commands, forKey: .commands)
+    }
+
+    /// Parse cmux.json data, tolerating per-command decode failures.
+    /// Returns the config (nil if the top-level JSON shape is unusable) and a list of
+    /// human-readable warnings describing any entries that were skipped. Callers should
+    /// surface the warnings via logging so misconfigured commands are visible to users
+    /// instead of silently nuking the entire file.
+    static func parseLenient(_ data: Data) -> (file: CmuxConfigFile?, warnings: [String]) {
+        struct TopLevel: Decodable {
+            var commands: [LenientCommand]
+        }
+        struct LenientCommand: Decodable {
+            let result: Result<CmuxCommandDefinition, Error>
+            let fallbackName: String?
+
+            init(from decoder: Decoder) throws {
+                // Try to capture the command's `name` (if present) before decoding, so we can
+                // produce a human-readable warning even when the rest of the command is invalid.
+                let nameContainer = try? decoder.container(keyedBy: NameKey.self)
+                fallbackName = try? nameContainer?.decodeIfPresent(String.self, forKey: .name)
+                do {
+                    result = .success(try CmuxCommandDefinition(from: decoder))
+                } catch {
+                    result = .failure(error)
+                }
+            }
+
+            private enum NameKey: String, CodingKey { case name }
+        }
+
+        let top: TopLevel
+        do {
+            top = try JSONDecoder().decode(TopLevel.self, from: data)
+        } catch {
+            return (nil, [String(describing: error)])
+        }
+
+        var commands: [CmuxCommandDefinition] = []
+        var warnings: [String] = []
+        for (index, lenient) in top.commands.enumerated() {
+            switch lenient.result {
+            case .success(let command):
+                commands.append(command)
+            case .failure(let error):
+                let label = lenient.fallbackName.map { "\"\($0)\"" } ?? "commands[\(index)]"
+                warnings.append("Skipped command \(label): \(error)")
+            }
+        }
+        return (CmuxConfigFile(commands: commands), warnings)
+    }
 }
 
 struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
@@ -110,17 +175,34 @@ struct CmuxWorkspaceDefinition: Codable, Sendable {
         layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
 
         if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(rawColor) else {
+            guard let normalized = CmuxWorkspaceDefinition.resolveColor(rawColor) else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .color,
                     in: container,
-                    debugDescription: "Invalid color \"\(rawColor)\". Expected 6-digit hex format: #RRGGBB"
+                    debugDescription: "Invalid color \"\(rawColor)\". Expected 6-digit hex (#RRGGBB) or a named palette color (e.g. \"Indigo\", \"Navy\")."
                 )
             }
             color = normalized
         } else {
             color = nil
         }
+    }
+
+    /// Resolves a cmux.json color string to a normalized hex value.
+    /// Accepts either a 6-digit hex string (with or without `#`) or a named entry
+    /// from the default workspace tab color palette (case-insensitive).
+    static func resolveColor(_ raw: String) -> String? {
+        if let hex = WorkspaceTabColorSettings.normalizedHex(raw) {
+            return hex
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let entry = WorkspaceTabColorSettings.defaultPalette.first(where: {
+            $0.name.caseInsensitiveCompare(trimmed) == .orderedSame
+        }) {
+            return entry.hex
+        }
+        return nil
     }
 }
 
@@ -391,12 +473,14 @@ final class CmuxConfigStore: ObservableObject {
               !data.isEmpty else {
             return nil
         }
-        do {
-            return try JSONDecoder().decode(CmuxConfigFile.self, from: data)
-        } catch {
-            NSLog("[CmuxConfig] parse error at %@: %@", path, String(describing: error))
-            return nil
+        let (file, warnings) = CmuxConfigFile.parseLenient(data)
+        for warning in warnings {
+            NSLog("[CmuxConfig] %@: %@", path, warning)
         }
+        if file == nil {
+            NSLog("[CmuxConfig] parse error at %@: top-level JSON could not be decoded", path)
+        }
+        return file
     }
 
     // MARK: - File watching (local)

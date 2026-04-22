@@ -508,6 +508,120 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         XCTAssertThrowsError(try decode(json))
     }
+
+    // MARK: Named colors (regression for #3075)
+
+    func testDecodeNamedIndigoColorResolvesToPaletteHex() throws {
+        let json = """
+        {
+          "commands": [{
+            "name": "IndigoWorkspace",
+            "workspace": { "color": "Indigo" }
+          }]
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.commands[0].workspace?.color, "#283593")
+    }
+
+    func testDecodeNamedNavyColorResolvesToPaletteHex() throws {
+        let json = """
+        {
+          "commands": [{
+            "name": "NavyWorkspace",
+            "workspace": { "color": "Navy" }
+          }]
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.commands[0].workspace?.color, "#1A5276")
+    }
+
+    func testDecodeNamedColorIsCaseInsensitive() throws {
+        let json = """
+        {
+          "commands": [{
+            "name": "LowerIndigo",
+            "workspace": { "color": "indigo" }
+          }]
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.commands[0].workspace?.color, "#283593")
+    }
+}
+
+// MARK: - Lenient parsing (regression for #3075)
+
+final class CmuxConfigLenientParseTests: XCTestCase {
+
+    private func data(_ json: String) -> Data {
+        json.data(using: .utf8)!
+    }
+
+    func testParseLenientLoadsValidConfig() {
+        let (file, warnings) = CmuxConfigFile.parseLenient(data("""
+        {
+          "commands": [
+            { "name": "Build", "command": "make build" },
+            { "name": "Test", "command": "make test" }
+          ]
+        }
+        """))
+        XCTAssertNotNil(file)
+        XCTAssertEqual(file?.commands.map(\.name), ["Build", "Test"])
+        XCTAssertTrue(warnings.isEmpty, "valid config should produce no warnings")
+    }
+
+    func testParseLenientPreservesSiblingsWhenOneCommandHasInvalidColor() {
+        let (file, warnings) = CmuxConfigFile.parseLenient(data("""
+        {
+          "commands": [
+            { "name": "BadColor", "workspace": { "color": "NotARealColorXYZ" } },
+            { "name": "Echo",     "command": "echo hi" }
+          ]
+        }
+        """))
+        XCTAssertNotNil(file, "a single bad command must not reject the entire file")
+        // The well-formed `Echo` command must still load.
+        XCTAssertEqual(file?.commands.contains(where: { $0.name == "Echo" }), true)
+        XCTAssertFalse(warnings.isEmpty, "skipped command should produce a warning")
+    }
+
+    func testParseLenientAcceptsNamedColorsEndToEnd() {
+        let (file, warnings) = CmuxConfigFile.parseLenient(data("""
+        {
+          "commands": [
+            { "name": "IndigoWS", "workspace": { "color": "Indigo" } },
+            { "name": "Echo",     "command": "echo hi" }
+          ]
+        }
+        """))
+        XCTAssertNotNil(file)
+        XCTAssertEqual(file?.commands.count, 2)
+        XCTAssertEqual(
+            file?.commands.first(where: { $0.name == "IndigoWS" })?.workspace?.color,
+            "#283593"
+        )
+        XCTAssertTrue(warnings.isEmpty, "named colors must not produce warnings")
+    }
+
+    func testParseLenientSkipsCommandWithInvalidLayoutButKeepsOthers() {
+        let (file, warnings) = CmuxConfigFile.parseLenient(data("""
+        {
+          "commands": [
+            {
+              "name": "BadLayout",
+              "workspace": { "layout": { "invalid": true } }
+            },
+            { "name": "Echo", "command": "echo hi" }
+          ]
+        }
+        """))
+        XCTAssertNotNil(file, "a single bad command must not reject the entire file")
+        XCTAssertEqual(file?.commands.contains(where: { $0.name == "Echo" }), true)
+        XCTAssertFalse(warnings.isEmpty)
+    }
 }
 
 // MARK: - Command identity
