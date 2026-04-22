@@ -3028,49 +3028,56 @@ struct ContentView: View {
         // File explorer is always in the view tree. Visibility is controlled by
         // frame width (0 when hidden), avoiding SwiftUI view insertion/removal
         // and all associated transition animations.
-        let explorerVisible = fileExplorerState.isVisible
         return HStack(spacing: 0) {
             terminalContentWithSidebarDropOverlay
-            if explorerVisible {
+            if rightSidebarVisible {
                 Divider()
             }
             rightSidebarPanelWithBackdrop
         }
     }
 
-    private var sidebarBackdropLayer: some View {
+    private var rightSidebarVisible: Bool {
+        fileExplorerState.isVisible
+    }
+
+    private var rightSidebarWidth: CGFloat {
+        rightSidebarVisible ? fileExplorerWidth : 0
+    }
+
+    private func sidebarBackdropLayer(width: CGFloat) -> some View {
         SidebarBackdrop()
             .ignoresSafeArea()
-            .frame(width: sidebarWidth)
-            .allowsHitTesting(false)
-    }
-
-    private var sidebarPanelWithBackdrop: some View {
-        ZStack(alignment: .leading) {
-            sidebarBackdropLayer
-            sidebarView
-        }
-        .frame(width: sidebarWidth)
-    }
-
-    private var rightSidebarBackdropLayer: some View {
-        let explorerVisible = fileExplorerState.isVisible
-        return SidebarBackdrop()
-            .ignoresSafeArea()
-            .frame(width: explorerVisible ? fileExplorerWidth : 0)
+            .frame(width: width)
             .clipped()
             .allowsHitTesting(false)
     }
 
+    private func sidebarPanelContainer<Content: View>(
+        width: CGFloat,
+        alignment: Alignment,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack(alignment: alignment) {
+            sidebarBackdropLayer(width: width)
+            content()
+        }
+        .frame(width: width)
+    }
+
+    private var sidebarPanelWithBackdrop: some View {
+        sidebarPanelContainer(width: sidebarWidth, alignment: .leading) {
+            sidebarView
+        }
+    }
+
     private var rightSidebarPanelWithBackdrop: some View {
-        ZStack(alignment: .trailing) {
-            rightSidebarBackdropLayer
+        sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing) {
             rightSidebarPanel
         }
     }
 
     private var rightSidebarPanel: some View {
-        let explorerVisible = fileExplorerState.isVisible
         return RightSidebarPanelView(
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
@@ -3079,12 +3086,12 @@ struct ContentView: View {
                 resumeSession(entry: entry)
             }
         )
-        .frame(width: explorerVisible ? fileExplorerWidth : 0)
+        .frame(width: rightSidebarWidth)
         .clipped()
-        .allowsHitTesting(explorerVisible)
-        .accessibilityHidden(!explorerVisible)
+        .allowsHitTesting(rightSidebarVisible)
+        .accessibilityHidden(!rightSidebarVisible)
         .overlay(alignment: .leading) {
-            if explorerVisible {
+            if rightSidebarVisible {
                 fileExplorerResizerHandle
             }
         }
@@ -3410,7 +3417,7 @@ struct ContentView: View {
                             .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)
-                        if fileExplorerState.isVisible {
+                        if rightSidebarVisible {
                             Divider()
                             rightSidebarPanelWithBackdrop
                         }
