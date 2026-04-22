@@ -33,6 +33,7 @@
 		261EB5012A2742419A7414B6 /* SidebarHelpSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B14C35571C46EF97934B4E /* SidebarHelpSupport.swift */; };
 		211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */; };
 		D367B5E5B41D4C7486297763 /* SidebarLayoutSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07C188A9970C44C197F4200C /* SidebarLayoutSupport.swift */; };
+		E6B5B2D9E7C34F6A80F85F4D /* SidebarMetadataSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B734A6E92B04721AE366F20 /* SidebarMetadataSupport.swift */; };
 		4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */; };
 		125BAEF2FE3B454547B964D1 /* ShortcutHintPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = A080D1F6CCCBFBED8D95DD1D /* ShortcutHintPill.swift */; };
 		807E058A23061EFB70A1B7F8 /* WindowGlassEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B54144FA244A0B482D2903D /* WindowGlassEffect.swift */; };
@@ -270,6 +271,7 @@
 		F2B14C35571C46EF97934B4E /* SidebarHelpSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarHelpSupport.swift; sourceTree = "<group>"; };
 		243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAppearanceSupport.swift; sourceTree = "<group>"; };
 		07C188A9970C44C197F4200C /* SidebarLayoutSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarLayoutSupport.swift; sourceTree = "<group>"; };
+		3B734A6E92B04721AE366F20 /* SidebarMetadataSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarMetadataSupport.swift; sourceTree = "<group>"; };
 		610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
 		A080D1F6CCCBFBED8D95DD1D /* ShortcutHintPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutHintPill.swift; sourceTree = "<group>"; };
 		0B54144FA244A0B482D2903D /* WindowGlassEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowGlassEffect.swift; sourceTree = "<group>"; };
@@ -531,6 +533,7 @@
 				F2B14C35571C46EF97934B4E /* SidebarHelpSupport.swift */,
 				243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */,
 				07C188A9970C44C197F4200C /* SidebarLayoutSupport.swift */,
+				3B734A6E92B04721AE366F20 /* SidebarMetadataSupport.swift */,
 				610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */,
 				A080D1F6CCCBFBED8D95DD1D /* ShortcutHintPill.swift */,
 				0B54144FA244A0B482D2903D /* WindowGlassEffect.swift */,
@@ -912,6 +915,7 @@
 				261EB5012A2742419A7414B6 /* SidebarHelpSupport.swift in Sources */,
 				211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */,
 				D367B5E5B41D4C7486297763 /* SidebarLayoutSupport.swift in Sources */,
+				E6B5B2D9E7C34F6A80F85F4D /* SidebarMetadataSupport.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
 				125BAEF2FE3B454547B964D1 /* ShortcutHintPill.swift in Sources */,
 				807E058A23061EFB70A1B7F8 /* WindowGlassEffect.swift in Sources */,
