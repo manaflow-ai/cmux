@@ -1795,6 +1795,13 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
 }
 
 @MainActor
+private func existingTmuxWorkspacePaneWindowOverlayController(
+    for window: NSWindow
+) -> WindowTmuxWorkspacePaneOverlayController? {
+    objc_getAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey) as? WindowTmuxWorkspacePaneOverlayController
+}
+
+@MainActor
 private func tmuxWorkspacePaneWindowOverlayController(for window: NSWindow) -> WindowTmuxWorkspacePaneOverlayController {
     if let existing = objc_getAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey) as? WindowTmuxWorkspacePaneOverlayController {
         return existing
@@ -3797,8 +3804,12 @@ struct ContentView: View {
 
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
             MainActor.assumeIsolated {
-                let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
-                tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
+                if let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window) {
+                    let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
+                    tmuxOverlayController.update(state: tmuxOverlayState)
+                } else {
+                    existingTmuxWorkspacePaneWindowOverlayController(for: window)?.update(state: nil)
+                }
                 let overlayController = commandPaletteWindowOverlayController(for: window)
                 overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
             }

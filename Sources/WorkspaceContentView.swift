@@ -152,27 +152,51 @@ struct TmuxWorkspacePaneOverlayView: View {
     let flashReason: WorkspaceAttentionFlashReason?
 
     var body: some View {
-        TimelineView(.animation) { timeline in
-            Canvas { context, _ in
-                for rect in unreadRects {
-                    drawUnreadRing(in: &context, rect: rect)
-                }
+        overlayContent
+            .allowsHitTesting(false)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
-                guard let flashRect,
-                      let flashStartedAt else { return }
-                let elapsed = timeline.date.timeIntervalSince(flashStartedAt)
-                let opacity = FocusFlashPattern.opacity(at: elapsed)
-                guard opacity > 0.001 else { return }
-                drawFlashRing(
-                    in: &context,
-                    rect: flashRect,
-                    opacity: opacity,
-                    reason: flashReason ?? .notificationArrival
-                )
+    @ViewBuilder
+    private var overlayContent: some View {
+        if shouldAnimateFlash, let flashStartedAt {
+            TimelineView(TmuxWorkspacePaneFlashTimelineSchedule(startDate: flashStartedAt)) { timeline in
+                overlayCanvas(timelineDate: timeline.date)
             }
+        } else if !unreadRects.isEmpty {
+            overlayCanvas(timelineDate: nil)
+        } else {
+            Color.clear
         }
-        .allowsHitTesting(false)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var shouldAnimateFlash: Bool {
+        guard let flashRect,
+              flashRect.width > 0,
+              flashRect.height > 0,
+              let flashStartedAt else { return false }
+        return Date() <= flashStartedAt.addingTimeInterval(FocusFlashPattern.duration)
+    }
+
+    private func overlayCanvas(timelineDate: Date?) -> some View {
+        Canvas { context, _ in
+            for rect in unreadRects {
+                drawUnreadRing(in: &context, rect: rect)
+            }
+
+            guard let flashRect,
+                  let flashStartedAt,
+                  let timelineDate else { return }
+            let elapsed = timelineDate.timeIntervalSince(flashStartedAt)
+            let opacity = FocusFlashPattern.opacity(at: elapsed)
+            guard opacity > 0.001 else { return }
+            drawFlashRing(
+                in: &context,
+                rect: flashRect,
+                opacity: opacity,
+                reason: flashReason ?? .notificationArrival
+            )
+        }
     }
 
     private func drawUnreadRing(in context: inout GraphicsContext, rect: CGRect) {
@@ -217,6 +241,32 @@ struct TmuxWorkspacePaneOverlayView: View {
             roundedRect: PanelOverlayRingMetrics.pathRect(in: rect),
             cornerRadius: PanelOverlayRingMetrics.cornerRadius
         )
+    }
+}
+
+private struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
+    let startDate: Date
+
+    func entries(from requestedStartDate: Date, mode: Mode) -> Entries {
+        let firstDate = requestedStartDate > startDate ? requestedStartDate : startDate
+        return Entries(
+            nextDate: firstDate,
+            endDate: startDate.addingTimeInterval(FocusFlashPattern.duration),
+            interval: 1.0 / 60.0
+        )
+    }
+
+    struct Entries: Sequence, IteratorProtocol {
+        var nextDate: Date
+        let endDate: Date
+        let interval: TimeInterval
+
+        mutating func next() -> Date? {
+            guard nextDate <= endDate else { return nil }
+            let date = nextDate
+            nextDate = nextDate.addingTimeInterval(interval)
+            return date
+        }
     }
 }
 
