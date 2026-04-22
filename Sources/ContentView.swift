@@ -3099,19 +3099,6 @@ struct ContentView: View {
         }
     }
 
-    private var rightSidebarBackdropOverlayPanel: some View {
-        rightSidebarBackdropLayer
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-    }
-
-    private var rightSidebarOverlayPanel: some View {
-        rightSidebarPanel
-            .overlay(alignment: .leading) {
-                Divider()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-    }
-
     private var fileExplorerResizerHandle: some View {
         sidebarResizerHandleOverlay(
             .explorerDivider,
@@ -3413,21 +3400,23 @@ struct ContentView: View {
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
         if useWithinWindow {
-            // Overlay mode: terminal extends full width, sidebar on top
-            // This allows withinWindow blur to see the terminal content
+            // Overlay mode keeps the left sidebar on top, but the right
+            // sidebar stays in an HStack so terminal rows are clipped before
+            // the sidebar backdrop samples the window.
             layout = AnyView(
                 ZStack(alignment: .leading) {
-                    terminalContentWithSidebarDropOverlay
-                        .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
-                        .padding(.trailing, fileExplorerState.isVisible ? fileExplorerWidth : 0)
+                    HStack(spacing: 0) {
+                        terminalContentWithSidebarDropOverlay
+                            .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .layoutPriority(1)
+                        if fileExplorerState.isVisible {
+                            Divider()
+                            rightSidebarPanelWithBackdrop
+                        }
+                    }
                     if sidebarState.isVisible {
                         sidebarPanelWithBackdrop
-                    }
-                    if fileExplorerState.isVisible {
-                        rightSidebarBackdropOverlayPanel
-                    }
-                    if fileExplorerState.isVisible {
-                        rightSidebarOverlayPanel
                     }
                 }
             )
