@@ -4950,6 +4950,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
             self.backgroundSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
             guard self.surface == nil, let view = self.attachedView else { return }
+            guard view.window != nil else {
+                #if DEBUG
+                dlog(
+                    "surface.background_start.defer surface=\(self.id.uuidString.prefix(8)) reason=noWindow"
+                )
+                #endif
+                return
+            }
             #if DEBUG
             let startedAt = ProcessInfo.processInfo.systemUptime
             #endif
