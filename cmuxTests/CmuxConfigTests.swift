@@ -117,8 +117,10 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         let config = try decode(json)
         XCTAssertEqual(config.surfaceTabBarButtons?.count, 2)
+        let rawFirstButton = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        let firstButton = try rawFirstButton.resolved(actions: [:], codingPath: [])
         XCTAssertEqual(
-            config.surfaceTabBarButtons?[0],
+            firstButton,
             .builtIn(.newTerminal, id: "newTerminal", icon: .symbol("terminal.fill"), tooltip: "New shell")
         )
         XCTAssertEqual(config.surfaceTabBarButtons?[1].id, "run-tests")
@@ -173,13 +175,33 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
         """
         let config = try decode(json)
-        XCTAssertEqual(config.surfaceTabBarButtons?.count, 2)
-        XCTAssertEqual(config.surfaceTabBarButtons?[0].id, "start-codex")
-        XCTAssertEqual(config.surfaceTabBarButtons?[0].icon, .imagePath("./icons/codex.png"))
-        XCTAssertEqual(config.surfaceTabBarButtons?[0].terminalCommand, "codex")
-        XCTAssertEqual(config.surfaceTabBarButtons?[1].id, "start-claude")
-        XCTAssertEqual(config.surfaceTabBarButtons?[1].icon, .emoji("🤖"))
-        XCTAssertEqual(config.surfaceTabBarButtons?[1].terminalCommand, "claude --permission-mode acceptEdits")
+        let rawButtons = try XCTUnwrap(config.surfaceTabBarButtons)
+        let buttons = try rawButtons.map { try $0.resolved(actions: config.actions, codingPath: []) }
+        XCTAssertEqual(buttons.count, 2)
+        XCTAssertEqual(buttons[0].id, "start-codex")
+        XCTAssertEqual(buttons[0].icon, .imagePath("./icons/codex.png"))
+        XCTAssertEqual(buttons[0].terminalCommand, "codex")
+        XCTAssertEqual(buttons[1].id, "start-claude")
+        XCTAssertEqual(buttons[1].icon, .emoji("🤖"))
+        XCTAssertEqual(buttons[1].terminalCommand, "claude --permission-mode acceptEdits")
+    }
+
+    func testDecodeSurfaceTabBarButtonsDefersUnknownActionReferences() throws {
+        let json = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "action": "global-codex", "icon": "sparkles" }
+              ]
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        let button = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        XCTAssertEqual(button.id, "global-codex")
+        XCTAssertEqual(button.action, .actionReference("global-codex"))
     }
 
     func testDecodeActionIconShorthand() throws {
@@ -252,9 +274,25 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
         """
         let config = try decode(json)
-        let button = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        let rawButton = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        let button = try rawButton.resolved(actions: config.actions, codingPath: [])
         XCTAssertEqual(button.workspaceCommandName, "Dev Environment")
         XCTAssertNil(button.terminalCommand)
+    }
+
+    func testSurfaceTabBarWorkspaceCommandButtonRoundTrips() throws {
+        let original = CmuxSurfaceTabBarButton(
+            id: "new-dev",
+            icon: .symbol("rectangle.stack.badge.plus"),
+            tooltip: "New dev workspace",
+            action: .workspaceCommand("Dev Environment"),
+            confirm: true
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(CmuxSurfaceTabBarButton.self, from: data)
+
+        XCTAssertEqual(decoded, original)
     }
 
     func testDecodeEmptySurfaceTabBarButtons() throws {
@@ -547,7 +585,9 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         let config = try decode(json)
         XCTAssertTrue(config.commands.isEmpty)
-        XCTAssertEqual(config.surfaceTabBarButtons?.first?.terminalCommand, "codex")
+        let rawButton = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        let button = try rawButton.resolved(actions: config.actions, codingPath: [])
+        XCTAssertEqual(button.terminalCommand, "codex")
     }
 
     func testDecodeInvalidSurfaceTypeThrows() {
