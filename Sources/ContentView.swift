@@ -3034,6 +3034,37 @@ struct ContentView: View {
             if explorerVisible {
                 Divider()
             }
+            rightSidebarPanelWithBackdrop
+        }
+    }
+
+    private var sidebarBackdropLayer: some View {
+        SidebarBackdrop()
+            .ignoresSafeArea()
+            .frame(width: sidebarWidth)
+            .allowsHitTesting(false)
+    }
+
+    private var sidebarPanelWithBackdrop: some View {
+        ZStack(alignment: .leading) {
+            sidebarBackdropLayer
+            sidebarView
+        }
+        .frame(width: sidebarWidth)
+    }
+
+    private var rightSidebarBackdropLayer: some View {
+        let explorerVisible = fileExplorerState.isVisible
+        return SidebarBackdrop()
+            .ignoresSafeArea()
+            .frame(width: explorerVisible ? fileExplorerWidth : 0)
+            .clipped()
+            .allowsHitTesting(false)
+    }
+
+    private var rightSidebarPanelWithBackdrop: some View {
+        ZStack(alignment: .trailing) {
+            rightSidebarBackdropLayer
             rightSidebarPanel
         }
     }
@@ -3066,6 +3097,11 @@ struct ContentView: View {
                 fileExplorerWidth = newValue
             }
         }
+    }
+
+    private var rightSidebarBackdropOverlayPanel: some View {
+        rightSidebarBackdropLayer
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
     }
 
     private var rightSidebarOverlayPanel: some View {
@@ -3385,7 +3421,10 @@ struct ContentView: View {
                         .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
                         .padding(.trailing, fileExplorerState.isVisible ? fileExplorerWidth : 0)
                     if sidebarState.isVisible {
-                        sidebarView
+                        sidebarPanelWithBackdrop
+                    }
+                    if fileExplorerState.isVisible {
+                        rightSidebarBackdropOverlayPanel
                     }
                     if fileExplorerState.isVisible {
                         rightSidebarOverlayPanel
@@ -3397,7 +3436,7 @@ struct ContentView: View {
             layout = AnyView(
                 HStack(spacing: 0) {
                     if sidebarState.isVisible {
-                        sidebarView
+                        sidebarPanelWithBackdrop
                     }
                     terminalContentWithRightSidebarPanel
                 }
@@ -10610,7 +10649,6 @@ struct VerticalTabsSidebar: View {
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
-        .background(SidebarBackdrop().ignoresSafeArea())
         .overlay(alignment: .trailing) {
             SidebarTrailingBorder()
         }
