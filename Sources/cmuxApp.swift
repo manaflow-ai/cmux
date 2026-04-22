@@ -3929,6 +3929,8 @@ enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
     static let customClaudePathKey = "claudeCodeCustomClaudePath"
+    static let idleNotificationsEnabledKey = "claudeCodeIdleNotificationsEnabled"
+    static let defaultIdleNotificationsEnabled = false
 
     static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: hooksEnabledKey) == nil {
@@ -3941,6 +3943,13 @@ enum ClaudeCodeIntegrationSettings {
         let value = defaults.string(forKey: customClaudePathKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? nil : value
+    }
+
+    static func idleNotificationsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: idleNotificationsEnabledKey) == nil {
+            return defaultIdleNotificationsEnabled
+        }
+        return defaults.bool(forKey: idleNotificationsEnabledKey)
     }
 }
 
@@ -4244,6 +4253,8 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+    @AppStorage(ClaudeCodeIntegrationSettings.idleNotificationsEnabledKey)
+    private var claudeCodeIdleNotificationsEnabled = ClaudeCodeIntegrationSettings.defaultIdleNotificationsEnabled
     @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
     private var customClaudePath = ""
     @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
@@ -5741,6 +5752,21 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            String(localized: "settings.automation.claudeCode.idleNotifications", defaultValue: "Notify when idle waiting for input"),
+                            subtitle: claudeCodeIdleNotificationsEnabled
+                                ? String(localized: "settings.automation.claudeCode.idleNotifications.subtitleOn", defaultValue: "Shows a notification after ~5 minutes of inactivity (Claude Code default).")
+                                : String(localized: "settings.automation.claudeCode.idleNotifications.subtitleOff", defaultValue: "Suppresses idle \"waiting for input\" notifications. Permission prompts and MCP dialogs still notify.")
+                        ) {
+                            Toggle("", isOn: $claudeCodeIdleNotificationsEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .disabled(!claudeCodeHooksEnabled)
+                                .accessibilityIdentifier("SettingsClaudeCodeIdleNotificationsToggle")
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
                     }
 
@@ -6415,6 +6441,7 @@ struct SettingsView: View {
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+        claudeCodeIdleNotificationsEnabled = ClaudeCodeIntegrationSettings.defaultIdleNotificationsEnabled
         customClaudePath = ""
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled

@@ -204,7 +204,15 @@ fi
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
 # - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
 # - PreToolUse: clears "Needs input" when Claude resumes after permission grant (async to avoid latency)
-HOOKS_JSON='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook stop","timeout":10}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook pre-tool-use","timeout":5,"async":true}]}]}}'
+# - Notification: matcher-gated. By default only permission_prompt / elicitation_dialog fire
+#   the hook; idle_prompt and auth_success are ignored to avoid spurious "Needs input".
+#   When CMUX_CLAUDE_IDLE_NOTIFICATIONS=1, the catch-all matcher is used (classic behavior).
+if [[ "${CMUX_CLAUDE_IDLE_NOTIFICATIONS:-0}" == "1" ]]; then
+    NOTIFICATION_HOOKS='[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook notification","timeout":10}]}]'
+else
+    NOTIFICATION_HOOKS='[{"matcher":"permission_prompt","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook notification","timeout":10}]},{"matcher":"elicitation_dialog","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook notification","timeout":10}]}]'
+fi
+HOOKS_JSON='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook stop","timeout":10}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook session-end","timeout":1}]}],"Notification":'"$NOTIFICATION_HOOKS"',"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook pre-tool-use","timeout":5,"async":true}]}]}}'
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
