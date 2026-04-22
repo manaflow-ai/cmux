@@ -190,6 +190,7 @@ struct SessionIndexView: View {
             }
             .padding(.bottom, 8)
         }
+        .modifier(ClearScrollBackground())
         .background(
             DragCancelMonitor(dragCoordinator: dragCoordinator)
         )
@@ -467,7 +468,6 @@ private struct SectionGapDropDelegate: DropDelegate {
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
     let onResume: ((SessionEntry) -> Void)?
-    @State private var isHovered: Bool = false
 
     static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
         // Skip body re-eval during scroll when the entry is unchanged.
@@ -498,12 +498,6 @@ private struct SessionRow: View, Equatable {
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .background(
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(isHovered ? Color.primary.opacity(0.05) : Color.clear)
-                .padding(.horizontal, 6)
-        )
-        .onHover { isHovered = $0 }
         .help(helpText)
         .onTapGesture(count: 2) {
             if let onResume { onResume(entry) }
