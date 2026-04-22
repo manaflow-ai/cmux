@@ -1458,11 +1458,15 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
 
 final class GhosttyUnshiftedCodepointTests: XCTestCase {
     func testCommandAwareLayoutTranslationWinsForCommandShortcutKeys() {
+        // Fixtures deliberately differ from the expected "=" so the test only
+        // passes via the command-aware layout branch. Without that precedence,
+        // every fallback path (no-command layout lookup, charactersIgnoringModifiers,
+        // characters) returns ";" and the assertion fails.
         let codepoint = ghosttyUnshiftedCodepoint(
             keyCode: 24,
             modifierFlags: [.command],
-            charactersIgnoringModifiers: "=",
-            characters: "=",
+            charactersIgnoringModifiers: ";",
+            characters: ";",
             layoutCharacterProvider: { keyCode, modifierFlags in
                 guard keyCode == 24 else { return nil }
                 return modifierFlags.contains(.command) ? "=" : ";"
