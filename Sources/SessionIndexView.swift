@@ -190,6 +190,7 @@ struct SessionIndexView: View {
             }
             .padding(.bottom, 8)
         }
+        .modifier(ClearScrollBackground())
         .background(
             DragCancelMonitor(dragCoordinator: dragCoordinator)
         )

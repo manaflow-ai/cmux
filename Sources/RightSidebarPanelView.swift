@@ -35,6 +35,9 @@ struct RightSidebarPanelView: View {
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(SidebarBackdrop().ignoresSafeArea())
+        .accessibilityIdentifier("RightSidebar")
     }
 
     private var modeBar: some View {
