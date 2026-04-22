@@ -7,6 +7,9 @@ struct GhosttyConfig {
         case dark
     }
 
+    // Native fallback for fresh installs when the user hasn't chosen terminal colors yet.
+    static let cmuxDefaultTheme = "light:Apple System Colors Light,dark:Apple System Colors"
+
     private static let cmuxReleaseBundleIdentifier = "com.cmuxterm.app"
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
@@ -206,6 +209,11 @@ struct GhosttyConfig {
             if let contents = readConfigFile(at: path) {
                 config.parse(contents)
             }
+        }
+
+        if config.theme == nil,
+           GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: configPaths) {
+            config.theme = Self.cmuxDefaultTheme
         }
 
         // Load theme if specified

@@ -2714,6 +2714,54 @@ final class GhosttyMouseFocusTests: XCTestCase {
             )
         )
     }
+
+    // MARK: shouldInjectManagedDefaultTheme
+
+    func testShouldInjectManagedDefaultThemeAllowsNonAppearanceConfig() throws {
+        try withTempConfig("""
+        font-family = JetBrains Mono
+        background-opacity = 0.92
+        """) { path in
+            XCTAssertTrue(
+                GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: [path])
+            )
+        }
+    }
+
+    func testShouldInjectManagedDefaultThemeSkipsExplicitTheme() throws {
+        try withTempConfig("theme = Catppuccin Mocha\n") { path in
+            XCTAssertFalse(
+                GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: [path])
+            )
+        }
+    }
+
+    func testShouldInjectManagedDefaultThemeSkipsExplicitTerminalColorDirective() throws {
+        try withTempConfig("background = #101010\n") { path in
+            XCTAssertFalse(
+                GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: [path])
+            )
+        }
+    }
+
+    func testShouldInjectManagedDefaultThemeFollowsConfigFileIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-theme-include-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("appearance.conf")
+        try "theme = Catppuccin Latte\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "font-family = JetBrains Mono\nconfig-file = \(included.path)\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: [main.path])
+        )
+    }
 }
 
 final class SidebarBackgroundConfigTests: XCTestCase {

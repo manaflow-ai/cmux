@@ -1894,6 +1894,14 @@ class GhosttyApp {
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
+        if Self.shouldInjectManagedDefaultTheme() {
+            loadInlineGhosttyConfig(
+                "theme = \(GhosttyConfig.cmuxDefaultTheme)",
+                into: config,
+                prefix: "cmux-default-theme",
+                logLabel: "default theme fallback"
+            )
+        }
         loadCJKFontFallbackIfNeeded(config)
         let useHostLayerBackground = !hasConfiguredBackgroundImage(config)
         usesHostLayerBackground = useHostLayerBackground
@@ -2042,6 +2050,32 @@ class GhosttyApp {
         }
     }
 
+    private struct UserAppearanceConfigSummary {
+        var hasThemeDirective = false
+        var hasExplicitTerminalColorDirective = false
+
+        var shouldInjectDefaultTheme: Bool {
+            !hasThemeDirective && !hasExplicitTerminalColorDirective
+        }
+
+        mutating func recordDirective(key: String) {
+            switch key {
+            case "theme":
+                hasThemeDirective = true
+            case "background",
+                 "foreground",
+                 "palette",
+                 "cursor-color",
+                 "cursor-text",
+                 "selection-background",
+                 "selection-foreground":
+                hasExplicitTerminalColorDirective = true
+            default:
+                break
+            }
+        }
+    }
+
     /// Returns (range, font) pairs for CJK font fallback based on the system's
     /// preferred languages, or nil if no CJK language is detected. Each language
     /// only maps its own script ranges to avoid assigning glyphs to a font that
@@ -2140,6 +2174,12 @@ class GhosttyApp {
             configPaths: configPaths,
             rangeCoverageProbe: rangeCoverageProbe
         ) != nil
+    }
+
+    static func shouldInjectManagedDefaultTheme(
+        configPaths: [String] = loadedCJKScanPaths()
+    ) -> Bool {
+        userAppearanceConfigSummary(configPaths: configPaths).shouldInjectDefaultTheme
     }
 
     /// Resolve auto-injected CJK families through the regular-weight descriptor
@@ -2286,6 +2326,39 @@ class GhosttyApp {
         return summary
     }
 
+    private static func userAppearanceConfigSummary(
+        configPaths: [String] = loadedCJKScanPaths()
+    ) -> UserAppearanceConfigSummary {
+        var summary = UserAppearanceConfigSummary()
+        var recursiveConfigPaths: [String] = []
+
+        for path in configPaths.map({ NSString(string: $0).expandingTildeInPath }) {
+            scanAppearanceConfigFile(
+                atPath: path,
+                summary: &summary,
+                recursiveConfigPaths: &recursiveConfigPaths
+            )
+        }
+
+        var loadedRecursivePaths = Set<String>()
+        var index = 0
+        while index < recursiveConfigPaths.count {
+            let path = recursiveConfigPaths[index]
+            index += 1
+            let resolved = (path as NSString).standardizingPath
+            guard !loadedRecursivePaths.contains(resolved) else { continue }
+            loadedRecursivePaths.insert(resolved)
+
+            scanAppearanceConfigFile(
+                atPath: path,
+                summary: &summary,
+                recursiveConfigPaths: &recursiveConfigPaths
+            )
+        }
+
+        return summary
+    }
+
     /// Returns the top-level config paths that cmux will actually load before
     /// recursive `config-file` processing.
     static func loadedCJKScanPaths(
@@ -2357,6 +2430,43 @@ class GhosttyApp {
             case "font-family":
                 guard let value = entry.value else { continue }
                 summary.recordFontFamily(value)
+            case "config-file":
+                guard let value = entry.value else { continue }
+                applyConfigFileDirective(
+                    value,
+                    parentDir: parentDir,
+                    recursiveConfigPaths: &recursiveConfigPaths
+                )
+            default:
+                continue
+            }
+        }
+    }
+
+    private static func scanAppearanceConfigFile(
+        atPath path: String,
+        summary: inout UserAppearanceConfigSummary,
+        recursiveConfigPaths: inout [String]
+    ) {
+        let resolved = (path as NSString).standardizingPath
+        guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
+            return
+        }
+        let parentDir = (resolved as NSString).deletingLastPathComponent
+
+        for line in contents.components(separatedBy: .newlines) {
+            guard let entry = parsedConfigEntry(from: line) else { continue }
+
+            switch entry.key {
+            case "theme",
+                 "background",
+                 "foreground",
+                 "palette",
+                 "cursor-color",
+                 "cursor-text",
+                 "selection-background",
+                 "selection-foreground":
+                summary.recordDirective(key: entry.key)
             case "config-file":
                 guard let value = entry.value else { continue }
                 applyConfigFileDirective(
