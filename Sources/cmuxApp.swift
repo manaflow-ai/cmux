@@ -149,6 +149,7 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @AppStorage("chatPanelVisible") private var isChatPanelVisible: Bool = true
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     private var browserToolbarAccessorySpacing: Int {
@@ -674,15 +675,16 @@ struct cmuxApp: App {
                     }
                 }
 
-                Button(
-                    UserDefaults.standard.bool(forKey: "chatPanelVisible")
-                        ? String(localized: "menu.view.hideChatPanel", defaultValue: "Hide AI Chat Panel")
-                        : String(localized: "menu.view.showChatPanel", defaultValue: "Show AI Chat Panel")
-                ) {
-                    let current = UserDefaults.standard.object(forKey: "chatPanelVisible") as? Bool ?? true
-                    UserDefaults.standard.set(!current, forKey: "chatPanelVisible")
+                let chatShortcut = menuShortcut(for: .toggleAIChatPanel)
+                let chatTitle = isChatPanelVisible
+                    ? String(localized: "menu.view.hideChatPanel", defaultValue: "Hide AI Chat Panel")
+                    : String(localized: "menu.view.showChatPanel", defaultValue: "Show AI Chat Panel")
+                if let key = chatShortcut.keyEquivalent {
+                    Button(chatTitle) { isChatPanelVisible.toggle() }
+                        .keyboardShortcut(key, modifiers: chatShortcut.eventModifiers)
+                } else {
+                    Button(chatTitle) { isChatPanelVisible.toggle() }
                 }
-                .keyboardShortcut("\\", modifiers: [.command, .shift])
 
                 Divider()
 

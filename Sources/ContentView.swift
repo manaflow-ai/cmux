@@ -1799,7 +1799,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
-    @StateObject private var chatService = ChatService.shared
+    @ObservedObject private var chatService = ChatService.shared
     @AppStorage("chatPanelVisible") private var isChatPanelVisible: Bool = true
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []

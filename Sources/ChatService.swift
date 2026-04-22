@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 @MainActor
 final class ChatService: ObservableObject {
@@ -144,6 +145,7 @@ final class ChatService: ObservableObject {
     }
 
     private var streamTask: Task<Void, Never>?
+    private var currentStreamID: UUID = UUID()
 
     init() {
         let rawProvider = UserDefaults.standard.string(forKey: Self.selectedProviderDefaultsKey) ?? Provider.claude.rawValue
@@ -164,11 +166,37 @@ final class ChatService: ObservableObject {
     var hasApiKey: Bool { !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     func apiKey(for provider: Provider) -> String {
-        UserDefaults.standard.string(forKey: provider.apiKeyDefaultsKey) ?? ""
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: "com.cmux.chat.apikey",
+            kSecAttrAccount: provider.apiKeyDefaultsKey,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     func setApiKey(_ key: String, for provider: Provider) {
-        UserDefaults.standard.set(key, forKey: provider.apiKeyDefaultsKey)
+        let data = key.data(using: .utf8) ?? Data()
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: "com.cmux.chat.apikey",
+            kSecAttrAccount: provider.apiKeyDefaultsKey,
+        ]
+        if key.isEmpty {
+            SecItemDelete(query as CFDictionary)
+        } else {
+            let attributes: [CFString: Any] = [kSecValueData: data]
+            let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            if status == errSecItemNotFound {
+                var addQuery = query
+                addQuery[kSecValueData] = data
+                SecItemAdd(addQuery as CFDictionary, nil)
+            }
+        }
         objectWillChange.send()
     }
 
@@ -210,6 +238,8 @@ final class ChatService: ObservableObject {
         let provider = selectedProvider
         let key = apiKey
         let model = selectedModel
+        let streamID = UUID()
+        currentStreamID = streamID
 
         streamTask = Task {
             var assistantContent = ""
@@ -256,7 +286,10 @@ final class ChatService: ObservableObject {
                 }
             }
 
-            isStreaming = false
+            // Only clear streaming state if this is still the active stream.
+            if streamID == currentStreamID {
+                isStreaming = false
+            }
         }
     }
 
@@ -270,6 +303,7 @@ final class ChatService: ObservableObject {
         let legacyKey = UserDefaults.standard.string(forKey: "anthropicAPIKey") ?? ""
         guard !legacyKey.isEmpty, apiKey(for: .claude).isEmpty else { return }
         setApiKey(legacyKey, for: .claude)
+        UserDefaults.standard.removeObject(forKey: "anthropicAPIKey")
     }
 
     private static func buildRequest(messages: [Message], provider: Provider, apiKey: String, model: String) throws -> URLRequest {
@@ -367,11 +401,11 @@ final class ChatService: ObservableObject {
         var components = URLComponents(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):streamGenerateContent")!
         components.queryItems = [
             URLQueryItem(name: "alt", value: "sse"),
-            URLQueryItem(name: "key", value: apiKey)
         ]
 
         var request = URLRequest(url: components.url!)
         request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
 
         let body: [String: Any] = [
