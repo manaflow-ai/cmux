@@ -265,16 +265,16 @@ struct CmuxCLIPathInstaller {
         let stderrBuffer = PrivilegedCommandOutputBuffer()
         process.standardOutput = stdout
         process.standardError = stderr
-        startDraining(stdout, into: stdoutBuffer)
-        startDraining(stderr, into: stderrBuffer)
+        let outputGroup = DispatchGroup()
+        startDraining(stdout, into: stdoutBuffer, group: outputGroup)
+        startDraining(stderr, into: stderrBuffer, group: outputGroup)
         defer {
             stdout.fileHandleForReading.readabilityHandler = nil
             stderr.fileHandleForReading.readabilityHandler = nil
         }
         try process.run()
         process.waitUntilExit()
-        drainRemainingOutput(from: stdout, into: stdoutBuffer)
-        drainRemainingOutput(from: stderr, into: stderrBuffer)
+        outputGroup.wait()
 
         guard process.terminationStatus == 0 else {
             let stderrText = stderrBuffer.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -287,21 +287,21 @@ struct CmuxCLIPathInstaller {
         }
     }
 
-    private static func startDraining(_ pipe: Pipe, into buffer: PrivilegedCommandOutputBuffer) {
+    private static func startDraining(
+        _ pipe: Pipe,
+        into buffer: PrivilegedCommandOutputBuffer,
+        group: DispatchGroup
+    ) {
+        group.enter()
         pipe.fileHandleForReading.readabilityHandler = { fileHandle in
             let data = fileHandle.availableData
             guard !data.isEmpty else {
                 fileHandle.readabilityHandler = nil
+                group.leave()
                 return
             }
             buffer.append(data)
         }
-    }
-
-    private static func drainRemainingOutput(from pipe: Pipe, into buffer: PrivilegedCommandOutputBuffer) {
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard !data.isEmpty else { return }
-        buffer.append(data)
     }
 
     private static func shellQuoted(_ value: String) -> String {
