@@ -7308,7 +7308,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.isMovable = false
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
@@ -14445,8 +14444,13 @@ private extension NSWindow {
             cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
         }
 
-        guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
-              let contentView = self.contentView else {
+        // Temporarily suppress window movability for all left-mouse-down events.
+        // This prevents AppKit's native titlebar drag from intercepting clicks on
+        // interactive views in the titlebar area (folder icon, sidebar buttons in
+        // minimal mode) while keeping isMovable=true globally for Swish / macOS
+        // tiling / Accessibility API compatibility. WindowDragHandleView.performDrag
+        // re-enables isMovable=true inside its modal event loop for explicit drags.
+        guard event.type == .leftMouseDown, isMovable else {
 #if DEBUG
             if event.type == .keyDown {
                 folderGuardMs = (ProcessInfo.processInfo.systemUptime - folderGuardStart) * 1000.0
@@ -14466,16 +14470,10 @@ private extension NSWindow {
         let originalDispatchStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
 
-        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-        let hitView = contentView.hitTest(contentPoint)
-        let previousMovableState = isMovable
-        if previousMovableState {
-            isMovable = false
-        }
+        isMovable = false
 
         #if DEBUG
-        let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableState)")
+        dlog("window.sendEvent.leftMouseDown suppress isMovable=false")
         #endif
 
         cmux_sendEvent(event)
@@ -14485,12 +14483,10 @@ private extension NSWindow {
         }
 #endif
 
-        if previousMovableState {
-            isMovable = previousMovableState
-        }
+        isMovable = true
 
         #if DEBUG
-        dlog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
+        dlog("window.sendEvent.leftMouseDown restore isMovable=true")
         #endif
     }
 
