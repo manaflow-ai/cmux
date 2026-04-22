@@ -3778,6 +3778,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
     @Published private(set) var keyboardCopyModeActive: Bool = false
+    private(set) var tmuxPaneScrollbarActive: Bool = false
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
 
@@ -5190,6 +5191,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
             keyboardCopyModeActive = active
         }
         hostedView.syncKeyStateIndicator(text: surfaceView.currentKeyStateIndicatorText)
+    }
+
+    @MainActor
+    func setTmuxPaneScrollbarActive(_ active: Bool) {
+        guard tmuxPaneScrollbarActive != active else { return }
+        tmuxPaneScrollbarActive = active
+        NotificationCenter.default.post(
+            name: .terminalSurfaceTmuxPaneScrollbarDidChange,
+            object: self
+        )
     }
 
     func hasSelection() -> Bool {
@@ -8826,6 +8837,9 @@ extension Notification.Name {
     static let ghosttyDidUpdateCellSize = Notification.Name("ghosttyDidUpdateCellSize")
     static let ghosttyDidReceiveWheelScroll = Notification.Name("ghosttyDidReceiveWheelScroll")
     static let ghosttySearchFocus = Notification.Name("ghosttySearchFocus")
+    static let terminalSurfaceTmuxPaneScrollbarDidChange = Notification.Name(
+        "terminalSurfaceTmuxPaneScrollbarDidChange"
+    )
     static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
     static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
     static let browserSearchFocus = Notification.Name("browserSearchFocus")
@@ -9476,6 +9490,19 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.handleTerminalScrollBarPreferenceChange()
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceTmuxPaneScrollbarDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let surface = notification.object as? TerminalSurface,
+                  surface === self.surfaceView.terminalSurface else {
+                return
+            }
+            self.handleTerminalScrollBarPreferenceChange()
         })
 
     }
@@ -11826,8 +11853,12 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func terminalScrollBarAllowedBySettings() -> Bool {
         guard GhosttyApp.shared.scrollbarVisibility() != .never else { return false }
-        guard TerminalScrollBarSettings.isVisible() else { return false }
+        let mode = TerminalScrollBarSettings.mode()
+        guard mode != .never else { return false }
         guard owningWorkspace()?.terminalScrollBarHidden != true else { return false }
+        if mode == .auto, surfaceView.terminalSurface?.tmuxPaneScrollbarActive == true {
+            return false
+        }
         return true
     }
 

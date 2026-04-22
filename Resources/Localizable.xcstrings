@@ -90136,13 +90136,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Terminal Scroll Bar"
+            "value": "Terminal Scroll Bar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルのスクロールバーを表示"
+            "value": "ターミナルのスクロールバー"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar.option.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に表示"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar.option.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar.option.never": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示しない"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar.subtitleAlways": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the cmux overlay scrollbar whenever shell scrollback is available, even if tmux pane-scrollbars is active. You can still hide it per workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルのスクロールバックが利用できるときは、tmux の pane-scrollbars が有効でも cmux のオーバーレイスクロールバーを表示します。ワークスペースごとに隠すことは引き続きできます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar.subtitleAuto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the right-edge terminal scroll bar in shell scrollback, but hides it automatically for alternate-screen style TUI surfaces and when tmux pane-scrollbars is active."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルのスクロールバックでは右端のターミナルスクロールバーを表示しますが、代替画面系の TUI や tmux の pane-scrollbars が有効なときは自動的に隠します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar.subtitleNever": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右端のターミナルスクロールバーを全体で非表示にします。変更はすぐに反映され、再起動後も保持されます。"
           }
         }
       }

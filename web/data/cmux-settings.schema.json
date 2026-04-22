@@ -120,16 +120,30 @@
         }
       }
     },
+    "cmux": {
+      "title": "cmux",
+      "description": "cmux-specific UI presentation settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scrollbar": {
+          "type": "string",
+          "enum": ["auto", "always", "never"],
+          "default": "auto",
+          "description": "Control the cmux overlay scrollbar for terminal surfaces. auto keeps current behavior and also hides the overlay when tmux pane-scrollbars is active."
+        }
+      }
+    },
     "terminal": {
       "title": "terminal",
-      "description": "Terminal presentation settings from Settings > Terminal.",
+      "description": "Legacy terminal presentation aliases from older cmux settings files.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "showScrollBar": {
           "type": "boolean",
           "default": true,
-          "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
+          "description": "Legacy alias for cmux.scrollbar. true maps to auto and false maps to never."
         }
       }
     },

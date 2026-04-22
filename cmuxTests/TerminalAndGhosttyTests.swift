@@ -2541,6 +2541,83 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    func testTmuxPaneScrollbarHidesOverlayScrollbarInAutoModeButNotAlways() {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: TerminalScrollBarSettings.modeKey)
+        let previousLegacyValue = defaults.object(forKey: TerminalScrollBarSettings.legacyShowScrollBarKey)
+        defer {
+            if let previousMode {
+                defaults.set(previousMode, forKey: TerminalScrollBarSettings.modeKey)
+            } else {
+                defaults.removeObject(forKey: TerminalScrollBarSettings.modeKey)
+            }
+            if let previousLegacyValue {
+                defaults.set(previousLegacyValue, forKey: TerminalScrollBarSettings.legacyShowScrollBarKey)
+            } else {
+                defaults.removeObject(forKey: TerminalScrollBarSettings.legacyShowScrollBarKey)
+            }
+            TerminalScrollBarSettings.notifyDidChange()
+        }
+
+        defaults.set(TerminalScrollBarSettings.Mode.auto.rawValue, forKey: TerminalScrollBarSettings.modeKey)
+        TerminalScrollBarSettings.notifyDidChange()
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: scrollView.documentView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        waitUntil(description: "initial overlay scrollbar visible") {
+            scrollView.hasVerticalScroller
+        }
+
+        surface.setTmuxPaneScrollbarActive(true)
+        waitUntil(description: "auto mode hides overlay scrollbar when tmux pane-scrollbars is active") {
+            !scrollView.hasVerticalScroller
+        }
+
+        defaults.set(TerminalScrollBarSettings.Mode.always.rawValue, forKey: TerminalScrollBarSettings.modeKey)
+        TerminalScrollBarSettings.notifyDidChange()
+        waitUntil(description: "always mode keeps overlay scrollbar visible") {
+            scrollView.hasVerticalScroller
+        }
+    }
+
     func testWindowResignKeyClearsFocusedTerminalFirstResponder() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),

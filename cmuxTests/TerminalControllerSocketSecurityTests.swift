@@ -292,6 +292,70 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(portsKickResult["surface_id"] as? String, focusedPanelId.uuidString)
     }
 
+    func testReportTmuxScrollbarCommandReturnsOKWhenPanelIsOmittedInsideWorkspaceScope() throws {
+        let socketPath = makeSocketPath("tmux-scrollbar")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let responses = try sendCommands(
+            ["report_tmux_scrollbar on --tab=\(workspace.id.uuidString)"],
+            to: socketPath
+        )
+
+        XCTAssertEqual(responses, ["OK"])
+    }
+
+    func testSurfaceReportTmuxScrollbarRelayRPCResolvesFocusedSurfaceWhenSurfaceIDOmitted() async throws {
+        let socketPath = makeSocketPath("relay-tmux-scroll")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused panel")
+            return
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "surface.report_tmux_scrollbar",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "active": true
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(result["surface_id"] as? String, focusedPanelId.uuidString)
+        XCTAssertEqual(result["active"] as? Bool, true)
+    }
+
     func testSurfaceRelayRPCsRejectExplicitUnknownSurfaceID() async throws {
         let socketPath = makeSocketPath("relay-invalid")
         let manager = TabManager()

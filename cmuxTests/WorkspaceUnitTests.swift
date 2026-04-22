@@ -1357,6 +1357,109 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: settingsFileBackupsDefaultsKey))
     }
 
+    func testSettingsFileStoreParsesCmuxScrollbarMode() throws {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: "cmux.scrollbar")
+        let previousLegacyValue = defaults.object(forKey: "terminal.showScrollBar")
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousMode {
+                defaults.set(previousMode, forKey: "cmux.scrollbar")
+            } else {
+                defaults.removeObject(forKey: "cmux.scrollbar")
+            }
+            if let previousLegacyValue {
+                defaults.set(previousLegacyValue, forKey: "terminal.showScrollBar")
+            } else {
+                defaults.removeObject(forKey: "terminal.showScrollBar")
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: "cmux.scrollbar")
+        defaults.removeObject(forKey: "terminal.showScrollBar")
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "cmux": {
+                "scrollbar": "never"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.string(forKey: "cmux.scrollbar"), "never")
+        XCTAssertNil(defaults.object(forKey: "terminal.showScrollBar"))
+    }
+
+    func testSettingsFileStoreMapsLegacyTerminalScrollBarFlagOntoCmuxScrollbarMode() throws {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: "cmux.scrollbar")
+        let previousLegacyValue = defaults.object(forKey: "terminal.showScrollBar")
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousMode {
+                defaults.set(previousMode, forKey: "cmux.scrollbar")
+            } else {
+                defaults.removeObject(forKey: "cmux.scrollbar")
+            }
+            if let previousLegacyValue {
+                defaults.set(previousLegacyValue, forKey: "terminal.showScrollBar")
+            } else {
+                defaults.removeObject(forKey: "terminal.showScrollBar")
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: "cmux.scrollbar")
+        defaults.removeObject(forKey: "terminal.showScrollBar")
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "terminal": {
+                "showScrollBar": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.string(forKey: "cmux.scrollbar"), "never")
+    }
+
     func testSettingsFileStoreAppliesWorkspaceColorDictionaryAndAllowsRemovingDefaults() throws {
         let defaults = UserDefaults.standard
         let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]

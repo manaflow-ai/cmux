@@ -3325,6 +3325,69 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
     }
 
+    func testShellIntegrationRelayReportsTmuxScrollbarStateInZsh() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-relay-tmux-scrollbar-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("tmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              exit 0
+            fi
+            if [ "$1" = "show-options" ] && [ "$2" = "-qv" ] && [ "$3" = "pane-scrollbars" ]; then
+              printf '%s\\n' 'on'
+              exit 0
+            fi
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+            _cmux_precmd
+            repeat 20; do
+              [[ -s "\(logPath.path)" ]] && break
+              sleep 0.05
+            done
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMUX": "/tmp/tmux-current,123,0",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(output.contains("rpc surface.report_tmux_scrollbar"), output)
+        XCTAssertTrue(output.contains(#""workspace_id":"11111111-1111-1111-1111-111111111111""#), output)
+        XCTAssertTrue(output.contains(#""surface_id":"22222222-2222-2222-2222-222222222222""#), output)
+        XCTAssertTrue(output.contains(#""active":true"#), output)
+    }
+
     func testShellIntegrationRelayReportTTYUsesWorkspaceIDInBash() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -3465,6 +3528,68 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             result.stdout.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"refresh","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             result.stdout
         )
+    }
+
+    func testShellIntegrationRelayReportsTmuxScrollbarStateInBash() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-relay-tmux-scrollbar-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("tmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              exit 0
+            fi
+            if [ "$1" = "show-options" ] && [ "$2" = "-qv" ] && [ "$3" = "pane-scrollbars" ]; then
+              printf '%s\\n' 'modal'
+              exit 0
+            fi
+            exit 0
+            """
+        )
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+            _cmux_prompt_command
+            for _cmux_i in $(seq 1 20); do
+              [ -s "\(logPath.path)" ] && break
+              sleep 0.05
+            done
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMUX": "/tmp/tmux-current,123,0",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(result.stdout.contains("rpc surface.report_tmux_scrollbar"), result.stdout)
+        XCTAssertTrue(result.stdout.contains(#""workspace_id":"11111111-1111-1111-1111-111111111111""#), result.stdout)
+        XCTAssertTrue(result.stdout.contains(#""surface_id":"22222222-2222-2222-2222-222222222222""#), result.stdout)
+        XCTAssertTrue(result.stdout.contains(#""active":true"#), result.stdout)
     }
 
     private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {

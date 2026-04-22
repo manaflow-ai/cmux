@@ -39,6 +39,7 @@ final class CmuxSettingsFileStore {
         "app.warnBeforeQuit",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
+        "cmux.scrollbar",
         "terminal.showScrollBar",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
@@ -355,6 +356,9 @@ final class CmuxSettingsFileStore {
         if let terminalSection = root["terminal"] as? [String: Any] {
             parseTerminalSection(terminalSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let cmuxSection = root["cmux"] as? [String: Any] {
+            parseCmuxSection(cmuxSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let notificationsSection = root["notifications"] as? [String: Any] {
             parseNotificationsSection(notificationsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -490,9 +494,27 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         if let value = jsonBool(section["showScrollBar"]) {
-            snapshot.managedUserDefaults[TerminalScrollBarSettings.showScrollBarKey] = .bool(value)
+            snapshot.managedUserDefaults[TerminalScrollBarSettings.modeKey] = .string(
+                TerminalScrollBarSettings.mode(forLegacyVisible: value).rawValue
+            )
         } else if section.keys.contains("showScrollBar") {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseCmuxSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let raw = jsonString(section["scrollbar"]) {
+            guard let mode = TerminalScrollBarSettings.Mode(rawValue: raw) else {
+                logInvalid("cmux.scrollbar", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[TerminalScrollBarSettings.modeKey] = .string(mode.rawValue)
+        } else if section.keys.contains("scrollbar") {
+            logInvalid("cmux.scrollbar", sourcePath: sourcePath)
         }
     }
 
@@ -1180,7 +1202,7 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey, didMutateStoredValue {
+        if defaultsKey == TerminalScrollBarSettings.modeKey, didMutateStoredValue {
             TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
         }
 
@@ -1226,7 +1248,7 @@ final class CmuxSettingsFileStore {
             defaults.set(value, forKey: defaultsKey)
         }
 
-        if defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
+        if defaultsKey == TerminalScrollBarSettings.modeKey {
             TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
         }
 
@@ -1371,8 +1393,8 @@ final class CmuxSettingsFileStore {
                 ],
             ],
             [
-                "terminal": [
-                    "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                "cmux": [
+                    "scrollbar": TerminalScrollBarSettings.defaultMode.rawValue,
                 ],
             ],
             [

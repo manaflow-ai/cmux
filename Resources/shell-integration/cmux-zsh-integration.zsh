@@ -140,6 +140,22 @@ _cmux_ports_kick_via_relay() {
     _cmux_relay_rpc_bg "surface.ports_kick" "$params"
 }
 
+_cmux_report_tmux_scrollbar_via_relay() {
+    local active="$1"
+    [[ "$active" == "on" || "$active" == "off" ]] || return 1
+    _cmux_socket_uses_remote_relay || return 1
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    local active_json="false"
+    [[ "$active" == "on" ]] && active_json="true"
+    local params="{\"workspace_id\":\"$workspace_id\",\"active\":$active_json"
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.report_tmux_scrollbar" "$params"
+}
+
 _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
@@ -201,6 +217,7 @@ typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_SHELL_ACTIVITY_LAST=""
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
+typeset -g _CMUX_TMUX_SCROLLBAR_STATE_LAST=""
 typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
 typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
@@ -308,6 +325,7 @@ _cmux_tmux_refresh_cmux_environment() {
     if (( did_change )); then
         _CMUX_TTY_REPORTED=0
         _CMUX_SHELL_ACTIVITY_LAST=""
+        _CMUX_TMUX_SCROLLBAR_STATE_LAST=""
         _CMUX_PWD_LAST_PWD=""
         _CMUX_GIT_LAST_PWD=""
         _CMUX_GIT_HEAD_LAST_PWD=""
@@ -488,6 +506,58 @@ _cmux_report_tty_once() {
         # the target surface before command-start kicks begin their scan burst.
         _cmux_report_tty_via_relay || return 0
         _CMUX_TTY_REPORTED=1
+    fi
+}
+
+_cmux_tmux_scrollbar_state() {
+    if [[ -n "$TMUX" ]] && command -v tmux >/dev/null 2>&1; then
+        local mode
+        mode="$(tmux show-options -qv pane-scrollbars 2>/dev/null | head -n 1)"
+        mode="${mode:l}"
+        case "$mode" in
+            ""|off)
+                print -r -- "off"
+                ;;
+            *)
+                print -r -- "on"
+                ;;
+        esac
+        return 0
+    fi
+    print -r -- "off"
+}
+
+_cmux_report_tmux_scrollbar_payload() {
+    local active="$1"
+    [[ "$active" == "on" || "$active" == "off" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+
+    local payload="report_tmux_scrollbar $active --tab=$CMUX_TAB_ID"
+    if [[ -z "$TMUX" ]]; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        payload+=" --panel=$CMUX_PANEL_ID"
+    fi
+
+    print -r -- "$payload"
+}
+
+_cmux_report_tmux_scrollbar_state() {
+    _cmux_has_port_scan_transport || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+
+    local active=""
+    active="$(_cmux_tmux_scrollbar_state)"
+    [[ -n "$active" ]] || return 0
+    [[ "$_CMUX_TMUX_SCROLLBAR_STATE_LAST" == "$active" ]] && return 0
+    _CMUX_TMUX_SCROLLBAR_STATE_LAST="$active"
+
+    if _cmux_socket_is_unix; then
+        local payload=""
+        payload="$(_cmux_report_tmux_scrollbar_payload "$active")"
+        [[ -n "$payload" ]] || return 0
+        _cmux_send_bg "$payload"
+    else
+        _cmux_report_tmux_scrollbar_via_relay "$active" || return 0
     fi
 }
 
@@ -1127,6 +1197,7 @@ _cmux_precmd() {
     fi
 
     _cmux_report_tty_once
+    _cmux_report_tmux_scrollbar_state
 
     local now="$(_cmux_now)"
     local cmd_start="$_CMUX_CMD_START"

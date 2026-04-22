@@ -97,15 +97,60 @@ enum PaneFirstClickFocusSettings {
 }
 
 enum TerminalScrollBarSettings {
-    static let showScrollBarKey = "terminal.showScrollBar"
-    static let defaultShowScrollBar = true
+    enum Mode: String, CaseIterable {
+        case auto
+        case always
+        case never
+
+        var displayName: String {
+            switch self {
+            case .auto:
+                return String(localized: "settings.terminal.scrollBar.option.auto", defaultValue: "Auto")
+            case .always:
+                return String(localized: "settings.terminal.scrollBar.option.always", defaultValue: "Always")
+            case .never:
+                return String(localized: "settings.terminal.scrollBar.option.never", defaultValue: "Never")
+            }
+        }
+    }
+
+    static let modeKey = "cmux.scrollbar"
+    static let legacyShowScrollBarKey = "terminal.showScrollBar"
+    static let defaultMode: Mode = .auto
     static let didChangeNotification = Notification.Name("cmux.terminalScrollBarSettingsDidChange")
 
-    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: showScrollBarKey) == nil {
-            return defaultShowScrollBar
+    static func mode(for rawValue: String?) -> Mode {
+        guard let rawValue else { return defaultMode }
+        return Mode(rawValue: rawValue) ?? defaultMode
+    }
+
+    static func mode(defaults: UserDefaults = .standard) -> Mode {
+        if let rawValue = defaults.string(forKey: modeKey) {
+            return mode(for: rawValue)
         }
-        return defaults.bool(forKey: showScrollBarKey)
+        if let legacyValue = defaults.object(forKey: legacyShowScrollBarKey) as? Bool {
+            return mode(forLegacyVisible: legacyValue)
+        }
+        return defaultMode
+    }
+
+    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
+        mode(defaults: defaults) != .never
+    }
+
+    static func mode(forLegacyVisible visible: Bool) -> Mode {
+        visible ? .auto : .never
+    }
+
+    static func initializeStoredModeIfNeeded(defaults: UserDefaults = .standard) {
+        guard defaults.string(forKey: modeKey) == nil else { return }
+        let initialMode: Mode
+        if let legacyValue = defaults.object(forKey: legacyShowScrollBarKey) as? Bool {
+            initialMode = mode(forLegacyVisible: legacyValue)
+        } else {
+            initialMode = defaultMode
+        }
+        defaults.set(initialMode.rawValue, forKey: modeKey)
     }
 
     static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
@@ -210,6 +255,7 @@ struct cmuxApp: App {
             SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
         }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
+        TerminalScrollBarSettings.initializeStoredModeIfNeeded(defaults: defaults)
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
@@ -4436,8 +4482,8 @@ struct SettingsView: View {
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
-    @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
-    private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(TerminalScrollBarSettings.modeKey)
+    private var terminalScrollBarMode = TerminalScrollBarSettings.defaultMode.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -4553,15 +4599,40 @@ struct SettingsView: View {
         )
     }
 
-    private var showTerminalScrollBarBinding: Binding<Bool> {
+    private var selectedTerminalScrollBarMode: TerminalScrollBarSettings.Mode {
+        TerminalScrollBarSettings.mode(for: terminalScrollBarMode)
+    }
+
+    private var terminalScrollBarModeSelection: Binding<String> {
         Binding(
-            get: { showTerminalScrollBar },
+            get: { selectedTerminalScrollBarMode.rawValue },
             set: { newValue in
-                guard showTerminalScrollBar != newValue else { return }
-                showTerminalScrollBar = newValue
+                let resolvedMode = TerminalScrollBarSettings.mode(for: newValue)
+                guard terminalScrollBarMode != resolvedMode.rawValue else { return }
+                terminalScrollBarMode = resolvedMode.rawValue
                 TerminalScrollBarSettings.notifyDidChange()
             }
         )
+    }
+
+    private var terminalScrollBarSubtitle: String {
+        switch selectedTerminalScrollBarMode {
+        case .auto:
+            return String(
+                localized: "settings.terminal.scrollBar.subtitleAuto",
+                defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback, but hides it automatically for alternate-screen style TUI surfaces and when tmux pane-scrollbars is active."
+            )
+        case .always:
+            return String(
+                localized: "settings.terminal.scrollBar.subtitleAlways",
+                defaultValue: "Shows the cmux overlay scrollbar whenever shell scrollback is available, even if tmux pane-scrollbars is active. You can still hide it per workspace."
+            )
+        case .never:
+            return String(
+                localized: "settings.terminal.scrollBar.subtitleNever",
+                defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches."
+            )
+        }
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -5545,20 +5616,17 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
                     SettingsCard {
-                        SettingsCardRow(
-                            configurationReview: .json("terminal.showScrollBar"),
-                            String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
-                            subtitle: showTerminalScrollBar
-                                ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
-                                : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
+                        SettingsPickerRow(
+                            configurationReview: .json("cmux.scrollbar", "terminal.showScrollBar"),
+                            String(localized: "settings.terminal.scrollBar", defaultValue: "Terminal Scroll Bar"),
+                            subtitle: terminalScrollBarSubtitle,
+                            controlWidth: pickerColumnWidth,
+                            selection: terminalScrollBarModeSelection,
+                            accessibilityId: "SettingsTerminalScrollBarPicker"
                         ) {
-                            Toggle("", isOn: showTerminalScrollBarBinding)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
-                                .accessibilityLabel(
-                                    String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
-                                )
+                            ForEach(TerminalScrollBarSettings.Mode.allCases, id: \.rawValue) { mode in
+                                Text(mode.displayName).tag(mode.rawValue)
+                            }
                         }
                     }
 
@@ -6604,9 +6672,9 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
-        let previousShowTerminalScrollBar = showTerminalScrollBar
-        showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
-        if previousShowTerminalScrollBar != showTerminalScrollBar {
+        let previousTerminalScrollBarMode = terminalScrollBarMode
+        terminalScrollBarMode = TerminalScrollBarSettings.defaultMode.rawValue
+        if previousTerminalScrollBarMode != terminalScrollBarMode {
             TerminalScrollBarSettings.notifyDidChange()
         }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue

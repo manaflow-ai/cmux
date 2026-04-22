@@ -428,8 +428,10 @@ class TerminalController {
         private let queue = DispatchQueue(label: "com.cmux.socket-fast-path")
         private var lastReportedDirectories: [SocketSurfaceKey: String] = [:]
         private var lastReportedShellStates: [SocketSurfaceKey: Workspace.PanelShellActivityState] = [:]
+        private var lastReportedTmuxPaneScrollbarStates: [SocketSurfaceKey: Bool] = [:]
         private let maxTrackedDirectories = 4096
         private let maxTrackedShellStates = 4096
+        private let maxTrackedTmuxPaneScrollbarStates = 4096
 
         func shouldPublishDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool {
             let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
@@ -459,6 +461,24 @@ class TerminalController {
                     lastReportedShellStates.removeAll(keepingCapacity: true)
                 }
                 lastReportedShellStates[key] = state
+                return true
+            }
+        }
+
+        func shouldPublishTmuxPaneScrollbar(
+            workspaceId: UUID,
+            panelId: UUID,
+            active: Bool
+        ) -> Bool {
+            let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
+            return queue.sync {
+                if lastReportedTmuxPaneScrollbarStates[key] == active {
+                    return false
+                }
+                if lastReportedTmuxPaneScrollbarStates.count >= maxTrackedTmuxPaneScrollbarStates {
+                    lastReportedTmuxPaneScrollbarStates.removeAll(keepingCapacity: true)
+                }
+                lastReportedTmuxPaneScrollbarStates[key] = active
                 return true
             }
         }
@@ -541,6 +561,17 @@ class TerminalController {
             return .command
         case "refresh", "prompt", "idle":
             return .refresh
+        default:
+            return nil
+        }
+    }
+
+    nonisolated static func parseReportedTmuxPaneScrollbarState(_ rawState: String) -> Bool? {
+        switch rawState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "on", "active", "true", "1", "modal":
+            return true
+        case "off", "inactive", "false", "0":
+            return false
         default:
             return nil
         }
@@ -1819,6 +1850,9 @@ class TerminalController {
         case "report_tty":
             return reportTTY(args)
 
+        case "report_tmux_scrollbar":
+            return reportTmuxScrollbar(args)
+
         case "ports_kick":
             return portsKick(args)
 
@@ -2182,6 +2216,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceSendKey(params: params))
         case "surface.report_tty":
             return v2Result(id: id, self.v2SurfaceReportTTY(params: params))
+        case "surface.report_tmux_scrollbar":
+            return v2Result(id: id, self.v2SurfaceReportTmuxScrollbar(params: params))
         case "surface.ports_kick":
             return v2Result(id: id, self.v2SurfacePortsKick(params: params))
         case "surface.clear_history":
@@ -2531,6 +2567,7 @@ class TerminalController {
             "surface.send_text",
             "surface.send_key",
             "surface.report_tty",
+            "surface.report_tmux_scrollbar",
             "surface.ports_kick",
             "surface.read_text",
             "surface.clear_history",
@@ -4258,6 +4295,77 @@ class TerminalController {
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "tty_name": ttyName,
+            ])
+        }
+
+        return result
+    }
+
+    private func v2SurfaceReportTmuxScrollbar(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let requestedSurfaceId = v2UUID(params, "surface_id")
+        if v2HasNonNullParam(params, "surface_id"), requestedSurfaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let active = v2Bool(params, "active") else {
+            return .err(code: "invalid_params", message: "Missing or invalid active", data: nil)
+        }
+
+        var result: V2CallResult = .err(
+            code: "not_found",
+            message: "Workspace not found",
+            data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
+                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+            ]
+        )
+
+        v2MainSync {
+            guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let surfaceId = self.resolveReportedSurfaceId(
+                in: tab,
+                requestedSurfaceId: requestedSurfaceId,
+                validSurfaceIds: validSurfaceIds
+            )
+            guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
+                result = .err(
+                    code: "not_found",
+                    message: "Surface not found",
+                    data: [
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                        "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
+                        "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                    ]
+                )
+                return
+            }
+
+            guard let terminalSurface = tab.terminalPanel(for: surfaceId)?.surface else {
+                result = .err(
+                    code: "invalid_params",
+                    message: "Surface is not a terminal",
+                    data: ["surface_id": surfaceId.uuidString]
+                )
+                return
+            }
+
+            terminalSurface.setTmuxPaneScrollbarActive(active)
+            result = .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "active": active,
             ])
         }
 
@@ -11505,6 +11613,7 @@ class TerminalController {
           clear_pr [--tab=X] [--panel=Y] - Clear pull request
           report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
+          report_tmux_scrollbar <on|off> [--tab=X] [--panel=Y] - Report whether tmux pane-scrollbars is active in the surface
           ports_kick [--tab=X] [--panel=Y] [--reason=command|refresh] - Request batched port scan for panel
           report_shell_state <prompt|running> [--tab=X] [--panel=Y] - Report whether the shell is idle at a prompt or running a command
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
@@ -15443,6 +15552,81 @@ class TerminalController {
             }
 
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+        }
+        return result
+    }
+
+    private func reportTmuxScrollbar(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let rawState = parsed.positional.first, !rawState.isEmpty else {
+            return "ERROR: Missing tmux scrollbar state — usage: report_tmux_scrollbar <on|off> [--tab=X] [--panel=Y]"
+        }
+        guard let active = Self.parseReportedTmuxPaneScrollbarState(rawState) else {
+            return "ERROR: Invalid tmux scrollbar state '\(rawState)' — expected on or off"
+        }
+
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            guard Self.socketFastPathState.shouldPublishTmuxPaneScrollbar(
+                workspaceId: scope.workspaceId,
+                panelId: scope.panelId,
+                active: active
+            ) else {
+                return "OK"
+            }
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId) else { return }
+                tabManager.updateSurfaceTmuxPaneScrollbar(
+                    tabId: scope.workspaceId,
+                    surfaceId: scope.panelId,
+                    active: active
+                )
+            }
+            return "OK"
+        }
+
+        guard let tabManager else { return "ERROR: TabManager not available" }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_tmux_scrollbar <on|off> [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            guard let terminalSurface = tab.terminalPanel(for: surfaceId)?.surface else {
+                result = "ERROR: No terminal panel available"
+                return
+            }
+
+            terminalSurface.setTmuxPaneScrollbarActive(active)
         }
         return result
     }
