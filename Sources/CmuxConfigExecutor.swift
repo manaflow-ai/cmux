@@ -4,25 +4,29 @@ import Foundation
 @MainActor
 struct CmuxConfigExecutor {
 
+    @discardableResult
     static func execute(
         command: CmuxCommandDefinition,
         tabManager: TabManager,
         baseCwd: String,
         configSourcePath: String?,
         globalConfigPath: String
-    ) {
+    ) -> Bool {
         if let workspace = command.workspace {
             executeWorkspaceCommand(command: command, workspace: workspace, tabManager: tabManager, baseCwd: baseCwd)
+            return true
         } else if let rawCommand = command.command {
             guard let shellInput = preparedShellInput(
                 rawCommand,
                 confirm: command.confirm ?? false,
                 configSourcePath: configSourcePath,
                 globalConfigPath: globalConfigPath
-            ) else { return }
-            guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return }
+            ) else { return false }
+            guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
             terminal.sendInput(shellInput)
+            return true
         }
+        return false
     }
 
     static func preparedShellInput(

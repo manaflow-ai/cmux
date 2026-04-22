@@ -6501,7 +6501,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
-    private var surfaceTabBarCommandButtons: [String: CmuxSurfaceTabBarButton] = [:]
+    private struct SurfaceTabBarExecutableButton {
+        let button: CmuxSurfaceTabBarButton
+        let workspaceCommand: CmuxResolvedCommand?
+    }
+
+    private var surfaceTabBarCommandButtons: [String: SurfaceTabBarExecutableButton] = [:]
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
 
@@ -6989,11 +6994,18 @@ final class Workspace: Identifiable, ObservableObject {
     func applySurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
-        globalConfigPath: String
+        globalConfigPath: String,
+        workspaceCommands: [String: CmuxResolvedCommand]
     ) {
         surfaceTabBarCommandButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
-                button.terminalCommand == nil ? nil : (button.id, button)
+                if button.terminalCommand != nil {
+                    return (button.id, SurfaceTabBarExecutableButton(button: button, workspaceCommand: nil))
+                }
+                if let workspaceCommand = workspaceCommands[button.id] {
+                    return (button.id, SurfaceTabBarExecutableButton(button: button, workspaceCommand: workspaceCommand))
+                }
+                return nil
             }
         )
         surfaceTabBarButtonSourcePath = sourcePath
@@ -12332,14 +12344,29 @@ extension Workspace: BonsplitDelegate {
     }
 
     private func executeSurfaceTabBarCommandButton(identifier: String, inPane pane: PaneID) {
-        guard let button = surfaceTabBarCommandButtons[identifier],
-              let command = button.terminalCommand,
+        guard let executable = surfaceTabBarCommandButtons[identifier],
               let globalConfigPath = surfaceTabBarButtonGlobalConfigPath else {
             return
         }
+
+        if let workspaceCommand = executable.workspaceCommand {
+            let rawCwd = currentDirectory
+            let baseCwd = rawCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : rawCwd
+            guard let tabManager = owningTabManager else { return }
+            CmuxConfigExecutor.execute(
+                command: workspaceCommand.command,
+                tabManager: tabManager,
+                baseCwd: baseCwd,
+                configSourcePath: workspaceCommand.sourcePath,
+                globalConfigPath: globalConfigPath
+            )
+            return
+        }
+
+        guard let command = executable.button.terminalCommand else { return }
         guard let shellInput = CmuxConfigExecutor.preparedShellInput(
             command,
-            confirm: button.confirm ?? false,
+            confirm: executable.button.confirm ?? false,
             configSourcePath: surfaceTabBarButtonSourcePath,
             globalConfigPath: globalConfigPath
         ) else {

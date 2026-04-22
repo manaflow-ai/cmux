@@ -232,6 +232,31 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.actions["new-dev"]?.action.workspaceCommandName, "Dev Environment")
     }
 
+    func testDecodeActionsSurfaceTabBarButtonSupportsWorkspaceCommand() throws {
+        let json = """
+        {
+          "actions": {
+            "new-dev": { "type": "workspaceCommand", "commandName": "Dev Environment" }
+          },
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "action": "new-dev", "icon": "rectangle.stack.badge.plus" }
+              ]
+            }
+          },
+          "commands": [{
+            "name": "Dev Environment",
+            "workspace": { "name": "Dev" }
+          }]
+        }
+        """
+        let config = try decode(json)
+        let button = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        XCTAssertEqual(button.workspaceCommandName, "Dev Environment")
+        XCTAssertNil(button.terminalCommand)
+    }
+
     func testDecodeEmptySurfaceTabBarButtons() throws {
         let json = """
         {

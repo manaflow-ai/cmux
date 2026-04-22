@@ -6715,7 +6715,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugSource: String = "newWorkspace"
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-        if mainWindowContexts.isEmpty && preferredContext == nil {
+        let livePreferredContext: MainWindowContext? = {
+            guard let preferredContext else { return nil }
+            guard resolvedWindow(for: preferredContext) != nil else {
+                discardOrphanedMainWindowContext(preferredContext)
+                return nil
+            }
+            return preferredContext
+        }()
+
+        if mainWindowContexts.isEmpty && livePreferredContext == nil {
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "fallback_new_window",
@@ -6725,11 +6734,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 chosenContext: nil
             )
 #endif
-            openNewMainWindow(nil)
+            let windowId = createMainWindow()
+            if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+                _ = executeConfiguredNewWorkspaceCommandIfAvailable(in: context, debugSource: debugSource)
+            }
             return true
         }
 
-        let context = preferredContext
+        let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
         if let context,
@@ -6737,7 +6749,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if let preferredTabManager, preferredContext != nil {
+        if let preferredTabManager, preferredContext == nil {
             preferredTabManager.addWorkspace()
             return true
         }
@@ -6769,6 +6781,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let configured = cmuxConfigStore.resolvedNewWorkspaceCommand() else {
             return false
         }
+        guard resolvedWindow(for: context) != nil else {
+            discardOrphanedMainWindowContext(context)
+            return false
+        }
         let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
         let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
             : FileManager.default.homeDirectoryForCurrentUser.path
@@ -6778,14 +6794,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "command=\(configured.command.name) windowId=\(String(context.windowId.uuidString.prefix(8)))"
         )
 #endif
-        CmuxConfigExecutor.execute(
+        return CmuxConfigExecutor.execute(
             command: configured.command,
             tabManager: context.tabManager,
             baseCwd: baseCwd,
             configSourcePath: configured.sourcePath,
             globalConfigPath: cmuxConfigStore.globalConfigPath
         )
-        return true
     }
 
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.

@@ -5285,13 +5285,15 @@ class TabManager: ObservableObject {
     func applySurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
-        globalConfigPath: String
+        globalConfigPath: String,
+        workspaceCommands: [String: CmuxResolvedCommand]
     ) {
         for workspace in tabs {
             workspace.applySurfaceTabBarButtons(
                 buttons,
                 sourcePath: sourcePath,
-                globalConfigPath: globalConfigPath
+                globalConfigPath: globalConfigPath,
+                workspaceCommands: workspaceCommands
             )
         }
     }

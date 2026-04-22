@@ -1301,10 +1301,23 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     private func applySurfaceTabBarButtonsToCurrentManager() {
+        let workspaceCommands = Dictionary(
+            uniqueKeysWithValues: surfaceTabBarButtons.compactMap { button -> (String, CmuxResolvedCommand)? in
+                guard let commandName = button.workspaceCommandName,
+                      let command = resolvedWorkspaceCommand(
+                          named: commandName,
+                          settingName: "surfaceTabBarButtons action"
+                      ) else {
+                    return nil
+                }
+                return (button.id, command)
+            }
+        )
         tabManager?.applySurfaceTabBarButtons(
             surfaceTabBarButtons,
             sourcePath: surfaceTabBarButtonSourcePath,
-            globalConfigPath: globalConfigPath
+            globalConfigPath: globalConfigPath,
+            workspaceCommands: workspaceCommands
         )
     }
 
@@ -1314,20 +1327,23 @@ final class CmuxConfigStore: ObservableObject {
                 NSLog("[CmuxConfig] ui.newWorkspace.action must reference a workspaceCommand action")
                 return nil
             }
-            return resolvedWorkspaceCommand(named: commandName)
+            return resolvedWorkspaceCommand(named: commandName, settingName: "ui.newWorkspace.action")
         }
 
         guard let commandName = newWorkspaceCommandName else { return nil }
-        return resolvedWorkspaceCommand(named: commandName)
+        return resolvedWorkspaceCommand(named: commandName, settingName: "newWorkspaceCommand")
     }
 
-    private func resolvedWorkspaceCommand(named commandName: String) -> CmuxResolvedCommand? {
+    private func resolvedWorkspaceCommand(
+        named commandName: String,
+        settingName: String
+    ) -> CmuxResolvedCommand? {
         guard let command = loadedCommands.first(where: { $0.name == commandName }) else {
-            NSLog("[CmuxConfig] newWorkspaceCommand '%@' does not match any loaded command", commandName)
+            NSLog("[CmuxConfig] %@ '%@' does not match any loaded command", settingName, commandName)
             return nil
         }
         guard command.workspace != nil else {
-            NSLog("[CmuxConfig] newWorkspaceCommand '%@' must reference a workspace command", commandName)
+            NSLog("[CmuxConfig] %@ '%@' must reference a workspace command", settingName, commandName)
             return nil
         }
         return CmuxResolvedCommand(command: command, sourcePath: commandSourcePaths[command.id])
