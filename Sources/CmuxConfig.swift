@@ -1141,12 +1141,46 @@ struct CmuxResolvedCommand: Sendable {
     let sourcePath: String?
 }
 
+struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
+    enum Kind: String, Sendable {
+        case newWorkspaceActionRequiresWorkspaceCommand
+        case newWorkspaceCommandNotFound
+        case newWorkspaceCommandRequiresWorkspace
+    }
+
+    let kind: Kind
+    let settingName: String
+    let commandName: String?
+    let sourcePath: String?
+
+    var id: String {
+        [
+            kind.rawValue,
+            settingName,
+            commandName ?? "",
+            sourcePath ?? ""
+        ].joined(separator: "|")
+    }
+
+    var logMessage: String {
+        switch kind {
+        case .newWorkspaceActionRequiresWorkspaceCommand:
+            return "\(settingName) must reference a workspaceCommand action"
+        case .newWorkspaceCommandNotFound:
+            return "\(settingName) '\(commandName ?? "")' does not match any loaded command"
+        case .newWorkspaceCommandRequiresWorkspace:
+            return "\(settingName) '\(commandName ?? "")' must reference a workspace command"
+        }
+    }
+}
+
 @MainActor
 final class CmuxConfigStore: ObservableObject {
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
     @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var newWorkspaceAction: CmuxConfigActionDefinition?
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
+    @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
 
     /// Which config file each command came from, keyed by command id.
@@ -1179,7 +1213,13 @@ final class CmuxConfigStore: ObservableObject {
         let terminalCommandSourcePaths: [String: String]
     }
 
+    private struct NewWorkspaceCommandResolution {
+        let command: CmuxResolvedCommand?
+        let issue: CmuxConfigIssue?
+    }
+
     private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
+    private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
     private var cancellables = Set<AnyCancellable>()
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
@@ -1283,6 +1323,7 @@ final class CmuxConfigStore: ObservableObject {
         var seenNames = Set<String>()
         var sourcePaths: [String: String] = [:]
         var configuredNewWorkspaceCommandName: String?
+        var configuredNewWorkspaceCommandSourcePath: String?
         var configuredNewWorkspaceAction: CmuxConfigActionDefinition?
         var configuredNewWorkspaceActionSourcePath: String?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
@@ -1308,6 +1349,7 @@ final class CmuxConfigStore: ObservableObject {
             if configuredNewWorkspaceAction == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
+                configuredNewWorkspaceCommandSourcePath = localPath
             }
             if let buttons = localConfig.surfaceTabBarButtons,
                let resolvedButtons = resolvedSurfaceTabBarButtons(
@@ -1347,6 +1389,7 @@ final class CmuxConfigStore: ObservableObject {
                configuredNewWorkspaceCommandName == nil,
                let newWorkspaceCommand = globalConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
+                configuredNewWorkspaceCommandSourcePath = globalConfigPath
             }
             if configuredSurfaceTabBarButtons == nil,
                let buttons = globalConfig.surfaceTabBarButtons,
@@ -1375,6 +1418,14 @@ final class CmuxConfigStore: ObservableObject {
             commands: commands,
             sourcePaths: sourcePaths
         )
+        let resolvedNewWorkspaceCommand = resolvedConfiguredNewWorkspaceCommand(
+            action: configuredNewWorkspaceAction,
+            actionSourcePath: configuredNewWorkspaceActionSourcePath,
+            commandName: configuredNewWorkspaceCommandName,
+            commandSourcePath: configuredNewWorkspaceCommandSourcePath,
+            commands: commands,
+            sourcePaths: sourcePaths
+        )
 
         loadedCommands = commands
         commandSourcePaths = sourcePaths
@@ -1385,6 +1436,8 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarCommandSourcePaths = configuredSurfaceTabBarCommandSourcePaths
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
+        resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceCommand.command
+        configurationIssues = resolvedNewWorkspaceCommand.issue.map { [$0] } ?? []
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
     }
@@ -1526,16 +1579,90 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     func resolvedNewWorkspaceCommand() -> CmuxResolvedCommand? {
-        if let newWorkspaceAction {
-            guard let commandName = newWorkspaceAction.action.workspaceCommandName else {
-                NSLog("[CmuxConfig] ui.newWorkspace.action must reference a workspaceCommand action")
-                return nil
+        resolvedNewWorkspaceCommandCache
+    }
+
+    private func resolvedConfiguredNewWorkspaceCommand(
+        action: CmuxConfigActionDefinition?,
+        actionSourcePath: String?,
+        commandName: String?,
+        commandSourcePath: String?,
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String]
+    ) -> NewWorkspaceCommandResolution {
+        if let action {
+            guard let actionCommandName = action.action.workspaceCommandName else {
+                return newWorkspaceResolutionIssue(
+                    kind: .newWorkspaceActionRequiresWorkspaceCommand,
+                    settingName: "ui.newWorkspace.action",
+                    commandName: nil,
+                    sourcePath: actionSourcePath
+                )
             }
-            return resolvedWorkspaceCommand(named: commandName, settingName: "ui.newWorkspace.action")
+            return resolvedConfiguredNewWorkspaceCommand(
+                named: actionCommandName,
+                settingName: "ui.newWorkspace.action",
+                settingSourcePath: actionSourcePath,
+                commands: commands,
+                sourcePaths: sourcePaths
+            )
         }
 
-        guard let commandName = newWorkspaceCommandName else { return nil }
-        return resolvedWorkspaceCommand(named: commandName, settingName: "newWorkspaceCommand")
+        guard let commandName else {
+            return NewWorkspaceCommandResolution(command: nil, issue: nil)
+        }
+        return resolvedConfiguredNewWorkspaceCommand(
+            named: commandName,
+            settingName: "newWorkspaceCommand",
+            settingSourcePath: commandSourcePath,
+            commands: commands,
+            sourcePaths: sourcePaths
+        )
+    }
+
+    private func resolvedConfiguredNewWorkspaceCommand(
+        named commandName: String,
+        settingName: String,
+        settingSourcePath: String?,
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String]
+    ) -> NewWorkspaceCommandResolution {
+        guard let command = commands.first(where: { $0.name == commandName }) else {
+            return newWorkspaceResolutionIssue(
+                kind: .newWorkspaceCommandNotFound,
+                settingName: settingName,
+                commandName: commandName,
+                sourcePath: settingSourcePath
+            )
+        }
+        guard command.workspace != nil else {
+            return newWorkspaceResolutionIssue(
+                kind: .newWorkspaceCommandRequiresWorkspace,
+                settingName: settingName,
+                commandName: commandName,
+                sourcePath: sourcePaths[command.id] ?? settingSourcePath
+            )
+        }
+        return NewWorkspaceCommandResolution(
+            command: CmuxResolvedCommand(command: command, sourcePath: sourcePaths[command.id]),
+            issue: nil
+        )
+    }
+
+    private func newWorkspaceResolutionIssue(
+        kind: CmuxConfigIssue.Kind,
+        settingName: String,
+        commandName: String?,
+        sourcePath: String?
+    ) -> NewWorkspaceCommandResolution {
+        let issue = CmuxConfigIssue(
+            kind: kind,
+            settingName: settingName,
+            commandName: commandName,
+            sourcePath: sourcePath
+        )
+        NSLog("[CmuxConfig] %@", issue.logMessage)
+        return NewWorkspaceCommandResolution(command: nil, issue: issue)
     }
 
     private func resolvedWorkspaceCommand(

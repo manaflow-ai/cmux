@@ -83,6 +83,20 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.newWorkspaceCommand, "Dev Environment")
     }
 
+    func testDecodeNewWorkspaceCommandTrimsWhitespace() throws {
+        let json = """
+        {
+          "newWorkspaceCommand": "  Dev Environment  ",
+          "commands": [{
+            "name": "Dev Environment",
+            "workspace": { "name": "Dev" }
+          }]
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.newWorkspaceCommand, "Dev Environment")
+    }
+
     func testDecodeLegacySurfaceTabBarButtons() throws {
         let json = """
         {
@@ -299,6 +313,140 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let config = try decode(json)
         XCTAssertEqual(config.ui?.newWorkspace?.action, "new-dev")
         XCTAssertEqual(config.actions["new-dev"]?.action.workspaceCommandName, "Dev Environment")
+    }
+
+    @MainActor
+    func testResolvedNewWorkspaceCommandReturnsConfiguredWorkspaceCommand() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "newWorkspaceCommand": "Dev Environment",
+          "commands": [{
+            "name": "Dev Environment",
+            "workspace": { "name": "Dev" }
+          }]
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let resolved = try XCTUnwrap(store.resolvedNewWorkspaceCommand())
+        XCTAssertEqual(resolved.command.name, "Dev Environment")
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testResolvedNewWorkspaceCommandExposesMissingCommandIssue() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "newWorkspaceCommand": "Missing",
+          "commands": [{
+            "name": "Dev Environment",
+            "workspace": { "name": "Dev" }
+          }]
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertNil(store.resolvedNewWorkspaceCommand())
+        XCTAssertEqual(store.configurationIssues.first?.kind, .newWorkspaceCommandNotFound)
+        XCTAssertEqual(store.configurationIssues.first?.commandName, "Missing")
+    }
+
+    @MainActor
+    func testResolvedNewWorkspaceCommandExposesNonWorkspaceIssue() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "newWorkspaceCommand": "Run Tests",
+          "commands": [{
+            "name": "Run Tests",
+            "command": "npm test"
+          }]
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertNil(store.resolvedNewWorkspaceCommand())
+        XCTAssertEqual(store.configurationIssues.first?.kind, .newWorkspaceCommandRequiresWorkspace)
+        XCTAssertEqual(store.configurationIssues.first?.commandName, "Run Tests")
+        XCTAssertEqual(store.configurationIssues.first?.sourcePath, configURL.path)
+    }
+
+    @MainActor
+    func testResolvedNewWorkspaceActionExposesNonWorkspaceActionIssue() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "actions": {
+            "start-codex": { "type": "command", "command": "codex" }
+          },
+          "ui": {
+            "newWorkspace": { "action": "start-codex" }
+          }
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertNil(store.resolvedNewWorkspaceCommand())
+        XCTAssertEqual(store.configurationIssues.first?.kind, .newWorkspaceActionRequiresWorkspaceCommand)
+        XCTAssertEqual(store.configurationIssues.first?.sourcePath, configURL.path)
     }
 
     func testDecodeActionsSurfaceTabBarButtonSupportsWorkspaceCommand() throws {

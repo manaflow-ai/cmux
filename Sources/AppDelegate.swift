@@ -4957,10 +4957,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
         if let existing = mainWindowContexts[key] {
             existing.window = window
-            existing.cmuxConfigStore = cmuxConfigStore
+            if let cmuxConfigStore {
+                existing.cmuxConfigStore = cmuxConfigStore
+            }
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             existing.window = window
-            existing.cmuxConfigStore = cmuxConfigStore
+            if let cmuxConfigStore {
+                existing.cmuxConfigStore = cmuxConfigStore
+            }
             reindexMainWindowContextIfNeeded(existing, for: window)
         } else {
             mainWindowContexts[key] = MainWindowContext(
