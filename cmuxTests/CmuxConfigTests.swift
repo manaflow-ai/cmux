@@ -189,7 +189,13 @@ final class CmuxConfigDecodingTests: XCTestCase {
             "surfaceTabBar": {
               "buttons": [
                 { "id": "emoji", "icon": "emoji:🤖", "command": "codex" },
-                { "id": "jpeg", "icon": "./icons/claude.jpg", "command": "claude" }
+                { "id": "svg", "icon": "./icons/codex.svg", "command": "codex" },
+                { "id": "jpeg", "icon": "./icons/claude.jpg", "command": "claude" },
+                { "id": "pdf", "icon": "./icons/logo.pdf", "command": "open ." },
+                { "id": "bmp", "icon": "./icons/logo.bmp", "command": "open ." },
+                { "id": "heif", "icon": "./icons/logo.heif", "command": "open ." },
+                { "id": "avif", "icon": "./icons/logo.avif", "command": "open ." },
+                { "id": "ico", "icon": "./icons/logo.ico", "command": "open ." }
               ]
             }
           }
@@ -197,7 +203,13 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         let config = try decode(json)
         XCTAssertEqual(config.surfaceTabBarButtons?[0].icon, .emoji("🤖"))
-        XCTAssertEqual(config.surfaceTabBarButtons?[1].icon, .imagePath("./icons/claude.jpg"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[1].icon, .imagePath("./icons/codex.svg"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[2].icon, .imagePath("./icons/claude.jpg"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[3].icon, .imagePath("./icons/logo.pdf"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[4].icon, .imagePath("./icons/logo.bmp"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[5].icon, .imagePath("./icons/logo.heif"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[6].icon, .imagePath("./icons/logo.avif"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[7].icon, .imagePath("./icons/logo.ico"))
     }
 
     func testDecodeNewWorkspaceAction() throws {

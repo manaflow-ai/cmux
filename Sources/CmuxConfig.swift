@@ -314,7 +314,13 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
 
     private static func looksLikeImagePath(_ value: String) -> Bool {
         let ext = (value as NSString).pathExtension.lowercased()
-        return ["png", "jpg", "jpeg", "gif", "tiff", "tif", "heic", "webp", "icns"].contains(ext)
+        return [
+            "svg", "pdf",
+            "png", "jpg", "jpeg", "gif",
+            "tiff", "tif", "bmp",
+            "heic", "heif", "webp", "avif",
+            "ico", "icns"
+        ].contains(ext)
     }
 
     private static func looksLikeEmoji(_ value: String) -> Bool {

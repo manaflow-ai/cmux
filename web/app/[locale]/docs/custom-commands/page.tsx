@@ -58,8 +58,8 @@ export default function CustomCommandsPage() {
       "buttons": [
         { "action": "newTerminal", "icon": "terminal", "tooltip": "New terminal" },
         { "action": "newBrowser", "icon": "globe", "tooltip": "New browser" },
-        { "action": "start-codex", "icon": { "type": "image", "path": "./icons/codex.png" }, "tooltip": "Start Codex" },
-        { "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.jpg" }, "tooltip": "Start Claude Code" },
+        { "action": "start-codex", "icon": { "type": "image", "path": "./icons/codex.svg" }, "tooltip": "Start Codex" },
+        { "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.svg" }, "tooltip": "Start Claude Code" },
         { "action": "run-tests", "icon": { "type": "emoji", "value": "✅" }, "tooltip": "Run tests" }
       ]
     }
@@ -82,7 +82,8 @@ export default function CustomCommandsPage() {
         <code>ui.surfaceTabBar.buttons</code> replaces the default buttons when present, so omit built-ins
         like <code>newTerminal</code>, <code>newBrowser</code>, <code>splitRight</code>, or <code>splitDown</code>
         to hide them. Button icons accept macOS SF Symbol names, emoji, or image paths relative to the
-        <code>cmux.json</code> file. PNG, JPEG, GIF, TIFF, HEIC, WebP, and ICNS files are supported.
+        <code>cmux.json</code> file. SVG, PDF, PNG, JPEG, GIF, TIFF, BMP, HEIC, HEIF, WebP, AVIF, ICO,
+        and ICNS paths are recognized. Image decoding follows what macOS AppKit can load on the current system.
       </p>
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
@@ -94,8 +95,8 @@ export default function CustomCommandsPage() {
       "buttons": [
         { "id": "codex-symbol", "action": "start-codex", "icon": "sparkles", "tooltip": "Start Codex" },
         { "id": "claude-emoji", "action": "start-claude", "icon": "emoji:🤖", "tooltip": "Start Claude Code" },
-        { "id": "codex-png", "action": "start-codex", "icon": "./icons/codex.png", "tooltip": "Start Codex with a PNG icon" },
-        { "id": "claude-jpeg", "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.jpeg" } }
+        { "id": "codex-svg", "action": "start-codex", "icon": "./icons/codex.svg", "tooltip": "Start Codex with an SVG icon" },
+        { "id": "claude-svg", "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.svg" } }
       ]
     }
   }
@@ -235,7 +236,7 @@ export default function CustomCommandsPage() {
       "buttons": [
         { "action": "start-dev", "icon": "play.circle", "tooltip": "Start dev" },
         { "action": "newBrowser", "icon": "globe", "tooltip": "New browser" },
-        { "action": "start-codex", "icon": "./icons/codex.png", "tooltip": "Start Codex" },
+        { "action": "start-codex", "icon": "./icons/codex.svg", "tooltip": "Start Codex" },
         { "action": "start-claude", "icon": "emoji:🤖", "tooltip": "Start Claude Code" }
       ]
     }
