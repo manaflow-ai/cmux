@@ -48,8 +48,9 @@ export default function CustomCommandsPage() {
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
     "new-dev": { "type": "workspaceCommand", "commandName": "Start Dev" },
-    "start-codex": { "type": "agent", "agent": "codex" },
-    "start-claude": { "type": "agent", "agent": "claude" },
+    "start-codex": { "type": "command", "command": "codex --dangerously-bypass-approvals-and-sandbox" },
+    "start-claude": { "type": "command", "command": "claude --dangerously-skip-permissions" },
+    "start-opencode": { "type": "command", "command": "OPENCODE_PERMISSION='\\\"allow\\\"' opencode" },
     "run-tests": { "type": "command", "command": "npm test", "confirm": true }
   },
   "ui": {
@@ -60,6 +61,7 @@ export default function CustomCommandsPage() {
         { "action": "newBrowser", "icon": "globe", "tooltip": "New browser" },
         { "action": "start-codex", "icon": { "type": "image", "path": "./icons/codex.svg" }, "tooltip": "Start Codex" },
         { "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.svg" }, "tooltip": "Start Claude Code" },
+        { "action": "start-opencode", "icon": { "type": "image", "path": "./icons/opencode.svg" }, "tooltip": "Start OpenCode" },
         { "action": "run-tests", "icon": { "type": "emoji", "value": "✅" }, "tooltip": "Run tests" }
       ]
     }
@@ -84,11 +86,14 @@ export default function CustomCommandsPage() {
         to hide them. Button icons accept macOS SF Symbol names, emoji, or image paths relative to the
         <code>cmux.json</code> file. SVG, PDF, PNG, JPEG, GIF, TIFF, BMP, HEIC, HEIF, WebP, AVIF, ICO,
         and ICNS paths are recognized. Image decoding follows what macOS AppKit can load on the current system.
+        Command and agent buttons create a new terminal surface in the clicked pane, then run the configured
+        command there.
       </p>
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
-    "start-codex": { "type": "agent", "agent": "codex" },
-    "start-claude": { "type": "agent", "agent": "claude", "args": "--permission-mode acceptEdits" }
+    "start-codex": { "type": "command", "command": "codex --dangerously-bypass-approvals-and-sandbox" },
+    "start-claude": { "type": "command", "command": "claude --dangerously-skip-permissions" },
+    "start-opencode": { "type": "command", "command": "OPENCODE_PERMISSION='\\\"allow\\\"' opencode" }
   },
   "ui": {
     "surfaceTabBar": {
@@ -96,7 +101,8 @@ export default function CustomCommandsPage() {
         { "id": "codex-symbol", "action": "start-codex", "icon": "sparkles", "tooltip": "Start Codex" },
         { "id": "claude-emoji", "action": "start-claude", "icon": "emoji:🤖", "tooltip": "Start Claude Code" },
         { "id": "codex-svg", "action": "start-codex", "icon": "./icons/codex.svg", "tooltip": "Start Codex with an SVG icon" },
-        { "id": "claude-svg", "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.svg" } }
+        { "id": "claude-svg", "action": "start-claude", "icon": { "type": "image", "path": "./icons/claude.svg" } },
+        { "id": "opencode-svg", "action": "start-opencode", "icon": { "type": "image", "path": "./icons/opencode.svg" } }
       ]
     }
   }
@@ -227,8 +233,9 @@ export default function CustomCommandsPage() {
   "actions": {
     "new-web-dev": { "type": "workspaceCommand", "commandName": "Web Dev" },
     "start-dev": { "type": "command", "command": "npm run dev" },
-    "start-codex": { "type": "agent", "agent": "codex" },
-    "start-claude": { "type": "agent", "agent": "claude" }
+    "start-codex": { "type": "command", "command": "codex --dangerously-bypass-approvals-and-sandbox" },
+    "start-claude": { "type": "command", "command": "claude --dangerously-skip-permissions" },
+    "start-opencode": { "type": "command", "command": "OPENCODE_PERMISSION='\\\"allow\\\"' opencode" }
   },
   "ui": {
     "newWorkspace": { "action": "new-web-dev" },
@@ -237,7 +244,8 @@ export default function CustomCommandsPage() {
         { "action": "start-dev", "icon": "play.circle", "tooltip": "Start dev" },
         { "action": "newBrowser", "icon": "globe", "tooltip": "New browser" },
         { "action": "start-codex", "icon": "./icons/codex.svg", "tooltip": "Start Codex" },
-        { "action": "start-claude", "icon": "emoji:🤖", "tooltip": "Start Claude Code" }
+        { "action": "start-claude", "icon": "emoji:🤖", "tooltip": "Start Claude Code" },
+        { "action": "start-opencode", "icon": "./icons/opencode.svg", "tooltip": "Start OpenCode" }
       ]
     }
   },

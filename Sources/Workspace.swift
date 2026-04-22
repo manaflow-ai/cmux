@@ -12374,11 +12374,6 @@ extension Workspace: BonsplitDelegate {
         }
 
         bonsplitController.focusPane(pane)
-        if let terminal = selectedTerminalPanel(inPane: pane) {
-            terminal.sendInput(shellInput)
-            return
-        }
-
         _ = newTerminalSurface(inPane: pane, focus: true, initialInput: shellInput)
     }
 
