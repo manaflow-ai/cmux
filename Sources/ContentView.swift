@@ -1799,6 +1799,8 @@ struct ContentView: View {
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @StateObject private var chatService = ChatService.shared
+    @AppStorage("chatPanelVisible") private var isChatPanelVisible: Bool = true
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -2879,8 +2881,14 @@ struct ContentView: View {
             // This allows withinWindow blur to see the terminal content
             layout = AnyView(
                 ZStack(alignment: .leading) {
-                    terminalContentWithSidebarDropOverlay
-                        .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                    HStack(spacing: 0) {
+                        terminalContentWithSidebarDropOverlay
+                            .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                        if isChatPanelVisible {
+                            Divider()
+                            chatPanelView
+                        }
+                    }
                     if sidebarState.isVisible {
                         sidebarView
                     }
@@ -2894,6 +2902,10 @@ struct ContentView: View {
                         sidebarView
                     }
                     terminalContentWithSidebarDropOverlay
+                    if isChatPanelVisible {
+                        Divider()
+                        chatPanelView
+                    }
                 }
             )
         }
@@ -2907,6 +2919,16 @@ struct ContentView: View {
                     }
                 }
         )
+    }
+
+    private var chatPanelView: some View {
+        ChatPanelView(chatService: chatService) {
+            isChatPanelVisible = false
+        }
+    }
+
+    func toggleChatPanel() {
+        isChatPanelVisible.toggle()
     }
 
     var body: some View {

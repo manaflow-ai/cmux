@@ -5696,6 +5696,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if hostedView.responderMatchesPreferredKeyboardFocus(responder) {
             return false
         }
+        if ChatPanelHitTestRegistry.ownsFocusResponder(responder) {
+            return false
+        }
         return true
     }
 

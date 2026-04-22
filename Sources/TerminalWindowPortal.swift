@@ -146,6 +146,11 @@ final class WindowTerminalHostView: NSView {
         }
 
         if isPointerEvent {
+            if ChatPanelHitTestRegistry.contains(windowPoint: convert(point, to: nil), in: window) {
+                clearActiveDividerCursor(restoreArrow: true)
+                return nil
+            }
+
             if shouldPassThroughToSidebarResizer(at: point) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil

@@ -674,6 +674,16 @@ struct cmuxApp: App {
                     }
                 }
 
+                Button(
+                    UserDefaults.standard.bool(forKey: "chatPanelVisible")
+                        ? String(localized: "menu.view.hideChatPanel", defaultValue: "Hide AI Chat Panel")
+                        : String(localized: "menu.view.showChatPanel", defaultValue: "Show AI Chat Panel")
+                ) {
+                    let current = UserDefaults.standard.object(forKey: "chatPanelVisible") as? Bool ?? true
+                    UserDefaults.standard.set(!current, forKey: "chatPanelVisible")
+                }
+                .keyboardShortcut("\\", modifiers: [.command, .shift])
+
                 Divider()
 
                 splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Surface"), shortcut: menuShortcut(for: .nextSurface)) {
