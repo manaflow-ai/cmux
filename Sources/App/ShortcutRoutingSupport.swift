@@ -129,7 +129,7 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
 ) -> Int? {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
+        .subtracting([.numericPad, .function, .capsLock])
     let normalizedChars = chars.lowercased()
 
     if normalizedFlags == [] {
@@ -537,12 +537,6 @@ func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
         if textView.isFieldEditor,
            let ownerView = cmuxFieldEditorOwnerView(textView),
            let ghosttyView = cmuxOwningGhosttyView(for: ownerView) {
-            return ghosttyView
-        }
-
-        if !textView.isFieldEditor,
-           let delegateView = textView.delegate as? NSView,
-           let ghosttyView = cmuxOwningGhosttyView(for: delegateView) {
             return ghosttyView
         }
     }
