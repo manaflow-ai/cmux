@@ -16066,6 +16066,8 @@ private struct SidebarTerminalBackgroundView: NSViewRepresentable {
 }
 
 struct SidebarBackdrop: View {
+    private let includeTerminalBackgroundUnderlay: Bool
+
     @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
@@ -16077,23 +16079,29 @@ struct SidebarBackdrop: View {
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
     @Environment(\.colorScheme) private var colorScheme
-    @State private var terminalBackgroundColor: NSColor = GhosttyBackgroundTheme.currentColor()
+    @State private var terminalBackgroundColor: NSColor = GhosttyApp.shared.defaultBackgroundColor
+    @State private var terminalBackgroundOpacity: Double = GhosttyApp.shared.defaultBackgroundOpacity
+
+    init(includeTerminalBackgroundUnderlay: Bool = false) {
+        self.includeTerminalBackgroundUnderlay = includeTerminalBackgroundUnderlay
+    }
 
     var body: some View {
         let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
+        let terminalBackground = SidebarTerminalBackgroundView(
+            backgroundColor: terminalBackgroundColor,
+            opacity: CGFloat(terminalBackgroundOpacity)
+        )
 
         if matchTerminalBackground {
             // The terminal background is provided by a single CALayer, so
             // the sidebar uses the configured opacity directly.
-            let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
             return AnyView(
-                SidebarTerminalBackgroundView(
-                    backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-                    opacity: alpha
-                )
+                terminalBackground
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .onAppear(perform: refreshTerminalBackground)
                 .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-                    terminalBackgroundColor = GhosttyBackgroundTheme.currentColor()
+                    refreshTerminalBackground()
                 }
             )
         }
@@ -16112,9 +16120,16 @@ struct SidebarBackdrop: View {
         let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: sidebarTintHex) ?? .black).withAlphaComponent(sidebarTintOpacity)
         let useLiquidGlass = materialOption?.usesLiquidGlass ?? false
         let useWindowLevelGlass = useLiquidGlass && blendingMode == .behindWindow
+        let needsTerminalBackgroundUnderlay = includeTerminalBackgroundUnderlay
+            && blendingMode == .withinWindow
+            && materialOption?.material != nil
+            && !useWindowLevelGlass
 
         return AnyView(
             ZStack {
+                if needsTerminalBackgroundUnderlay {
+                    terminalBackground
+                }
                 if let material = materialOption?.material {
                     // When using liquidGlass + behindWindow, window handles glass + tint
                     // Sidebar is fully transparent
@@ -16137,7 +16152,16 @@ struct SidebarBackdrop: View {
                 // When material is none or useWindowLevelGlass, render nothing
             }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .onAppear(perform: refreshTerminalBackground)
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                refreshTerminalBackground()
+            }
         )
+    }
+
+    private func refreshTerminalBackground() {
+        terminalBackgroundColor = GhosttyApp.shared.defaultBackgroundColor
+        terminalBackgroundOpacity = GhosttyApp.shared.defaultBackgroundOpacity
     }
 }
 
