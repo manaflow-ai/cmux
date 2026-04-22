@@ -569,7 +569,10 @@ final class VSCodeServeWebController {
         let collector = ServeWebOutputCollector()
         let outputReader: (FileHandle) -> Void = { fileHandle in
             let data = fileHandle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                fileHandle.readabilityHandler = nil
+                return
+            }
             collector.append(data)
         }
         stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
@@ -777,4 +780,3 @@ enum WorkspaceShortcutMapper {
         return nil
     }
 }
-

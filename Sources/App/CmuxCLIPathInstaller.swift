@@ -290,7 +290,10 @@ struct CmuxCLIPathInstaller {
     private static func startDraining(_ pipe: Pipe, into buffer: PrivilegedCommandOutputBuffer) {
         pipe.fileHandleForReading.readabilityHandler = { fileHandle in
             let data = fileHandle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                fileHandle.readabilityHandler = nil
+                return
+            }
             buffer.append(data)
         }
     }
