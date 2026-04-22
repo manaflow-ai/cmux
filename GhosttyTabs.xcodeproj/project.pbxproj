@@ -26,6 +26,13 @@
 		8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 		A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
+		EF5200010000000000000001 /* WorkspaceRuntimeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5100010000000000000001 /* WorkspaceRuntimeSettings.swift */; };
+		EF5200020000000000000002 /* SidebarAppearanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5100020000000000000002 /* SidebarAppearanceSupport.swift */; };
+		EF5200030000000000000003 /* InternalTabDragConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5100030000000000000003 /* InternalTabDragConfiguration.swift */; };
+		EF5200040000000000000004 /* ShortcutHintPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5100040000000000000004 /* ShortcutHintPill.swift */; };
+		EF5200050000000000000005 /* WindowGlassEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5100050000000000000005 /* WindowGlassEffect.swift */; };
+		EF5200060000000000000006 /* SidebarState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5100060000000000000006 /* SidebarState.swift */; };
+		EF5200070000000000000007 /* CommandPaletteSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5100070000000000000007 /* CommandPaletteSearch.swift */; };
 		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
 		A5001004 /* GhosttyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001014 /* GhosttyConfig.swift */; };
 		A5001005 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001015 /* GhosttyTerminalView.swift */; };
@@ -244,6 +251,13 @@
 		A5001000 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		EF5100010000000000000001 /* WorkspaceRuntimeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceRuntimeSettings.swift; sourceTree = "<group>"; };
+		EF5100020000000000000002 /* SidebarAppearanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAppearanceSupport.swift; sourceTree = "<group>"; };
+		EF5100030000000000000003 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
+		EF5100040000000000000004 /* ShortcutHintPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutHintPill.swift; sourceTree = "<group>"; };
+		EF5100050000000000000005 /* WindowGlassEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowGlassEffect.swift; sourceTree = "<group>"; };
+		EF5100060000000000000006 /* SidebarState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarState.swift; sourceTree = "<group>"; };
+		EF5100070000000000000007 /* CommandPaletteSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteSearch.swift; sourceTree = "<group>"; };
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 		A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
 		A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
@@ -486,6 +500,13 @@
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
 				A5001011 /* cmuxApp.swift */,
 				A5001012 /* ContentView.swift */,
+				EF5100010000000000000001 /* WorkspaceRuntimeSettings.swift */,
+				EF5100020000000000000002 /* SidebarAppearanceSupport.swift */,
+				EF5100030000000000000003 /* InternalTabDragConfiguration.swift */,
+				EF5100040000000000000004 /* ShortcutHintPill.swift */,
+				EF5100050000000000000005 /* WindowGlassEffect.swift */,
+				EF5100060000000000000006 /* SidebarState.swift */,
+				EF5100070000000000000007 /* CommandPaletteSearch.swift */,
 				9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */,
 				B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */,
 				A50012F0 /* Backport.swift */,
@@ -848,6 +869,13 @@
 				3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
 				A5001001 /* cmuxApp.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
+				EF5200010000000000000001 /* WorkspaceRuntimeSettings.swift in Sources */,
+				EF5200020000000000000002 /* SidebarAppearanceSupport.swift in Sources */,
+				EF5200030000000000000003 /* InternalTabDragConfiguration.swift in Sources */,
+				EF5200040000000000000004 /* ShortcutHintPill.swift in Sources */,
+				EF5200050000000000000005 /* WindowGlassEffect.swift in Sources */,
+				EF5200060000000000000006 /* SidebarState.swift in Sources */,
+				EF5200070000000000000007 /* CommandPaletteSearch.swift in Sources */,
 				E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */,
 				B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 				A50012F1 /* Backport.swift in Sources */,
