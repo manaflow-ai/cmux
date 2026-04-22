@@ -3016,37 +3016,46 @@ struct ContentView: View {
     }
 
     private var terminalContentWithSidebarDropOverlay: some View {
+        terminalContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
+            .overlay {
+                SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
+            }
+    }
+
+    private var terminalContentWithRightSidebarPanel: some View {
         // File explorer is always in the view tree. Visibility is controlled by
         // frame width (0 when hidden), avoiding SwiftUI view insertion/removal
         // and all associated transition animations.
         let explorerVisible = fileExplorerState.isVisible
         return HStack(spacing: 0) {
-            terminalContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .layoutPriority(1)
-                .overlay {
-                    SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
-                }
+            terminalContentWithSidebarDropOverlay
             if explorerVisible {
                 Divider()
             }
-            RightSidebarPanelView(
-                fileExplorerStore: fileExplorerStore,
-                fileExplorerState: fileExplorerState,
-                sessionIndexStore: sessionIndexStore,
-                onResumeSession: { entry in
-                    resumeSession(entry: entry)
-                }
-            )
-                .frame(width: explorerVisible ? fileExplorerWidth : 0)
-                .clipped()
-                .allowsHitTesting(explorerVisible)
-                .accessibilityHidden(!explorerVisible)
-                .overlay(alignment: .leading) {
-                    if explorerVisible {
-                        fileExplorerResizerHandle
-                    }
-                }
+            rightSidebarPanel
+        }
+    }
+
+    private var rightSidebarPanel: some View {
+        let explorerVisible = fileExplorerState.isVisible
+        return RightSidebarPanelView(
+            fileExplorerStore: fileExplorerStore,
+            fileExplorerState: fileExplorerState,
+            sessionIndexStore: sessionIndexStore,
+            onResumeSession: { entry in
+                resumeSession(entry: entry)
+            }
+        )
+        .frame(width: explorerVisible ? fileExplorerWidth : 0)
+        .clipped()
+        .allowsHitTesting(explorerVisible)
+        .accessibilityHidden(!explorerVisible)
+        .overlay(alignment: .leading) {
+            if explorerVisible {
+                fileExplorerResizerHandle
+            }
         }
         .transaction { $0.animation = nil }
         .onAppear {
@@ -3057,6 +3066,14 @@ struct ContentView: View {
                 fileExplorerWidth = newValue
             }
         }
+    }
+
+    private var rightSidebarOverlayPanel: some View {
+        rightSidebarPanel
+            .overlay(alignment: .leading) {
+                Divider()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
     }
 
     private var fileExplorerResizerHandle: some View {
@@ -3366,8 +3383,12 @@ struct ContentView: View {
                 ZStack(alignment: .leading) {
                     terminalContentWithSidebarDropOverlay
                         .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                        .padding(.trailing, fileExplorerState.isVisible ? fileExplorerWidth : 0)
                     if sidebarState.isVisible {
                         sidebarView
+                    }
+                    if fileExplorerState.isVisible {
+                        rightSidebarOverlayPanel
                     }
                 }
             )
@@ -3378,7 +3399,7 @@ struct ContentView: View {
                     if sidebarState.isVisible {
                         sidebarView
                     }
-                    terminalContentWithSidebarDropOverlay
+                    terminalContentWithRightSidebarPanel
                 }
             )
         }
@@ -16066,8 +16087,6 @@ private struct SidebarTerminalBackgroundView: NSViewRepresentable {
 }
 
 struct SidebarBackdrop: View {
-    private let includeTerminalBackgroundUnderlay: Bool
-
     @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
@@ -16081,10 +16100,6 @@ struct SidebarBackdrop: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var terminalBackgroundColor: NSColor = GhosttyApp.shared.defaultBackgroundColor
     @State private var terminalBackgroundOpacity: Double = GhosttyApp.shared.defaultBackgroundOpacity
-
-    init(includeTerminalBackgroundUnderlay: Bool = false) {
-        self.includeTerminalBackgroundUnderlay = includeTerminalBackgroundUnderlay
-    }
 
     var body: some View {
         let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
@@ -16120,16 +16135,9 @@ struct SidebarBackdrop: View {
         let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: sidebarTintHex) ?? .black).withAlphaComponent(sidebarTintOpacity)
         let useLiquidGlass = materialOption?.usesLiquidGlass ?? false
         let useWindowLevelGlass = useLiquidGlass && blendingMode == .behindWindow
-        let needsTerminalBackgroundUnderlay = includeTerminalBackgroundUnderlay
-            && blendingMode == .withinWindow
-            && materialOption?.material != nil
-            && !useWindowLevelGlass
 
         return AnyView(
             ZStack {
-                if needsTerminalBackgroundUnderlay {
-                    terminalBackground
-                }
                 if let material = materialOption?.material {
                     // When using liquidGlass + behindWindow, window handles glass + tint
                     // Sidebar is fully transparent

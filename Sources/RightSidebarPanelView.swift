@@ -36,7 +36,7 @@ struct RightSidebarPanelView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(SidebarBackdrop(includeTerminalBackgroundUnderlay: true).ignoresSafeArea())
+        .background(SidebarBackdrop().ignoresSafeArea())
         .accessibilityIdentifier("RightSidebar")
     }
 
