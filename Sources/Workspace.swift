@@ -292,6 +292,13 @@ extension Workspace {
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
 
+        // Capture the active Claude Code session ID so it can be resumed on
+        // restore. The hook session store maps session IDs to workspace IDs.
+        let claudeSessionId: String? = {
+            guard agentPIDs["claude_code"] != nil else { return nil }
+            return SessionClaudeSessionStore.sessionId(forWorkspaceId: id.uuidString)
+        }()
+
         return SessionWorkspaceSnapshot(
             processTitle: processTitle,
             customTitle: customTitle,
@@ -306,12 +313,31 @@ extension Workspace {
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
             progress: progressSnapshot,
-            gitBranch: gitBranchSnapshot
+            gitBranch: gitBranchSnapshot,
+            claudeSessionId: claudeSessionId
         )
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+
+        // Queue Claude Code session for resume. Resolve the target to a
+        // terminal panel — focusedPanelId may point at a browser or markdown
+        // panel, in which case we fall back to the first terminal panel (nil
+        // target means "first terminal created").
+        pendingClaudeSessionRestore = nil
+        if let claudeSessionId = snapshot.claudeSessionId?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !claudeSessionId.isEmpty {
+            let targetTerminalId: UUID? = {
+                if let focusedId = snapshot.focusedPanelId,
+                   snapshot.panels.first(where: { $0.id == focusedId })?.type == .terminal {
+                    return focusedId
+                }
+                return nil
+            }()
+            pendingClaudeSessionRestore = (sessionId: claudeSessionId, targetPanelId: targetTerminalId)
+        }
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -642,9 +668,21 @@ extension Workspace {
         switch snapshot.type {
         case .terminal:
             let workingDirectory = snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
+            var replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: snapshot.terminal?.scrollback
             )
+
+            // Inject Claude Code session resume for the targeted panel. Falls
+            // back to the first terminal panel when no specific target is set.
+            // Clear the pending token only after the terminal is created
+            // successfully so a failed surface doesn't swallow the restore.
+            let matchedClaudeRestore = pendingClaudeSessionRestore.flatMap { pending in
+                (pending.targetPanelId == nil || pending.targetPanelId == snapshot.id) ? pending : nil
+            }
+            if let matchedClaudeRestore {
+                replayEnvironment["CMUX_RESTORE_CLAUDE_SESSION"] = matchedClaudeRestore.sessionId
+            }
+
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -652,6 +690,9 @@ extension Workspace {
                 startupEnvironment: replayEnvironment
             ) else {
                 return nil
+            }
+            if matchedClaudeRestore != nil {
+                pendingClaudeSessionRestore = nil
             }
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
             if let fallbackScrollback {
@@ -6620,6 +6661,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+
+    /// Holds the Claude Code session ID to resume during session restore.
+    /// Cleared after it's consumed by the first matching terminal panel.
+    private var pendingClaudeSessionRestore: (sessionId: String, targetPanelId: UUID?)?
 
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher

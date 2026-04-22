@@ -169,6 +169,19 @@ _cmux_install_claude_wrapper() {
     eval 'claude() { "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
 }
 _cmux_install_claude_wrapper
+
+# Resume a Claude Code session saved before app restart. The env var is set by
+# the session restore path in SessionPersistence / Workspace.swift.
+_cmux_restore_claude_session_once() {
+    local session_id="${CMUX_RESTORE_CLAUDE_SESSION:-}"
+    [[ -n "$session_id" ]] || return 0
+    unset CMUX_RESTORE_CLAUDE_SESSION
+
+    printf '\033[2m%s\033[0m\n' "Resuming Claude Code session…"
+    claude --resume "$session_id"
+}
+_cmux_restore_claude_session_once
+
 _cmux_now() {
     printf '%s\n' "${EPOCHSECONDS:-$SECONDS}"
 }

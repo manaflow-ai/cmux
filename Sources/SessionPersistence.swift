@@ -342,6 +342,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+    var claudeSessionId: String?
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {
@@ -485,5 +486,49 @@ enum SessionScrollbackReplayStore {
         } catch {
             return nil
         }
+    }
+}
+
+/// Reads the Claude hook session store to find active Claude Code session IDs
+/// for a given workspace. The store is maintained by the CLI at
+/// `~/.cmuxterm/claude-hook-sessions.json`.
+enum SessionClaudeSessionStore {
+    private static let supportedStoreVersion = 1
+
+    private struct StoreFile: Codable {
+        var version: Int
+        var sessions: [String: SessionRecord]
+    }
+
+    private struct SessionRecord: Codable {
+        var sessionId: String
+        var workspaceId: String
+        var surfaceId: String
+        var cwd: String?
+        var pid: Int?
+        var startedAt: TimeInterval
+        var updatedAt: TimeInterval
+    }
+
+    private static let storePath: String = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.cmuxterm/claude-hook-sessions.json"
+    }()
+
+    /// Find the most recently updated Claude Code session ID for a workspace.
+    static func sessionId(forWorkspaceId workspaceId: String) -> String? {
+        sessionId(forWorkspaceId: workspaceId, storeURL: URL(fileURLWithPath: storePath))
+    }
+
+    /// Testable overload that reads from an arbitrary store URL.
+    static func sessionId(forWorkspaceId workspaceId: String, storeURL: URL) -> String? {
+        guard let data = try? Data(contentsOf: storeURL) else { return nil }
+        guard let store = try? JSONDecoder().decode(StoreFile.self, from: data) else { return nil }
+        guard store.version == supportedStoreVersion else { return nil }
+
+        return store.sessions.values
+            .filter { $0.workspaceId == workspaceId }
+            .max(by: { $0.updatedAt < $1.updatedAt })?
+            .sessionId
     }
 }

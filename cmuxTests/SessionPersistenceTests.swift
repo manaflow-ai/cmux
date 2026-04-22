@@ -117,6 +117,40 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testSaveAndLoadRoundTripPreservesClaudeSessionId() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].claudeSessionId = "01JQVX8K3M5N7P2R4T6W9Y0ZAB"
+
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+
+        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
+        XCTAssertEqual(
+            loaded?.windows.first?.tabManager.workspaces.first?.claudeSessionId,
+            "01JQVX8K3M5N7P2R4T6W9Y0ZAB"
+        )
+    }
+
+    func testSaveAndLoadRoundTripOmitsNilClaudeSessionId() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+
+        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
+        XCTAssertNil(loaded?.windows.first?.tabManager.workspaces.first?.claudeSessionId)
+    }
+
     func testSaveSkipsRewritingIdenticalSnapshotData() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -914,6 +948,114 @@ final class SessionPersistenceTests: XCTestCase {
     private func fileNumber(for fileURL: URL) throws -> Int {
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
         return try XCTUnwrap(attributes[.systemFileNumber] as? Int)
+    }
+}
+
+final class SessionClaudeSessionStoreTests: XCTestCase {
+    private func writeStore(_ json: String) throws -> URL {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let storeURL = tempDir.appendingPathComponent("claude-hook-sessions.json")
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+        return storeURL
+    }
+
+    func testSessionIdLookupFindsMatchingWorkspace() throws {
+        let storeURL = try writeStore("""
+        {
+          "version": 1,
+          "sessions": {
+            "abc123": {
+              "sessionId": "abc123",
+              "workspaceId": "WS-1",
+              "surfaceId": "SF-1",
+              "cwd": "/tmp",
+              "pid": 9999,
+              "startedAt": 1000,
+              "updatedAt": 2000
+            },
+            "def456": {
+              "sessionId": "def456",
+              "workspaceId": "WS-2",
+              "surfaceId": "SF-2",
+              "cwd": "/home",
+              "pid": 8888,
+              "startedAt": 1000,
+              "updatedAt": 3000
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
+
+        XCTAssertEqual(
+            SessionClaudeSessionStore.sessionId(forWorkspaceId: "WS-1", storeURL: storeURL),
+            "abc123"
+        )
+        XCTAssertEqual(
+            SessionClaudeSessionStore.sessionId(forWorkspaceId: "WS-2", storeURL: storeURL),
+            "def456"
+        )
+    }
+
+    func testSessionIdLookupReturnsNilForUnknownWorkspace() throws {
+        let storeURL = try writeStore("""
+        {
+          "version": 1,
+          "sessions": {
+            "abc123": {
+              "sessionId": "abc123",
+              "workspaceId": "WS-1",
+              "surfaceId": "SF-1",
+              "startedAt": 1000,
+              "updatedAt": 2000
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
+
+        XCTAssertNil(
+            SessionClaudeSessionStore.sessionId(forWorkspaceId: "WS-UNKNOWN", storeURL: storeURL)
+        )
+    }
+
+    func testSessionIdLookupReturnsMostRecentlyUpdated() throws {
+        let storeURL = try writeStore("""
+        {
+          "version": 1,
+          "sessions": {
+            "old-session": {
+              "sessionId": "old-session",
+              "workspaceId": "WS-1",
+              "surfaceId": "SF-1",
+              "startedAt": 1000,
+              "updatedAt": 1000
+            },
+            "new-session": {
+              "sessionId": "new-session",
+              "workspaceId": "WS-1",
+              "surfaceId": "SF-2",
+              "startedAt": 2000,
+              "updatedAt": 5000
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
+
+        XCTAssertEqual(
+            SessionClaudeSessionStore.sessionId(forWorkspaceId: "WS-1", storeURL: storeURL),
+            "new-session"
+        )
+    }
+
+    func testSessionIdLookupReturnsNilForMissingFile() {
+        let bogusURL = URL(fileURLWithPath: "/tmp/cmux-nonexistent-\(UUID().uuidString).json")
+        XCTAssertNil(
+            SessionClaudeSessionStore.sessionId(forWorkspaceId: "WS-1", storeURL: bogusURL)
+        )
     }
 }
 
