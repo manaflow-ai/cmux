@@ -14,7 +14,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 Fork main has advanced beyond the March 30, 2026 rebase onto upstream `main`
 at `3509ccf78` (`v1.3.1-457-g3509ccf78`).
-Current cmux pinned fork head: `3b684a085` (`tip-1717-g3b684a085`).
+Current cmux pinned fork head: `e36dd9d50` (`issue-2738-search-resize-race`).
 
 ### 1) macOS display link restart on display changes
 
@@ -123,6 +123,20 @@ tend to conflict together during rebases.
 Fork main now carries the section 8 APC handling fix plus later upstream merges;
 the current cmux pin is the head listed above.
 
+### 9) Search snapshot isolation during page reflow
+
+- Commits:
+  - `a2f864d61` (terminal/search: snapshot pages before formatting)
+  - `e36dd9d50` (terminal/search: fix snapshot build errors)
+- Files:
+  - `src/terminal/highlight.zig`
+  - `src/terminal/search/sliding_window.zig`
+- Summary:
+  - Snapshots page contents before `SlidingWindow` runs `PageFormatter`, so background search never formats from live page storage that `PageList.resizeCols` can free or recycle.
+  - Caches page row counts alongside flattened search chunks so later highlight assembly no longer dereferences live page nodes after the source screen has mutated.
+  - Adds a regression test that destroys the source screen after taking search snapshots and verifies the retained search data still produces the expected cross-page match.
+  - Fixes the nested `PageSnapshot` test reference and preserves the existing `Allocator.Error` contract when cloning pages for retained snapshots.
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move
@@ -183,5 +197,10 @@ These files change frequently upstream; be careful when rebasing the fork:
   - Keep the APC handler wired into `.apc_start`, `.apc_put`, `.apc_end`, and preserve the
     `apcEnd()` response path so kitty graphics still reach `Terminal.kittyGraphics()` and reply via
     `write_pty`.
+
+- `src/terminal/search/sliding_window.zig`, `src/terminal/highlight.zig`
+  - Keep the retained-page search path copying from snapshots rather than live page storage, and
+    preserve the cached `rows` metadata on flattened chunks so reverse-search fixups never have to
+    dereference invalidated page nodes.
 
 If you resolve a conflict, update this doc with what changed.
