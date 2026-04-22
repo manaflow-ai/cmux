@@ -172,16 +172,16 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     customHex: String? = nil,
     sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
 ) -> NSColor {
-    if let hex = sidebarSelectionColorHex,
-       let parsed = NSColor(hex: hex) {
-        return parsed
-    }
     if let customHex,
        let customColor = sidebarSelectedWorkspaceCustomBackgroundNSColor(
         hex: customHex,
         colorScheme: colorScheme
        ) {
         return customColor
+    }
+    if let hex = sidebarSelectionColorHex,
+       let parsed = NSColor(hex: hex) {
+        return parsed
     }
     return cmuxAccentNSColor(for: colorScheme)
 }
