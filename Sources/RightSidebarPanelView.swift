@@ -27,6 +27,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let onResumeSession: ((SessionEntry) -> Void)?
+    var onOpenMarkdown: ((String) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,7 +68,7 @@ struct RightSidebarPanelView: View {
     private var contentForMode: some View {
         switch fileExplorerState.mode {
         case .files:
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState)
+            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState, onOpenMarkdown: onOpenMarkdown)
         case .sessions:
             SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
                 .onAppear {

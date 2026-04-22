@@ -2493,6 +2493,23 @@ struct ContentView: View {
                 sessionIndexStore: sessionIndexStore,
                 onResumeSession: { entry in
                     resumeSession(entry: entry)
+                },
+                onOpenMarkdown: { path in
+                    guard let workspace = tabManager.selectedWorkspace else {
+                        PreferredEditorSettings.open(URL(fileURLWithPath: path))
+                        return
+                    }
+                    let panelId = workspace.focusedPanelId
+                        ?? workspace.bonsplitController.allPaneIds.first.flatMap {
+                            workspace.effectiveSelectedPanelId(inPane: $0)
+                        }
+                    guard let panelId else {
+                        PreferredEditorSettings.open(URL(fileURLWithPath: path))
+                        return
+                    }
+                    if workspace.openOrFocusMarkdownSplit(from: panelId, filePath: path) == nil {
+                        PreferredEditorSettings.open(URL(fileURLWithPath: path))
+                    }
                 }
             )
                 .frame(width: explorerVisible ? fileExplorerWidth : 0)
