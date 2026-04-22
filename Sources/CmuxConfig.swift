@@ -1152,18 +1152,31 @@ final class CmuxConfigStore: ObservableObject {
     /// Which config file each command came from, keyed by command id.
     private(set) var commandSourcePaths: [String: String] = [:]
     private(set) var surfaceTabBarButtonSourcePath: String?
+    private(set) var surfaceTabBarCommandSourcePaths: [String: String] = [:]
     private(set) var newWorkspaceActionSourcePath: String?
 
     private(set) var localConfigPath: String?
     private weak var tabManager: TabManager?
-    let globalConfigPath: String = {
+    let globalConfigPath: String
+
+    nonisolated private static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
-    }()
+    }
 
     private struct ActionEntry {
         let definition: CmuxConfigActionDefinition
         let sourcePath: String?
+    }
+
+    private struct ResolvedSurfaceTabBarButtonEntry {
+        let button: CmuxSurfaceTabBarButton
+        let terminalCommandSourcePath: String?
+    }
+
+    private struct ResolvedSurfaceTabBarButtons {
+        let buttons: [CmuxSurfaceTabBarButton]
+        let terminalCommandSourcePaths: [String: String]
     }
 
     private var cancellables = Set<AnyCancellable>()
@@ -1176,8 +1189,19 @@ final class CmuxConfigStore: ObservableObject {
     private static let maxReattachAttempts = 5
     private static let reattachDelay: TimeInterval = 0.5
 
-    init() {
-        startGlobalFileWatcher()
+    init(
+        globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
+        localConfigPath: String? = nil,
+        startFileWatchers: Bool = true
+    ) {
+        self.globalConfigPath = globalConfigPath
+        self.localConfigPath = localConfigPath
+        if startFileWatchers {
+            if localConfigPath != nil {
+                startLocalFileWatcher()
+            }
+            startGlobalFileWatcher()
+        }
     }
 
     deinit {
@@ -1262,6 +1286,7 @@ final class CmuxConfigStore: ObservableObject {
         var configuredNewWorkspaceActionSourcePath: String?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
+        var configuredSurfaceTabBarCommandSourcePaths: [String: String] = [:]
         let localPath = localConfigPath
         let localConfig = localPath.flatMap { parseConfig(at: $0) }
         let globalConfig = parseConfig(at: globalConfigPath)
@@ -1287,10 +1312,12 @@ final class CmuxConfigStore: ObservableObject {
                let resolvedButtons = resolvedSurfaceTabBarButtons(
                    buttons,
                    actions: localActionLookup,
-                   settingName: "local ui.surfaceTabBar.buttons"
+                   settingName: "local ui.surfaceTabBar.buttons",
+                   sourcePath: localPath
                ) {
-                configuredSurfaceTabBarButtons = resolvedButtons
+                configuredSurfaceTabBarButtons = resolvedButtons.buttons
                 configuredSurfaceTabBarButtonSourcePath = localPath
+                configuredSurfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
             }
             for command in localConfig.commands {
                 if !seenNames.contains(command.name) {
@@ -1325,10 +1352,12 @@ final class CmuxConfigStore: ObservableObject {
                let resolvedButtons = resolvedSurfaceTabBarButtons(
                    buttons,
                    actions: globalActions,
-                   settingName: "global ui.surfaceTabBar.buttons"
+                   settingName: "global ui.surfaceTabBar.buttons",
+                   sourcePath: globalConfigPath
                ) {
-                configuredSurfaceTabBarButtons = resolvedButtons
+                configuredSurfaceTabBarButtons = resolvedButtons.buttons
                 configuredSurfaceTabBarButtonSourcePath = globalConfigPath
+                configuredSurfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
             }
             for command in globalConfig.commands {
                 if !seenNames.contains(command.name) {
@@ -1345,6 +1374,7 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceActionSourcePath = configuredNewWorkspaceActionSourcePath
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         surfaceTabBarButtonSourcePath = configuredSurfaceTabBarButtonSourcePath
+        surfaceTabBarCommandSourcePaths = configuredSurfaceTabBarCommandSourcePaths
         surfaceTabBarButtons = configuredSurfaceTabBarButtons ?? CmuxSurfaceTabBarButton.defaults
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
@@ -1367,51 +1397,68 @@ final class CmuxConfigStore: ObservableObject {
     private func resolvedSurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         actions: [String: ActionEntry],
-        settingName: String
-    ) -> [CmuxSurfaceTabBarButton]? {
+        settingName: String,
+        sourcePath: String?
+    ) -> ResolvedSurfaceTabBarButtons? {
         var resolvedButtons: [CmuxSurfaceTabBarButton] = []
+        var terminalCommandSourcePaths: [String: String] = [:]
         resolvedButtons.reserveCapacity(buttons.count)
 
         for button in buttons {
             do {
-                resolvedButtons.append(try resolvedSurfaceTabBarButton(button, actions: actions))
+                let resolved = try resolvedSurfaceTabBarButton(button, actions: actions)
+                resolvedButtons.append(resolved.button)
+                guard resolved.button.terminalCommand != nil else { continue }
+                if let commandSourcePath = resolved.terminalCommandSourcePath ?? sourcePath {
+                    terminalCommandSourcePaths[resolved.button.id] = commandSourcePath
+                }
             } catch {
                 NSLog("[CmuxConfig] %@ ignored: %@", settingName, String(describing: error))
                 return nil
             }
         }
 
-        return resolvedButtons
+        return ResolvedSurfaceTabBarButtons(
+            buttons: resolvedButtons,
+            terminalCommandSourcePaths: terminalCommandSourcePaths
+        )
     }
 
     private func resolvedSurfaceTabBarButton(
         _ button: CmuxSurfaceTabBarButton,
         actions: [String: ActionEntry]
-    ) throws -> CmuxSurfaceTabBarButton {
+    ) throws -> ResolvedSurfaceTabBarButtonEntry {
         guard case .actionReference(let identifier) = button.action else {
-            return button
+            return ResolvedSurfaceTabBarButtonEntry(button: button, terminalCommandSourcePath: nil)
         }
 
         if let entry = actions[identifier] {
             let inheritedIcon = entry.definition.icon?.resolvingRelativeImagePath(
                 relativeToConfig: entry.sourcePath
             )
-            return CmuxSurfaceTabBarButton(
+            let resolvedButton = CmuxSurfaceTabBarButton(
                 id: button.id,
                 icon: button.icon ?? inheritedIcon,
                 tooltip: button.tooltip ?? entry.definition.tooltip,
                 action: entry.definition.action,
                 confirm: button.confirm ?? entry.definition.confirm
             )
+            return ResolvedSurfaceTabBarButtonEntry(
+                button: resolvedButton,
+                terminalCommandSourcePath: resolvedButton.terminalCommand == nil ? nil : entry.sourcePath
+            )
         }
 
         if let builtIn = CmuxSurfaceTabBarBuiltInAction(rawValue: identifier) {
-            return CmuxSurfaceTabBarButton(
-                id: button.id,
-                icon: button.icon,
-                tooltip: button.tooltip,
-                action: .builtIn(builtIn),
-                confirm: button.confirm
+            return ResolvedSurfaceTabBarButtonEntry(
+                button: CmuxSurfaceTabBarButton(
+                    id: button.id,
+                    icon: button.icon,
+                    tooltip: button.tooltip,
+                    action: .builtIn(builtIn),
+                    confirm: button.confirm
+                ),
+                terminalCommandSourcePath: nil
             )
         }
 
@@ -1440,6 +1487,7 @@ final class CmuxConfigStore: ObservableObject {
             surfaceTabBarButtons,
             sourcePath: surfaceTabBarButtonSourcePath,
             globalConfigPath: globalConfigPath,
+            terminalCommandSourcePaths: surfaceTabBarCommandSourcePaths,
             workspaceCommands: workspaceCommands
         )
     }

@@ -6754,7 +6754,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if let preferredTabManager, preferredContext == nil {
+        if let preferredTabManager,
+           preferredContext == nil || livePreferredContext != nil {
             preferredTabManager.addWorkspace()
             return true
         }

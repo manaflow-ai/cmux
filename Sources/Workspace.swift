@@ -6504,6 +6504,7 @@ final class Workspace: Identifiable, ObservableObject {
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
         let workspaceCommand: CmuxResolvedCommand?
+        let terminalCommandSourcePath: String?
     }
 
     private var surfaceTabBarCommandButtons: [String: SurfaceTabBarExecutableButton] = [:]
@@ -6995,15 +6996,30 @@ final class Workspace: Identifiable, ObservableObject {
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
         globalConfigPath: String,
+        terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
         surfaceTabBarCommandButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
                 if button.terminalCommand != nil {
-                    return (button.id, SurfaceTabBarExecutableButton(button: button, workspaceCommand: nil))
+                    return (
+                        button.id,
+                        SurfaceTabBarExecutableButton(
+                            button: button,
+                            workspaceCommand: nil,
+                            terminalCommandSourcePath: terminalCommandSourcePaths[button.id]
+                        )
+                    )
                 }
                 if let workspaceCommand = workspaceCommands[button.id] {
-                    return (button.id, SurfaceTabBarExecutableButton(button: button, workspaceCommand: workspaceCommand))
+                    return (
+                        button.id,
+                        SurfaceTabBarExecutableButton(
+                            button: button,
+                            workspaceCommand: workspaceCommand,
+                            terminalCommandSourcePath: nil
+                        )
+                    )
                 }
                 return nil
             }
@@ -12367,7 +12383,7 @@ extension Workspace: BonsplitDelegate {
         guard let shellInput = CmuxConfigExecutor.preparedShellInput(
             command,
             confirm: executable.button.confirm ?? false,
-            configSourcePath: surfaceTabBarButtonSourcePath,
+            configSourcePath: executable.terminalCommandSourcePath ?? surfaceTabBarButtonSourcePath,
             globalConfigPath: globalConfigPath
         ) else {
             return

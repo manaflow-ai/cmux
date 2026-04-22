@@ -5286,6 +5286,7 @@ class TabManager: ObservableObject {
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
         globalConfigPath: String,
+        terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
         for workspace in tabs {
@@ -5293,6 +5294,7 @@ class TabManager: ObservableObject {
                 buttons,
                 sourcePath: sourcePath,
                 globalConfigPath: globalConfigPath,
+                terminalCommandSourcePaths: terminalCommandSourcePaths,
                 workspaceCommands: workspaceCommands
             )
         }
