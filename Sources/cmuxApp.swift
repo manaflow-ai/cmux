@@ -4133,6 +4133,37 @@ enum TelemetrySettings {
     static let enabledForCurrentLaunch = isEnabled()
 }
 
+enum SSHFileUploadSettings {
+    static let enabledKey = "enableSSHFileUpload"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+}
+
+// Master kill-switch for all SSH-backed functionality in cmux.
+// When disabled, cmux will not initiate outbound SSH connections:
+// the `cmux ssh` CLI path, workspace remote session controller
+// (ControlMaster multiplexing, daemon install, port forwarding),
+// SSH file explorer provider, scp-based drag-and-drop upload, and
+// TTY-based SSH session detection are all gated off. Intended for
+// corporate environments that forbid SSH tunneling from this app.
+enum SSHFeaturesSettings {
+    static let enabledKey = "enableSSHFeatures"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+}
+
 enum CmdClickMarkdownRouteSettings {
     static let key = "openMarkdownInCmuxViewer"
     static let defaultValue = false
@@ -4398,6 +4429,10 @@ struct SettingsView: View {
     private var geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
+    @AppStorage(SSHFileUploadSettings.enabledKey)
+    private var enableSSHFileUpload = SSHFileUploadSettings.defaultEnabled
+    @AppStorage(SSHFeaturesSettings.enabledKey)
+    private var enableSSHFeatures = SSHFeaturesSettings.defaultEnabled
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
     @AppStorage(CmdClickMarkdownRouteSettings.key) private var openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
@@ -5331,6 +5366,37 @@ struct SettingsView: View {
                             Toggle("", isOn: $sendAnonymousTelemetry)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.enableSSHFeatures"),
+                            String(localized: "settings.app.sshFeatures", defaultValue: "SSH Features"),
+                            subtitle: enableSSHFeatures
+                                ? String(localized: "settings.app.sshFeatures.subtitleOn", defaultValue: "cmux may establish outbound SSH connections for remote workspaces, the file explorer, and scp uploads.")
+                                : String(localized: "settings.app.sshFeatures.subtitleOff", defaultValue: "All SSH functionality is disabled. `cmux ssh`, remote workspaces, the SSH file explorer, and scp uploads will be blocked.")
+                        ) {
+                            Toggle("", isOn: $enableSSHFeatures)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.enableSSHFileUpload"),
+                            String(localized: "settings.app.sshFileUpload", defaultValue: "SSH File Upload"),
+                            subtitle: !enableSSHFeatures
+                                ? String(localized: "settings.app.sshFileUpload.subtitleDisabledBySSHFeatures", defaultValue: "SSH features are disabled. No scp uploads occur regardless of this toggle.")
+                                : (enableSSHFileUpload
+                                    ? String(localized: "settings.app.sshFileUpload.subtitleOn", defaultValue: "Files dragged into SSH sessions are uploaded via scp.")
+                                    : String(localized: "settings.app.sshFileUpload.subtitleOff", defaultValue: "SSH file upload is disabled. Dragged files insert their local path instead."))
+                        ) {
+                            Toggle("", isOn: $enableSSHFileUpload)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .disabled(!enableSSHFeatures)
                         }
 
                         SettingsCardDivider()
@@ -6565,6 +6631,8 @@ struct SettingsView: View {
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
+        enableSSHFileUpload = SSHFileUploadSettings.defaultEnabled
+        enableSSHFeatures = SSHFeaturesSettings.defaultEnabled
         preferredEditorCommand = ""
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue

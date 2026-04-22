@@ -6968,11 +6968,38 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+
+        sshFeaturesSettingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            self?.tearDownRemoteSessionIfSSHFeaturesDisabled()
+        }
     }
 
     deinit {
+        if let sshFeaturesSettingsObserver {
+            NotificationCenter.default.removeObserver(sshFeaturesSettingsObserver)
+        }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
+    }
+
+    private func tearDownRemoteSessionIfSSHFeaturesDisabled() {
+        guard !SSHFeaturesSettings.isEnabled() else { return }
+        guard let destination = remoteConfiguration?.destination else { return }
+        disconnectRemoteConnection(clearConfiguration: false)
+        remoteConfiguration = nil
+        skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+        applyRemoteConnectionStateUpdate(
+            .error,
+            detail: String(
+                localized: "workspace.remote.sshFeaturesDisabled",
+                defaultValue: "SSH features are disabled in Settings."
+            ),
+            target: destination
+        )
     }
 
     func refreshSplitButtonTooltips() {
@@ -7027,6 +7054,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
     private var layoutFollowUpObservers: [NSObjectProtocol] = []
+    private var sshFeaturesSettingsObserver: NSObjectProtocol?
     private var layoutFollowUpPanelsCancellable: AnyCancellable?
     private var layoutFollowUpTimeoutWorkItem: DispatchWorkItem?
     private var layoutFollowUpReason: String?
@@ -8115,6 +8143,20 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
+        guard SSHFeaturesSettings.isEnabled() else {
+            disconnectRemoteConnection(clearConfiguration: false)
+            remoteConfiguration = nil
+            skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+            applyRemoteConnectionStateUpdate(
+                .error,
+                detail: String(
+                    localized: "workspace.remote.sshFeaturesDisabled",
+                    defaultValue: "SSH features are disabled in Settings."
+                ),
+                target: configuration.destination
+            )
+            return
+        }
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         remoteConfiguration = configuration
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)

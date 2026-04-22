@@ -344,6 +344,15 @@ extension TerminalSurface {
     @MainActor
     func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
         guard let workspace = owningWorkspace() else { return .local }
+        // Both remote paths below are scp-backed (workspace-remote via
+        // `uploadDroppedFilesLocked` in Workspace.swift, detected-SSH via
+        // `TerminalSSHSessionDetector.uploadDroppedFiles`). Evaluate the
+        // master SSH kill-switch and the file-upload toggle *before* the
+        // workspace-remote branch so disabled settings do not get bypassed
+        // by remote surfaces. Check the master switch first so a flipped
+        // master always wins regardless of the narrower toggle's state.
+        guard SSHFeaturesSettings.isEnabled() else { return .local }
+        guard SSHFileUploadSettings.isEnabled() else { return .local }
         if workspace.isRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }

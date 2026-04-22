@@ -36,6 +36,8 @@ final class CmuxSettingsFileStore {
         "app.openMarkdownInCmuxViewer",
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
+        "app.enableSSHFileUpload",
+        "app.enableSSHFeatures",
         "app.warnBeforeQuit",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
@@ -439,6 +441,12 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["sendAnonymousTelemetry"]) {
             snapshot.managedUserDefaults[TelemetrySettings.sendAnonymousTelemetryKey] = .bool(value)
+        }
+        if let value = jsonBool(section["enableSSHFileUpload"]) {
+            snapshot.managedUserDefaults[SSHFileUploadSettings.enabledKey] = .bool(value)
+        }
+        if let value = jsonBool(section["enableSSHFeatures"]) {
+            snapshot.managedUserDefaults[SSHFeaturesSettings.enabledKey] = .bool(value)
         }
         if let value = jsonBool(section["warnBeforeQuit"]) {
             snapshot.managedUserDefaults[QuitWarningSettings.warnBeforeQuitKey] = .bool(value)
@@ -1365,6 +1373,8 @@ final class CmuxSettingsFileStore {
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
+                    "enableSSHFileUpload": SSHFileUploadSettings.defaultEnabled,
+                    "enableSSHFeatures": SSHFeaturesSettings.defaultEnabled,
                     "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                     "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,

@@ -3286,7 +3286,7 @@ struct ContentView: View {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
         }
 
-        if tab.isRemoteWorkspace {
+        if tab.isRemoteWorkspace && SSHFeaturesSettings.isEnabled() {
             let config = tab.remoteConfiguration
             let remotePath = tab.remoteDaemonStatus.remotePath
             let isReady = tab.remoteDaemonStatus.state == .ready
