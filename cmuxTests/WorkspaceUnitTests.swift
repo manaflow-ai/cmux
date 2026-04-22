@@ -1996,6 +1996,26 @@ final class StoredShortcutMatchingTests: XCTestCase {
         XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
     }
 
+    func testToggleQuickTerminalShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleQuickTerminal.label, "Toggle Quick Terminal")
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleQuickTerminal.defaultsKey,
+            "shortcut.toggleQuickTerminal"
+        )
+
+        let shortcut = KeyboardShortcutSettings.Action.toggleQuickTerminal.defaultShortcut
+        XCTAssertEqual(shortcut.key, "`")
+        XCTAssertEqual(shortcut.keyEquivalent, KeyEquivalent("`"))
+        XCTAssertEqual(shortcut.menuItemKeyEquivalent, "`")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+        XCTAssertEqual(shortcut.eventModifiers, [.command, .option])
+        XCTAssertFalse(shortcut.eventModifiers.contains(.shift))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.control))
+    }
+
     func testShortcutRecorderValidationPresentationUsesNumberedDisplayOnlyForNumberedConflicts() {
         let presentation = ShortcutRecorderValidationPresentation(
             attempt: ShortcutRecorderRejectedAttempt(

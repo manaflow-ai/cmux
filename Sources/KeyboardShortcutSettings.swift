@@ -39,6 +39,7 @@ enum KeyboardShortcutSettings {
 
         // Titlebar / primary UI
         case toggleSidebar
+        case toggleQuickTerminal
         case newTab
         case openFolder
         case goToWorkspace
@@ -109,6 +110,7 @@ enum KeyboardShortcutSettings {
             case .toggleFullScreen: return String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")
             case .quit: return String(localized: "menu.quitCmux", defaultValue: "Quit cmux")
             case .toggleSidebar: return String(localized: "shortcut.toggleSidebar.label", defaultValue: "Toggle Sidebar")
+            case .toggleQuickTerminal: return String(localized: "shortcut.toggleQuickTerminal.label", defaultValue: "Toggle Quick Terminal")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
@@ -185,6 +187,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
             case .toggleSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+            case .toggleQuickTerminal:
+                return StoredShortcut(key: "`", command: true, shift: false, option: true, control: false)
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .openFolder:
@@ -715,6 +719,7 @@ enum KeyboardShortcutSettings {
     static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
     static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }
     static func toggleSplitZoomShortcut() -> StoredShortcut { shortcut(for: .toggleSplitZoom) }
+    static func toggleQuickTerminalShortcut() -> StoredShortcut { shortcut(for: .toggleQuickTerminal) }
     static func splitBrowserRightShortcut() -> StoredShortcut { shortcut(for: .splitBrowserRight) }
     static func splitBrowserDownShortcut() -> StoredShortcut { shortcut(for: .splitBrowserDown) }
 

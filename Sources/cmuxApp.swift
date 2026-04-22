@@ -697,6 +697,13 @@ struct cmuxApp: App {
                     }
                 }
 
+                splitCommandButton(
+                    title: String(localized: "menu.view.toggleQuickTerminal", defaultValue: "Toggle Quick Terminal"),
+                    shortcut: menuShortcut(for: .toggleQuickTerminal)
+                ) {
+                    AppDelegate.shared?.toggleQuickTerminal(nil)
+                }
+
                 Divider()
 
                 splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Surface"), shortcut: menuShortcut(for: .nextSurface)) {
@@ -4468,6 +4475,14 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
+    @AppStorage(QuickTerminalSettings.positionKey)
+    private var quickTerminalPosition = QuickTerminalSettings.defaultPosition.rawValue
+    @AppStorage(QuickTerminalSettings.primarySizeRatioKey)
+    private var quickTerminalPrimarySizeRatio = QuickTerminalSettings.defaultPrimarySizeRatio
+    @AppStorage(QuickTerminalSettings.secondarySizeRatioKey)
+    private var quickTerminalSecondarySizeRatio = QuickTerminalSettings.defaultSecondarySizeRatio
+    @AppStorage(QuickTerminalSettings.autoHideKey)
+    private var quickTerminalAutoHide = QuickTerminalSettings.defaultAutoHide
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
@@ -4566,6 +4581,120 @@ struct SettingsView: View {
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    }
+
+    private var selectedQuickTerminalPosition: QuickTerminalPosition {
+        QuickTerminalPosition(rawValue: quickTerminalPosition) ?? QuickTerminalSettings.defaultPosition
+    }
+
+    private var quickTerminalPositionSelection: Binding<String> {
+        Binding(
+            get: { selectedQuickTerminalPosition.rawValue },
+            set: { newValue in
+                quickTerminalPosition = QuickTerminalPosition(rawValue: newValue)?.rawValue
+                    ?? QuickTerminalSettings.defaultPosition.rawValue
+            }
+        )
+    }
+
+    private var quickTerminalPrimarySizeBinding: Binding<Double> {
+        Binding(
+            get: { QuickTerminalSettings.clampRatio(quickTerminalPrimarySizeRatio) },
+            set: { quickTerminalPrimarySizeRatio = QuickTerminalSettings.clampRatio($0) }
+        )
+    }
+
+    private var quickTerminalSecondarySizeBinding: Binding<Double> {
+        Binding(
+            get: { QuickTerminalSettings.clampRatio(quickTerminalSecondarySizeRatio) },
+            set: { quickTerminalSecondarySizeRatio = QuickTerminalSettings.clampRatio($0) }
+        )
+    }
+
+    private func quickTerminalPositionDisplayName(_ position: QuickTerminalPosition) -> String {
+        switch position {
+        case .top:
+            return String(localized: "settings.quickTerminal.position.top", defaultValue: "Top")
+        case .bottom:
+            return String(localized: "settings.quickTerminal.position.bottom", defaultValue: "Bottom")
+        case .left:
+            return String(localized: "settings.quickTerminal.position.left", defaultValue: "Left")
+        case .right:
+            return String(localized: "settings.quickTerminal.position.right", defaultValue: "Right")
+        case .center:
+            return String(localized: "settings.quickTerminal.position.center", defaultValue: "Center")
+        }
+    }
+
+    private func quickTerminalRatioPercentLabel(_ ratio: Double) -> String {
+        "\(Int((QuickTerminalSettings.clampRatio(ratio) * 100).rounded()))%"
+    }
+
+    private var quickTerminalSettingsRows: AnyView {
+        AnyView(Group {
+            SettingsPickerRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.quickTerminal.position", defaultValue: "Quick Terminal Position"),
+                subtitle: String(localized: "settings.quickTerminal.position.subtitle", defaultValue: "Choose which edge the quick terminal slides from."),
+                controlWidth: pickerColumnWidth,
+                selection: quickTerminalPositionSelection
+            ) {
+                ForEach(Array(QuickTerminalPosition.allCases), id: \.rawValue) { position in
+                    Text(verbatim: quickTerminalPositionDisplayName(position))
+                        .tag(position.rawValue)
+                }
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.quickTerminal.primarySize", defaultValue: "Quick Terminal Primary Size"),
+                subtitle: String(localized: "settings.quickTerminal.primarySize.subtitle", defaultValue: "Size along the deployment axis.")
+            ) {
+                HStack(spacing: 8) {
+                    Slider(value: quickTerminalPrimarySizeBinding, in: 0.2...1.0)
+                        .frame(width: 132)
+                    Text(quickTerminalRatioPercentLabel(quickTerminalPrimarySizeRatio))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 42, alignment: .trailing)
+                }
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.quickTerminal.secondarySize", defaultValue: "Quick Terminal Secondary Size"),
+                subtitle: String(localized: "settings.quickTerminal.secondarySize.subtitle", defaultValue: "Size on the opposite axis.")
+            ) {
+                HStack(spacing: 8) {
+                    Slider(value: quickTerminalSecondarySizeBinding, in: 0.2...1.0)
+                        .frame(width: 132)
+                    Text(quickTerminalRatioPercentLabel(quickTerminalSecondarySizeRatio))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 42, alignment: .trailing)
+                }
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.quickTerminal.autoHide", defaultValue: "Quick Terminal Auto-Hide"),
+                subtitle: quickTerminalAutoHide
+                    ? String(localized: "settings.quickTerminal.autoHide.subtitleOn", defaultValue: "Hide automatically when it loses focus.")
+                    : String(localized: "settings.quickTerminal.autoHide.subtitleOff", defaultValue: "Keep visible when focus moves to another app/window.")
+            ) {
+                Toggle("", isOn: $quickTerminalAutoHide)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            SettingsCardDivider()
+        })
     }
 
     private var sidebarIndicatorStyleSelection: Binding<String> {
@@ -5071,6 +5200,8 @@ struct SettingsView: View {
                         }
 
                         SettingsCardDivider()
+
+                        quickTerminalSettingsRows
 
                         SettingsCardRow(
                             configurationReview: .json("app.keepWorkspaceOpenWhenClosingLastSurface"),
@@ -6622,6 +6753,10 @@ struct SettingsView: View {
         openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
         showShortcutHintsOnControlHold = ShortcutHintDebugSettings.defaultShowHintsOnControlHold
+        quickTerminalPosition = QuickTerminalSettings.defaultPosition.rawValue
+        quickTerminalPrimarySizeRatio = QuickTerminalSettings.defaultPrimarySizeRatio
+        quickTerminalSecondarySizeRatio = QuickTerminalSettings.defaultSecondarySizeRatio
+        quickTerminalAutoHide = QuickTerminalSettings.defaultAutoHide
         sidebarShowSSH = true
         sidebarShowPorts = true
         sidebarShowLog = true

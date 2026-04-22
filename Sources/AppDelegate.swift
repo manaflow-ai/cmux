@@ -2298,6 +2298,440 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
 }
 
+enum QuickTerminalSettings {
+    static let positionKey = "quickTerminal.position"
+    static let primarySizeRatioKey = "quickTerminal.primarySizeRatio"
+    static let secondarySizeRatioKey = "quickTerminal.secondarySizeRatio"
+    static let autoHideKey = "quickTerminal.autoHide"
+
+    static let defaultPosition: QuickTerminalPosition = .top
+    static let defaultPrimarySizeRatio: Double = 0.38
+    static let defaultSecondarySizeRatio: Double = 1.0
+    static let defaultAutoHide = true
+    static let defaultAnimationDuration: TimeInterval = 0.16
+
+    static func resolved(defaults: UserDefaults = .standard) -> QuickTerminalResolvedSettings {
+        let rawPosition = defaults.string(forKey: positionKey)
+        let position = QuickTerminalPosition(rawValue: rawPosition ?? "") ?? defaultPosition
+
+        let rawPrimary = defaults.double(forKey: primarySizeRatioKey)
+        let primarySizeRatio = clampRatio(
+            defaults.object(forKey: primarySizeRatioKey) == nil ? defaultPrimarySizeRatio : rawPrimary
+        )
+
+        let rawSecondary = defaults.double(forKey: secondarySizeRatioKey)
+        let secondarySizeRatio = clampRatio(
+            defaults.object(forKey: secondarySizeRatioKey) == nil ? defaultSecondarySizeRatio : rawSecondary
+        )
+
+        let autoHide = defaults.object(forKey: autoHideKey) == nil
+            ? defaultAutoHide
+            : defaults.bool(forKey: autoHideKey)
+
+        return QuickTerminalResolvedSettings(
+            position: position,
+            primarySizeRatio: primarySizeRatio,
+            secondarySizeRatio: secondarySizeRatio,
+            autoHide: autoHide,
+            animationDuration: defaultAnimationDuration
+        )
+    }
+
+    static func clampRatio(_ value: Double) -> Double {
+        min(max(value, 0.2), 1.0)
+    }
+}
+
+struct QuickTerminalResolvedSettings {
+    let position: QuickTerminalPosition
+    let primarySizeRatio: Double
+    let secondarySizeRatio: Double
+    let autoHide: Bool
+    let animationDuration: TimeInterval
+}
+
+enum QuickTerminalPosition: String, CaseIterable, Identifiable {
+    case top
+    case bottom
+    case left
+    case right
+    case center
+
+    var id: String { rawValue }
+
+    func finalFrame(
+        in visibleFrame: NSRect,
+        primarySizeRatio: Double,
+        secondarySizeRatio: Double
+    ) -> NSRect {
+        let primary = CGFloat(QuickTerminalSettings.clampRatio(primarySizeRatio))
+        let secondary = CGFloat(QuickTerminalSettings.clampRatio(secondarySizeRatio))
+        let minWidth: CGFloat = 420
+        let minHeight: CGFloat = 220
+
+        let size: NSSize = {
+            switch self {
+            case .top, .bottom:
+                return NSSize(
+                    width: max(minWidth, visibleFrame.width * secondary),
+                    height: max(minHeight, visibleFrame.height * primary)
+                )
+            case .left, .right:
+                return NSSize(
+                    width: max(minWidth, visibleFrame.width * primary),
+                    height: max(minHeight, visibleFrame.height * secondary)
+                )
+            case .center:
+                return NSSize(
+                    width: max(minWidth, visibleFrame.width * primary),
+                    height: max(minHeight, visibleFrame.height * secondary)
+                )
+            }
+        }()
+
+        let clamped = NSSize(
+            width: min(size.width, visibleFrame.width),
+            height: min(size.height, visibleFrame.height)
+        )
+
+        switch self {
+        case .top:
+            return NSRect(
+                x: round(visibleFrame.midX - clamped.width / 2),
+                y: visibleFrame.maxY - clamped.height,
+                width: clamped.width,
+                height: clamped.height
+            )
+        case .bottom:
+            return NSRect(
+                x: round(visibleFrame.midX - clamped.width / 2),
+                y: visibleFrame.minY,
+                width: clamped.width,
+                height: clamped.height
+            )
+        case .left:
+            return NSRect(
+                x: visibleFrame.minX,
+                y: round(visibleFrame.midY - clamped.height / 2),
+                width: clamped.width,
+                height: clamped.height
+            )
+        case .right:
+            return NSRect(
+                x: visibleFrame.maxX - clamped.width,
+                y: round(visibleFrame.midY - clamped.height / 2),
+                width: clamped.width,
+                height: clamped.height
+            )
+        case .center:
+            return NSRect(
+                x: round(visibleFrame.midX - clamped.width / 2),
+                y: round(visibleFrame.midY - clamped.height / 2),
+                width: clamped.width,
+                height: clamped.height
+            )
+        }
+    }
+
+    func hiddenFrame(from finalFrame: NSRect, visibleFrame: NSRect) -> NSRect {
+        switch self {
+        case .top:
+            return NSRect(
+                x: finalFrame.origin.x,
+                y: visibleFrame.maxY,
+                width: finalFrame.width,
+                height: finalFrame.height
+            )
+        case .bottom:
+            return NSRect(
+                x: finalFrame.origin.x,
+                y: visibleFrame.minY - finalFrame.height,
+                width: finalFrame.width,
+                height: finalFrame.height
+            )
+        case .left:
+            return NSRect(
+                x: visibleFrame.minX - finalFrame.width,
+                y: finalFrame.origin.y,
+                width: finalFrame.width,
+                height: finalFrame.height
+            )
+        case .right:
+            return NSRect(
+                x: visibleFrame.maxX,
+                y: finalFrame.origin.y,
+                width: finalFrame.width,
+                height: finalFrame.height
+            )
+        case .center:
+            return NSRect(
+                x: finalFrame.origin.x,
+                y: visibleFrame.maxY + 18,
+                width: finalFrame.width,
+                height: finalFrame.height
+            )
+        }
+    }
+}
+
+private final class QuickTerminalPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+@MainActor
+private final class QuickTerminalController: NSObject, NSWindowDelegate {
+    private enum PendingTransitionAction {
+        case show(activateApp: Bool)
+        case hide(restorePreviousApp: Bool)
+    }
+
+    private weak var appDelegate: AppDelegate?
+    private var panel: QuickTerminalPanel?
+    private var terminalSurface: TerminalSurface?
+    private var previousFrontmostApp: NSRunningApplication?
+    private let workspaceId = UUID()
+    private var isTransitioning = false
+    private var pendingTransitionAction: PendingTransitionAction?
+
+    private(set) var isVisible = false
+
+    init(appDelegate: AppDelegate) {
+        self.appDelegate = appDelegate
+        super.init()
+    }
+
+    func toggle(activateApp: Bool = true) {
+        if isVisible {
+            hide(restorePreviousApp: activateApp)
+        } else {
+            show(activateApp: activateApp)
+        }
+    }
+
+    func show(activateApp: Bool = true) {
+        if isTransitioning {
+            pendingTransitionAction = .show(activateApp: activateApp)
+            return
+        }
+        guard !isVisible else { return }
+        let settings = QuickTerminalSettings.resolved()
+        guard let panel = ensurePanel() else { return }
+        let targetScreen = screen(for: panel)
+        let visibleFrame = targetScreen.visibleFrame
+        let finalFrame = settings.position.finalFrame(
+            in: visibleFrame,
+            primarySizeRatio: settings.primarySizeRatio,
+            secondarySizeRatio: settings.secondarySizeRatio
+        )
+        let hiddenFrame = settings.position.hiddenFrame(from: finalFrame, visibleFrame: visibleFrame)
+
+        if activateApp,
+           !NSApp.isActive,
+           let frontmost = NSWorkspace.shared.frontmostApplication,
+           frontmost.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previousFrontmostApp = frontmost
+        }
+
+        isVisible = true
+        isTransitioning = true
+        panel.alphaValue = 0
+        panel.setFrame(hiddenFrame, display: false)
+        panel.level = .popUpMenu
+        if activateApp {
+            panel.orderFrontRegardless()
+            panel.makeKeyAndOrderFront(nil)
+        } else {
+            panel.orderFront(nil)
+        }
+
+        if let terminalSurface {
+            terminalSurface.hostedView.setVisibleInUI(true)
+            terminalSurface.hostedView.setActive(activateApp)
+        }
+
+        if activateApp, !NSApp.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = settings.animationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrame(finalFrame, display: true)
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isTransitioning = false
+                panel.level = .floating
+                if activateApp {
+                    panel.makeKeyAndOrderFront(nil)
+                    panel.makeFirstResponder(self.terminalSurface?.hostedView)
+                    self.terminalSurface?.hostedView.setActive(true)
+                    self.terminalSurface?.hostedView.moveFocus()
+                } else {
+                    panel.orderFront(nil)
+                    self.terminalSurface?.hostedView.setActive(false)
+                }
+                self.replayPendingTransitionActionIfNeeded()
+            }
+        }
+    }
+
+    func hide(restorePreviousApp: Bool) {
+        if isTransitioning {
+            pendingTransitionAction = .hide(restorePreviousApp: restorePreviousApp)
+            return
+        }
+        guard isVisible else { return }
+        let settings = QuickTerminalSettings.resolved()
+        guard let panel else {
+            isVisible = false
+            previousFrontmostApp = nil
+            return
+        }
+
+        let targetScreen = screen(for: panel)
+        let visibleFrame = targetScreen.visibleFrame
+        let finalFrame = panel.frame
+        let hiddenFrame = settings.position.hiddenFrame(from: finalFrame, visibleFrame: visibleFrame)
+
+        isVisible = false
+        isTransitioning = true
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = settings.animationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().alphaValue = 0
+            panel.animator().setFrame(hiddenFrame, display: false)
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isTransitioning = false
+                panel.orderOut(nil)
+                self.terminalSurface?.hostedView.setActive(false)
+                self.terminalSurface?.hostedView.setVisibleInUI(false)
+                if restorePreviousApp,
+                   let previousFrontmostApp = self.previousFrontmostApp,
+                   !previousFrontmostApp.isTerminated {
+                    _ = previousFrontmostApp.activate(options: [])
+                }
+                self.previousFrontmostApp = nil
+                self.replayPendingTransitionActionIfNeeded()
+            }
+        }
+    }
+
+    func statusPayload() -> [String: Any] {
+        let settings = QuickTerminalSettings.resolved()
+        return [
+            "visible": isVisible,
+            "position": settings.position.rawValue,
+            "auto_hide": settings.autoHide,
+            "primary_size_ratio": settings.primarySizeRatio,
+            "secondary_size_ratio": settings.secondarySizeRatio
+        ]
+    }
+
+    func teardown() {
+        panel?.orderOut(nil)
+        terminalSurface?.hostedView.setActive(false)
+        terminalSurface?.hostedView.setVisibleInUI(false)
+        panel = nil
+        terminalSurface = nil
+        isVisible = false
+        previousFrontmostApp = nil
+        isTransitioning = false
+        pendingTransitionAction = nil
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        let settings = QuickTerminalSettings.resolved()
+        guard settings.autoHide else { return }
+        guard isVisible else { return }
+        guard let panel = notification.object as? NSWindow, panel === self.panel else { return }
+        guard panel.attachedSheet == nil else { return }
+        hide(restorePreviousApp: false)
+    }
+
+    private func replayPendingTransitionActionIfNeeded() {
+        guard !isTransitioning, let action = pendingTransitionAction else { return }
+        pendingTransitionAction = nil
+        switch action {
+        case .show(let activateApp):
+            show(activateApp: activateApp)
+        case .hide(let restorePreviousApp):
+            hide(restorePreviousApp: restorePreviousApp)
+        }
+    }
+
+    private func ensurePanel() -> QuickTerminalPanel? {
+        if let panel {
+            return panel
+        }
+
+        let settings = QuickTerminalSettings.resolved()
+        let targetScreen = screen(for: nil)
+        let visibleFrame = targetScreen.visibleFrame
+        let initialFrame = settings.position.finalFrame(
+            in: visibleFrame,
+            primarySizeRatio: settings.primarySizeRatio,
+            secondarySizeRatio: settings.secondarySizeRatio
+        )
+        let panel = QuickTerminalPanel(
+            contentRect: initialFrame,
+            styleMask: [.borderless, .resizable, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.quick-terminal")
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
+        panel.isMovableByWindowBackground = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.level = .floating
+        panel.delegate = self
+
+        if terminalSurface == nil {
+            terminalSurface = TerminalSurface(
+                tabId: workspaceId,
+                context: GHOSTTY_SURFACE_CONTEXT_WINDOW,
+                configTemplate: nil,
+                initialEnvironmentOverrides: ["CMUX_QUICK_TERMINAL": "1"]
+            )
+        }
+
+        if let terminalSurface {
+            terminalSurface.hostedView.frame = NSRect(origin: .zero, size: initialFrame.size)
+            terminalSurface.hostedView.autoresizingMask = [.width, .height]
+            terminalSurface.hostedView.setVisibleInUI(false)
+            terminalSurface.hostedView.setActive(false)
+            panel.contentView = terminalSurface.hostedView
+        }
+
+        self.panel = panel
+        return panel
+    }
+
+    private func screen(for panel: NSWindow?) -> NSScreen {
+        if let panel, let panelScreen = panel.screen {
+            return panelScreen
+        }
+        if let keyScreen = NSApp.keyWindow?.screen {
+            return keyScreen
+        }
+        if let main = NSScreen.main {
+            return main
+        }
+        if let first = NSScreen.screens.first {
+            return first
+        }
+        preconditionFailure("No available NSScreen for quick terminal")
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     nonisolated(unsafe) static var shared: AppDelegate?
@@ -2581,6 +3015,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private static let commandPaletteRequestGraceInterval: TimeInterval = 1.25
     private static let commandPalettePendingOpenMaxAge: TimeInterval = 8.0
     private static let sessionAutosaveTypingQuietPeriod: TimeInterval = 0.65
+    private lazy var quickTerminalController = QuickTerminalController(appDelegate: self)
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -3133,6 +3568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
+        quickTerminalController.teardown()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
@@ -6679,6 +7115,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         return false
+    }
+
+    @discardableResult
+    func toggleQuickTerminalVisibility(activateApp: Bool = true) -> Bool {
+        quickTerminalController.toggle(activateApp: activateApp)
+        return true
+    }
+
+    @discardableResult
+    func showQuickTerminal(activateApp: Bool = true) -> Bool {
+        quickTerminalController.show(activateApp: activateApp)
+        return true
+    }
+
+    @discardableResult
+    func hideQuickTerminal(restorePreviousApp: Bool = true) -> Bool {
+        quickTerminalController.hide(restorePreviousApp: restorePreviousApp)
+        return true
+    }
+
+    func quickTerminalStatusPayload() -> [String: Any] {
+        quickTerminalController.statusPayload()
+    }
+
+    @objc func toggleQuickTerminal(_ sender: Any?) {
+        _ = sender
+        _ = toggleQuickTerminalVisibility()
     }
 
     func sidebarVisibility(windowId: UUID) -> Bool? {
@@ -11078,6 +11541,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if flags.isDisjoint(with: [.command, .control, .option]),
            titlebarAccessoryController.isNotificationsPopoverShown(),
            (notificationStore?.notifications.isEmpty ?? false) {
+            return true
+        }
+
+        // Preserve native macOS window cycling for Cmd+` and Cmd+Shift+`.
+        if event.keyCode == 50,
+           normalizedFlags.contains(.command),
+           normalizedFlags.isSubset(of: [.command, .shift]) {
+            return false
+        }
+
+        // Allow quick-terminal toggle even when the key event comes from the quick
+        // panel itself (which is not a main terminal window context).
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleQuickTerminal)) {
+            _ = toggleQuickTerminalVisibility()
             return true
         }
 

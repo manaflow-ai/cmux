@@ -45,6 +45,7 @@ export const shortcutCategories: ShortcutCategory[] = [
     blurbKey: "workspacesBlurb",
     shortcuts: [
       { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle sidebar", ja: "サイドバーを切り替え" } },
+      { id: "toggleQuickTerminal", combos: [["⌥", "⌘", "`"]], description: { en: "Toggle quick terminal", ja: "クイックターミナルを切り替え" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {
