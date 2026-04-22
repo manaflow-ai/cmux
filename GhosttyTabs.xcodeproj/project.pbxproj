@@ -28,6 +28,8 @@
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
 		619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */; };
 		7718895C5389417EB839DD95 /* WorkspaceMountSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2EBE723A394CC0A1E76BFD /* WorkspaceMountSupport.swift */; };
+		F338F766E4D648A0BACEB1A2 /* ShortcutHintSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CF3E3629D624A91AC4200E3 /* ShortcutHintSupport.swift */; };
+		BA3A38809AB34D66AD1FFECD /* SidebarShortcutHintSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7373D91A9F29413DA4C01D08 /* SidebarShortcutHintSupport.swift */; };
 		261EB5012A2742419A7414B6 /* SidebarHelpSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B14C35571C46EF97934B4E /* SidebarHelpSupport.swift */; };
 		211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */; };
 		4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */; };
@@ -262,6 +264,8 @@
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceRuntimeSettings.swift; sourceTree = "<group>"; };
 		CF2EBE723A394CC0A1E76BFD /* WorkspaceMountSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceMountSupport.swift; sourceTree = "<group>"; };
+		0CF3E3629D624A91AC4200E3 /* ShortcutHintSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ShortcutHintSupport.swift; sourceTree = "<group>"; };
+		7373D91A9F29413DA4C01D08 /* SidebarShortcutHintSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarShortcutHintSupport.swift; sourceTree = "<group>"; };
 		F2B14C35571C46EF97934B4E /* SidebarHelpSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarHelpSupport.swift; sourceTree = "<group>"; };
 		243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAppearanceSupport.swift; sourceTree = "<group>"; };
 		610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
@@ -520,6 +524,8 @@
 				A5001012 /* ContentView.swift */,
 				9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */,
 				CF2EBE723A394CC0A1E76BFD /* WorkspaceMountSupport.swift */,
+				0CF3E3629D624A91AC4200E3 /* ShortcutHintSupport.swift */,
+				7373D91A9F29413DA4C01D08 /* SidebarShortcutHintSupport.swift */,
 				F2B14C35571C46EF97934B4E /* SidebarHelpSupport.swift */,
 				243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */,
 				610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */,
@@ -898,6 +904,8 @@
 				A5001002 /* ContentView.swift in Sources */,
 				619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */,
 				7718895C5389417EB839DD95 /* WorkspaceMountSupport.swift in Sources */,
+				F338F766E4D648A0BACEB1A2 /* ShortcutHintSupport.swift in Sources */,
+				BA3A38809AB34D66AD1FFECD /* SidebarShortcutHintSupport.swift in Sources */,
 				261EB5012A2742419A7414B6 /* SidebarHelpSupport.swift in Sources */,
 				211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
