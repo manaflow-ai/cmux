@@ -48,8 +48,11 @@ enum FinderServicePathResolver {
                 continue
             }
             let path = canonicalDirectoryPath(directoryURL.path(percentEncoded: false))
-            guard !path.isEmpty else { continue }
-            if seen.insert(path).inserted {
+            let dedupePath = canonicalDirectoryPath(
+                normalizedComparisonURL(directoryURL).path(percentEncoded: false)
+            )
+            guard !path.isEmpty, !dedupePath.isEmpty else { continue }
+            if seen.insert(dedupePath).inserted {
                 directories.append(path)
             }
         }
