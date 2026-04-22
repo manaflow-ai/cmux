@@ -254,10 +254,10 @@ extension Workspace {
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
         var allPanelIds: [UUID] = []
-        for panelId in orderedPanelIds where seen.insert(panelId).inserted {
+        for panelId in orderedPanelIds where !isSidebarTerminalPanel(panelId) && seen.insert(panelId).inserted {
             allPanelIds.append(panelId)
         }
-        for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) where seen.insert(panelId).inserted {
+        for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) where !isSidebarTerminalPanel(panelId) && seen.insert(panelId).inserted {
             allPanelIds.append(panelId)
         }
 
@@ -6988,6 +6988,15 @@ final class Workspace: Identifiable, ObservableObject {
     /// Mapping from bonsplit TabID (surface ID) to panel UUID
     private var surfaceIdToPanelId: [TabID: UUID] = [:]
 
+    /// Terminal panels rendered in sidebar tabs instead of Bonsplit panes.
+    private var sidebarTerminalPanelIds: [SidebarTerminalPlacement: UUID] = [:]
+    private var sidebarTerminalCreationSignatures: [SidebarTerminalPlacement: SidebarTerminalCreationSignature] = [:]
+
+    private struct SidebarTerminalCreationSignature: Equatable {
+        let startupInput: String?
+        let workingDirectory: String?
+    }
+
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
     /// This is used by app-level confirmation prompts (e.g., Cmd+W "Close Tab?") so the
     /// Bonsplit delegate doesn't block the close after the user already confirmed.
@@ -7250,6 +7259,126 @@ final class Workspace: Identifiable, ObservableObject {
 
     func terminalPanel(for panelId: UUID) -> TerminalPanel? {
         panels[panelId] as? TerminalPanel
+    }
+
+    func isSidebarTerminalPanel(_ panelId: UUID) -> Bool {
+        sidebarTerminalPanelIds.values.contains(panelId)
+    }
+
+    func isBonsplitPanel(_ panelId: UUID) -> Bool {
+        panels[panelId] != nil && !isSidebarTerminalPanel(panelId)
+    }
+
+    var bonsplitPanelCount: Int {
+        panels.keys.reduce(0) { count, panelId in
+            count + (isSidebarTerminalPanel(panelId) ? 0 : 1)
+        }
+    }
+
+    var hasBonsplitPanels: Bool {
+        panels.keys.contains { !isSidebarTerminalPanel($0) }
+    }
+
+    func sidebarTerminalPanel(
+        for placement: SidebarTerminalPlacement,
+        configuration: CmuxSidebarTerminalDefinition?,
+        preferredWorkingDirectory: String?
+    ) -> TerminalPanel {
+        let baseWorkingDirectory = preferredWorkingDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackWorkingDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inheritedWorkingDirectory = (baseWorkingDirectory?.isEmpty == false)
+            ? baseWorkingDirectory!
+            : (fallbackWorkingDirectory.isEmpty ? nil : fallbackWorkingDirectory)
+        let workingDirectory = configuration?.cwd
+            .map { CmuxConfigStore.resolveCwd($0, relativeTo: inheritedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path) }
+            ?? inheritedWorkingDirectory
+        let startupInput = configuration?.command.map(Self.sidebarTerminalStartupInput)
+        let signature = SidebarTerminalCreationSignature(
+            startupInput: startupInput,
+            workingDirectory: workingDirectory
+        )
+
+        if let panelId = sidebarTerminalPanelIds[placement],
+           let panel = panels[panelId] as? TerminalPanel {
+            if sidebarTerminalCreationSignatures[placement] == signature {
+                applySidebarTerminalConfiguration(configuration, to: panel)
+                return panel
+            }
+            _ = closeSidebarTerminalPanel(panelId)
+        }
+
+        let inheritedConfig = inheritedTerminalConfig(
+            preferredPanelId: focusedPanelId,
+            inPane: bonsplitController.focusedPaneId
+        )
+        let terminalPanel = TerminalPanel(
+            workspaceId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedConfig,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            initialInput: startupInput,
+            additionalEnvironment: [
+                "CMUX_SIDEBAR_TERMINAL": placement.rawValue
+            ]
+        )
+        configureTerminalPanel(terminalPanel)
+        applySidebarTerminalConfiguration(configuration, to: terminalPanel)
+        panels[terminalPanel.id] = terminalPanel
+        panelTitles[terminalPanel.id] = terminalPanel.displayTitle
+        seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: inheritedConfig)
+        sidebarTerminalPanelIds[placement] = terminalPanel.id
+        sidebarTerminalCreationSignatures[placement] = signature
+        return terminalPanel
+    }
+
+    private static func sidebarTerminalStartupInput(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return command }
+        if trimmed.hasSuffix("\n") || trimmed.hasSuffix("\r") {
+            return trimmed
+        }
+        return trimmed + "\n"
+    }
+
+    private func applySidebarTerminalConfiguration(
+        _ configuration: CmuxSidebarTerminalDefinition?,
+        to panel: TerminalPanel
+    ) {
+        guard let title = configuration?.title?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else { return }
+        panel.updateTitle(title)
+        panelTitles[panel.id] = panel.displayTitle
+    }
+
+    private func closeSidebarTerminalPanel(_ panelId: UUID) -> Bool {
+        guard let placement = sidebarTerminalPanelIds.first(where: { $0.value == panelId })?.key,
+              let panel = panels[panelId] else {
+            return false
+        }
+        panel.close()
+        panels.removeValue(forKey: panelId)
+        panelDirectories.removeValue(forKey: panelId)
+        panelGitBranches.removeValue(forKey: panelId)
+        panelPullRequests.removeValue(forKey: panelId)
+        panelTitles.removeValue(forKey: panelId)
+        panelCustomTitles.removeValue(forKey: panelId)
+        pinnedPanelIds.remove(panelId)
+        manualUnreadPanelIds.remove(panelId)
+        manualUnreadMarkedAt.removeValue(forKey: panelId)
+        panelSubscriptions.removeValue(forKey: panelId)
+        panelShellActivityStates.removeValue(forKey: panelId)
+        surfaceTTYNames.removeValue(forKey: panelId)
+        surfaceListeningPorts.removeValue(forKey: panelId)
+        restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
+        sidebarTerminalPanelIds.removeValue(forKey: placement)
+        sidebarTerminalCreationSignatures.removeValue(forKey: placement)
+        PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
+        return true
     }
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
@@ -7785,7 +7914,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         // If this is the only panel and no custom title, update workspace title
-        if panels.count == 1, customTitle == nil {
+        if isBonsplitPanel(panelId), bonsplitPanelCount == 1, customTitle == nil {
             if self.title != trimmed {
                 self.title = trimmed
                 didMutate = true
@@ -8242,7 +8371,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func clearRemoteConfigurationIfWorkspaceBecameLocal() {
-        guard !isDetachingCloseTransaction, panels.isEmpty, remoteConfiguration != nil else { return }
+        guard !isDetachingCloseTransaction, !hasBonsplitPanels, remoteConfiguration != nil else { return }
         disconnectRemoteConnection(clearConfiguration: true)
     }
 
@@ -8252,7 +8381,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard activeRemoteTerminalSurfaceIds.isEmpty else { return }
         let terminalIds = panels.compactMap { panelId, panel in
-            panel is TerminalPanel ? panelId : nil
+            panel is TerminalPanel && !isSidebarTerminalPanel(panelId) ? panelId : nil
         }
         guard terminalIds.count == 1, let initialPanelId = terminalIds.first else { return }
         trackRemoteTerminalSurface(initialPanelId)
@@ -9338,6 +9467,8 @@ final class Workspace: Identifiable, ObservableObject {
 
         panels.removeAll(keepingCapacity: false)
         surfaceIdToPanelId.removeAll(keepingCapacity: false)
+        sidebarTerminalPanelIds.removeAll(keepingCapacity: false)
+        sidebarTerminalCreationSignatures.removeAll(keepingCapacity: false)
         panelSubscriptions.removeAll(keepingCapacity: false)
         pendingRemoteTerminalChildExitSurfaceIds.removeAll(keepingCapacity: false)
         pruneSurfaceMetadata(validSurfaceIds: [])
@@ -9350,6 +9481,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+        if isSidebarTerminalPanel(panelId) {
+            return closeSidebarTerminalPanel(panelId)
+        }
         if let tabId = surfaceIdFromPanelId(panelId) {
             if force {
                 forceCloseTabIds.insert(tabId)
@@ -10276,7 +10410,7 @@ final class Workspace: Identifiable, ObservableObject {
         if shouldFocus {
             focusPanel(panelId)
         }
-        let isSplit = bonsplitController.allPaneIds.count > 1 || panels.count > 1
+        let isSplit = bonsplitController.allPaneIds.count > 1 || bonsplitPanelCount > 1
         if requiresSplit && !isSplit {
             return
         }
@@ -10385,7 +10519,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        if targetPanelId == nil, let fallbackPanelId = panels.keys.first {
+        if targetPanelId == nil, let fallbackPanelId = panels.keys.first(where: isBonsplitPanel) {
             targetPanelId = fallbackPanelId
             if let fallbackTabId = surfaceIdFromPanelId(fallbackPanelId),
                let fallbackPane = bonsplitController.allPaneIds.first(where: { paneId in
@@ -11286,7 +11420,7 @@ extension Workspace: BonsplitDelegate {
     @MainActor
     private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
         let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
-        guard panels.count <= 1,
+        guard bonsplitPanelCount <= 1,
               panelIdFromSurfaceId(tabId) != nil,
               let manager,
               manager.tabs.contains(where: { $0.id == id }) else {
@@ -11924,7 +12058,7 @@ extension Workspace: BonsplitDelegate {
         // Keep the workspace invariant for normal close paths.
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
         // prune the source workspace/window after the tab is attached elsewhere.
-        if panels.isEmpty {
+        if !hasBonsplitPanels {
             if isDetaching {
                 scheduleTerminalGeometryReconcile()
                 return

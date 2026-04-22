@@ -10791,19 +10791,25 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        guard let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
-              }) else {
+        guard let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
             scheduleAutomaticFirstResponderApply(reason: "ensureFocus.missingPane")
             return
         }
 
-        guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
-              tab.bonsplitController.focusedPaneId == paneId else {
-            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.unfocusedPane")
-            return
+        if !tab.isSidebarTerminalPanel(surfaceId) {
+            guard let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
+                  let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
+                      tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
+                  }) else {
+                scheduleAutomaticFirstResponderApply(reason: "ensureFocus.missingPane")
+                return
+            }
+
+            guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
+                  tab.bonsplitController.focusedPaneId == paneId else {
+                scheduleAutomaticFirstResponderApply(reason: "ensureFocus.unfocusedPane")
+                return
+            }
         }
 
         // Search focus restoration — only after confirming this is the active tab/pane.
@@ -10857,8 +10863,15 @@ final class GhosttySurfaceScrollView: NSView {
         guard let delegate = AppDelegate.shared,
               let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
               tabManager.selectedTabId == tabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
+              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+            return false
+        }
+
+        if tab.isSidebarTerminalPanel(surfaceId) {
+            return true
+        }
+
+        guard let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
               let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
                   tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
               }) else {

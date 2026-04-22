@@ -619,7 +619,7 @@ final class ScriptTerminal: NSObject {
             return nil
         }
 
-        if workspace.panels.count == 1 {
+        if workspace.bonsplitPanelCount == 1 {
             if state.tabManager.tabs.count > 1 {
                 state.tabManager.closeWorkspace(workspace)
                 return nil

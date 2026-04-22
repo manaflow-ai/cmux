@@ -4675,7 +4675,7 @@ class TerminalController {
                         skippedPinned += 1
                         continue
                     }
-                    if workspace.panels.count <= 1 {
+                    if workspace.bonsplitPanelCount <= 1 {
                         break
                     }
                     if workspace.closePanel(panelId, force: true) {
@@ -5124,7 +5124,7 @@ class TerminalController {
                 return
             }
 
-            if ws.panels.count <= 1 {
+            if ws.bonsplitPanelCount <= 1 {
                 result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
                 return
             }
@@ -10428,7 +10428,7 @@ class TerminalController {
                 return
             }
 
-            if ws.panels.count <= 1 {
+            if ws.bonsplitPanelCount <= 1 {
                 result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
                 return
             }
@@ -13452,7 +13452,7 @@ class TerminalController {
 
         // Defensive: include any orphaned panels in a stable order at the end.
         let orphans = tab.panels.values
-            .filter { !seen.contains($0.id) }
+            .filter { !seen.contains($0.id) && !tab.isSidebarTerminalPanel($0.id) }
             .sorted { $0.id.uuidString < $1.id.uuidString }
         result.append(contentsOf: orphans)
 
@@ -15837,7 +15837,7 @@ class TerminalController {
             }
 
             // Don't close if it's the only surface
-            if tab.panels.count <= 1 {
+            if tab.bonsplitPanelCount <= 1 {
                 result = "ERROR: Cannot close the last surface"
                 return
             }

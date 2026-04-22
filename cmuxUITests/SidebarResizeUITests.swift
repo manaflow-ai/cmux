@@ -1,14 +1,15 @@
 import XCTest
 
 final class SidebarResizeUITests: XCTestCase {
+    private let launchTag = "ui-tests-sidebar-resize"
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
 
     func testSidebarResizerTracksCursor() {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchApp()
 
         let elements = app.descendants(matching: .any)
         let resizer = elements["SidebarResizer"]
@@ -38,8 +39,7 @@ final class SidebarResizeUITests: XCTestCase {
     }
 
     func testSidebarResizerAllowsSmallerMinimumWidth() {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchApp()
 
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 5.0))
@@ -62,8 +62,7 @@ final class SidebarResizeUITests: XCTestCase {
     }
 
     func testSidebarResizerHasMaximumWidthCap() {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchApp()
 
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 5.0))
@@ -87,6 +86,29 @@ final class SidebarResizeUITests: XCTestCase {
             "Expected sidebar max-width clamp to leave substantial terminal width. " +
             "remaining=\(remainingWidth), window=\(windowFrame.width)"
         )
+    }
+
+    private func launchApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for sidebar resize test. state=\(app.state.rawValue)"
+        )
+        return app
+    }
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
     }
 
     private func waitForElementHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

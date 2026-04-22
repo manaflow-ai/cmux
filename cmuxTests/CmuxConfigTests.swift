@@ -77,6 +77,50 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(config.commands.isEmpty)
     }
 
+    func testDecodeSidebarTerminalWithoutCommands() throws {
+        let json = """
+        {
+          "sidebar": {
+            "right": {
+              "terminal": {
+                "title": "PR",
+                "command": "gh pr status",
+                "cwd": "frontend"
+              }
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        XCTAssertTrue(config.commands.isEmpty)
+        let terminal = config.sidebar?.runtimeConfiguration.terminal(for: .right)
+        XCTAssertEqual(terminal?.title, "PR")
+        XCTAssertEqual(terminal?.command, "gh pr status")
+        XCTAssertEqual(terminal?.cwd, "frontend")
+    }
+
+    func testDecodeSidebarTerminalTrimsBlankFields() throws {
+        let json = """
+        {
+          "commands": [],
+          "sidebar": {
+            "left": {
+              "terminal": {
+                "title": "   ",
+                "command": "  npm run prs  ",
+                "cwd": ""
+              }
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        let terminal = config.sidebar?.runtimeConfiguration.terminal(for: .left)
+        XCTAssertNil(terminal?.title)
+        XCTAssertEqual(terminal?.command, "npm run prs")
+        XCTAssertNil(terminal?.cwd)
+    }
+
     // MARK: Workspace commands
 
     func testDecodeWorkspaceCommand() throws {

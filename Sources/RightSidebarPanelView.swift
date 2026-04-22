@@ -5,11 +5,13 @@ import SwiftUI
 enum RightSidebarMode: String, CaseIterable {
     case files
     case sessions
+    case terminal
 
     var label: String {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
+        case .terminal: return String(localized: "rightSidebar.mode.terminal", defaultValue: "Terminal")
         }
     }
 
@@ -17,6 +19,7 @@ enum RightSidebarMode: String, CaseIterable {
         switch self {
         case .files: return "folder"
         case .sessions: return "bubble.left.and.text.bubble.right"
+        case .terminal: return "terminal.fill"
         }
     }
 }
@@ -27,6 +30,8 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let onResumeSession: ((SessionEntry) -> Void)?
+    @EnvironmentObject var tabManager: TabManager
+    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,6 +78,21 @@ struct RightSidebarPanelView: View {
                 .onAppear {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
+        case .terminal:
+            if let workspace = tabManager.selectedWorkspace {
+                SidebarTerminalPanelView(
+                    workspace: workspace,
+                    placement: .right,
+                    configuration: cmuxConfigStore.sidebarConfiguration.terminal(for: .right),
+                    isVisibleInUI: fileExplorerState.isVisible && fileExplorerState.mode == .terminal
+                )
+                .id(workspace.id)
+            } else {
+                Text(String(localized: "sidebar.terminal.noWorkspace", defaultValue: "No workspace selected"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 

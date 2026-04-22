@@ -4,6 +4,87 @@ import Foundation
 
 struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
+    var sidebar: CmuxSidebarDefinition?
+
+    init(commands: [CmuxCommandDefinition] = [], sidebar: CmuxSidebarDefinition? = nil) {
+        self.commands = commands
+        self.sidebar = sidebar
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
+        sidebar = try container.decodeIfPresent(CmuxSidebarDefinition.self, forKey: .sidebar)
+    }
+}
+
+enum SidebarTerminalPlacement: String, Codable, Sendable {
+    case left
+    case right
+}
+
+struct CmuxSidebarTerminalDefinition: Codable, Sendable, Equatable {
+    var title: String?
+    var command: String?
+    var cwd: String?
+
+    init(title: String? = nil, command: String? = nil, cwd: String? = nil) {
+        self.title = title
+        self.command = command
+        self.cwd = cwd
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = Self.normalizedOptionalString(try container.decodeIfPresent(String.self, forKey: .title))
+        command = Self.normalizedOptionalString(try container.decodeIfPresent(String.self, forKey: .command))
+        cwd = Self.normalizedOptionalString(try container.decodeIfPresent(String.self, forKey: .cwd))
+    }
+
+    private static func normalizedOptionalString(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+struct CmuxSidebarSideDefinition: Codable, Sendable {
+    var terminal: CmuxSidebarTerminalDefinition?
+}
+
+struct CmuxSidebarDefinition: Codable, Sendable {
+    var left: CmuxSidebarSideDefinition?
+    var right: CmuxSidebarSideDefinition?
+
+    var runtimeConfiguration: CmuxSidebarConfiguration {
+        CmuxSidebarConfiguration(
+            leftTerminal: left?.terminal,
+            rightTerminal: right?.terminal
+        )
+    }
+}
+
+struct CmuxSidebarConfiguration: Sendable, Equatable {
+    var leftTerminal: CmuxSidebarTerminalDefinition? = nil
+    var rightTerminal: CmuxSidebarTerminalDefinition? = nil
+
+    static let empty = CmuxSidebarConfiguration()
+
+    func terminal(for placement: SidebarTerminalPlacement) -> CmuxSidebarTerminalDefinition? {
+        switch placement {
+        case .left:
+            return leftTerminal
+        case .right:
+            return rightTerminal
+        }
+    }
+
+    func merging(overrides: CmuxSidebarConfiguration) -> CmuxSidebarConfiguration {
+        CmuxSidebarConfiguration(
+            leftTerminal: overrides.leftTerminal ?? leftTerminal,
+            rightTerminal: overrides.rightTerminal ?? rightTerminal
+        )
+    }
 }
 
 struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
@@ -259,6 +340,7 @@ enum CmuxSurfaceType: String, Codable, Sendable {
 @MainActor
 final class CmuxConfigStore: ObservableObject {
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
+    @Published private(set) var sidebarConfiguration: CmuxSidebarConfiguration = .empty
     @Published private(set) var configRevision: UInt64 = 0
 
     /// Which config file each command came from, keyed by command id.
@@ -353,22 +435,22 @@ final class CmuxConfigStore: ObservableObject {
         var commands: [CmuxCommandDefinition] = []
         var seenNames = Set<String>()
         var sourcePaths: [String: String] = [:]
+        let localConfig = localConfigPath.flatMap { parseConfig(at: $0) }
+        let globalConfig = parseConfig(at: globalConfigPath)
 
         // Local config takes precedence
-        if let localPath = localConfigPath {
-            if let localConfig = parseConfig(at: localPath) {
-                for command in localConfig.commands {
-                    if !seenNames.contains(command.name) {
-                        commands.append(command)
-                        seenNames.insert(command.name)
-                        sourcePaths[command.id] = localPath
-                    }
+        if let localPath = localConfigPath, let localConfig {
+            for command in localConfig.commands {
+                if !seenNames.contains(command.name) {
+                    commands.append(command)
+                    seenNames.insert(command.name)
+                    sourcePaths[command.id] = localPath
                 }
             }
         }
 
         // Global config fills in the rest
-        if let globalConfig = parseConfig(at: globalConfigPath) {
+        if let globalConfig {
             for command in globalConfig.commands {
                 if !seenNames.contains(command.name) {
                     commands.append(command)
@@ -380,6 +462,8 @@ final class CmuxConfigStore: ObservableObject {
 
         loadedCommands = commands
         commandSourcePaths = sourcePaths
+        sidebarConfiguration = (globalConfig?.sidebar?.runtimeConfiguration ?? .empty)
+            .merging(overrides: localConfig?.sidebar?.runtimeConfiguration ?? .empty)
         configRevision &+= 1
     }
 

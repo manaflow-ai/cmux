@@ -6155,7 +6155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sourceManager: TabManager,
         sourceWindowId: UUID
     ) {
-        guard sourceWorkspace.panels.isEmpty else { return }
+        guard !sourceWorkspace.hasBonsplitPanels else { return }
         guard sourceManager.tabs.contains(where: { $0.id == sourceWorkspace.id }) else { return }
 
         if sourceManager.tabs.count > 1 {
