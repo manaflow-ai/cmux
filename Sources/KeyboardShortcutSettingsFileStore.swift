@@ -30,6 +30,7 @@ final class CmuxSettingsFileStore {
         "app.appIcon",
         "app.newWorkspacePlacement",
         "app.minimalMode",
+        "app.showTitlebarTimeIndicator",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
         "app.preferredEditor",
@@ -421,6 +422,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)
+        }
+        if let value = jsonBool(section["showTitlebarTimeIndicator"]) {
+            snapshot.managedUserDefaults[TitlebarTimeIndicatorSettings.enabledKey] = .bool(value)
         }
         if let value = jsonBool(section["keepWorkspaceOpenWhenClosingLastSurface"]) {
             snapshot.managedUserDefaults[LastSurfaceCloseShortcutSettings.key] = .bool(!value)
@@ -1359,6 +1363,7 @@ final class CmuxSettingsFileStore {
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
                     "minimalMode": false,
+                    "showTitlebarTimeIndicator": TitlebarTimeIndicatorSettings.defaultEnabled,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
                     "preferredEditor": "",

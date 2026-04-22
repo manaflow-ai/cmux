@@ -2417,6 +2417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
+    private let windowToolbarController = WindowToolbarController()
     private var menuBarExtraController: MenuBarExtraController?
     private static let serviceErrorNoPath = NSString(string: String(localized: "error.clipboardFolderPath", defaultValue: "Could not load any folder path from the clipboard."))
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
@@ -2771,6 +2772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         titlebarAccessoryController.start()
         windowDecorationsController.start()
+        windowToolbarController.start()
         installMainWindowKeyObserver()
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
@@ -4945,7 +4947,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         sidebarSelectionState: SidebarSelectionState
     ) {
+        let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
+        if window.identifier?.rawValue != expectedIdentifier {
+            window.identifier = NSUserInterfaceItemIdentifier(expectedIdentifier)
+        }
+
         tabManager.window = window
+        windowToolbarController.attach(to: window)
 
         let key = ObjectIdentifier(window)
         #if DEBUG
