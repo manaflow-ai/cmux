@@ -12,6 +12,39 @@ import Bonsplit
 import IOSurface
 import UniformTypeIdentifiers
 
+func ghosttyUnshiftedCodepoint(
+    keyCode: UInt16,
+    modifierFlags: NSEvent.ModifierFlags,
+    charactersIgnoringModifiers: String?,
+    characters: String?,
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+) -> UInt32 {
+    let normalizedFlags = modifierFlags
+        .intersection(.deviceIndependentFlagsMask)
+        .intersection([.command])
+
+    if let layoutChars = layoutCharacterProvider(keyCode, normalizedFlags),
+       layoutChars.count == 1,
+       let layoutScalar = layoutChars.unicodeScalars.first,
+       layoutScalar.value >= 0x20,
+       !(layoutScalar.value >= 0xF700 && layoutScalar.value <= 0xF8FF) {
+        return layoutScalar.value
+    }
+
+    if normalizedFlags.contains(.command),
+       let layoutChars = layoutCharacterProvider(keyCode, []),
+       layoutChars.count == 1,
+       let layoutScalar = layoutChars.unicodeScalars.first,
+       layoutScalar.value >= 0x20,
+       !(layoutScalar.value >= 0xF700 && layoutScalar.value <= 0xF8FF) {
+        return layoutScalar.value
+    }
+
+    guard let chars = charactersIgnoringModifiers ?? characters,
+          let scalar = chars.unicodeScalars.first else { return 0 }
+    return scalar.value
+}
+
 @_silgen_name("ghostty_surface_clear_selection")
 private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t) -> Bool
 
@@ -7379,17 +7412,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Get the unshifted codepoint for the key event
     private func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
-        if let layoutChars = KeyboardLayout.character(forKeyCode: event.keyCode),
-           layoutChars.count == 1,
-           let layoutScalar = layoutChars.unicodeScalars.first,
-           layoutScalar.value >= 0x20,
-           !(layoutScalar.value >= 0xF700 && layoutScalar.value <= 0xF8FF) {
-            return layoutScalar.value
-        }
-
-        guard let chars = (event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers ?? event.characters),
-              let scalar = chars.unicodeScalars.first else { return 0 }
-        return scalar.value
+        ghosttyUnshiftedCodepoint(
+            keyCode: event.keyCode,
+            modifierFlags: event.modifierFlags,
+            charactersIgnoringModifiers: event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers,
+            characters: event.characters
+        )
     }
 
     private func isControlCharacterScalar(_ scalar: UnicodeScalar) -> Bool {
