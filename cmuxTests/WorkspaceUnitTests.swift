@@ -844,6 +844,73 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
+    func testSettingsFileStoreDoesNotApplyAppIconDuringInitEvenIfLaunchIsAlreadyFinished() throws {
+        // Regression test for macOS 26 (build 25D771280a+) where applicationDidFinishLaunching
+        // fires before cmuxApp.init() body completes, causing isApplicationFinishedLaunching()
+        // to return true while CmuxSettingsFileStore.init() is still running. Without the
+        // isInitializationComplete guard, applyIcon(.automatic) would crash by calling
+        // NSApplication APIs that are unsafe during App.init() re-entrancy.
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousMode {
+                defaults.set(previousMode, forKey: AppIconSettings.modeKey)
+            } else {
+                defaults.removeObject(forKey: AppIconSettings.modeKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+            AppIconSettings.resetLiveEnvironmentProviderForTesting()
+        }
+
+        defaults.removeObject(forKey: AppIconSettings.modeKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "appIcon": "automatic"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        var startObservationCallCount = 0
+        var stopObservationCallCount = 0
+        var runtimeIconSetCount = 0
+        AppIconSettings.setLiveEnvironmentProviderForTesting {
+            AppIconSettings.Environment(
+                // Simulate macOS 26: launch is already "finished" before store init runs.
+                isApplicationFinishedLaunching: { true },
+                imageForMode: { _ in nil },
+                setApplicationIconImage: { _ in runtimeIconSetCount += 1 },
+                startAppearanceObservation: { startObservationCallCount += 1 },
+                stopAppearanceObservation: { stopObservationCallCount += 1 },
+                notifyDockTilePlugin: {}
+            )
+        }
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(startObservationCallCount, 0, "startAppearanceObservation must not be called during store init")
+        XCTAssertEqual(stopObservationCallCount, 0)
+        XCTAssertEqual(runtimeIconSetCount, 0)
+    }
+
     func testSettingsFileStoreRejectsModifierFreeFirstStroke() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
