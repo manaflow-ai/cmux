@@ -2876,8 +2876,8 @@ struct ContentView: View {
                             .layoutPriority(1)
                         if rightSidebarVisible {
                             Divider()
-                            rightSidebarPanelWithBackdrop
                         }
+                        rightSidebarPanelWithBackdrop
                     }
                     if sidebarState.isVisible {
                         sidebarPanelWithBackdrop
