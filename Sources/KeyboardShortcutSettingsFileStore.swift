@@ -132,6 +132,13 @@ final class CmuxSettingsFileStore {
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var isApplyingManagedSettings = false
+    // Set to true after the first reload() in init() completes. Used to defer
+    // AppIcon application: on macOS 26 (build 25D771280a+), applicationDidFinishLaunching
+    // can fire before cmuxApp.init() body finishes, so isApplicationFinishedLaunching()
+    // returns true while we're still in App.init() re-entrancy — calling NSApplication
+    // APIs at that point crashes. AppDelegate.ensureApplicationIcon() handles the initial
+    // apply once it's truly safe.
+    private var isInitializationComplete = false
     private(set) var activeSourcePath: String?
 
     init(
@@ -148,6 +155,7 @@ final class CmuxSettingsFileStore {
 
         bootstrapPrimaryTemplateIfNeeded()
         reload()
+        isInitializationComplete = true
         guard startWatching else { return }
 
         primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
@@ -1189,6 +1197,7 @@ final class CmuxSettingsFileStore {
             let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
             LanguageSettings.apply(language)
         case AppIconSettings.modeKey:
+            guard isInitializationComplete else { break }
             AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         default:
             break
@@ -1235,6 +1244,7 @@ final class CmuxSettingsFileStore {
             let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
             LanguageSettings.apply(language)
         case AppIconSettings.modeKey:
+            guard isInitializationComplete else { break }
             AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         default:
             break
