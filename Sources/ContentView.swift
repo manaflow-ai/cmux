@@ -203,6 +203,22 @@ struct SidebarWorkspaceRowBackgroundStyle {
     static let clear = Self(color: nil, opacity: 0)
 }
 
+func sidebarWorkspaceRowExplicitRailNSColor(
+    activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
+    customColorHex: String?,
+    colorScheme: ColorScheme
+) -> NSColor? {
+    guard activeTabIndicatorStyle == .leftRail,
+          let customColorHex else {
+        return nil
+    }
+    return WorkspaceTabColorSettings.displayNSColor(
+        hex: customColorHex,
+        colorScheme: colorScheme,
+        forceBright: true
+    )
+}
+
 func sidebarWorkspaceRowBackgroundStyle(
     activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
     isActive: Bool,
@@ -223,22 +239,13 @@ func sidebarWorkspaceRowBackgroundStyle(
             forceBright: activeTabIndicatorStyle == .leftRail
         )
     }
-    let selectedCustomBackground = customColorHex.flatMap {
-        sidebarSelectedWorkspaceCustomBackgroundNSColor(hex: $0, colorScheme: colorScheme)
-    }
 
     switch activeTabIndicatorStyle {
     case .leftRail:
         if isActive {
             return SidebarWorkspaceRowBackgroundStyle(
-                color: selectedCustomBackground ?? selectedBackground,
+                color: selectedBackground,
                 opacity: 1
-            )
-        }
-        if let customBackground {
-            return SidebarWorkspaceRowBackgroundStyle(
-                color: customBackground,
-                opacity: isMultiSelected ? 0.35 : 0.7
             )
         }
         if isMultiSelected {
@@ -249,7 +256,7 @@ func sidebarWorkspaceRowBackgroundStyle(
     case .solidFill:
         if isActive {
             return SidebarWorkspaceRowBackgroundStyle(
-                color: selectedCustomBackground ?? selectedBackground,
+                color: selectedBackground,
                 opacity: 1
             )
         }
@@ -2912,6 +2919,9 @@ struct ContentView: View {
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
     /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
     @State private var titlebarPadding: CGFloat = 32
+    /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
+    /// main windows use MainWindowHostingView and report zero.
+    @State private var hostingSafeAreaTop: CGFloat = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
 
@@ -2920,10 +2930,23 @@ struct ContentView: View {
     }
 
     private var effectiveTitlebarPadding: CGFloat {
-        if isMinimalMode {
-            return isFullScreen ? 0 : -titlebarPadding
-        }
-        return titlebarPadding
+        Self.effectiveTitlebarPadding(
+            isMinimalMode: isMinimalMode,
+            isFullScreen: isFullScreen,
+            titlebarPadding: titlebarPadding,
+            hostingSafeAreaTop: hostingSafeAreaTop
+        )
+    }
+
+    static func effectiveTitlebarPadding(
+        isMinimalMode: Bool,
+        isFullScreen: Bool,
+        titlebarPadding: CGFloat,
+        hostingSafeAreaTop: CGFloat
+    ) -> CGFloat {
+        guard isMinimalMode else { return titlebarPadding }
+        guard !isFullScreen else { return 0 }
+        return -max(0, min(titlebarPadding, hostingSafeAreaTop))
     }
 
     private var terminalContent: some View {
@@ -3140,11 +3163,7 @@ struct ContentView: View {
 
     private func syncTrafficLightInset() {
         let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen) ? 80 : 0
-        for tab in tabManager.tabs {
-            if tab.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
-                tab.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
-            }
-        }
+        tabManager.syncWorkspaceTabBarLeadingInset(inset)
     }
 
     private func updateTitlebarText() {
@@ -3878,6 +3897,10 @@ struct ContentView: View {
             syncTrafficLightInset()
         })
 
+        view = AnyView(view.onChange(of: tabManager.tabs.map(\.id)) { _ in
+            syncTrafficLightInset()
+        })
+
         view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
             let sanitized = normalizedSidebarWidth(newValue)
             if abs(newValue - sanitized) > 0.5 {
@@ -3931,9 +3954,15 @@ struct ContentView: View {
             // get interpreted as window drags.
             let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
             let nextPadding = max(28, min(72, computedTitlebarHeight))
+            let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
             if abs(titlebarPadding - nextPadding) > 0.5 {
                 DispatchQueue.main.async {
                     titlebarPadding = nextPadding
+                }
+            }
+            if abs(hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
+                DispatchQueue.main.async {
+                    hostingSafeAreaTop = nextSafeAreaTop
                 }
             }
 #if DEBUG
@@ -13082,6 +13111,10 @@ private struct TabItemView: View, Equatable {
         .semibold
     }
 
+    private var showsLeadingRail: Bool {
+        explicitRailColor != nil
+    }
+
     private var activeBorderLineWidth: CGFloat {
         switch activeTabIndicatorStyle {
         case .leftRail:
@@ -13509,6 +13542,16 @@ private struct TabItemView: View, Equatable {
                 .overlay {
                     RoundedRectangle(cornerRadius: 6)
                         .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+                }
+                .overlay(alignment: .leading) {
+                    if showsLeadingRail {
+                        Capsule(style: .continuous)
+                            .fill(railColor)
+                            .frame(width: 3)
+                            .padding(.leading, 4)
+                            .padding(.vertical, 5)
+                            .offset(x: -1)
+                    }
                 }
         )
         .padding(.horizontal, 6)
@@ -13950,6 +13993,21 @@ private struct TabItemView: View, Equatable {
         )
         guard let color = style.color else { return .clear }
         return Color(nsColor: color).opacity(style.opacity)
+    }
+
+    private var railColor: Color {
+        explicitRailColor ?? .clear
+    }
+
+    private var explicitRailColor: Color? {
+        guard let railColor = sidebarWorkspaceRowExplicitRailNSColor(
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            customColorHex: workspaceSnapshot.customColorHex,
+            colorScheme: colorScheme
+        ) else {
+            return nil
+        }
+        return Color(nsColor: railColor).opacity(0.95)
     }
 
     private func tabColorSwatchColor(for hex: String) -> NSColor {
