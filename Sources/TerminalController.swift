@@ -50,6 +50,20 @@ class TerminalController {
     private nonisolated(unsafe) var listenerStartInProgress = false
     private nonisolated let listenerStateLock = NSLock()
     private var clientHandlers: [Int32: Thread] = [:]
+    /// Dispatches accepted socket connections onto GCD instead of one `NSThread` per client.
+    /// This queue is **concurrent**: many `async` blocks may be waiting; the semaphore below caps
+    /// how many run `handleClient` at once (so a connection flood still queues work, but avoids
+    /// unbounded thread creation when handlers stall on the main actor).
+    private nonisolated let clientQueue = DispatchQueue(
+        label: "com.cmuxterm.socket-clients",
+        qos: .utility,
+        attributes: .concurrent
+    )
+    /// Max concurrent `handleClient` executions (tunable). Chosen as a generous ceiling for normal
+    /// CLI/automation parallelism while bounding worst-case thread/memory growth.
+    private nonisolated let clientConcurrencyLimit = DispatchSemaphore(value: 64)
+    /// How long a connection waits for a handler slot before we reject with "Server busy".
+    private nonisolated let clientHandlerSlotWait: DispatchTimeInterval = .seconds(30)
     private var tabManager: TabManager?
     private var accessMode: SocketControlMode = .cmuxOnly
     private let myPid = getpid()
@@ -1500,9 +1514,22 @@ class TerminalController {
             // the time a new thread starts the peer may already be gone.
             let peerPid = getPeerPid(clientSocket)
 
-            // Handle client in new thread
-            Thread.detachNewThread { [weak self] in
-                self?.handleClient(clientSocket, peerPid: peerPid)
+            // Handle client on bounded queue to prevent unbounded thread growth
+            // when the main thread is temporarily unresponsive.
+            clientQueue.async { [weak self] in
+                guard let self else {
+                    close(clientSocket)
+                    return
+                }
+                guard self.clientConcurrencyLimit.wait(timeout: .now() + self.clientHandlerSlotWait) == .success else {
+                    // All handler slots full — reject this connection to apply backpressure.
+                    let msg = "ERROR: Server busy\n"
+                    msg.withCString { ptr in _ = write(clientSocket, ptr, strlen(ptr)) }
+                    close(clientSocket)
+                    return
+                }
+                defer { self.clientConcurrencyLimit.signal() }
+                self.handleClient(clientSocket, peerPid: peerPid)
             }
         }
     }
