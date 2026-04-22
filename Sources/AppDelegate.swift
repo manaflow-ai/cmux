@@ -22,20 +22,37 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
 
 final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
+    private let usesSystemSafeArea: Bool
 
-    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
-    override var safeAreaRect: NSRect { bounds }
-    override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
+    override var safeAreaInsets: NSEdgeInsets {
+        usesSystemSafeArea ? super.safeAreaInsets : NSEdgeInsetsZero
+    }
+    override var safeAreaRect: NSRect {
+        usesSystemSafeArea ? super.safeAreaRect : bounds
+    }
+    override var safeAreaLayoutGuide: NSLayoutGuide {
+        usesSystemSafeArea ? super.safeAreaLayoutGuide : zeroSafeAreaLayoutGuide
+    }
 
     required init(rootView: Content) {
+        if #available(macOS 26.0, *) {
+            // On macOS 26, use system safe area so:
+            // - Sidebar (.ignoresSafeArea) extends under the glass titlebar
+            // - Terminal content respects the titlebar and stays below it
+            self.usesSystemSafeArea = true
+        } else {
+            self.usesSystemSafeArea = false
+        }
         super.init(rootView: rootView)
-        addLayoutGuide(zeroSafeAreaLayoutGuide)
-        NSLayoutConstraint.activate([
-            zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
-            zeroSafeAreaLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
-            zeroSafeAreaLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
-            zeroSafeAreaLayoutGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        if !usesSystemSafeArea {
+            addLayoutGuide(zeroSafeAreaLayoutGuide)
+            NSLayoutConstraint.activate([
+                zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
+                zeroSafeAreaLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
+                zeroSafeAreaLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
+                zeroSafeAreaLayoutGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+        }
     }
 
     @available(*, unavailable)
@@ -1002,6 +1019,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncMenuBarExtraVisibility()
             updateController.startUpdaterIfNeeded()
         }
+        // Start the titlebar accessory controller on all versions so the
+        // notifications popover infrastructure is available. On macOS 26
+        // the visual titlebar items come from SwiftUI .toolbar, but the
+        // popover is still managed by the accessory controller.
         titlebarAccessoryController.start()
         windowDecorationsController.start()
         installMainWindowKeyObserver()
@@ -5552,10 +5573,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.collectionBehavior.insert(.fullScreenDisallowsTiling)
         }
         window.title = ""
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        if #available(macOS 26.0, *) {
+            // On macOS 26+, let the system render the native glass titlebar
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = false
+        } else {
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+        }
         window.isMovableByWindowBackground = false
-        window.isMovable = false
+        if #available(macOS 26.0, *) {
+            window.isMovable = true
+        } else {
+            window.isMovable = false
+        }
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
@@ -8588,6 +8619,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     func attachUpdateAccessory(to window: NSWindow) {
+        if #available(macOS 26.0, *) {
+            // On macOS 26, toolbar buttons are native SwiftUI .toolbar items
+            // in the NavigationSplitView. Skip attaching the old titlebar
+            // accessory views, but the controller is already started (for
+            // notifications popover support).
+            return
+        }
         titlebarAccessoryController.start()
         titlebarAccessoryController.attach(to: window)
     }
@@ -8596,7 +8634,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowDecorationsController.apply(to: window)
     }
 
+    /// Notification posted on macOS 26 to toggle the SwiftUI notifications popover.
+    static let toggleNotificationsPopoverNotification = Notification.Name("cmux.toggleNotificationsPopover")
+
     func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
+        if #available(macOS 26.0, *) {
+            // Scope the broadcast to the owning window so a single bell-button
+            // tap or menu command only toggles the popover in the intended
+            // window — not in every cmux window at once.
+            let targetWindow = anchorView?.window ?? NSApp.keyWindow
+            let targetWindowId = targetWindow.flatMap { mainWindowContexts[ObjectIdentifier($0)]?.windowId }
+            var userInfo: [AnyHashable: Any] = [:]
+            if let targetWindowId {
+                userInfo["windowId"] = targetWindowId
+            }
+            NotificationCenter.default.post(
+                name: Self.toggleNotificationsPopoverNotification,
+                object: targetWindow,
+                userInfo: userInfo.isEmpty ? nil : userInfo
+            )
+            return
+        }
         titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
     }
 

@@ -5,6 +5,9 @@ import SwiftUI
 @MainActor
 final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private let commandItemIdentifier = NSToolbarItem.Identifier("cmux.focusedCommand")
+    private let sidebarToggleIdentifier = NSToolbarItem.Identifier("cmux.sidebarToggle")
+    private let notificationsIdentifier = NSToolbarItem.Identifier("cmux.notifications")
+    private let newTabIdentifier = NSToolbarItem.Identifier("cmux.newTab")
 
     private weak var tabManager: TabManager?
 
@@ -123,7 +126,11 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         toolbar.autosavesConfiguration = false
         toolbar.showsBaselineSeparator = false
         window.toolbar = toolbar
-        window.toolbarStyle = .unifiedCompact
+        if #available(macOS 26.0, *) {
+            window.toolbarStyle = .unified
+        } else {
+            window.toolbarStyle = .unifiedCompact
+        }
         window.titleVisibility = .hidden
     }
 
@@ -154,11 +161,19 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     // MARK: - NSToolbarDelegate
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [commandItemIdentifier, .flexibleSpace]
+        if #available(macOS 26.0, *) {
+            return [sidebarToggleIdentifier, notificationsIdentifier, newTabIdentifier,
+                    .flexibleSpace, commandItemIdentifier]
+        }
+        return [commandItemIdentifier, .flexibleSpace]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [commandItemIdentifier, .flexibleSpace]
+        if #available(macOS 26.0, *) {
+            return [sidebarToggleIdentifier, notificationsIdentifier, newTabIdentifier,
+                    .flexibleSpace, commandItemIdentifier]
+        }
+        return [commandItemIdentifier, .flexibleSpace]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
@@ -175,8 +190,57 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             return item
         }
 
+        if #available(macOS 26.0, *) {
+            if itemIdentifier == sidebarToggleIdentifier {
+                let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+                item.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: String(localized: "toolbar.sidebar.accessibilityDescription", defaultValue: "Toggle Sidebar"))
+                item.label = String(localized: "toolbar.sidebar.label", defaultValue: "Sidebar")
+                item.toolTip = String(localized: "toolbar.sidebar.tooltip", defaultValue: "Toggle Sidebar")
+                item.target = self
+                item.action = #selector(toggleSidebarAction)
+                return item
+            }
+
+            if itemIdentifier == notificationsIdentifier {
+                let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+                item.image = NSImage(systemSymbolName: "bell", accessibilityDescription: String(localized: "toolbar.notifications.accessibilityDescription", defaultValue: "Notifications"))
+                item.label = String(localized: "toolbar.notifications.label", defaultValue: "Notifications")
+                item.toolTip = String(localized: "toolbar.notifications.tooltip", defaultValue: "Show Notifications")
+                item.target = self
+                item.action = #selector(toggleNotificationsAction)
+                return item
+            }
+
+            if itemIdentifier == newTabIdentifier {
+                let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+                item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: String(localized: "toolbar.newWorkspace.accessibilityDescription", defaultValue: "New Workspace"))
+                item.label = String(localized: "toolbar.newWorkspace.label", defaultValue: "New Workspace")
+                item.toolTip = String(localized: "toolbar.newWorkspace.tooltip", defaultValue: "New Workspace")
+                item.target = self
+                item.action = #selector(newTabAction)
+                return item
+            }
+        }
 
         return nil
+    }
+
+    // MARK: - Toolbar Actions (macOS 26+)
+
+    @objc private func toggleSidebarAction() {
+        _ = AppDelegate.shared?.sidebarState?.toggle()
+    }
+
+    @objc private func toggleNotificationsAction() {
+        _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true)
+    }
+
+    @objc private func newTabAction() {
+        if let appDelegate = AppDelegate.shared {
+            if appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "toolbar.newTab") == nil {
+                appDelegate.openNewMainWindow(nil)
+            }
+        }
     }
 
 }

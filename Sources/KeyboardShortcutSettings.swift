@@ -184,7 +184,7 @@ enum KeyboardShortcutSettings {
             case .quit:
                 return StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
             case .toggleSidebar:
-                return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+                return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .openFolder:

@@ -9590,7 +9590,23 @@ final class GhosttySurfaceScrollView: NSView {
         let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        _ = setFrameIfNeeded(scrollView, to: bounds)
+        // On macOS 26, inset the scroll view on the leading and top edges
+        // to keep terminal text within the rounded corner safe zone.
+        // Only leading corners are rounded (when sidebar is visible), so
+        // right/bottom edges use no inset to maximize terminal real estate.
+        let scrollFrame: CGRect
+        if #available(macOS 26.0, *) {
+            let inset: CGFloat = 6
+            scrollFrame = CGRect(
+                x: bounds.origin.x + inset,
+                y: bounds.origin.y,
+                width: bounds.width - inset,
+                height: bounds.height - inset
+            )
+        } else {
+            scrollFrame = bounds
+        }
+        _ = setFrameIfNeeded(scrollView, to: scrollFrame)
         let targetSize = scrollView.bounds.size
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)

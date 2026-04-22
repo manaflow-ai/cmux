@@ -6777,8 +6777,19 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundOpacity: Double,
         tabTitleFontSize: CGFloat = 11
     ) -> BonsplitConfiguration.Appearance {
-        BonsplitConfiguration.Appearance(
+        let hideTabBar: Bool
+        if #available(macOS 26.0, *) {
+            // Set tabBarHeight to 0 on macOS 26 so the tab bar collapses when a
+            // pane has a single tab. (Requires a matching bonsplit change to
+            // actually hide the bar; absent that, it renders at 0 height.)
+            hideTabBar = true
+        } else {
+            hideTabBar = false
+        }
+        return BonsplitConfiguration.Appearance(
+            tabBarHeight: hideTabBar ? 0 : 33,
             tabTitleFontSize: tabTitleFontSize,
+            showSplitButtons: !hideTabBar,
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
             chromeColors: .init(
