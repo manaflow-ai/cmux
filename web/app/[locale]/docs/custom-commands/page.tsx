@@ -48,9 +48,9 @@ export default function CustomCommandsPage() {
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
     "new-dev": { "type": "workspaceCommand", "commandName": "Start Dev" },
-    "start-codex": { "type": "command", "command": "codex --dangerously-bypass-approvals-and-sandbox" },
-    "start-claude": { "type": "command", "command": "claude --dangerously-skip-permissions" },
-    "start-opencode": { "type": "command", "command": "OPENCODE_PERMISSION='\\\"allow\\\"' opencode" },
+    "start-codex": { "type": "command", "command": "codex" },
+    "start-claude": { "type": "command", "command": "claude" },
+    "start-opencode": { "type": "command", "command": "opencode" },
     "run-tests": { "type": "command", "command": "npm test", "confirm": true }
   },
   "ui": {
@@ -89,11 +89,16 @@ export default function CustomCommandsPage() {
         Command and agent buttons create a new terminal surface in the clicked pane, then run the configured
         command there.
       </p>
+      <p>
+        Put any CLI approval or permission flags you already use directly in the command string. For example,
+        use <code>codex &lt;your approval flags&gt;</code>, <code>claude &lt;your permission flags&gt;</code>,
+        or an OpenCode permission env or flag string for trusted disposable worktrees.
+      </p>
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
-    "start-codex": { "type": "command", "command": "codex --dangerously-bypass-approvals-and-sandbox" },
-    "start-claude": { "type": "command", "command": "claude --dangerously-skip-permissions" },
-    "start-opencode": { "type": "command", "command": "OPENCODE_PERMISSION='\\\"allow\\\"' opencode" }
+    "start-codex": { "type": "command", "command": "codex" },
+    "start-claude": { "type": "command", "command": "claude" },
+    "start-opencode": { "type": "command", "command": "opencode" }
   },
   "ui": {
     "surfaceTabBar": {
@@ -233,9 +238,9 @@ export default function CustomCommandsPage() {
   "actions": {
     "new-web-dev": { "type": "workspaceCommand", "commandName": "Web Dev" },
     "start-dev": { "type": "command", "command": "npm run dev" },
-    "start-codex": { "type": "command", "command": "codex --dangerously-bypass-approvals-and-sandbox" },
-    "start-claude": { "type": "command", "command": "claude --dangerously-skip-permissions" },
-    "start-opencode": { "type": "command", "command": "OPENCODE_PERMISSION='\\\"allow\\\"' opencode" }
+    "start-codex": { "type": "command", "command": "codex" },
+    "start-claude": { "type": "command", "command": "claude" },
+    "start-opencode": { "type": "command", "command": "opencode" }
   },
   "ui": {
     "newWorkspace": { "action": "new-web-dev" },

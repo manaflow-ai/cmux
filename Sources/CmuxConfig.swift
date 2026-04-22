@@ -1179,6 +1179,7 @@ final class CmuxConfigStore: ObservableObject {
         let terminalCommandSourcePaths: [String: String]
     }
 
+    private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
     private var cancellables = Set<AnyCancellable>()
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
@@ -1368,6 +1369,13 @@ final class CmuxConfigStore: ObservableObject {
             }
         }
 
+        let configuredButtons = configuredSurfaceTabBarButtons ?? CmuxSurfaceTabBarButton.defaults
+        let resolvedWorkspaceButtons = resolvedSurfaceTabBarWorkspaceCommands(
+            configuredButtons,
+            commands: commands,
+            sourcePaths: sourcePaths
+        )
+
         loadedCommands = commands
         commandSourcePaths = sourcePaths
         newWorkspaceAction = configuredNewWorkspaceAction
@@ -1375,7 +1383,8 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         surfaceTabBarButtonSourcePath = configuredSurfaceTabBarButtonSourcePath
         surfaceTabBarCommandSourcePaths = configuredSurfaceTabBarCommandSourcePaths
-        surfaceTabBarButtons = configuredSurfaceTabBarButtons ?? CmuxSurfaceTabBarButton.defaults
+        surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
+        surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
     }
@@ -1471,25 +1480,49 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     private func applySurfaceTabBarButtonsToCurrentManager() {
-        let workspaceCommands = Dictionary(
-            uniqueKeysWithValues: surfaceTabBarButtons.compactMap { button -> (String, CmuxResolvedCommand)? in
-                guard let commandName = button.workspaceCommandName,
-                      let command = resolvedWorkspaceCommand(
-                          named: commandName,
-                          settingName: "surfaceTabBarButtons action"
-                      ) else {
-                    return nil
-                }
-                return (button.id, command)
-            }
-        )
         tabManager?.applySurfaceTabBarButtons(
             surfaceTabBarButtons,
             sourcePath: surfaceTabBarButtonSourcePath,
             globalConfigPath: globalConfigPath,
             terminalCommandSourcePaths: surfaceTabBarCommandSourcePaths,
-            workspaceCommands: workspaceCommands
+            workspaceCommands: surfaceTabBarWorkspaceCommands
         )
+    }
+
+    private func resolvedSurfaceTabBarWorkspaceCommands(
+        _ buttons: [CmuxSurfaceTabBarButton],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String]
+    ) -> (buttons: [CmuxSurfaceTabBarButton], workspaceCommands: [String: CmuxResolvedCommand]) {
+        var visibleButtons: [CmuxSurfaceTabBarButton] = []
+        var workspaceCommands: [String: CmuxResolvedCommand] = [:]
+        visibleButtons.reserveCapacity(buttons.count)
+
+        for button in buttons {
+            guard let commandName = button.workspaceCommandName else {
+                visibleButtons.append(button)
+                continue
+            }
+
+            guard let command = resolvedWorkspaceCommand(
+                named: commandName,
+                settingName: "surfaceTabBarButtons action",
+                commands: commands,
+                sourcePaths: sourcePaths
+            ) else {
+                NSLog(
+                    "[CmuxConfig] surfaceTabBarButtons action '%@' hidden because workspace command '%@' is unavailable",
+                    button.id,
+                    commandName
+                )
+                continue
+            }
+
+            visibleButtons.append(button)
+            workspaceCommands[button.id] = command
+        }
+
+        return (visibleButtons, workspaceCommands)
     }
 
     func resolvedNewWorkspaceCommand() -> CmuxResolvedCommand? {
@@ -1509,7 +1542,21 @@ final class CmuxConfigStore: ObservableObject {
         named commandName: String,
         settingName: String
     ) -> CmuxResolvedCommand? {
-        guard let command = loadedCommands.first(where: { $0.name == commandName }) else {
+        resolvedWorkspaceCommand(
+            named: commandName,
+            settingName: settingName,
+            commands: loadedCommands,
+            sourcePaths: commandSourcePaths
+        )
+    }
+
+    private func resolvedWorkspaceCommand(
+        named commandName: String,
+        settingName: String,
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String]
+    ) -> CmuxResolvedCommand? {
+        guard let command = commands.first(where: { $0.name == commandName }) else {
             NSLog("[CmuxConfig] %@ '%@' does not match any loaded command", settingName, commandName)
             return nil
         }
@@ -1517,7 +1564,7 @@ final class CmuxConfigStore: ObservableObject {
             NSLog("[CmuxConfig] %@ '%@' must reference a workspace command", settingName, commandName)
             return nil
         }
-        return CmuxResolvedCommand(command: command, sourcePath: commandSourcePaths[command.id])
+        return CmuxResolvedCommand(command: command, sourcePath: sourcePaths[command.id])
     }
 
     // MARK: - Parsing

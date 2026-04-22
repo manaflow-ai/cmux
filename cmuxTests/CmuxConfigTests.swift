@@ -342,6 +342,53 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(decoded, original)
     }
 
+    @MainActor
+    func testSurfaceTabBarDropsUnresolvedWorkspaceCommandButtons() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "action": "newTerminal" },
+                { "id": "dev", "type": "workspaceCommand", "commandName": "Dev Environment" },
+                { "id": "typo", "type": "workspaceCommand", "commandName": "Typo" },
+                { "id": "simple", "type": "workspaceCommand", "commandName": "Run Tests" }
+              ]
+            }
+          },
+          "commands": [
+            {
+              "name": "Dev Environment",
+              "workspace": { "name": "Dev" }
+            },
+            {
+              "name": "Run Tests",
+              "command": "npm test"
+            }
+          ]
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["newTerminal", "dev"])
+        XCTAssertEqual(store.surfaceTabBarButtons.last?.workspaceCommandName, "Dev Environment")
+    }
+
     func testDecodeEmptySurfaceTabBarButtons() throws {
         let json = """
         {
