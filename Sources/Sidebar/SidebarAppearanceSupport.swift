@@ -71,7 +71,7 @@ func cmuxAccentColor() -> Color {
 }
 
 private func sidebarSelectedWorkspaceRelativeLuminance(_ color: NSColor) -> CGFloat {
-    let rgbColor = color.usingColorSpace(.sRGB) ?? color
+    guard let rgbColor = color.usingColorSpace(.sRGB) else { return 0 }
     var red: CGFloat = 0
     var green: CGFloat = 0
     var blue: CGFloat = 0
@@ -224,6 +224,7 @@ func sidebarWorkspaceRowBackgroundStyle(
 ) -> SidebarWorkspaceRowBackgroundStyle {
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
+        customHex: customColorHex,
         sidebarSelectionColorHex: sidebarSelectionColorHex
     )
     let accentBackground = cmuxAccentNSColor(for: colorScheme)

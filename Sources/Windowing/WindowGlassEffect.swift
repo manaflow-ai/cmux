@@ -25,11 +25,11 @@ enum WindowGlassEffect {
         let bounds = originalContentView.bounds
 
         // Create the glass/blur view
-        let glassView: NSVisualEffectView
+        let glassView: NSView
         let usingGlassEffectView: Bool
 
         // Try NSGlassEffectView first (macOS 26 Tahoe+)
-        if let glassClass = NSClassFromString("NSGlassEffectView") as? NSVisualEffectView.Type {
+        if let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
             usingGlassEffectView = true
             glassView = glassClass.init(frame: bounds)
             glassView.wantsLayer = true
@@ -45,12 +45,13 @@ enum WindowGlassEffect {
         } else {
             usingGlassEffectView = false
             // Fallback to NSVisualEffectView
-            glassView = NSVisualEffectView(frame: bounds)
-            glassView.blendingMode = .behindWindow
+            let fallbackView = NSVisualEffectView(frame: bounds)
+            fallbackView.blendingMode = .behindWindow
             // Favor a lighter fallback so behind-window glass reads more transparent.
-            glassView.material = .underWindowBackground
-            glassView.state = .active
-            glassView.wantsLayer = true
+            fallbackView.material = .underWindowBackground
+            fallbackView.state = .active
+            fallbackView.wantsLayer = true
+            glassView = fallbackView
         }
 
         glassView.autoresizingMask = [.width, .height]
