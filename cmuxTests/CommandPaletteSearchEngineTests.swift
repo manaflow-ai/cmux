@@ -116,6 +116,31 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         ]
     }
 
+    private func makeWorkspaceMetadataEntry(
+        id: String,
+        rank: Int = 0,
+        title: String,
+        directory: String? = nil,
+        branch: String? = nil,
+        ports: [Int] = []
+    ) -> FixtureEntry {
+        let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+            baseKeywords: ["workspace", "switch", "go", "open", title],
+            metadata: CommandPaletteSwitcherSearchMetadata(
+                directories: directory.map { [$0] } ?? [],
+                branches: branch.map { [$0] } ?? [],
+                ports: ports
+            ),
+            detail: .workspace
+        )
+        return FixtureEntry(
+            id: id,
+            rank: rank,
+            title: title,
+            searchableTexts: [title, "Workspace"] + keywords
+        )
+    }
+
     private func makeUpdateCommandEntries() -> [FixtureEntry] {
         [
             FixtureEntry(
@@ -203,19 +228,30 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         query: String,
         entry: FixtureEntry
     ) -> Int? {
+        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
-            query: query,
-            candidates: entry.searchableTexts
+            preparedQuery: preparedQuery,
+            normalizedCandidates: entry.searchableTexts.map(CommandPaletteFuzzyMatcher.normalizeForSearch)
         ) else {
             return nil
         }
         guard let titleScore = CommandPaletteFuzzyMatcher.score(
-            query: query,
-            candidate: entry.title
+            preparedQuery: preparedQuery,
+            normalizedCandidates: [CommandPaletteFuzzyMatcher.normalizeForSearch(entry.title)]
         ) else {
+            if !queryHasAlphanumericCharacter(query) {
+                return nil
+            }
             return fuzzyScore
         }
         return max(fuzzyScore, titleScore + 2000)
+    }
+
+    private func queryHasAlphanumericCharacter(_ query: String) -> Bool {
+        CommandPaletteFuzzyMatcher
+            .normalizeForSearch(query)
+            .unicodeScalars
+            .contains { CharacterSet.alphanumerics.contains($0) }
     }
 
     private func benchmarkElapsedMs(operation: () -> Void) -> Double {
@@ -237,6 +273,9 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             "rename tab",
             "workspace",
             "feature-12",
+            "/",
+            "~/dev",
+            ":3004",
             "3004",
             "toggle side",
             "open dir",
@@ -371,6 +410,142 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(
             results.prefix(2).map(\.id),
             ["command.checkForUpdates", "command.attemptUpdate"]
+        )
+    }
+
+    func testSlashQueryDoesNotMatchHiddenWorkspacePathMetadataOnly() {
+        let entries = [
+            makeWorkspaceMetadataEntry(
+                id: "workspace.skibs",
+                title: "skibs",
+                directory: "/Users/example/dev/skibs",
+                branch: "feature/skibs"
+            )
+        ]
+
+        XCTAssertTrue(optimizedResults(entries: entries, query: "/").isEmpty)
+    }
+
+    func testSlashQueryStillMatchesVisibleSlashInTitle() {
+        let entries = [
+            makeWorkspaceMetadataEntry(
+                id: "workspace.skibs",
+                title: "skibs",
+                directory: "/Users/example/dev/skibs"
+            ),
+            makeWorkspaceMetadataEntry(
+                id: "workspace.visible",
+                rank: 1,
+                title: "foo/bar",
+                directory: "/tmp/other"
+            ),
+        ]
+
+        let results = optimizedResults(entries: entries, query: "/")
+
+        XCTAssertEqual(results.map(\.id), ["workspace.visible"])
+        XCTAssertFalse(results[0].titleMatchIndices.isEmpty)
+    }
+
+    func testHiddenWorkspacePathMatchStillWorksForPathQueryWithLetters() {
+        let entries = [
+            makeWorkspaceMetadataEntry(
+                id: "workspace.skibs",
+                title: "skibs",
+                directory: "/Users/example/dev/skibs"
+            )
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "/Users").first?.id,
+            "workspace.skibs"
+        )
+    }
+
+    func testHiddenWorkspacePathMatchStillWorksForAbbreviatedHomeQueryWithLetters() {
+        let entries = [
+            makeWorkspaceMetadataEntry(
+                id: "workspace.skibs",
+                title: "skibs",
+                directory: "/Users/example/dev/skibs"
+            )
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "~/dev").first?.id,
+            "workspace.skibs"
+        )
+    }
+
+    func testTildeOnlyQueryDoesNotMatchHiddenWorkspacePathMetadataOnly() {
+        let entries = [
+            makeWorkspaceMetadataEntry(
+                id: "workspace.skibs",
+                title: "skibs",
+                directory: "/Users/example/dev/skibs"
+            )
+        ]
+
+        XCTAssertTrue(optimizedResults(entries: entries, query: "~").isEmpty)
+    }
+
+    func testDashOnlyQueryDoesNotMatchHiddenWorkspaceBranchMetadataOnly() {
+        let entries = [
+            makeWorkspaceMetadataEntry(
+                id: "workspace.skibs",
+                title: "skibs",
+                branch: "feature/skibs-hidden-match"
+            )
+        ]
+
+        XCTAssertTrue(optimizedResults(entries: entries, query: "-").isEmpty)
+    }
+
+    func testSlashOnlyQueryDoesNotMatchHiddenWorkspaceBranchMetadataOnly() {
+        let entries = [
+            makeWorkspaceMetadataEntry(
+                id: "workspace.skibs",
+                title: "skibs",
+                branch: "feature/skibs"
+            )
+        ]
+
+        XCTAssertTrue(optimizedResults(entries: entries, query: "/").isEmpty)
+    }
+
+    func testColonPortQueryStillMatchesHiddenWorkspacePortMetadata() {
+        let entries = [
+            makeWorkspaceMetadataEntry(
+                id: "workspace.skibs",
+                title: "skibs",
+                ports: [3000]
+            )
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: ":3000").first?.id,
+            "workspace.skibs"
+        )
+    }
+
+    func testVisiblePunctuationTitleOutranksHiddenMetadataMatch() {
+        let entries = [
+            makeWorkspaceMetadataEntry(
+                id: "workspace.hidden",
+                title: "skibs",
+                directory: "/Users/example/dev/skibs"
+            ),
+            makeWorkspaceMetadataEntry(
+                id: "workspace.visible",
+                rank: 1,
+                title: "slash/workspace",
+                directory: "/tmp/other"
+            ),
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "/w").first?.id,
+            "workspace.visible"
         )
     }
 

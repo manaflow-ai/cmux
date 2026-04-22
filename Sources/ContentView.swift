@@ -9414,6 +9414,10 @@ enum CommandPaletteFuzzyMatcher {
         var isEmpty: Bool {
             tokens.isEmpty
         }
+
+        var hasAlphanumericCharacter: Bool {
+            normalizedText.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+        }
     }
 
     static func preparedQuery(_ query: String) -> PreparedQuery {
@@ -10221,6 +10225,12 @@ enum CommandPaletteSearchEngine {
                 preparedQuery: preparedQuery,
                 normalizedCandidates: [entry.normalizedTitle]
               ) else {
+            // Hidden metadata matches like workspace cwd are useful for queries such as
+            // "/Users" or ":3000", but punctuation-only probes like "/" are too noisy
+            // when the row text gives no visible reason for the match.
+            if !preparedQuery.hasAlphanumericCharacter {
+                return nil
+            }
             return fuzzyScore
         }
         return max(fuzzyScore, titleScore + titleMatchBonus)
