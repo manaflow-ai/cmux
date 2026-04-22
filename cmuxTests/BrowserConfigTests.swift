@@ -1501,7 +1501,19 @@ final class BrowserPopupDecisionTests: XCTestCase {
         )
     }
 
-    func testOtherNavigationPlainLeftClickCreatesPopup() {
+    func testOtherNavigationKeyDownGestureStillCreatesPopup() {
+        XCTAssertTrue(
+            browserNavigationShouldCreatePopup(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 0,
+                currentEventType: .keyDown,
+                currentEventButtonNumber: 0
+            )
+        )
+    }
+
+    func testOtherNavigationWithoutExplicitNewTabIntentCreatesPopup() {
         XCTAssertTrue(
             browserNavigationShouldCreatePopup(
                 navigationType: .other,
@@ -1546,6 +1558,218 @@ final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
         XCTAssertTrue(
             browserNavigationShouldFallbackNilTargetToNewTab(
                 navigationType: .linkActivated
+            )
+        )
+    }
+}
+
+
+final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
+    func testKeyboardKeyDownSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
+                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
+                currentEventType: .keyDown,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testKeyboardSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
+                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testLeftClickSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
+                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
+                currentEventType: .leftMouseUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testCrossSiteKeyboardPopupStaysPopup() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://accounts.google.com/o/oauth2/v2/auth"),
+                openerURL: URL(string: "https://app.example.com/login"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testExplicitCommandNewTabGestureDoesNotRetargetIntoCurrentTab() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
+                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
+                modifierFlags: [.command],
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testMixedSchemePopupStaysPopupEvenWhenRegistrableDomainMatches() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://login.example.com/oauth"),
+                openerURL: URL(string: "http://example.com/login"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testGitHubPagesTenantsStayPopup() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://foo.github.io/search"),
+                openerURL: URL(string: "https://bar.github.io/login"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testAppspotTenantsStayPopup() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://a.appspot.com/search"),
+                openerURL: URL(string: "https://b.appspot.com/login"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testCloudFrontTenantsStayPopup() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://foo.cloudfront.net/search"),
+                openerURL: URL(string: "https://bar.cloudfront.net/login"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testS3TenantsStayPopup() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://a.s3.amazonaws.com/search"),
+                openerURL: URL(string: "https://b.s3.amazonaws.com/login"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testSameHostKeyboardPopupStaysPopup() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://www.example.com/chooser"),
+                openerURL: URL(string: "https://www.example.com/settings"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testCrossPortSameHostPopupStaysPopup() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://localhost:3000/search"),
+                openerURL: URL(string: "https://localhost:5000/login"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testDistinctBareCountryCodeSecondLevelHostsStayPopup() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://foo.co.uk/search"),
+                openerURL: URL(string: "https://bar.co.uk/login"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testCrossRegistrableDomainsUnderCommonMultiPartSuffixStayPopup() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://foo.example.co.uk/search"),
+                openerURL: URL(string: "https://bar.attacker.co.uk/login"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
+            )
+        )
+    }
+
+    func testPopupFeaturesKeepKeyboardRequestOnPopupPath() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://www.bilibili.com/search"),
+                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: true
+            )
+        )
+    }
+
+    func testPOSTKeyboardRequestStaysPopup() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+                navigationType: .other,
+                requestMethod: "POST",
+                requestURL: URL(string: "https://www.bilibili.com/search"),
+                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
+                currentEventType: .keyUp,
+                popupFeaturesWereSpecified: false
             )
         )
     }

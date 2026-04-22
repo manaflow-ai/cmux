@@ -47,6 +47,8 @@
 	<string>A program running within cmux would like to use your microphone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>A program running within cmux would like to use your camera.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -60,6 +62,18 @@
 			<array>
 				<string>http</string>
 				<string>https</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).auth</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(CMUX_AUTH_CALLBACK_SCHEME)</string>
 			</array>
 		</dict>
 	</array>

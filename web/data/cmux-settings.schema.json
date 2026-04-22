@@ -26,7 +26,27 @@
       "properties": {
         "language": {
           "type": "string",
-          "enum": ["system", "en", "ar", "bs", "zh-Hans", "zh-Hant", "da", "de", "es", "fr", "it", "ja", "ko", "nb", "pl", "pt-BR", "ru", "th", "tr"],
+          "enum": [
+            "system",
+            "en",
+            "ar",
+            "bs",
+            "zh-Hans",
+            "zh-Hant",
+            "da",
+            "de",
+            "es",
+            "fr",
+            "it",
+            "ja",
+            "ko",
+            "nb",
+            "pl",
+            "pt-BR",
+            "ru",
+            "th",
+            "tr"
+          ],
           "default": "system",
           "description": "Preferred app language."
         },
@@ -68,6 +88,11 @@
           "default": "",
           "description": "Custom editor command used by cmux where applicable. Leave empty to use the default."
         },
+        "openMarkdownInCmuxViewer": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files in the terminal opens them in the cmux markdown viewer panel (with live reload) instead of the preferred editor."
+        },
         "reorderOnNotification": {
           "type": "boolean",
           "default": true,
@@ -92,6 +117,19 @@
           "type": "boolean",
           "default": false,
           "description": "Search every surface in the command palette switcher instead of only the active workspace."
+        }
+      }
+    },
+    "terminal": {
+      "title": "terminal",
+      "description": "Terminal presentation settings from Settings > Terminal.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "showScrollBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         }
       }
     },
@@ -123,7 +161,25 @@
         },
         "sound": {
           "type": "string",
-          "enum": ["default", "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink", "custom_file", "none"],
+          "enum": [
+            "default",
+            "Basso",
+            "Blow",
+            "Bottle",
+            "Frog",
+            "Funk",
+            "Glass",
+            "Hero",
+            "Morse",
+            "Ping",
+            "Pop",
+            "Purr",
+            "Sosumi",
+            "Submarine",
+            "Tink",
+            "custom_file",
+            "none"
+          ],
           "default": "default",
           "description": "Notification sound preset."
         },
@@ -216,7 +272,17 @@
       "properties": {
         "indicatorStyle": {
           "type": "string",
-          "enum": ["leftRail", "solidFill", "rail", "border", "wash", "lift", "typography", "washRail", "blueWashColorRail"],
+          "enum": [
+            "leftRail",
+            "solidFill",
+            "rail",
+            "border",
+            "wash",
+            "lift",
+            "typography",
+            "washRail",
+            "blueWashColorRail"
+          ],
           "default": "leftRail",
           "description": "Active workspace indicator style. Legacy aliases are accepted and normalized."
         },
@@ -300,7 +366,17 @@
       "properties": {
         "socketControlMode": {
           "type": "string",
-          "enum": ["off", "cmuxOnly", "automation", "password", "allowAll", "openAccess", "fullOpenAccess", "notifications", "full"],
+          "enum": [
+            "off",
+            "cmuxOnly",
+            "automation",
+            "password",
+            "allowAll",
+            "openAccess",
+            "fullOpenAccess",
+            "notifications",
+            "full"
+          ],
           "default": "cmuxOnly",
           "description": "Socket control mode. Legacy aliases are accepted and normalized."
         },
@@ -410,7 +486,13 @@
           "items": {
             "type": "string"
           },
-          "default": ["localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"],
+          "default": [
+            "localhost",
+            "127.0.0.1",
+            "::1",
+            "0.0.0.0",
+            "*.localtest.me"
+          ],
           "description": "HTTP hosts allowed in the embedded browser without a warning prompt."
         },
         "showImportHintOnBlankTabs": {

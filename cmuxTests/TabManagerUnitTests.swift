@@ -393,6 +393,47 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testPullRequestMapDropsStaleMergedHeadPullRequestForLongLivedBaseBranch() throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let pullRequests = [
+            TabManager.GitHubPullRequestProbeItem(
+                number: 2400,
+                state: "MERGED",
+                url: "https://github.com/manaflow-ai/cmux/pull/2400",
+                updatedAt: "2026-03-06T12:00:00Z",
+                mergedAt: "2026-03-06T12:00:00Z",
+                headRefName: "develop",
+                baseRefName: "main"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 2501,
+                state: "MERGED",
+                url: "https://github.com/manaflow-ai/cmux/pull/2501",
+                updatedAt: "2026-04-19T12:00:00Z",
+                mergedAt: "2026-04-19T12:00:00Z",
+                headRefName: "feature/recent-one",
+                baseRefName: "develop"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 2502,
+                state: "OPEN",
+                url: "https://github.com/manaflow-ai/cmux/pull/2502",
+                updatedAt: "2026-04-20T12:00:00Z",
+                headRefName: "feature/recent-two",
+                baseRefName: "develop"
+            ),
+        ]
+
+        let pullRequestsByBranch = TabManager.pullRequestMapByNormalizedBranchForTesting(
+            from: pullRequests,
+            now: now
+        )
+
+        XCTAssertNil(pullRequestsByBranch["develop"])
+        XCTAssertEqual(pullRequestsByBranch["feature/recent-one"]?.number, 2501)
+        XCTAssertEqual(pullRequestsByBranch["feature/recent-two"]?.number, 2502)
+    }
+
     func testShouldSkipWorkspacePullRequestLookupOnlyForExactMainAndMaster() {
         XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "main"))
         XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "master"))
@@ -883,6 +924,72 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         XCTAssertEqual(prompts.first?.message, expectedMessage)
         XCTAssertEqual(prompts.first?.acceptCmdD, false)
         XCTAssertEqual(manager.tabs.map(\.title), ["Alpha", "Beta", "Gamma"])
+    }
+}
+
+@MainActor
+final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
+    func testCloseCurrentTabSpamWithConfirmationEnabledPromptsOnceAndClosesOneWorkspace() {
+        let manager = TabManager()
+        while manager.tabs.count < 6 {
+            _ = manager.addWorkspace()
+        }
+
+        for workspace in manager.tabs {
+            guard let panelId = workspace.focusedPanelId,
+                  let terminalPanel = workspace.terminalPanel(for: panelId) else {
+                XCTFail("Expected each workspace to have a focused terminal panel")
+                return
+            }
+            terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        }
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return true
+        }
+
+        for _ in 0..<5 {
+            manager.closeCurrentTabWithConfirmation()
+        }
+
+        XCTAssertEqual(prompts.count, 1, "Expected close-tab spam to surface only one confirmation prompt")
+        XCTAssertEqual(
+            prompts.first?.title,
+            String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?")
+        )
+        XCTAssertEqual(prompts.first?.acceptCmdD, false)
+        XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
+    }
+
+    func testCloseCurrentTabSpamWithConfirmationDisabledClosesEveryRequestedWorkspace() {
+        let manager = TabManager()
+        while manager.tabs.count < 6 {
+            _ = manager.addWorkspace()
+        }
+
+        for workspace in manager.tabs {
+            guard let panelId = workspace.focusedPanelId,
+                  let terminalPanel = workspace.terminalPanel(for: panelId) else {
+                XCTFail("Expected each workspace to have a focused terminal panel")
+                return
+            }
+            terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        }
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return true
+        }
+
+        for _ in 0..<5 {
+            manager.closeCurrentTabWithConfirmation()
+        }
+
+        XCTAssertEqual(promptCount, 0, "Expected warning-disabled close-tab spam to bypass confirmation entirely")
+        XCTAssertEqual(manager.tabs.count, 1, "Expected warning-disabled close-tab spam to close all requested workspaces")
     }
 }
 

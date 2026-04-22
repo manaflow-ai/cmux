@@ -1944,6 +1944,72 @@ struct CMUXCLI {
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
 
+        case "auth":
+            let sub = commandArgs.first?.lowercased() ?? "status"
+            switch sub {
+            case "status":
+                let response = try client.sendV2(method: "auth.status")
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let signedIn = (response["signed_in"] as? Bool) ?? false
+                if !signedIn {
+                    print("Not signed in.")
+                    print("Run: cmux auth login")
+                    break
+                }
+                let user = response["user"] as? [String: Any]
+                let email = user?["email"] as? String
+                let display = user?["display_name"] as? String
+                let userID = user?["id"] as? String
+                print("Signed in.")
+                if let email { print("  email:    \(email)") }
+                if let display { print("  name:     \(display)") }
+                if let userID { print("  user_id:  \(userID)") }
+                if let teamID = response["selected_team_id"] as? String {
+                    print("  team_id:  \(teamID)")
+                }
+
+            case "login":
+                let statusBefore = try client.sendV2(method: "auth.status")
+                if (statusBefore["signed_in"] as? Bool) == true {
+                    let email = (statusBefore["user"] as? [String: Any])?["email"] as? String
+                    print("Already signed in\(email.map { " as \($0)" } ?? ""). Use `cmux auth logout` to sign out first.")
+                    break
+                }
+                print("Opening sign-in popup on the cmux mac app.")
+                // auth.begin_sign_in blocks on the server side until the
+                // popup completes (or 5min timeout). The response is the
+                // callback — no polling.
+                let result = try client.sendV2(method: "auth.begin_sign_in")
+                if (result["signed_in"] as? Bool) == true {
+                    let email = (result["user"] as? [String: Any])?["email"] as? String
+                    print("Signed in\(email.map { " as \($0)" } ?? "").")
+                } else if (result["timed_out"] as? Bool) == true {
+                    print("Timed out waiting for sign-in. Run `cmux auth status` once you've finished in the popup.")
+                } else {
+                    print("Sign-in did not complete. Run `cmux auth status` to check.")
+                }
+
+            case "logout":
+                let statusBefore = try client.sendV2(method: "auth.status")
+                if (statusBefore["signed_in"] as? Bool) != true {
+                    print("Already signed out.")
+                    break
+                }
+                // auth.sign_out awaits the token clear before replying.
+                let result = try client.sendV2(method: "auth.sign_out")
+                if (result["signed_in"] as? Bool) != true {
+                    print("Signed out.")
+                } else {
+                    print("Sign-out requested but state hasn't cleared yet. Run `cmux auth status` to confirm.")
+                }
+
+            default:
+                throw CLIError(message: "Usage: cmux auth <status|login|logout>")
+            }
+
         case "rpc":
             guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !method.isEmpty else {
@@ -2105,9 +2171,10 @@ struct CMUXCLI {
             let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-            let (descriptionOpt, remaining) = parseOption(rem2, name: "--description")
+            let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
+            let (layoutOpt, remaining) = parseOption(rem3, name: "--layout")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>")
             }
             var params: [String: Any] = [:]
             if let cwdOpt {
@@ -2120,10 +2187,17 @@ struct CMUXCLI {
             if let descriptionOpt {
                 params["description"] = descriptionOpt
             }
+            if let layoutOpt {
+                guard let layoutData = layoutOpt.data(using: .utf8),
+                      let layoutObj = try? JSONSerialization.jsonObject(with: layoutData) as? [String: Any] else {
+                    throw CLIError(message: "new-workspace: --layout value must be a valid JSON object")
+                }
+                params["layout"] = layoutObj
+            }
             let response = try client.sendV2(method: "workspace.create", params: params)
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             print("OK \(wsId)")
-            if let commandText = commandOpt, !wsId.isEmpty {
+            if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
                 let text = unescapeSendText(commandText + "\\n")
                 let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
                 _ = try client.sendV2(method: "surface.send_text", params: sendParams)
@@ -6812,6 +6886,14 @@ struct CMUXCLI {
 
             Print server capabilities as JSON.
             """
+        case "auth":
+            return """
+            Usage: cmux auth <status|login|logout>
+
+            status   Print whether the user is signed in (add `cmux --json` for JSON).
+            login    Open the sign-in popup on the cmux mac app and wait for it to finish.
+            logout   Clear the current session.
+            """
         case "rpc":
             return """
             Usage: cmux rpc <method> [json-params]
@@ -7201,15 +7283,18 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>]
 
             Create a new workspace in the current window.
 
             Flags:
-              --name <title>     Set a custom name for the new workspace
+              --name <title>       Set a custom name for the new workspace
               --description <text> Set a custom description for the new workspace
-              --cwd <path>       Set the working directory for the new workspace
-              --command <text>   Send text+Enter to the new workspace after creation
+              --cwd <path>         Set the working directory for the new workspace
+              --command <text>     Send text+Enter to the new workspace after creation
+              --layout <json>      Create workspace with a predefined split layout (inline JSON).
+                                   Uses the same schema as cmux.json layout definitions.
+                                   When provided, --command is ignored (layout surfaces define their own commands).
 
             Example:
               cmux new-workspace
@@ -7217,6 +7302,7 @@ struct CMUXCLI {
               cmux new-workspace --name "Launch" --description "Ship checklist"
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
+              cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
             """
         case "list-workspaces":
             return """
@@ -14361,6 +14447,7 @@ struct CMUXCLI {
           ping
           version
           capabilities
+          auth <status|login|logout>
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
           list-windows
@@ -14372,7 +14459,7 @@ struct CMUXCLI {
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           list-workspaces
-          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]

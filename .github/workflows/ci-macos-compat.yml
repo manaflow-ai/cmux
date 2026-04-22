@@ -14,11 +14,13 @@ jobs:
         include:
           - os: warp-macos-15-arm64-6x
             timeout: 30
-            smoke: true
+            startup_smoke: true
+            virtual_display: true
             skip_zig: false
           - os: warp-macos-26-arm64-6x
             timeout: 30
-            smoke: false
+            startup_smoke: true
+            virtual_display: false
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
@@ -164,7 +166,7 @@ jobs:
           fi
 
       - name: Create virtual display
-        if: matrix.smoke
+        if: matrix.virtual_display
         run: |
           set -euo pipefail
           echo "=== Display before ==="
@@ -180,7 +182,9 @@ jobs:
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
 
       - name: Build app for smoke test
-        if: matrix.smoke
+        if: matrix.startup_smoke
+        env:
+          CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -190,7 +194,7 @@ jobs:
             -destination "platform=macOS" build
 
       - name: Smoke test
-        if: matrix.smoke
+        if: matrix.startup_smoke
         run: |
           set -euo pipefail
           chmod +x scripts/smoke-test-ci.sh

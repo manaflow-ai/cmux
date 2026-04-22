@@ -247,6 +247,39 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
 
+      - name: Embed release provisioning profile
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          if [ -z "$APPLE_RELEASE_PROVISIONING_PROFILE_BASE64" ]; then
+            echo "Missing APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 secret" >&2
+            exit 1
+          fi
+          APP_PATH="build-universal/Build/Products/Release/cmux.app"
+          PROFILE_PATH="$APP_PATH/Contents/embedded.provisionprofile"
+          TMP_PROFILE="$(mktemp /tmp/cmux-release-profile.XXXXXX)"
+          TMP_PLIST="$(mktemp /tmp/cmux-release-profile.XXXXXX.plist)"
+          trap 'rm -f "$TMP_PROFILE" "$TMP_PLIST"' EXIT
+          echo "$APPLE_RELEASE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
+          security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"
+          APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$TMP_PLIST")"
+          if [ "$APP_ID" != "7WLXT3NR37.com.cmuxterm.app" ]; then
+            echo "Release provisioning profile targets unexpected app ID: $APP_ID" >&2
+            exit 1
+          fi
+          WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST")"
+          if [ "$WEBAUTHN_ENTITLEMENT" != "true" ]; then
+            echo "Release provisioning profile missing WebAuthn browser entitlement" >&2
+            exit 1
+          fi
+          PROVISIONS_ALL_DEVICES="$(/usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" "$TMP_PLIST")"
+          if [ "$PROVISIONS_ALL_DEVICES" != "true" ]; then
+            echo "Release provisioning profile is not a Developer ID all-devices profile" >&2
+            exit 1
+          fi
+          cp "$TMP_PROFILE" "$PROFILE_PATH"
+
       - name: Codesign app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
@@ -257,17 +290,10 @@ jobs:
             exit 1
           fi
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
-          ENTITLEMENTS="cmux.entitlements"
-          CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-          HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
-          if [ -f "$CLI_PATH" ]; then
-            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
-          fi
-          if [ -f "$HELPER_PATH" ]; then
-            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
-          fi
-          /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          ./scripts/sign-cmux-bundle.sh \
+            "$APP_PATH" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
 
       - name: Notarize app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
