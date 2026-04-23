@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 /// Ring-buffer event log used by cmux debug builds.
@@ -21,10 +22,12 @@ public final class DebugEventLog: @unchecked Sendable {
     private init() {}
 
     public func log(_ message: String) {
-        let timestamp = Self.formatter.string(from: Date())
-        let entry = "\(timestamp) \(message)"
+        let date = Date()
 
         queue.async {
+            let timestamp = Self.formatter.string(from: date)
+            let entry = "\(timestamp) \(message)"
+
             if self.entries.count >= self.capacity {
                 self.entries.removeFirst()
             }
@@ -95,3 +98,4 @@ public final class DebugEventLog: @unchecked Sendable {
 public func logDebugEvent(_ message: @autoclosure () -> String) {
     DebugEventLog.shared.log(message())
 }
+#endif

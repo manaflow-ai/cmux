@@ -126,7 +126,7 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - Implementation: `Packages/CMUXDebugLog/Sources/CMUXDebugLog/DebugEventLog.swift`
 - App shim: `Sources/App/DebugLogging.swift`
 - Free function `cmuxDebugLog("message")` — logs with timestamp and appends to file in real time from cmux code
-- The app shim is `#if DEBUG`; all call sites must be wrapped in `#if DEBUG` / `#endif`
+- The package implementation and app shim are `#if DEBUG`; all call sites must be wrapped in `#if DEBUG` / `#endif`
 - 500-entry ring buffer; `CMUXDebugLog.DebugEventLog.shared.dump()` writes full buffer to file
 - Key events logged in `AppDelegate.swift` (monitor, performKeyEquivalent)
 - Mouse/UI events logged inline in views (ContentView, BrowserPanelView, etc.)
