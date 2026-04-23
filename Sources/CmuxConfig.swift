@@ -1743,19 +1743,36 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
         case newWorkspaceActionRequiresWorkspaceCommand
         case newWorkspaceCommandNotFound
         case newWorkspaceCommandRequiresWorkspace
+        case schemaError
     }
 
     let kind: Kind
     let settingName: String
     let commandName: String?
     let sourcePath: String?
+    let message: String?
+
+    init(
+        kind: Kind,
+        settingName: String,
+        commandName: String? = nil,
+        sourcePath: String? = nil,
+        message: String? = nil
+    ) {
+        self.kind = kind
+        self.settingName = settingName
+        self.commandName = commandName
+        self.sourcePath = sourcePath
+        self.message = message
+    }
 
     var id: String {
         [
             kind.rawValue,
             settingName,
             commandName ?? "",
-            sourcePath ?? ""
+            sourcePath ?? "",
+            message ?? ""
         ].joined(separator: "|")
     }
 
@@ -1767,6 +1784,8 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
             return "\(settingName) '\(commandName ?? "")' does not match any loaded command"
         case .newWorkspaceCommandRequiresWorkspace:
             return "\(settingName) '\(commandName ?? "")' must reference a workspace command"
+        case .schemaError:
+            return "\(settingName) has a schema error: \(message ?? "unknown error")"
         }
     }
 }
@@ -1821,6 +1840,12 @@ final class CmuxConfigStore: ObservableObject {
         let fileSize: UInt64
         let modificationDate: Date?
         let config: CmuxConfigFile?
+        let issue: CmuxConfigIssue?
+    }
+
+    private struct ParsedConfigResult {
+        let config: CmuxConfigFile?
+        let issue: CmuxConfigIssue?
     }
 
     private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
@@ -1946,8 +1971,17 @@ final class CmuxConfigStore: ObservableObject {
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
         let localPath = localConfigPath
-        let localConfig = localPath.flatMap { parseConfig(at: $0) }
-        let globalConfig = parseConfig(at: globalConfigPath)
+        let localParseResult = localPath.map { parseConfig(at: $0) }
+        let globalParseResult = parseConfig(at: globalConfigPath)
+        let localConfig = localParseResult?.config
+        let globalConfig = globalParseResult.config
+        var issues = [CmuxConfigIssue]()
+        if let issue = localParseResult?.issue {
+            issues.append(issue)
+        }
+        if let issue = globalParseResult.issue {
+            issues.append(issue)
+        }
         let localActions = localConfig.map { actionEntries(from: $0.actions, sourcePath: localPath) } ?? [:]
         let globalActions = globalConfig.map { actionEntries(from: $0.actions, sourcePath: globalConfigPath) } ?? [:]
         let localActionLookup = mergedActionEntries(primary: localActions, fallback: globalActions)
@@ -2064,7 +2098,10 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceCommand.command
-        configurationIssues = resolvedNewWorkspaceCommand.issue.map { [$0] } ?? []
+        if let issue = resolvedNewWorkspaceCommand.issue {
+            issues.append(issue)
+        }
+        configurationIssues = issues
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
     }
@@ -2423,11 +2460,11 @@ final class CmuxConfigStore: ObservableObject {
 
     // MARK: - Parsing
 
-    private func parseConfig(at path: String) -> CmuxConfigFile? {
+    private func parseConfig(at path: String) -> ParsedConfigResult {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: path) else {
             parsedConfigCache.removeValue(forKey: path)
-            return nil
+            return ParsedConfigResult(config: nil, issue: nil)
         }
 
         let attributes = try? fileManager.attributesOfItem(atPath: path)
@@ -2437,35 +2474,78 @@ final class CmuxConfigStore: ObservableObject {
         if let cached = parsedConfigCache[path],
            cached.fileSize == fileSize,
            cached.modificationDate == modificationDate {
-            return cached.config
+            return ParsedConfigResult(config: cached.config, issue: cached.issue)
         }
 
         guard let data = fileManager.contents(atPath: path),
               !data.isEmpty else {
+            let issue = schemaIssue(path: path, message: "cmux.json is empty")
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
-                config: nil
+                config: nil,
+                issue: issue
             )
-            return nil
+            return ParsedConfigResult(config: nil, issue: issue)
         }
         do {
             let config = try JSONDecoder().decode(CmuxConfigFile.self, from: data)
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
-                config: config
+                config: config,
+                issue: nil
             )
-            return config
+            return ParsedConfigResult(config: config, issue: nil)
         } catch {
+            let issue = schemaIssue(path: path, message: schemaErrorMessage(error))
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
-                config: nil
+                config: nil,
+                issue: issue
             )
             NSLog("[CmuxConfig] parse error at %@: %@", path, String(describing: error))
-            return nil
+            return ParsedConfigResult(config: nil, issue: issue)
         }
+    }
+
+    private func schemaIssue(path: String, message: String) -> CmuxConfigIssue {
+        CmuxConfigIssue(
+            kind: .schemaError,
+            settingName: (path as NSString).lastPathComponent,
+            sourcePath: path,
+            message: message
+        )
+    }
+
+    private func schemaErrorMessage(_ error: Error) -> String {
+        switch error {
+        case DecodingError.typeMismatch(_, let context):
+            return schemaErrorMessage(context)
+        case DecodingError.valueNotFound(_, let context):
+            return schemaErrorMessage(context)
+        case DecodingError.keyNotFound(let key, let context):
+            let path = schemaCodingPath(context.codingPath + [key])
+            let detail = sanitizeConfigText(context.debugDescription)
+            return "\(path): \(detail)"
+        case DecodingError.dataCorrupted(let context):
+            return schemaErrorMessage(context)
+        default:
+            let message = sanitizeConfigText(error.localizedDescription)
+            return message.isEmpty ? String(describing: error) : message
+        }
+    }
+
+    private func schemaErrorMessage(_ context: DecodingError.Context) -> String {
+        let path = schemaCodingPath(context.codingPath)
+        let detail = sanitizeConfigText(context.debugDescription)
+        return detail.isEmpty ? path : "\(path): \(detail)"
+    }
+
+    private func schemaCodingPath(_ codingPath: [CodingKey]) -> String {
+        let path = codingPath.map(\.stringValue).filter { !$0.isEmpty }.joined(separator: ".")
+        return path.isEmpty ? "root" : path
     }
 
     // MARK: - File watching (local)

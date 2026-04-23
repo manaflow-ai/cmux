@@ -550,6 +550,60 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testInvalidConfigExposesSchemaIssueAndClearsAfterFix() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let invalidJSON = """
+        {
+          "actions": {
+            "bad": {
+              "type": "command",
+              "command": "echo bad",
+              "icon": "sparkles"
+            }
+          }
+        }
+        """
+        try invalidJSON.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let issue = try XCTUnwrap(store.configurationIssues.first)
+        XCTAssertEqual(issue.kind, .schemaError)
+        XCTAssertEqual(issue.sourcePath, configURL.path)
+        XCTAssertTrue(issue.message?.contains("actions.bad.icon") ?? false)
+        XCTAssertNil(store.resolvedAction(id: "bad"))
+
+        let validJSON = """
+        {
+          "actions": {
+            "bad": {
+              "type": "command",
+              "command": "echo bad",
+              "icon": { "type": "symbol", "name": "sparkles" }
+            }
+          }
+        }
+        """
+        try validJSON.write(to: configURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+        XCTAssertNotNil(store.resolvedAction(id: "bad"))
+    }
+
+    @MainActor
     func testResolvedNewWorkspaceCommandReturnsConfiguredWorkspaceCommand() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",

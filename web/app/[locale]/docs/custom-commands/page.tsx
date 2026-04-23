@@ -45,6 +45,10 @@ export default function CustomCommandsPage() {
         still prompts for trust. Trust is per exact action fingerprint, not per repo. Project-local image
         icons stay locked until that action is trusted.
       </Callout>
+      <Callout type="info">
+        If a project or global config has a schema error, cmux falls back to the next valid config and shows
+        a <strong>cmux.json Schema Error</strong> row in Command Palette. Select it to open the config file.
+      </Callout>
       <p>{t("liveReload")}</p>
 
       <h2>{t("schema")}</h2>

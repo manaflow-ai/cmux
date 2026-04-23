@@ -17799,6 +17799,142 @@
         }
       }
     },
+    "command.cmuxConfig.issue.newWorkspaceActionRequiresWorkspaceCommand.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ must reference a workspace command action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はワークスペースコマンドアクションを参照する必要があります"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.newWorkspaceCommandNotFound.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ references missing command '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は存在しないコマンド '%@' を参照しています"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.newWorkspaceCommandRequiresWorkspace.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ '%@' must reference a workspace command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ '%@' はワークスペースコマンドを参照する必要があります"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.schemaError.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.schemaError.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid cmux.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効な cmux.json"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.schemaError.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json Schema Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json スキーマエラー"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.warning.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json Configuration Warning"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 設定警告"
+          }
+        }
+      }
+    },
     "command.equalizeSplits.title": {
       "extractionState": "manual",
       "localizations": {

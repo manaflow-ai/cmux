@@ -7058,6 +7058,16 @@ struct ContentView: View {
         )
 
         let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
+        for issue in cmuxConfigStore.configurationIssues {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: commandPaletteCmuxConfigIssueCommandID(issue),
+                    title: constant(commandPaletteCmuxConfigIssueTitle(issue)),
+                    subtitle: constant(commandPaletteCmuxConfigIssueSubtitle(issue)),
+                    keywords: ["cmux", "config", "json", "schema", "error", "warning"]
+                )
+            )
+        }
         for action in cmuxConfigStore.paletteCustomActions() {
             let actionTitle = sanitizeCmuxConfigPaletteText(action.title)
             let subtitleText = action.subtitle
@@ -7086,6 +7096,77 @@ struct ContentView: View {
         ]
         let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
         return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func commandPaletteCmuxConfigIssueCommandID(_ issue: CmuxConfigIssue) -> String {
+        var hash: UInt64 = 1_469_598_103_934_665_603
+        for byte in issue.id.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return "palette.cmuxConfig.issue.\(String(hash, radix: 16))"
+    }
+
+    private func commandPaletteCmuxConfigIssueTitle(_ issue: CmuxConfigIssue) -> String {
+        switch issue.kind {
+        case .schemaError:
+            return String(
+                localized: "command.cmuxConfig.issue.schemaError.title",
+                defaultValue: "cmux.json Schema Error"
+            )
+        default:
+            return String(
+                localized: "command.cmuxConfig.issue.warning.title",
+                defaultValue: "cmux.json Configuration Warning"
+            )
+        }
+    }
+
+    private func commandPaletteCmuxConfigIssueSubtitle(_ issue: CmuxConfigIssue) -> String {
+        let rawPath = issue.sourcePath.map {
+            NSString(string: $0).abbreviatingWithTildeInPath
+        } ?? issue.settingName
+        let path = sanitizeCmuxConfigPaletteText(rawPath)
+        let detail = sanitizeCmuxConfigPaletteText(commandPaletteCmuxConfigIssueDetail(issue))
+        guard !detail.isEmpty else { return path }
+        let format = String(
+            localized: "command.cmuxConfig.issue.subtitle",
+            defaultValue: "%@: %@"
+        )
+        return String(format: format, path, detail)
+    }
+
+    private func commandPaletteCmuxConfigIssueDetail(_ issue: CmuxConfigIssue) -> String {
+        switch issue.kind {
+        case .schemaError:
+            let format = String(
+                localized: "command.cmuxConfig.issue.schemaError.detail",
+                defaultValue: "%@"
+            )
+            let fallback = String(
+                localized: "command.cmuxConfig.issue.schemaError.fallback",
+                defaultValue: "Invalid cmux.json"
+            )
+            return String(format: format, issue.message ?? fallback)
+        case .newWorkspaceActionRequiresWorkspaceCommand:
+            let format = String(
+                localized: "command.cmuxConfig.issue.newWorkspaceActionRequiresWorkspaceCommand.detail",
+                defaultValue: "%@ must reference a workspace command action"
+            )
+            return String(format: format, issue.settingName)
+        case .newWorkspaceCommandNotFound:
+            let format = String(
+                localized: "command.cmuxConfig.issue.newWorkspaceCommandNotFound.detail",
+                defaultValue: "%@ references missing command '%@'"
+            )
+            return String(format: format, issue.settingName, issue.commandName ?? "")
+        case .newWorkspaceCommandRequiresWorkspace:
+            let format = String(
+                localized: "command.cmuxConfig.issue.newWorkspaceCommandRequiresWorkspace.detail",
+                defaultValue: "%@ '%@' must reference a workspace command"
+            )
+            return String(format: format, issue.settingName, issue.commandName ?? "")
+        }
     }
 
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
@@ -7449,12 +7530,27 @@ struct ContentView: View {
             }
         }
 
+        for issue in cmuxConfigStore.configurationIssues {
+            let captured = issue
+            registry.register(commandId: commandPaletteCmuxConfigIssueCommandID(issue)) {
+                openCmuxConfigIssue(captured)
+            }
+        }
         for action in cmuxConfigStore.paletteCustomActions() {
             let captured = action
             registry.register(commandId: action.id) {
                 executeConfiguredAction(captured)
             }
         }
+    }
+
+    private func openCmuxConfigIssue(_ issue: CmuxConfigIssue) {
+        guard let sourcePath = issue.sourcePath,
+              FileManager.default.fileExists(atPath: sourcePath) else {
+            NSSound.beep()
+            return
+        }
+        PreferredEditorSettings.open(URL(fileURLWithPath: sourcePath))
     }
 
     @discardableResult
