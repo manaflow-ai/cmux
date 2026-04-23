@@ -78,7 +78,7 @@ export default function CustomCommandsPage() {
       "command": "opencode",
       "target": "newTabInCurrentPane",
       "palette": false,
-      "icon": "emoji:🧪"
+      "icon": { "type": "emoji", "value": "🧪" }
     },
     "web-dev": {
       "type": "workspaceCommand",
@@ -115,12 +115,20 @@ export default function CustomCommandsPage() {
         <code>palette</code> defaults to <code>true</code>. Set it to <code>false</code> to keep an action
         out of Command Palette while still making it available to the surface tab bar or a shortcut.
         <code>shortcut</code> uses the same syntax as settings shortcuts, for example
-        <code>cmd+shift+c</code> or <code>["cmd+k", "cmd+c"]</code>.
+        <code>cmd+shift+c</code> or <code>{'["cmd+k", "cmd+c"]'}</code>.
       </p>
       <p>
         <code>ui.surfaceTabBar.buttons</code> replaces the default button list when present. Leave out a
-        built-in ID to hide it. Icons accept SF Symbols, emoji, or image paths relative to the config file.
-        SVG, PDF, PNG, JPEG, GIF, TIFF, BMP, HEIC, HEIF, WebP, AVIF, ICO, and ICNS are supported.
+        built-in ID to hide it. Icons always use an object shape:
+        <code>{'{ "type": "symbol", "name": "play.circle" }'}</code>,
+        <code>{'{ "type": "emoji", "value": "🧪" }'}</code>, or
+        <code>{'{ "type": "image", "path": "./icons/codex.svg" }'}</code>. Image paths are relative to the
+        config file. SVG, PDF, PNG, JPEG, GIF, TIFF, BMP, HEIC, HEIF, WebP, AVIF, ICO, and ICNS are supported.
+      </p>
+      <p>
+        Each button entry can be either an action ID string or a button object. Use a button object when you
+        want the same action with a different surface label, icon, or tooltip. The resolved button title is
+        also used as the trust prompt title.
       </p>
       <p>
         Put any approval or permission flags directly in the command string you actually want to run. The
@@ -258,7 +266,7 @@ export default function CustomCommandsPage() {
       "command": "codex --dangerously-bypass-approvals-and-sandbox",
       "target": "newTabInCurrentPane",
       "shortcut": "cmd+t",
-      "icon": "./icons/codex.svg"
+      "icon": { "type": "image", "path": "./icons/codex.svg" }
     },
     "claude": {
       "type": "command",
@@ -266,13 +274,13 @@ export default function CustomCommandsPage() {
       "command": "claude --dangerously-skip-permissions",
       "target": "newTabInCurrentPane",
       "shortcut": "cmd+shift+c",
-      "icon": "./icons/claude.svg"
+      "icon": { "type": "image", "path": "./icons/claude.svg" }
     },
     "start-dev": {
       "type": "command",
       "command": "npm run dev",
       "target": "newTabInCurrentPane",
-      "icon": "play.circle"
+      "icon": { "type": "symbol", "name": "play.circle" }
     }
   },
   "ui": {
@@ -282,7 +290,10 @@ export default function CustomCommandsPage() {
         "cmux.newBrowser",
         "cmux.splitRight",
         "cmux.splitDown",
-        "claude",
+        {
+          "action": "claude",
+          "title": "Claude Here"
+        },
         "start-dev"
       ]
     }

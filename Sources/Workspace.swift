@@ -6494,6 +6494,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String
+    @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -6883,9 +6884,13 @@ final class Workspace: Identifiable, ObservableObject {
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
+        let initialDirectory = hasWorkingDirectory
+            ? trimmedWorkingDirectory
+            : FileManager.default.homeDirectoryForCurrentUser.path
         self.currentDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
+        self.surfaceTabBarDirectory = initialDirectory
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // and keep split entry instantaneous.
@@ -7652,6 +7657,23 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Directory Updates
 
+    private func configTrackingDirectory(for panelId: UUID?) -> String? {
+        if let panelId {
+            for candidate in [
+                panelDirectories[panelId],
+                terminalPanel(for: panelId)?.requestedWorkingDirectory
+            ] {
+                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+
+        let trimmedCurrentDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
+    }
+
     func updatePanelDirectory(panelId: UUID, directory: String) {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -7659,8 +7681,13 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectories[panelId] = trimmed
         }
         // Update current directory if this is the focused panel
-        if panelId == focusedPanelId, currentDirectory != trimmed {
-            currentDirectory = trimmed
+        if panelId == focusedPanelId {
+            if surfaceTabBarDirectory != trimmed {
+                surfaceTabBarDirectory = trimmed
+            }
+            if currentDirectory != trimmed {
+                currentDirectory = trimmed
+            }
         }
     }
 
@@ -11629,6 +11656,8 @@ extension Workspace: BonsplitDelegate {
             _ = panel.restoreFocusIntent(activationIntent)
         }
 
+        surfaceTabBarDirectory = configTrackingDirectory(for: panelId)
+
         // Update current directory if this is a terminal
         if let dir = panelDirectories[panelId] {
             currentDirectory = dir
@@ -12378,6 +12407,9 @@ extension Workspace: BonsplitDelegate {
               let globalConfigPath = surfaceTabBarButtonGlobalConfigPath else {
             return
         }
+        let presentingWindow = selectedTerminalPanel(inPane: pane)?.hostedView.window
+            ?? NSApp.keyWindow
+            ?? NSApp.mainWindow
 
         if let workspaceCommand = executable.workspaceCommand {
             bonsplitController.focusPane(pane)
@@ -12398,39 +12430,46 @@ extension Workspace: BonsplitDelegate {
             let trimmedCwd = rawCwd.trimmingCharacters(in: .whitespacesAndNewlines)
             let baseCwd = trimmedCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmedCwd
             guard let tabManager = owningTabManager else { return }
-            CmuxConfigExecutor.execute(
+            _ = CmuxConfigExecutor.execute(
                 command: workspaceCommand.command,
                 tabManager: tabManager,
                 baseCwd: baseCwd,
                 configSourcePath: workspaceCommand.sourcePath,
                 globalConfigPath: globalConfigPath,
+                displayTitle: executable.button.title ?? executable.button.tooltip ?? workspaceCommand.command.name,
                 actionID: executable.button.id,
                 icon: executable.button.icon ?? executable.button.action.defaultButtonIcon,
-                iconSourcePath: executable.button.iconSourcePath
+                iconSourcePath: executable.button.iconSourcePath,
+                presentingWindow: presentingWindow
             )
             return
         }
 
         guard let command = executable.button.terminalCommand else { return }
-        guard let shellInput = CmuxConfigExecutor.preparedShellInput(
+        let target = executable.button.resolvedTerminalCommandTarget
+        let didExecute = CmuxConfigExecutor.prepareShellInputIfAuthorized(
             command,
             confirm: executable.button.confirm ?? false,
             actionID: executable.button.id,
-            target: executable.button.resolvedTerminalCommandTarget,
+            target: target,
             configSourcePath: executable.terminalCommandSourcePath ?? surfaceTabBarButtonSourcePath,
             globalConfigPath: globalConfigPath,
+            displayTitle: executable.button.title ?? executable.button.tooltip,
             icon: executable.button.icon ?? executable.button.action.defaultButtonIcon,
-            iconSourcePath: executable.button.iconSourcePath
-        ) else {
-            return
+            iconSourcePath: executable.button.iconSourcePath,
+            presentingWindow: presentingWindow
+        ) { [weak self] shellInput in
+            guard let self else { return }
+            self.bonsplitController.focusPane(pane)
+            switch target {
+            case .currentTerminal:
+                self.selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
+            case .newTabInCurrentPane:
+                _ = self.newTerminalSurface(inPane: pane, focus: true, initialInput: shellInput)
+            }
         }
-
-        bonsplitController.focusPane(pane)
-        switch executable.button.resolvedTerminalCommandTarget {
-        case .currentTerminal:
-            selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
-        case .newTabInCurrentPane:
-            _ = newTerminalSurface(inPane: pane, focus: true, initialInput: shellInput)
+        guard didExecute else {
+            return
         }
     }
 

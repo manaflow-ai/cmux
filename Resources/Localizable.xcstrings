@@ -16819,13 +16819,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This project action comes from %@.\n\nIt will run:\n\n%@"
+            "value": "This project action comes from:\n\n%@\n\nIt will run:\n\n%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このプロジェクトアクションは %@ から読み込まれました。\n\n実行内容:\n\n%@"
+            "value": "このプロジェクトアクションは次の設定から読み込まれました:\n\n%@\n\n実行内容:\n\n%@"
           }
         }
       }

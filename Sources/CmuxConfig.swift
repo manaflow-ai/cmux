@@ -279,20 +279,6 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
     }
 
     init(from decoder: Decoder) throws {
-        if let raw = try? decoder.singleValueContainer().decode(String.self) {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                throw DecodingError.dataCorrupted(
-                    DecodingError.Context(
-                        codingPath: decoder.codingPath,
-                        debugDescription: "icon must not be blank"
-                    )
-                )
-            }
-            self = Self.icon(fromShorthand: trimmed)
-            return
-        }
-
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try Self.trimmedString(forKey: .type, in: container)
         switch type {
@@ -370,33 +356,6 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
         return .imagePath(Self.resolvePath(path, relativeToConfig: configSourcePath))
     }
 
-    private static func icon(fromShorthand value: String) -> CmuxButtonIcon {
-        if value.hasPrefix("emoji:") {
-            return .emoji(String(value.dropFirst("emoji:".count)))
-        }
-        if value.hasPrefix("file:") {
-            return .imagePath(String(value.dropFirst("file:".count)))
-        }
-        if looksLikeImagePath(value) {
-            return .imagePath(value)
-        }
-        if looksLikeEmoji(value) {
-            return .emoji(value)
-        }
-        return .symbol(value)
-    }
-
-    private static func looksLikeImagePath(_ value: String) -> Bool {
-        let ext = (value as NSString).pathExtension.lowercased()
-        return [
-            "svg", "pdf",
-            "png", "jpg", "jpeg", "gif",
-            "tiff", "tif", "bmp",
-            "heic", "heif", "webp", "avif",
-            "ico", "icns"
-        ].contains(ext)
-    }
-
     private static let maxImageBytes = 1_000_000
 
     private struct PreparedImageAsset {
@@ -419,13 +378,6 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
 
         let inspector = SVGSecurityInspector()
         return inspector.parse(data: data)
-    }
-
-    private static func looksLikeEmoji(_ value: String) -> Bool {
-        guard !value.isEmpty else { return false }
-        return value.unicodeScalars.contains { scalar in
-            scalar.properties.isEmojiPresentation || (scalar.properties.isEmoji && scalar.value > 0x7F)
-        }
     }
 
     private static func resolvePath(_ path: String, relativeToConfig configSourcePath: String?) -> String {
@@ -1074,6 +1026,7 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
 
 struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     var id: String
+    var title: String?
     var icon: CmuxButtonIcon?
     var tooltip: String?
     var action: CmuxSurfaceTabBarButtonAction
@@ -1084,6 +1037,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case title
         case icon
         case tooltip
         case action
@@ -1113,11 +1067,13 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     static func builtIn(
         _ action: CmuxSurfaceTabBarBuiltInAction,
         id: String? = nil,
+        title: String? = nil,
         icon: CmuxButtonIcon? = nil,
         tooltip: String? = nil
     ) -> CmuxSurfaceTabBarButton {
         CmuxSurfaceTabBarButton(
             id: id ?? action.configID,
+            title: title,
             icon: icon,
             tooltip: tooltip,
             action: .builtIn(action),
@@ -1128,11 +1084,13 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     static func actionReference(
         _ actionID: String,
+        title: String? = nil,
         icon: CmuxButtonIcon? = nil,
         tooltip: String? = nil
     ) -> CmuxSurfaceTabBarButton {
         CmuxSurfaceTabBarButton(
             id: actionID,
+            title: title,
             icon: icon,
             tooltip: tooltip,
             action: .actionReference(actionID)
@@ -1176,13 +1134,14 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
                 globalConfigPath: globalConfigPath,
                 allowProjectLocalImage: allowProjectLocalIcon
             ),
-            tooltip: tooltip ?? terminalCommand,
+            tooltip: tooltip ?? title ?? terminalCommand,
             action: bonsplitAction
         )
     }
 
     init(
         id: String,
+        title: String? = nil,
         icon: CmuxButtonIcon? = nil,
         tooltip: String? = nil,
         action: CmuxSurfaceTabBarButtonAction,
@@ -1192,6 +1151,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         iconSourcePath: String? = nil
     ) {
         self.id = id
+        self.title = title
         self.icon = icon
         self.tooltip = tooltip
         self.action = action
@@ -1221,6 +1181,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let explicitId = try Self.trimmedString(forKey: .id, in: container)
+        let explicitTitle = try Self.trimmedString(forKey: .title, in: container, allowBlankAsNil: true)
         let explicitIcon = try container.decodeIfPresent(CmuxButtonIcon.self, forKey: .icon)
         let explicitTooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
         let rawAction = try Self.trimmedString(forKey: .action, in: container)
@@ -1299,6 +1260,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         }
 
         id = explicitId ?? action.defaultId
+        title = explicitTitle
         icon = explicitIcon
         tooltip = explicitTooltip
     }
@@ -1314,6 +1276,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         if let definition = actions[identifier] {
             return CmuxSurfaceTabBarButton(
                 id: id,
+                title: title ?? definition.title,
                 icon: icon ?? definition.icon,
                 tooltip: tooltip ?? definition.tooltip,
                 action: definition.action,
@@ -1327,6 +1290,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         if let builtIn = CmuxSurfaceTabBarBuiltInAction(configID: identifier) {
             return CmuxSurfaceTabBarButton(
                 id: id,
+                title: title,
                 icon: icon,
                 tooltip: tooltip,
                 action: .builtIn(builtIn),
@@ -1346,6 +1310,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(title, forKey: .title)
         try container.encodeIfPresent(icon, forKey: .icon)
         try container.encodeIfPresent(tooltip, forKey: .tooltip)
         try container.encodeIfPresent(confirm, forKey: .confirm)
@@ -1852,9 +1817,17 @@ final class CmuxConfigStore: ObservableObject {
         let issue: CmuxConfigIssue?
     }
 
+    private struct ParsedConfigCacheEntry {
+        let fileSize: UInt64
+        let modificationDate: Date?
+        let config: CmuxConfigFile?
+    }
+
     private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
-    private var cancellables = Set<AnyCancellable>()
+    private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
+    private var lifetimeCancellables = Set<AnyCancellable>()
+    private var trackingCancellables = Set<AnyCancellable>()
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
     private var globalFileWatchSource: DispatchSourceFileSystemObject?
@@ -1878,7 +1851,7 @@ final class CmuxConfigStore: ObservableObject {
                 self.applySurfaceTabBarButtonsToCurrentManager()
                 self.configRevision &+= 1
             }
-            .store(in: &cancellables)
+            .store(in: &lifetimeCancellables)
         if startFileWatchers {
             if localConfigPath != nil {
                 startLocalFileWatcher()
@@ -1895,7 +1868,7 @@ final class CmuxConfigStore: ObservableObject {
     // MARK: - Public API
 
     func wireDirectoryTracking(tabManager: TabManager) {
-        cancellables.removeAll()
+        trackingCancellables.removeAll()
         self.tabManager = tabManager
 
         tabManager.$selectedTabId
@@ -1904,27 +1877,24 @@ final class CmuxConfigStore: ObservableObject {
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0.id == $1.id })
-            .map { workspace -> AnyPublisher<String, Never> in
-                workspace.$currentDirectory.eraseToAnyPublisher()
+            .map { workspace -> AnyPublisher<String?, Never> in
+                workspace.$surfaceTabBarDirectory.eraseToAnyPublisher()
             }
             .switchToLatest()
             .removeDuplicates()
-            .receive(on: DispatchQueue.main)
             .sink { [weak self] directory in
                 self?.updateLocalConfigPath(directory)
             }
-            .store(in: &cancellables)
+            .store(in: &trackingCancellables)
 
         tabManager.$tabs
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.applySurfaceTabBarButtonsToCurrentManager()
             }
-            .store(in: &cancellables)
+            .store(in: &trackingCancellables)
 
-        if let directory = tabManager.selectedWorkspace?.currentDirectory {
-            updateLocalConfigPath(directory)
-        }
+        updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
     }
 
     private func updateLocalConfigPath(_ directory: String?) {
@@ -2226,6 +2196,7 @@ final class CmuxConfigStore: ObservableObject {
         if let entry = actions[identifier] {
             let resolvedButton = CmuxSurfaceTabBarButton(
                 id: button.id,
+                title: button.title ?? entry.title,
                 icon: button.icon ?? entry.icon,
                 tooltip: button.tooltip ?? entry.tooltip ?? entry.title,
                 action: entry.action,
@@ -2244,6 +2215,7 @@ final class CmuxConfigStore: ObservableObject {
             return ResolvedSurfaceTabBarButtonEntry(
                 button: CmuxSurfaceTabBarButton(
                     id: button.id,
+                    title: button.title,
                     icon: button.icon,
                     tooltip: button.tooltip,
                     action: .builtIn(builtIn),
@@ -2452,14 +2424,45 @@ final class CmuxConfigStore: ObservableObject {
     // MARK: - Parsing
 
     private func parseConfig(at path: String) -> CmuxConfigFile? {
-        guard FileManager.default.fileExists(atPath: path),
-              let data = FileManager.default.contents(atPath: path),
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: path) else {
+            parsedConfigCache.removeValue(forKey: path)
+            return nil
+        }
+
+        let attributes = try? fileManager.attributesOfItem(atPath: path)
+        let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+        let modificationDate = attributes?[.modificationDate] as? Date
+
+        if let cached = parsedConfigCache[path],
+           cached.fileSize == fileSize,
+           cached.modificationDate == modificationDate {
+            return cached.config
+        }
+
+        guard let data = fileManager.contents(atPath: path),
               !data.isEmpty else {
+            parsedConfigCache[path] = ParsedConfigCacheEntry(
+                fileSize: fileSize,
+                modificationDate: modificationDate,
+                config: nil
+            )
             return nil
         }
         do {
-            return try JSONDecoder().decode(CmuxConfigFile.self, from: data)
+            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: data)
+            parsedConfigCache[path] = ParsedConfigCacheEntry(
+                fileSize: fileSize,
+                modificationDate: modificationDate,
+                config: config
+            )
+            return config
         } catch {
+            parsedConfigCache[path] = ParsedConfigCacheEntry(
+                fileSize: fileSize,
+                modificationDate: modificationDate,
+                config: nil
+            )
             NSLog("[CmuxConfig] parse error at %@: %@", path, String(describing: error))
             return nil
         }

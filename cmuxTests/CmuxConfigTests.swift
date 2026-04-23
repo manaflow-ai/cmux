@@ -129,13 +129,13 @@ final class CmuxConfigDecodingTests: XCTestCase {
           "surfaceTabBarButtons": [
             {
               "id": "newTerminal",
-              "icon": "terminal.fill",
+              "icon": { "type": "symbol", "name": "terminal.fill" },
               "tooltip": "New shell",
               "action": "newTerminal"
             },
             {
               "id": "run-tests",
-              "icon": "checkmark.circle",
+              "icon": { "type": "symbol", "name": "checkmark.circle" },
               "tooltip": "Run tests",
               "command": "npm test",
               "confirm": true
@@ -165,7 +165,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
           "surfaceTabBarButtons": [
             {
               "id": "newTerminal",
-              "icon": "play.circle",
+              "icon": { "type": "symbol", "name": "play.circle" },
               "command": "npm run dev"
             }
           ]
@@ -223,7 +223,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
           "ui": {
             "surfaceTabBar": {
               "buttons": [
-                { "action": "global-codex", "icon": "sparkles" }
+                { "action": "global-codex", "icon": { "type": "symbol", "name": "sparkles" } }
               ]
             }
           }
@@ -233,6 +233,70 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let button = try XCTUnwrap(config.surfaceTabBarButtons?.first)
         XCTAssertEqual(button.id, "global-codex")
         XCTAssertEqual(button.action, .actionReference("global-codex"))
+    }
+
+    func testResolveSurfaceTabBarActionReferenceUsesActionTitle() throws {
+        let json = """
+        {
+          "actions": {
+            "start-codex": {
+              "type": "command",
+              "title": "Start Codex",
+              "tooltip": "Open Codex in a new tab",
+              "command": "codex",
+              "icon": { "type": "symbol", "name": "sparkles" }
+            }
+          },
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "action": "start-codex" }
+              ]
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        let rawButton = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        let button = try rawButton.resolved(actions: resolvedActions(from: config), codingPath: [])
+        XCTAssertEqual(button.title, "Start Codex")
+        XCTAssertEqual(button.tooltip, "Open Codex in a new tab")
+        XCTAssertEqual(button.icon, .symbol("sparkles"))
+        XCTAssertEqual(button.action, .command("codex"))
+    }
+
+    func testResolveSurfaceTabBarActionReferenceCanOverrideTitleAndIcon() throws {
+        let json = """
+        {
+          "actions": {
+            "start-codex": {
+              "type": "command",
+              "title": "Start Codex",
+              "tooltip": "Open Codex in a new tab",
+              "command": "codex",
+              "icon": { "type": "symbol", "name": "sparkles" }
+            }
+          },
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                {
+                  "action": "start-codex",
+                  "title": "Codex Here",
+                  "icon": { "type": "emoji", "value": "🤖" }
+                }
+              ]
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        let rawButton = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        let button = try rawButton.resolved(actions: resolvedActions(from: config), codingPath: [])
+        XCTAssertEqual(button.title, "Codex Here")
+        XCTAssertEqual(button.tooltip, "Open Codex in a new tab")
+        XCTAssertEqual(button.icon, .emoji("🤖"))
+        XCTAssertEqual(button.action, .command("codex"))
     }
 
     @MainActor
@@ -261,7 +325,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
           "ui": {
             "surfaceTabBar": {
               "buttons": [
-                { "action": "start-codex", "icon": "sparkles" }
+                { "action": "start-codex", "icon": { "type": "symbol", "name": "sparkles" } }
               ]
             }
           }
@@ -282,20 +346,20 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["start-codex"], globalConfigURL.path)
     }
 
-    func testDecodeActionIconShorthand() throws {
+    func testDecodeActionIconObjectsSupportAllFormats() throws {
         let json = """
         {
           "ui": {
             "surfaceTabBar": {
               "buttons": [
-                { "id": "emoji", "icon": "emoji:🤖", "command": "codex" },
-                { "id": "svg", "icon": "./icons/codex.svg", "command": "codex" },
-                { "id": "jpeg", "icon": "./icons/claude.jpg", "command": "claude" },
-                { "id": "pdf", "icon": "./icons/logo.pdf", "command": "open ." },
-                { "id": "bmp", "icon": "./icons/logo.bmp", "command": "open ." },
-                { "id": "heif", "icon": "./icons/logo.heif", "command": "open ." },
-                { "id": "avif", "icon": "./icons/logo.avif", "command": "open ." },
-                { "id": "ico", "icon": "./icons/logo.ico", "command": "open ." }
+                { "id": "emoji", "icon": { "type": "emoji", "value": "🤖" }, "command": "codex" },
+                { "id": "svg", "icon": { "type": "image", "path": "./icons/codex.svg" }, "command": "codex" },
+                { "id": "jpeg", "icon": { "type": "image", "path": "./icons/claude.jpg" }, "command": "claude" },
+                { "id": "pdf", "icon": { "type": "image", "path": "./icons/logo.pdf" }, "command": "open ." },
+                { "id": "bmp", "icon": { "type": "image", "path": "./icons/logo.bmp" }, "command": "open ." },
+                { "id": "heif", "icon": { "type": "image", "path": "./icons/logo.heif" }, "command": "open ." },
+                { "id": "avif", "icon": { "type": "image", "path": "./icons/logo.avif" }, "command": "open ." },
+                { "id": "ico", "icon": { "type": "image", "path": "./icons/logo.ico" }, "command": "open ." }
               ]
             }
           }
@@ -310,6 +374,21 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.surfaceTabBarButtons?[5].icon, .imagePath("./icons/logo.heif"))
         XCTAssertEqual(config.surfaceTabBarButtons?[6].icon, .imagePath("./icons/logo.avif"))
         XCTAssertEqual(config.surfaceTabBarButtons?[7].icon, .imagePath("./icons/logo.ico"))
+    }
+
+    func testDecodeStringIconThrows() {
+        let json = """
+        {
+          "actions": {
+            "start-codex": {
+              "type": "command",
+              "command": "codex",
+              "icon": "sparkles"
+            }
+          }
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
     }
 
     func testGlobalSVGIconAllowsNamespaceAndInternalGradient() throws {
@@ -613,7 +692,10 @@ final class CmuxConfigDecodingTests: XCTestCase {
           "ui": {
             "surfaceTabBar": {
               "buttons": [
-                { "action": "new-dev", "icon": "rectangle.stack.badge.plus" }
+                {
+                  "action": "new-dev",
+                  "icon": { "type": "symbol", "name": "rectangle.stack.badge.plus" }
+                }
               ]
             }
           },
@@ -974,7 +1056,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
           "ui": {
             "surfaceTabBar": {
               "buttons": [
-                { "action": "start-codex", "icon": "sparkles" }
+                { "action": "start-codex", "icon": { "type": "symbol", "name": "sparkles" } }
               ]
             }
           }
@@ -1182,8 +1264,16 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let json = """
         {
           "surfaceTabBarButtons": [
-            { "id": "run", "icon": "play", "command": "npm run dev" },
-            { "id": "run", "icon": "checkmark", "command": "npm test" }
+            {
+              "id": "run",
+              "icon": { "type": "symbol", "name": "play" },
+              "command": "npm run dev"
+            },
+            {
+              "id": "run",
+              "icon": { "type": "symbol", "name": "checkmark" },
+              "command": "npm test"
+            }
           ],
           "commands": []
         }

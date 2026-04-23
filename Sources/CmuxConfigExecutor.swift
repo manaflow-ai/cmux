@@ -11,12 +11,14 @@ struct CmuxConfigExecutor {
         baseCwd: String,
         configSourcePath: String?,
         globalConfigPath: String,
+        displayTitle: String? = nil,
         actionID: String? = nil,
         icon: CmuxButtonIcon? = nil,
-        iconSourcePath: String? = nil
+        iconSourcePath: String? = nil,
+        presentingWindow: NSWindow? = nil
     ) -> Bool {
         if let workspace = command.workspace {
-            guard confirmProjectActionIfNeeded(
+            return authorizeProjectActionIfNeeded(
                 descriptor: workspaceTrustDescriptor(
                     command: command,
                     actionID: actionID ?? command.id,
@@ -28,26 +30,34 @@ struct CmuxConfigExecutor {
                 confirm: command.confirm ?? false,
                 configSourcePath: configSourcePath,
                 globalConfigPath: globalConfigPath,
-                displayCommand: command.name
-            ) else {
-                return false
+                displayCommand: command.name,
+                displayTitle: displayTitle ?? command.name,
+                presentingWindow: presentingWindow
+            ) {
+                executeWorkspaceCommand(
+                    command: command,
+                    workspace: workspace,
+                    tabManager: tabManager,
+                    baseCwd: baseCwd
+                )
             }
-            executeWorkspaceCommand(command: command, workspace: workspace, tabManager: tabManager, baseCwd: baseCwd)
-            return true
         } else if let rawCommand = command.command {
-            guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
-            guard let shellInput = preparedShellInput(
+            let targetTerminal = tabManager.selectedWorkspace?.focusedTerminalPanel
+            guard let targetTerminal else { return false }
+            return prepareShellInputIfAuthorized(
                 rawCommand,
                 confirm: command.confirm ?? false,
                 actionID: actionID ?? command.id,
                 target: .currentTerminal,
                 configSourcePath: configSourcePath,
                 globalConfigPath: globalConfigPath,
+                displayTitle: displayTitle ?? command.name,
                 icon: icon,
-                iconSourcePath: iconSourcePath
-            ) else { return false }
-            terminal.sendInput(shellInput)
-            return true
+                iconSourcePath: iconSourcePath,
+                presentingWindow: presentingWindow
+            ) { shellInput in
+                targetTerminal.sendInput(shellInput)
+            }
         }
         return false
     }
@@ -59,7 +69,8 @@ struct CmuxConfigExecutor {
         commandSourcePaths: [String: String],
         tabManager: TabManager,
         baseCwd: String,
-        globalConfigPath: String
+        globalConfigPath: String,
+        presentingWindow: NSWindow? = nil
     ) -> Bool {
         if let commandName = action.workspaceCommandName,
            let command = commands.first(where: { $0.name == commandName }) {
@@ -69,50 +80,56 @@ struct CmuxConfigExecutor {
                 baseCwd: baseCwd,
                 configSourcePath: commandSourcePaths[command.id] ?? action.actionSourcePath,
                 globalConfigPath: globalConfigPath,
+                displayTitle: action.title,
                 actionID: action.id,
                 icon: action.icon,
-                iconSourcePath: action.iconSourcePath
+                iconSourcePath: action.iconSourcePath,
+                presentingWindow: presentingWindow
             )
         }
 
         guard let command = action.terminalCommand else { return false }
         let target = action.terminalCommandTarget ?? .newTabInCurrentPane
-        guard let shellInput = preparedShellInput(
+        let targetTerminal = (target == .currentTerminal) ? tabManager.selectedWorkspace?.focusedTerminalPanel : nil
+        let targetWorkspace = (target == .newTabInCurrentPane) ? tabManager.selectedWorkspace : nil
+        return prepareShellInputIfAuthorized(
             command,
             confirm: action.confirm ?? false,
             actionID: action.id,
             target: target,
             configSourcePath: action.actionSourcePath,
             globalConfigPath: globalConfigPath,
+            displayTitle: action.title,
             icon: action.icon,
-            iconSourcePath: action.iconSourcePath
-        ) else {
-            return false
-        }
-
-        switch target {
-        case .currentTerminal:
-            guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
-            terminal.sendInput(shellInput)
-            return true
-        case .newTabInCurrentPane:
-            tabManager.newSurface(initialInput: shellInput)
-            return true
+            iconSourcePath: action.iconSourcePath,
+            presentingWindow: presentingWindow
+        ) { shellInput in
+            switch target {
+            case .currentTerminal:
+                targetTerminal?.sendInput(shellInput)
+            case .newTabInCurrentPane:
+                targetWorkspace?.clearSplitZoom()
+                targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+            }
         }
     }
 
-    static func preparedShellInput(
+    @discardableResult
+    static func prepareShellInputIfAuthorized(
         _ rawCommand: String,
         confirm: Bool,
         actionID: String,
         target: CmuxConfigTerminalCommandTarget,
         configSourcePath: String?,
         globalConfigPath: String,
+        displayTitle: String? = nil,
         icon: CmuxButtonIcon? = nil,
-        iconSourcePath: String? = nil
-    ) -> String? {
+        iconSourcePath: String? = nil,
+        presentingWindow: NSWindow? = nil,
+        onAuthorized: @escaping (String) -> Void
+    ) -> Bool {
         let shellCommand = sanitizeForDisplay(rawCommand)
-        guard !shellCommand.isEmpty else { return nil }
+        guard !shellCommand.isEmpty else { return false }
 
         let descriptor = terminalTrustDescriptor(
             command: shellCommand,
@@ -123,53 +140,117 @@ struct CmuxConfigExecutor {
             iconSourcePath: iconSourcePath,
             globalConfigPath: globalConfigPath
         )
-        guard confirmProjectActionIfNeeded(
+        return authorizeProjectActionIfNeeded(
             descriptor: descriptor,
             confirm: confirm,
             configSourcePath: configSourcePath,
             globalConfigPath: globalConfigPath,
-            displayCommand: shellCommand
-        ) else {
-            return nil
+            displayCommand: shellCommand,
+            displayTitle: displayTitle,
+            presentingWindow: presentingWindow
+        ) {
+            onAuthorized(shellCommand + "\n")
         }
-
-        return shellCommand + "\n"
     }
 
-    private static func confirmProjectActionIfNeeded(
+    @discardableResult
+    private static func authorizeProjectActionIfNeeded(
         descriptor: CmuxActionTrustDescriptor,
         confirm: Bool,
         configSourcePath: String?,
         globalConfigPath: String,
-        displayCommand: String
+        displayCommand: String,
+        displayTitle: String?,
+        presentingWindow: NSWindow?,
+        onAuthorized: @escaping () -> Void
     ) -> Bool {
-        guard let sourcePath = configSourcePath,
-              sourcePath != globalConfigPath else {
+        let sourcePath = configSourcePath.map(canonicalPath)
+        let canonicalGlobalConfigPath = canonicalPath(globalConfigPath)
+        let isTrusted = CmuxActionTrust.shared.isTrusted(descriptor)
+        let resolvedPresentingWindow = presentingWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let sourcePath,
+              sourcePath != canonicalGlobalConfigPath else {
+            onAuthorized()
             return true
         }
-        if !confirm, CmuxActionTrust.shared.isTrusted(descriptor) {
+        if !confirm, isTrusted {
+            onAuthorized()
             return true
         }
-        if confirm || !CmuxActionTrust.shared.isTrusted(descriptor) {
-            return showConfirmDialog(command: displayCommand, descriptor: descriptor, configPath: sourcePath)
+        if let resolvedPresentingWindow {
+            presentConfirmDialog(
+                command: displayCommand,
+                displayTitle: displayTitle,
+                descriptor: descriptor,
+                configPath: sourcePath,
+                presentingWindow: resolvedPresentingWindow
+            ) { allowed in
+                if allowed {
+                    onAuthorized()
+                }
+            }
+            return true
         }
-        return true
+        let allowed = runConfirmDialog(
+            command: displayCommand,
+            displayTitle: displayTitle,
+            descriptor: descriptor,
+            configPath: sourcePath
+        )
+        if allowed {
+            onAuthorized()
+        }
+        return allowed
     }
 
-    /// Show a confirmation dialog for an exact project action fingerprint.
-    private static func showConfirmDialog(
+    private static func presentConfirmDialog(
         command: String,
+        displayTitle: String?,
+        descriptor: CmuxActionTrustDescriptor,
+        configPath: String,
+        presentingWindow: NSWindow,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let alert = makeConfirmDialog(
+            command: command,
+            displayTitle: displayTitle,
+            configPath: configPath
+        )
+        alert.beginSheetModal(for: presentingWindow) { response in
+            completion(handleConfirmDialogResponse(response, descriptor: descriptor))
+        }
+    }
+
+    private static func runConfirmDialog(
+        command: String,
+        displayTitle: String?,
         descriptor: CmuxActionTrustDescriptor,
         configPath: String
     ) -> Bool {
-        let alert = NSAlert()
-        alert.messageText = String(
-            localized: "dialog.cmuxConfig.confirmCommand.title",
-            defaultValue: "Run Project Action?"
+        let alert = makeConfirmDialog(
+            command: command,
+            displayTitle: displayTitle,
+            configPath: configPath
         )
+        return handleConfirmDialogResponse(alert.runModal(), descriptor: descriptor)
+    }
+
+    private static func makeConfirmDialog(
+        command: String,
+        displayTitle: String?,
+        configPath: String
+    ) -> NSAlert {
+        let alert = NSAlert()
+        let trimmedDisplayTitle = displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        alert.messageText = (trimmedDisplayTitle?.isEmpty == false)
+            ? trimmedDisplayTitle!
+            : String(
+                localized: "dialog.cmuxConfig.confirmCommand.title",
+                defaultValue: "Run Project Action?"
+            )
         let messageFormat = String(
             localized: "dialog.cmuxConfig.confirmCommand.messageWithCommand",
-            defaultValue: "This project action comes from %@.\n\nIt will run:\n\n%@"
+            defaultValue: "This project action comes from:\n\n%@\n\nIt will run:\n\n%@"
         )
         alert.informativeText = String(
             format: messageFormat,
@@ -189,8 +270,13 @@ struct CmuxConfigExecutor {
             localized: "dialog.cmuxConfig.confirmCommand.cancel",
             defaultValue: "Cancel"
         ))
+        return alert
+    }
 
-        let response = alert.runModal()
+    private static func handleConfirmDialogResponse(
+        _ response: NSApplication.ModalResponse,
+        descriptor: CmuxActionTrustDescriptor
+    ) -> Bool {
         switch response {
         case .alertFirstButtonReturn:
             return true
