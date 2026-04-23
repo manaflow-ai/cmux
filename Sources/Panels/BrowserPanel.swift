@@ -1530,6 +1530,9 @@ final class BrowserHistoryStore: ObservableObject {
     }
 
     nonisolated private static func defaultHistoryFileURL() -> URL? {
+        if let overrideURL = uiTestHistoryFileURLOverride() {
+            return overrideURL
+        }
         let fm = FileManager.default
         guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
@@ -1541,6 +1544,7 @@ final class BrowserHistoryStore: ObservableObject {
     }
 
     nonisolated private static func legacyTaggedHistoryFileURL() -> URL? {
+        guard uiTestHistoryFileURLOverride() == nil else { return nil }
         guard let bundleId = Bundle.main.bundleIdentifier else { return nil }
         let namespace = normalizedBrowserHistoryNamespace(bundleIdentifier: bundleId)
         guard namespace != bundleId else { return nil }
@@ -1550,6 +1554,18 @@ final class BrowserHistoryStore: ObservableObject {
         }
         let dir = appSupport.appendingPathComponent(bundleId, isDirectory: true)
         return dir.appendingPathComponent("browser_history.json", isDirectory: false)
+    }
+
+    nonisolated private static func uiTestHistoryFileURLOverride() -> URL? {
+        let env = ProcessInfo.processInfo.environment
+        // UI tests pass an explicit temp-file path so the runner and app don't
+        // depend on sharing the same Application Support directory.
+        guard let rawPath = env["CMUX_UI_TEST_BROWSER_HISTORY_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: rawPath)
     }
 
     nonisolated private static func persistSnapshot(_ snapshot: [Entry], to fileURL: URL) throws {
