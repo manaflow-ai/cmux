@@ -1924,6 +1924,7 @@ struct ContentView: View {
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
 
+        static let terminalLinksAndOpenCommandOpenExternallyOnly = "browser.terminalLinksAndOpenCommandOpenExternallyOnly"
         static let updateHasAvailable = "update.hasAvailable"
         static let cliInstalledInPATH = "cli.installedInPATH"
 
@@ -6293,6 +6294,10 @@ struct ContentView: View {
     ) -> CommandPaletteContextSnapshot {
         var snapshot = CommandPaletteContextSnapshot()
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
+        snapshot.setBool(
+            CommandPaletteContextKeys.terminalLinksAndOpenCommandOpenExternallyOnly,
+            BrowserLinkOpenSettings.terminalLinksAndOpenCommandOpenExternallyOnly()
+        )
 
         if let workspace = tabManager.selectedWorkspace {
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
@@ -6607,6 +6612,34 @@ struct ContentView: View {
                 title: constant(String(localized: "command.restartSocketListener.title", defaultValue: "Restart CLI Listener")),
                 subtitle: constant(String(localized: "command.restartSocketListener.subtitle", defaultValue: "Global")),
                 keywords: ["restart", "socket", "listener", "cli", "cmux", "control"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.enableExternalBrowserForTerminalLinksAndOpenCommand",
+                title: constant(
+                    String(
+                        localized: "command.enableExternalBrowserForTerminalLinksAndOpenCommand.title",
+                        defaultValue: "Browser Mode: External (Terminal URLs)"
+                    )
+                ),
+                subtitle: constant(String(localized: "command.browserClearHistory.subtitle", defaultValue: "Browser")),
+                keywords: ["browser", "mode", "terminal", "links", "external", "cmd", "click", "open", "command", "url"],
+                when: { !$0.bool(CommandPaletteContextKeys.terminalLinksAndOpenCommandOpenExternallyOnly) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.disableExternalBrowserForTerminalLinksAndOpenCommand",
+                title: constant(
+                    String(
+                        localized: "command.disableExternalBrowserForTerminalLinksAndOpenCommand.title",
+                        defaultValue: "Browser Mode: cmux (Terminal URLs)"
+                    )
+                ),
+                subtitle: constant(String(localized: "command.browserClearHistory.subtitle", defaultValue: "Browser")),
+                keywords: ["browser", "mode", "terminal", "links", "cmux", "embedded", "cmd", "click", "open", "command", "url"],
+                when: { $0.bool(CommandPaletteContextKeys.terminalLinksAndOpenCommandOpenExternallyOnly) }
             )
         )
 
@@ -7359,6 +7392,12 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.restartSocketListener") {
             AppDelegate.shared?.restartSocketListener(nil)
+        }
+        registry.register(commandId: "palette.enableExternalBrowserForTerminalLinksAndOpenCommand") {
+            BrowserLinkOpenSettings.setTerminalLinksAndOpenCommandOpenExternallyOnly(true)
+        }
+        registry.register(commandId: "palette.disableExternalBrowserForTerminalLinksAndOpenCommand") {
+            BrowserLinkOpenSettings.setTerminalLinksAndOpenCommandOpenExternallyOnly(false)
         }
 
         registry.register(commandId: "palette.renameWorkspace") {

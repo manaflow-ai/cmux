@@ -18146,6 +18146,40 @@
         }
       }
     },
+    "command.disableExternalBrowserForTerminalLinksAndOpenCommand.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Mode: cmux (Terminal URLs)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザモード: cmux (ターミナルURL)"
+          }
+        }
+      }
+    },
+    "command.enableExternalBrowserForTerminalLinksAndOpenCommand.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Mode: External (Terminal URLs)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザモード: 外部 (ターミナルURL)"
+          }
+        }
+      }
+    },
     "command.installCLI.subtitle": {
       "extractionState": "manual",
       "localizations": {

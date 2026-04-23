@@ -3396,6 +3396,36 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertTrue(BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: defaults))
     }
 
+    func testTerminalLinksAndOpenCommandOpenExternallyOnlyDefaultsToDisabled() {
+        XCTAssertFalse(BrowserLinkOpenSettings.terminalLinksAndOpenCommandOpenExternallyOnly(defaults: defaults))
+    }
+
+    func testTerminalLinksAndOpenCommandOpenExternallyOnlyRequiresBothTerminalLinkPathsDisabled() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        defaults.set(true, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.terminalLinksAndOpenCommandOpenExternallyOnly(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        defaults.set(false, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.terminalLinksAndOpenCommandOpenExternallyOnly(defaults: defaults))
+
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        defaults.set(false, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.terminalLinksAndOpenCommandOpenExternallyOnly(defaults: defaults))
+    }
+
+    func testSetTerminalLinksAndOpenCommandOpenExternallyOnlyUpdatesBothTerminalLinkSettings() {
+        BrowserLinkOpenSettings.setTerminalLinksAndOpenCommandOpenExternallyOnly(true, defaults: defaults)
+        XCTAssertFalse(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.terminalLinksAndOpenCommandOpenExternallyOnly(defaults: defaults))
+
+        BrowserLinkOpenSettings.setTerminalLinksAndOpenCommandOpenExternallyOnly(false, defaults: defaults)
+        XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.terminalLinksAndOpenCommandOpenExternallyOnly(defaults: defaults))
+    }
+
     func testExternalOpenPatternsDefaultToEmpty() {
         XCTAssertTrue(BrowserLinkOpenSettings.externalOpenPatterns(defaults: defaults).isEmpty)
     }

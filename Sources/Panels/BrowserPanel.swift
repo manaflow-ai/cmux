@@ -587,6 +587,17 @@ enum BrowserLinkOpenSettings {
         interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults)
     }
 
+    static func terminalLinksAndOpenCommandOpenExternallyOnly(defaults: UserDefaults = .standard) -> Bool {
+        !openTerminalLinksInCmuxBrowser(defaults: defaults)
+            && !interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults)
+    }
+
+    static func setTerminalLinksAndOpenCommandOpenExternallyOnly(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        let useCmuxBrowser = !enabled
+        defaults.set(useCmuxBrowser, forKey: openTerminalLinksInCmuxBrowserKey)
+        defaults.set(useCmuxBrowser, forKey: interceptTerminalOpenCommandInCmuxBrowserKey)
+    }
+
     static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {
         let raw = defaults.string(forKey: browserHostWhitelistKey) ?? defaultBrowserHostWhitelist
         return raw
