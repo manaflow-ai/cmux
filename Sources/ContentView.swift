@@ -2905,19 +2905,17 @@ struct ContentView: View {
                 .background(SplitViewDividerHider())
                 .background(SystemSidebarToggleStripper().frame(width: 0, height: 0))
                 .toolbar {
-                    if !sidebarState.isVisible {
-                        ToolbarItem(placement: .navigation) {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    _ = sidebarState.toggle()
-                                }
-                            } label: {
-                                Image(systemName: "sidebar.left")
+                    ToolbarItem(placement: .navigation) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                _ = sidebarState.toggle()
                             }
-                            .accessibilityIdentifier("toolbar.toggleSidebar")
-                            .accessibilityLabel(String(localized: "toolbar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"))
-                            .help(String(localized: "toolbar.sidebar.tooltip", defaultValue: "Toggle Sidebar"))
+                        } label: {
+                            Image(systemName: "sidebar.left")
                         }
+                        .accessibilityIdentifier("toolbar.toggleSidebar")
+                        .accessibilityLabel(String(localized: "toolbar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"))
+                        .help(String(localized: "toolbar.sidebar.tooltip", defaultValue: "Toggle Sidebar"))
                     }
 
                     ToolbarItemGroup(placement: .primaryAction) {
@@ -14718,7 +14716,7 @@ private struct SystemSidebarToggleStripper: NSViewRepresentable {
 
 @available(macOS 26.0, *)
 private final class SystemSidebarToggleStripperView: NSView {
-    private var observer: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -14735,28 +14733,64 @@ private final class SystemSidebarToggleStripperView: NSView {
     private func stripNow() {
         guard let toolbar = window?.toolbar else { return }
         for i in (0..<toolbar.items.count).reversed() {
-            let itemId = toolbar.items[i].itemIdentifier.rawValue
-            if itemId.contains("toggleSidebar")
-                || itemId.contains("splitViewSeparator") {
+            if Self.shouldStrip(toolbar.items[i]) {
                 toolbar.removeItem(at: i)
             }
         }
     }
 
+    private static func shouldStrip(_ item: NSToolbarItem) -> Bool {
+        let itemId = item.itemIdentifier.rawValue
+        if itemId.contains("toggleSidebar") || itemId.contains("splitViewSeparator") {
+            return true
+        }
+        // NavigationSplitView re-injects the toggle into the overflow popover
+        // with an opaque identifier, so also match the user-facing label.
+        let label = item.label
+        if label == "Hide Sidebar" || label == "Show Sidebar" {
+            return true
+        }
+        return false
+    }
+
     private func observeToolbarChanges() {
-        guard observer == nil else { return }
-        observer = NotificationCenter.default.addObserver(
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+
+        observers.append(center.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: nil,
             queue: .main
         ) { [weak self] notification in
             guard let self, notification.object as? NSWindow === self.window else { return }
             self.scheduleStrip()
-        }
+        })
+
+        // Re-strip whenever SwiftUI/NavigationSplitView re-injects an item
+        // (e.g. after a resize that pushes the toggle into the overflow popover).
+        observers.append(center.addObserver(
+            forName: NSToolbar.willAddItemNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let toolbar = self.window?.toolbar,
+                  notification.object as? NSToolbar === toolbar else { return }
+            self.scheduleStrip()
+        })
+
+        observers.append(center.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self, notification.object as? NSWindow === self.window else { return }
+            self.scheduleStrip()
+        })
     }
 
     deinit {
-        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observers.forEach(NotificationCenter.default.removeObserver)
     }
 }
 
