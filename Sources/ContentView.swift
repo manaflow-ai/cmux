@@ -9904,6 +9904,36 @@ struct VerticalTabsSidebar: View {
     @State private var dropIndicator: SidebarDropIndicator?
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+    @AppStorage("sidebar.filter.mode")
+    private var sidebarFilterModeRaw: String = SidebarFilterMode.none.rawValue
+
+    private var sidebarFilterMode: SidebarFilterMode {
+        SidebarFilterMode(rawValue: sidebarFilterModeRaw) ?? .none
+    }
+
+    private func setSidebarFilter(_ mode: SidebarFilterMode) {
+        sidebarFilterModeRaw = mode.rawValue
+    }
+
+    private func autoClearSidebarFilterIfEmpty(active: Int) {
+        if sidebarFilterMode == .active && active == 0 {
+            setSidebarFilter(.none)
+        }
+    }
+
+    /// A workspace has an "agent session" when it has tracked agent PIDs
+    /// (e.g. claude_code), regardless of whether the agent is running,
+    /// awaiting input, or idle.
+    private func workspaceHasAgentSession(_ workspace: Workspace) -> Bool {
+        !workspace.agentPIDs.isEmpty
+    }
+
+    private func workspacesMatchingFilter(_ workspaces: [Workspace]) -> [Workspace] {
+        switch sidebarFilterMode {
+        case .none: return workspaces
+        case .active: return workspaces.filter(workspaceHasAgentSession)
+        }
+    }
 
     /// Space at top of sidebar for traffic light buttons
     private let trafficLightPadding: CGFloat = 28
@@ -9995,6 +10025,14 @@ struct VerticalTabsSidebar: View {
         // SwiftUI dependency — no separate read needed here.
         let layout = tabManager.sidebarLayout
         let workspaceCount = tabs.count
+        let activeWorkspaceCount = tabs.reduce(0) { $0 + (workspaceHasAgentSession($1) ? 1 : 0) }
+        let filteredPinnedWorkspaces = workspacesMatchingFilter(layout.pinnedWorkspaces)
+        let filteredUngroupedWorkspaces = workspacesMatchingFilter(layout.ungroupedWorkspaces)
+        let filteredSectionGroups: [SidebarLayout.SectionGroup] = layout.sectionGroups.compactMap { group in
+            let filtered = workspacesMatchingFilter(group.workspaces)
+            if sidebarFilterMode != .none && filtered.isEmpty { return nil }
+            return SidebarLayout.SectionGroup(section: group.section, workspaces: filtered)
+        }
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
@@ -10020,11 +10058,23 @@ struct VerticalTabsSidebar: View {
                         Spacer()
                             .frame(height: trafficLightPadding)
 
+                        SidebarFilterBar(
+                            mode: sidebarFilterMode,
+                            activeCount: activeWorkspaceCount,
+                            setMode: { setSidebarFilter($0) }
+                        )
+                        .padding(.horizontal, 10)
+                        .padding(.top, 6)
+                        .padding(.bottom, 6)
+                        .onChange(of: activeWorkspaceCount) { _ in
+                            autoClearSidebarFilterIfEmpty(active: activeWorkspaceCount)
+                        }
+
                         // Workspaces are bounded, so prefer a non-lazy stack here.
                         // LazyVStack + drag-state invalidations can recurse through layout.
                         VStack(spacing: tabRowSpacing) {
                             // Pinned workspaces always render first
-                            ForEach(layout.pinnedWorkspaces, id: \.id) { tab in
+                            ForEach(filteredPinnedWorkspaces, id: \.id) { tab in
                                 tabItemViewForWorkspace(
                                     tab, index: tabIndexById[tab.id] ?? 0,
                                     workspaceCount: workspaceCount,
@@ -10039,7 +10089,7 @@ struct VerticalTabsSidebar: View {
                             }
 
                             // Ungrouped (not in any section) unpinned workspaces
-                            ForEach(layout.ungroupedWorkspaces, id: \.id) { tab in
+                            ForEach(filteredUngroupedWorkspaces, id: \.id) { tab in
                                 tabItemViewForWorkspace(
                                     tab, index: tabIndexById[tab.id] ?? 0,
                                     workspaceCount: workspaceCount,
@@ -10054,7 +10104,7 @@ struct VerticalTabsSidebar: View {
                             }
 
                             // Collapsible user-defined sections
-                            ForEach(layout.sectionGroups, id: \.section.id) { group in
+                            ForEach(filteredSectionGroups, id: \.section.id) { group in
                                 VStack(spacing: 0) {
                                     SidebarSectionHeaderView(
                                         section: group.section,
@@ -10193,6 +10243,103 @@ struct VerticalTabsSidebar: View {
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+}
+
+enum SidebarFilterMode: String, CaseIterable {
+    case none
+    case active
+}
+
+private struct SidebarFilterBar: View {
+    let mode: SidebarFilterMode
+    let activeCount: Int
+    let setMode: (SidebarFilterMode) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            SidebarFilterChip(
+                title: String(localized: "sidebar.filter.active", defaultValue: "Active"),
+                icon: "bolt.fill",
+                count: activeCount,
+                isActive: mode == .active,
+                isDisabled: activeCount == 0,
+                activeColor: .accentColor,
+                tooltipActive: String(localized: "sidebar.filter.active.showAll",
+                                      defaultValue: "Show all workspaces"),
+                tooltipInactive: String(localized: "sidebar.filter.active.tooltip",
+                                        defaultValue: "Show only workspaces with an agent session"),
+                accessibilityId: "SidebarActiveFilterToggle",
+                action: { setMode(mode == .active ? .none : .active) }
+            )
+
+            Spacer(minLength: 0)
+        }
+        .animation(.easeOut(duration: 0.15), value: mode)
+    }
+}
+
+private struct SidebarFilterChip: View {
+    let title: String
+    let icon: String
+    let count: Int
+    let isActive: Bool
+    let isDisabled: Bool
+    let activeColor: Color
+    let tooltipActive: String
+    let tooltipInactive: String
+    let accessibilityId: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    private var foregroundColor: Color {
+        if isDisabled { return Color(nsColor: .tertiaryLabelColor) }
+        return isActive ? activeColor : Color(nsColor: .secondaryLabelColor)
+    }
+
+    private var backgroundFill: Color {
+        if isDisabled { return Color.clear }
+        if isActive { return activeColor.opacity(0.18) }
+        if isHovered { return Color.primary.opacity(0.08) }
+        return Color.clear
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 10, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(foregroundColor.opacity(0.75))
+                }
+            }
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(backgroundFill)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .onHover { hovering in
+            guard !isDisabled else { isHovered = false; return }
+            isHovered = hovering
+        }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .animation(.easeOut(duration: 0.12), value: isActive)
+        .safeHelp(isActive ? tooltipActive : tooltipInactive)
+        .accessibilityLabel(isActive ? tooltipActive : tooltipInactive)
+        .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier(accessibilityId)
     }
 }
 
