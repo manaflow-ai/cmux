@@ -18,5 +18,10 @@ let package = Package(
             name: "CMUXDebugLog",
             path: "Sources/CMUXDebugLog"
         ),
+        .testTarget(
+            name: "CMUXDebugLogTests",
+            dependencies: ["CMUXDebugLog"],
+            path: "Tests/CMUXDebugLogTests"
+        ),
     ]
 )
