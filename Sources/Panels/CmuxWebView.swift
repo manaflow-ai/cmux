@@ -846,20 +846,72 @@ final class CmuxWebView: WKWebView {
     }
 
     #if DEBUG
-    private static func redactedContextDownloadDebugMessage(_ message: String) -> String {
-        message
-            .components(separatedBy: " ")
-            .map(redactedContextDownloadToken)
-            .joined(separator: " ")
-    }
+    private static let contextDownloadFieldPattern = try! NSRegularExpression(
+        pattern: "(^| )([A-Za-z][A-Za-z0-9_-]*)=",
+        options: []
+    )
 
-    private static func redactedContextDownloadToken(_ token: String) -> String {
-        guard let separatorIndex = token.firstIndex(of: "=") else { return token }
-        let key = String(token[..<separatorIndex])
-        let valueStart = token.index(after: separatorIndex)
-        let value = String(token[valueStart...])
-        guard shouldRedactContextDownloadField(key) else { return token }
-        return "\(key)=\(redactedContextDownloadValue(key: key, value: value))"
+    private static func redactedContextDownloadDebugMessage(_ message: String) -> String {
+        let nsMessage = message as NSString
+        let fullRange = NSRange(location: 0, length: nsMessage.length)
+        let matches = contextDownloadFieldPattern.matches(in: message, range: fullRange)
+        guard !matches.isEmpty else { return message }
+
+        var result = ""
+        var cursor = 0
+        var matchIndex = 0
+
+        while matchIndex < matches.count {
+            let match = matches[matchIndex]
+            let fieldStart = match.range.location
+            if cursor < fieldStart {
+                result += nsMessage.substring(
+                    with: NSRange(location: cursor, length: fieldStart - cursor)
+                )
+            }
+
+            let separatorRange = match.range(at: 1)
+            if separatorRange.length > 0 {
+                result += " "
+            }
+
+            let keyRange = match.range(at: 2)
+            let key = nsMessage.substring(with: keyRange)
+            let valueStart = match.range.location + match.range.length
+            let sensitive = shouldRedactContextDownloadField(key)
+            let valueEnd: Int
+
+            if sensitive && key.lowercased() == "payload" {
+                valueEnd = nsMessage.length
+                matchIndex = matches.count
+            } else {
+                valueEnd = matchIndex + 1 < matches.count
+                    ? matches[matchIndex + 1].range.location
+                    : nsMessage.length
+                matchIndex += 1
+            }
+
+            let valueLength = max(0, valueEnd - valueStart)
+            let value = nsMessage.substring(with: NSRange(location: valueStart, length: valueLength))
+
+            if sensitive {
+                result += "\(key)=\(redactedContextDownloadValue(key: key, value: value))"
+            } else {
+                result += nsMessage.substring(
+                    with: NSRange(location: keyRange.location, length: valueEnd - keyRange.location)
+                )
+            }
+
+            cursor = valueEnd
+        }
+
+        if cursor < nsMessage.length {
+            result += nsMessage.substring(
+                with: NSRange(location: cursor, length: nsMessage.length - cursor)
+            )
+        }
+
+        return result
     }
 
     private static func shouldRedactContextDownloadField(_ key: String) -> Bool {
