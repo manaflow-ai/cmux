@@ -3644,12 +3644,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private enum PendingSocketInput {
-        case text(Data)
+        case text(Data, onDispatch: (() -> Void)?)
         case key(PendingKeyEvent)
 
         var estimatedBytes: Int {
             switch self {
-            case .text(let data):
+            case .text(let data, _):
                 return data.count
             case .key(let event):
                 return max(event.label.utf8.count, 1)
@@ -4843,14 +4843,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
-    func sendText(_ text: String) {
+    func sendText(_ text: String, onDispatch: (() -> Void)? = nil) {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
         guard let surface = surface else {
-            enqueuePendingSocketInput(.text(data))
+            enqueuePendingSocketInput(.text(data, onDispatch: onDispatch))
             requestBackgroundSurfaceStartIfNeeded()
             return
         }
         writeTextData(data, to: surface)
+        onDispatch?()
     }
 
     @discardableResult
@@ -5147,8 +5148,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         var queuedKeys = 0
         for item in queued {
             switch item {
-            case .text(let chunk):
+            case .text(let chunk, let onDispatch):
                 writeTextData(chunk, to: surface)
+                onDispatch?()
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
@@ -5201,6 +5203,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     func setNeedsConfirmCloseOverrideForTesting(_ value: Bool?) {
         needsConfirmCloseOverrideForTesting = value
+    }
+
+    @MainActor
+    func debugPendingSocketInputSnapshot() -> (items: Int, keys: Int, bytes: Int) {
+        let pendingKeys = pendingSocketInputQueue.reduce(into: 0) { count, item in
+            if case .key = item {
+                count += 1
+            }
+        }
+        return (items: pendingSocketInputQueue.count, keys: pendingKeys, bytes: pendingSocketInputBytes)
     }
 
     /// Test-only helper to deterministically simulate a released runtime surface.

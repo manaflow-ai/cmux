@@ -189,8 +189,8 @@ final class TerminalPanel: Panel, ObservableObject {
 
     // MARK: - Terminal-specific methods
 
-    func sendText(_ text: String) {
-        surface.sendText(text)
+    func sendText(_ text: String, onDispatch: (() -> Void)? = nil) {
+        surface.sendText(text, onDispatch: onDispatch)
     }
 
     func sendInput(_ text: String) {

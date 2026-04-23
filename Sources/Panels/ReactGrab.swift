@@ -79,8 +79,212 @@ private enum ReactGrabPastebackContentFilter {
         "\u{FEFF}",
     ]
 
+    private static func isAllowedPastebackScalar(_ scalar: Unicode.Scalar) -> Bool {
+        if dangerousScalars.contains(scalar) {
+            return false
+        }
+
+        switch scalar.value {
+        case 0x09, 0x0A:
+            return true
+        case 0x00 ... 0x1F, 0x7F ... 0x9F:
+            return false
+        default:
+            return true
+        }
+    }
+
     static func filtered(_ text: String) -> String {
-        String(text.unicodeScalars.filter { !dangerousScalars.contains($0) })
+        String(String.UnicodeScalarView(text.unicodeScalars.filter(isAllowedPastebackScalar)))
+    }
+}
+
+enum ReactGrabPastebackContentExtractor {
+    static let functionName = "__cmuxReactGrabExtractPastebackContent"
+
+    static let installerSource = """
+    (function() {
+        var functionName = '\(functionName)';
+        if (typeof window[functionName] === 'function') {
+            return;
+        }
+
+        var blockTags = {
+            ARTICLE: true, ASIDE: true, BLOCKQUOTE: true, BUTTON: true, DD: true,
+            DETAILS: true, DIALOG: true, DIV: true, DL: true, DT: true,
+            FIELDSET: true, FIGCAPTION: true, FIGURE: true, FOOTER: true,
+            FORM: true, H1: true, H2: true, H3: true, H4: true, H5: true,
+            H6: true, HEADER: true, HR: true, LI: true, MAIN: true, NAV: true,
+            OL: true, P: true, PRE: true, SECTION: true, TABLE: true, TD: true,
+            TH: true, UL: true
+        };
+        var skipTags = { NOSCRIPT: true, SCRIPT: true, STYLE: true, SVG: true, TEMPLATE: true };
+
+        var normalizeWhitespace = function(text) {
+            return String(text || '')
+                .replace(/\\u00A0/g, ' ')
+                .replace(/[ \\t\\f\\v\\r]+/g, ' ')
+                .replace(/ *\\n+ */g, '\\n')
+                .trim();
+        };
+
+        var normalizeBlockText = function(text) {
+            return normalizeWhitespace(text).replace(/\\n{3,}/g, '\\n\\n').trim();
+        };
+
+        var normalizePreformattedText = function(text) {
+            return String(text || '')
+                .replace(/\\r\\n?/g, '\\n')
+                .replace(/\\u00A0/g, ' ')
+                .replace(/^\\n+|\\n+$/g, '');
+        };
+
+        var isHidden = function(element) {
+            if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+            if (element.hasAttribute('hidden')) return true;
+            if (element.getAttribute('aria-hidden') === 'true') return true;
+            var style = window.getComputedStyle ? window.getComputedStyle(element) : null;
+            return !!style && (style.display === 'none' || style.visibility === 'hidden');
+        };
+
+        var hasBlockChild = function(element) {
+            for (var child = element.firstElementChild; child; child = child.nextElementSibling) {
+                if (isHidden(child) || skipTags[child.tagName]) continue;
+                if (blockTags[child.tagName] && child.tagName !== 'BUTTON') {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        var joinInlineParts = function(parts) {
+            return normalizeWhitespace(parts.filter(Boolean).join(' '));
+        };
+
+        var textFromNode = function(node) {
+            return normalizeWhitespace(node && node.textContent ? node.textContent : '');
+        };
+
+        var renderInline = function(node) {
+            if (!node) return '';
+            if (node.nodeType === Node.TEXT_NODE) {
+                return normalizeWhitespace(node.textContent || '');
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+            var element = node;
+            if (isHidden(element) || skipTags[element.tagName]) return '';
+
+            if (element.tagName === 'BR') return '\\n';
+            if (element.tagName === 'IMG') {
+                return normalizeWhitespace(element.getAttribute('alt') || '');
+            }
+            if (element.tagName === 'INPUT') {
+                var type = (element.getAttribute('type') || '').toLowerCase();
+                if (type === 'button' || type === 'submit' || type === 'reset') {
+                    return normalizeWhitespace(element.value || element.getAttribute('value') || '');
+                }
+            }
+            if (element.tagName === 'A' && !hasBlockChild(element)) {
+                var href = element.hasAttribute('href')
+                    ? (element.getAttribute('href') || '')
+                    : (element.href || '');
+                var linkText = joinInlineParts(Array.prototype.map.call(element.childNodes, renderInline)) || textFromNode(element);
+                if (!href) return linkText;
+                return '[' + (linkText || href) + '](' + href + ')';
+            }
+            if (blockTags[element.tagName] && element.tagName !== 'BUTTON') {
+                return textFromNode(element);
+            }
+            return joinInlineParts(Array.prototype.map.call(element.childNodes, renderInline));
+        };
+
+        var pushBlock = function(blocks, value) {
+            var text = normalizeBlockText(value);
+            if (!text) return;
+            blocks.push(text);
+        };
+
+        var renderBlocks = function(node, blocks) {
+            if (!node) return;
+            if (node.nodeType === Node.TEXT_NODE) {
+                pushBlock(blocks, node.textContent || '');
+                return;
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+            var element = node;
+            if (isHidden(element) || skipTags[element.tagName]) return;
+
+            if (element.tagName === 'PRE' || element.tagName === 'CODE') {
+                var codeText = normalizePreformattedText(element.innerText || element.textContent || '');
+                if (codeText) {
+                    blocks.push('```\\n' + codeText + '\\n```');
+                }
+                return;
+            }
+
+            if (/^H[1-6]$/.test(element.tagName)) {
+                var headingText = textFromNode(element);
+                if (!headingText) return;
+                if (element.tagName === 'H1' || element.tagName === 'H2') {
+                    var underline = (element.tagName === 'H1' ? '=' : '-').repeat(Math.min(Math.max(headingText.length, 3), 80));
+                    pushBlock(blocks, headingText + '\\n' + underline);
+                } else {
+                    var level = Number(element.tagName.slice(1)) || 3;
+                    pushBlock(blocks, '#'.repeat(level) + ' ' + headingText);
+                }
+                return;
+            }
+
+            if (element.tagName === 'LI') {
+                pushBlock(blocks, '- ' + textFromNode(element));
+                return;
+            }
+
+            if (!hasBlockChild(element)) {
+                if (element.tagName === 'BUTTON') {
+                    var buttonText = joinInlineParts(Array.prototype.map.call(element.childNodes, renderInline)) ||
+                        normalizeWhitespace(element.getAttribute('aria-label') || element.value || '');
+                    pushBlock(blocks, buttonText);
+                    return;
+                }
+                pushBlock(blocks, joinInlineParts(Array.prototype.map.call(element.childNodes, renderInline)) || textFromNode(element));
+                return;
+            }
+
+            for (var child = element.firstChild; child; child = child.nextSibling) {
+                renderBlocks(child, blocks);
+            }
+        };
+
+        window[functionName] = function(elements, fallbackContent) {
+            try {
+                var roots = Array.isArray(elements) ? elements.filter(Boolean) : [];
+                if (roots.length > 0) {
+                    var blocks = [];
+                    for (var i = 0; i < roots.length; i += 1) {
+                        renderBlocks(roots[i], blocks);
+                    }
+                    var result = blocks.join('\\n\\n').replace(/\\n{3,}/g, '\\n\\n').trim();
+                    if (result) return result;
+                }
+            } catch (_) {}
+            return typeof fallbackContent === 'string' ? fallbackContent : String(fallbackContent || '');
+        };
+    })();
+    """
+
+    static func invocationScript(
+        elementsExpression: String,
+        fallbackContentLiteral: String
+    ) -> String {
+        """
+        (function() {
+            \(installerSource)
+            return window['\(functionName)'](\(elementsExpression), \(fallbackContentLiteral));
+        })();
+        """
     }
 }
 
@@ -337,6 +541,8 @@ extension BrowserPanel {
         (function() {
             var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
             var updaterName = '\(reactGrabBridgeSessionUpdaterName)';
+            \(ReactGrabPastebackContentExtractor.installerSource)
+            var extractPastebackContent = window['\(ReactGrabPastebackContentExtractor.functionName)'];
             var refreshSessionToken = function() {
                 var syncToken = window[updaterName];
                 if (typeof syncToken !== 'function') return false;
@@ -373,7 +579,13 @@ extension BrowserPanel {
                         onCopySuccess: function(elements, content) {
                             var token = activeToken;
                             activeToken = null;
-                            if (handler) handler.postMessage({ type: 'copySuccess', content: String(content || ''), token: token });
+                            var pastebackContent = content;
+                            try {
+                                if (typeof extractPastebackContent === 'function') {
+                                    pastebackContent = extractPastebackContent(elements, content);
+                                }
+                            } catch (_) {}
+                            if (handler) handler.postMessage({ type: 'copySuccess', content: String(pastebackContent || ''), token: token });
                         }
                     }
                 });
