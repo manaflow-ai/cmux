@@ -61,7 +61,7 @@ struct BrowserSearchOverlay: View {
                 }
                 Button(action: {
                     #if DEBUG
-                    dlog("browser.findbar.next panel=\(panelId.uuidString.prefix(5))")
+                    cmuxDebugLog("browser.findbar.next panel=\(panelId.uuidString.prefix(5))")
                     #endif
                     onNext()
                 }) {
@@ -72,7 +72,7 @@ struct BrowserSearchOverlay: View {
 
                 Button(action: {
                     #if DEBUG
-                    dlog("browser.findbar.prev panel=\(panelId.uuidString.prefix(5))")
+                    cmuxDebugLog("browser.findbar.prev panel=\(panelId.uuidString.prefix(5))")
                     #endif
                     onPrevious()
                 }) {
@@ -83,7 +83,7 @@ struct BrowserSearchOverlay: View {
 
                 Button(action: {
                     #if DEBUG
-                    dlog("browser.findbar.close panel=\(panelId.uuidString.prefix(5))")
+                    cmuxDebugLog("browser.findbar.close panel=\(panelId.uuidString.prefix(5))")
                     #endif
                     onClose()
                 }) {
@@ -98,7 +98,7 @@ struct BrowserSearchOverlay: View {
             .shadow(radius: 4)
             .onAppear {
 #if DEBUG
-                dlog("browser.findbar.appear panel=\(panelId.uuidString.prefix(5))")
+                cmuxDebugLog("browser.findbar.appear panel=\(panelId.uuidString.prefix(5))")
 #endif
                 isSearchFieldFocused = true
             }

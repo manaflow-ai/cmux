@@ -438,16 +438,12 @@ struct cmuxApp: App {
 
                 splitCommandButton(title: String(localized: "menu.file.newWorkspace", defaultValue: "New Workspace"), shortcut: menuShortcut(for: .newTab)) {
                     if let appDelegate = AppDelegate.shared {
-                        if appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "menu.newWorkspace") == nil {
-#if DEBUG
-                            FocusLogStore.shared.append(
-                                "cmdn.route phase=fallback_new_window src=menu.newWorkspace reason=workspace_creation_returned_nil"
-                            )
-#endif
-                            appDelegate.openNewMainWindow(nil)
-                        }
+                        appDelegate.performNewWorkspaceAction(
+                            tabManager: activeTabManager,
+                            debugSource: "menu.newWorkspace"
+                        )
                     } else {
-                        activeTabManager.addTab()
+                        activeTabManager.addWorkspace()
                     }
                 }
 
@@ -520,7 +516,7 @@ struct cmuxApp: App {
                 Menu(String(localized: "menu.find.title", defaultValue: "Find")) {
                     splitCommandButton(title: String(localized: "menu.find.find", defaultValue: "Find…"), shortcut: menuShortcut(for: .find)) {
 #if DEBUG
-                        dlog("find.menu Cmd+F fired")
+                        cmuxDebugLog("find.menu Cmd+F fired")
 #endif
                         activeTabManager.startSearch()
                     }
@@ -2394,7 +2390,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func show(navigationTarget: SettingsNavigationTarget? = nil) {
         guard let window else { return }
 #if DEBUG
-        dlog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
+        cmuxDebugLog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
         SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
         if !window.isVisible {
@@ -2407,7 +2403,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             }
         }
 #if DEBUG
-        dlog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
+        cmuxDebugLog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
     }
 
@@ -4359,7 +4355,6 @@ struct SettingsView: View {
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
-    @State private var trustedDirectoriesDraft: String = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -4763,14 +4758,6 @@ struct SettingsView: View {
         browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
     }
 
-    private func saveTrustedDirectories() {
-        let paths = trustedDirectoriesDraft
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        CmuxDirectoryTrust.shared.replaceAll(with: paths)
-    }
-
     private var hasCustomNotificationSoundFilePath: Bool {
         !notificationSoundCustomFilePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -4961,7 +4948,7 @@ struct SettingsView: View {
     private func handleNotificationPermissionAction() {
         let state = notificationStore.authorizationState.statusLabel
 #if DEBUG
-        dlog("notification.ui enableTapped state=\(state)")
+        cmuxDebugLog("notification.ui enableTapped state=\(state)")
 #endif
         NSLog("notification.ui enableTapped state=%@", state)
         switch notificationStore.authorizationState {
@@ -5991,39 +5978,6 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
-                    }
-
-                    SettingsSectionHeader(title: String(localized: "settings.section.customCommands", defaultValue: "Custom Commands"))
-                    SettingsCard {
-                        VStack(alignment: .leading, spacing: 6) {
-                            SettingsCardRow(
-                                configurationReview: .json("customCommands.trustedDirectories"),
-                                String(localized: "settings.customCommands.trustedDirectories", defaultValue: "Trusted Directories"),
-                                subtitle: String(localized: "settings.customCommands.trustedDirectories.subtitle", defaultValue: "Commands from cmux.json in these directories run without confirmation. One path per line.")
-                            ) {
-                                EmptyView()
-                            }
-
-                            TextEditor(text: $trustedDirectoriesDraft)
-                                .font(.system(.body, design: .monospaced))
-                                .frame(minHeight: 60, maxHeight: 120)
-                                .scrollContentBackground(.hidden)
-                                .padding(6)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(6)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                                )
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 12)
-                                .onChange(of: trustedDirectoriesDraft) { _ in
-                                    saveTrustedDirectories()
-                                }
-                        }
-
-                        SettingsCardDivider()
-                        SettingsCardNote(String(localized: "settings.customCommands.trustedDirectories.note", defaultValue: "Place a cmux.json in your project root to define custom commands. Trust a directory from the confirmation dialog, or add paths here. For git repos, trusting the root covers all subdirectories."))
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))

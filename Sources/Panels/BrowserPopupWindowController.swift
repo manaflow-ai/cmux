@@ -52,7 +52,7 @@ private class BrowserPopupPanel: NSPanel {
         if flags == .command,
            KeyboardLayout.normalizedCharacters(for: event) == "w" {
             #if DEBUG
-            dlog("popup.panel.cmdW close")
+            cmuxDebugLog("popup.panel.cmdW close")
             #endif
             performClose(nil)
             return true
@@ -239,7 +239,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         panel.delegate = self
 
         #if DEBUG
-        dlog("popup.init depth=\(nestingDepth) size=\(Int(contentRect.width))x\(Int(contentRect.height)) opener=\(openerPanel?.id.uuidString.prefix(5) ?? "nil")")
+        cmuxDebugLog("popup.init depth=\(nestingDepth) size=\(Int(contentRect.width))x\(Int(contentRect.height)) opener=\(openerPanel?.id.uuidString.prefix(5) ?? "nil")")
         #endif
 
         panel.makeKeyAndOrderFront(self)
@@ -281,7 +281,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         #if DEBUG
-        dlog("popup.close depth=\(nestingDepth)")
+        cmuxDebugLog("popup.close depth=\(nestingDepth)")
         #endif
 
         closeAllChildPopups()
@@ -315,7 +315,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         let nextDepth = nestingDepth + 1
         if nextDepth > Self.maxNestingDepth {
             #if DEBUG
-            dlog("popup.nested.blocked depth=\(nextDepth) max=\(Self.maxNestingDepth)")
+            cmuxDebugLog("popup.nested.blocked depth=\(nextDepth) max=\(Self.maxNestingDepth)")
             #endif
             return nil
         }
@@ -398,7 +398,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
     func webViewDidClose(_ webView: WKWebView) {
         #if DEBUG
-        dlog("popup.webViewDidClose")
+        cmuxDebugLog("popup.webViewDidClose")
         #endif
         controller?.closePopup()
     }
@@ -567,7 +567,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         if browserShouldOpenURLExternally(url) {
             NSWorkspace.shared.open(url)
             #if DEBUG
-            dlog("popup.nav.external url=\(url.absoluteString)")
+            cmuxDebugLog("popup.nav.external url=\(url.absoluteString)")
             #endif
             decisionHandler(.cancel)
             return
@@ -576,7 +576,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         // Insecure HTTP → show same prompt as main browser
         if browserShouldBlockInsecureHTTPURL(url) {
             #if DEBUG
-            dlog("popup.nav.insecureHTTP url=\(url.absoluteString)")
+            cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
             controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
             return
@@ -629,14 +629,14 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         #if DEBUG
-        dlog("popup.download.didBecome source=navigationAction")
+        cmuxDebugLog("popup.download.didBecome source=navigationAction")
         #endif
         download.delegate = downloadDelegate
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         #if DEBUG
-        dlog("popup.download.didBecome source=navigationResponse")
+        cmuxDebugLog("popup.download.didBecome source=navigationResponse")
         #endif
         download.delegate = downloadDelegate
     }
