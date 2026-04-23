@@ -722,6 +722,56 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testGlobalNewWorkspaceActionUsesLocalActionOverride() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = root.appendingPathComponent("global-cmux.json")
+        let localConfigURL = root.appendingPathComponent("local-cmux.json")
+        try """
+        {
+          "actions": {
+            "open-dev": { "type": "workspaceCommand", "commandName": "Global Dev" }
+          },
+          "ui": {
+            "newWorkspace": { "action": "open-dev" }
+          },
+          "commands": [{
+            "name": "Global Dev",
+            "workspace": { "name": "Global" }
+          }]
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "open-dev": { "type": "workspaceCommand", "commandName": "Local Dev" }
+          },
+          "commands": [{
+            "name": "Local Dev",
+            "workspace": { "name": "Local" }
+          }]
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let resolved = try XCTUnwrap(store.resolvedNewWorkspaceCommand())
+        XCTAssertEqual(resolved.command.name, "Local Dev")
+        XCTAssertEqual(resolved.sourcePath, localConfigURL.path)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
     func testResolvedNewWorkspaceCommandExposesMissingCommandIssue() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",

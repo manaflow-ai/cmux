@@ -15,7 +15,8 @@ struct CmuxConfigExecutor {
         actionID: String? = nil,
         icon: CmuxButtonIcon? = nil,
         iconSourcePath: String? = nil,
-        presentingWindow: NSWindow? = nil
+        presentingWindow: NSWindow? = nil,
+        onExecuted: (() -> Void)? = nil
     ) -> Bool {
         if let workspace = command.workspace {
             return authorizeProjectActionIfNeeded(
@@ -40,6 +41,7 @@ struct CmuxConfigExecutor {
                     tabManager: tabManager,
                     baseCwd: baseCwd
                 )
+                onExecuted?()
             }
         } else if let rawCommand = command.command {
             let targetTerminal = tabManager.selectedWorkspace?.focusedTerminalPanel
@@ -57,6 +59,7 @@ struct CmuxConfigExecutor {
                 presentingWindow: presentingWindow
             ) { shellInput in
                 targetTerminal.sendInput(shellInput)
+                onExecuted?()
             }
         }
         return false
@@ -70,7 +73,8 @@ struct CmuxConfigExecutor {
         tabManager: TabManager,
         baseCwd: String,
         globalConfigPath: String,
-        presentingWindow: NSWindow? = nil
+        presentingWindow: NSWindow? = nil,
+        onExecuted: (() -> Void)? = nil
     ) -> Bool {
         if let commandName = action.workspaceCommandName,
            let command = commands.first(where: { $0.name == commandName }) {
@@ -85,7 +89,8 @@ struct CmuxConfigExecutor {
                 actionID: action.id,
                 icon: action.icon,
                 iconSourcePath: action.iconSourcePath,
-                presentingWindow: presentingWindow
+                presentingWindow: presentingWindow,
+                onExecuted: onExecuted
             )
         }
 
@@ -112,6 +117,7 @@ struct CmuxConfigExecutor {
                 targetWorkspace?.clearSplitZoom()
                 targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
             }
+            onExecuted?()
         }
     }
 

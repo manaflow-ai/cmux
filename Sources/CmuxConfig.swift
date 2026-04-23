@@ -2063,11 +2063,11 @@ final class CmuxConfigStore: ObservableObject {
             if configuredNewWorkspaceAction == nil,
                configuredNewWorkspaceCommandName == nil,
                let newWorkspaceActionID = globalConfig.ui?.newWorkspace?.action {
-                if let action = globalActions[newWorkspaceActionID] {
+                if let action = localActionLookup[newWorkspaceActionID] {
                     configuredNewWorkspaceAction = action.definition
                     configuredNewWorkspaceActionSourcePath = action.sourcePath
                 } else {
-                    NSLog("[CmuxConfig] ui.newWorkspace.action '%@' does not match any global action", newWorkspaceActionID)
+                    NSLog("[CmuxConfig] ui.newWorkspace.action '%@' does not match any local or global action", newWorkspaceActionID)
                 }
             }
             if configuredNewWorkspaceAction == nil,

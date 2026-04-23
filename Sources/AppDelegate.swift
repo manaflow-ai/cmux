@@ -5143,21 +5143,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "command=\(configured.command.name) windowId=\(String(context.windowId.uuidString.prefix(8)))"
         )
 #endif
+        let initialWorkspaceId = initialWorkspace?.id
         let didExecute = CmuxConfigExecutor.execute(
             command: configured.command,
             tabManager: context.tabManager,
             baseCwd: baseCwd,
             configSourcePath: configured.sourcePath,
             globalConfigPath: cmuxConfigStore.globalConfigPath
-        )
-        if didExecute,
-           let initialWorkspace,
-           context.tabManager.tabs.count > 1,
-           context.tabManager.tabs.contains(where: { $0 === initialWorkspace }),
-           context.tabManager.selectedWorkspace !== initialWorkspace {
-            context.tabManager.closeWorkspace(initialWorkspace)
+        ) { [weak self, weak context] in
+            self?.closeInitialWorkspaceIfNeeded(
+                initialWorkspaceId: initialWorkspaceId,
+                in: context
+            )
         }
         return didExecute
+    }
+
+    private func closeInitialWorkspaceIfNeeded(
+        initialWorkspaceId: UUID?,
+        in context: MainWindowContext?
+    ) {
+        guard let initialWorkspaceId,
+              let context,
+              context.tabManager.tabs.count > 1,
+              let initialWorkspace = context.tabManager.tabs.first(where: { $0.id == initialWorkspaceId }),
+              context.tabManager.selectedWorkspace?.id != initialWorkspaceId else {
+            return
+        }
+        context.tabManager.closeWorkspace(initialWorkspace)
     }
 
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.
