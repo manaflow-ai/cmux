@@ -965,10 +965,10 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
     }
 }
 
-func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
+func resolveTerminalOpenURLTarget(_ rawValue: String, workingDirectory: String? = nil) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     #if DEBUG
-    dlog("link.resolve input=\(trimmed)")
+    dlog("link.resolve input=\(trimmed) cwd=\(workingDirectory ?? "nil")")
     #endif
     guard !trimmed.isEmpty else {
         #if DEBUG
@@ -984,8 +984,16 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
         return .external(URL(fileURLWithPath: trimmed))
     }
 
+    // Only treat URL(string:) results as real URLs when the scheme is one we
+    // actually expect. RFC 3986 parses "file.swift:42" as scheme="file.swift",
+    // which must NOT short-circuit CWD resolution.
+    let knownSchemes: Set<String> = [
+        "http", "https", "ftp", "ftps", "ssh", "tel", "mailto",
+        "file", "irc", "ircs", "magnet", "slack", "vscode",
+    ]
     if let parsed = URL(string: trimmed),
-       let scheme = parsed.scheme?.lowercased() {
+       let scheme = parsed.scheme?.lowercased(),
+       knownSchemes.contains(scheme) {
         if scheme == "http" || scheme == "https" {
             guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
                 #if DEBUG
@@ -1002,6 +1010,48 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
         dlog("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
         #endif
         return .external(parsed)
+    }
+
+    // Semantic History: resolve bare filenames and relative paths against CWD.
+    // Placed after known-scheme URL checks so that real URLs are never misrouted.
+    if let cwd = workingDirectory, !cwd.isEmpty {
+        let cwdCanonical = (cwd as NSString).standardizingPath
+        // When CWD is "/" the prefix must stay "/" not "//".
+        let cwdPrefix = cwdCanonical == "/" ? "/" : cwdCanonical + "/"
+
+        // 1) Try the raw value as-is — handles filenames that legitimately
+        //    contain colons (e.g. a file literally named "foo:42").
+        let rawResolved = (cwd as NSString).appendingPathComponent(trimmed)
+        let rawCanonical = (rawResolved as NSString).standardizingPath
+        if rawCanonical.hasPrefix(cwdPrefix) || rawCanonical == cwdCanonical,
+           FileManager.default.fileExists(atPath: rawCanonical) {
+            #if DEBUG
+            dlog("link.resolve result=external(cwdResolved) path=\(rawCanonical)")
+            #endif
+            return .external(URL(fileURLWithPath: rawCanonical))
+        }
+
+        // 2) Strip trailing ":line" or ":line:col" suffixes — only drop
+        //    components that are purely numeric and non-empty.
+        let pathPart: String = {
+            let parts = trimmed.components(separatedBy: ":")
+            var end = parts.count
+            while end > 1, !parts[end - 1].isEmpty, parts[end - 1].allSatisfy(\.isNumber) {
+                end -= 1
+            }
+            return parts[..<end].joined(separator: ":")
+        }()
+        if pathPart != trimmed, !pathPart.isEmpty {
+            let resolved = (cwd as NSString).appendingPathComponent(pathPart)
+            let canonical = (resolved as NSString).standardizingPath
+            if canonical.hasPrefix(cwdPrefix) || canonical == cwdCanonical,
+               FileManager.default.fileExists(atPath: canonical) {
+                #if DEBUG
+                dlog("link.resolve result=external(cwdResolved-stripped) path=\(canonical)")
+                #endif
+                return .external(URL(fileURLWithPath: canonical))
+            }
+        }
     }
 
     if let webURL = resolveBrowserNavigableURL(trimmed) {
@@ -3347,7 +3397,20 @@ class GhosttyApp {
             #if DEBUG
             dlog("link.openURL raw=\(urlString)")
             #endif
-            guard let target = resolveTerminalOpenURLTarget(urlString) else {
+            // Resolve the terminal CWD for Semantic History (bare filename resolution).
+            // Use tabManagerFor(tabId:) so this works in detached/secondary windows too.
+            let terminalCWD: String? = {
+                guard let tabId = surfaceView.tabId,
+                      let surfaceId = surfaceView.terminalSurface?.id,
+                      let app = AppDelegate.shared,
+                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+                      let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                    return nil
+                }
+                return workspace.panelDirectories[surfaceId]
+                    ?? workspace.currentDirectory
+            }()
+            guard let target = resolveTerminalOpenURLTarget(urlString, workingDirectory: terminalCWD) else {
                 #if DEBUG
                 dlog("link.openURL resolve failed, returning false")
                 #endif
