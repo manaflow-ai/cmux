@@ -845,6 +845,514 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.height, 700, accuracy: 0.001)
     }
 
+    func testResolvedWindowFramePreservesReachableSameDisplayFrameBelowVisibilityThreshold() {
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        )
+        let displaySnapshot = SessionDisplaySnapshot(
+            displayID: 1,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_000, height: 800)
+        )
+        let savedFrame = SessionRectSnapshot(x: -380, y: 120, width: 500, height: 400)
+
+        let restored = AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: displaySnapshot,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, -380, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, 120, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 500, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 400, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFrameKeepsSmallReachableWindowOnCurrentDisplay() {
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 50, width: 1_000, height: 750)
+        )
+        let displaySnapshot = SessionDisplaySnapshot(
+            displayID: 1,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 50, width: 1_000, height: 750)
+        )
+        let savedFrame = SessionRectSnapshot(x: 120, y: 20, width: 420, height: 300)
+
+        let restored = AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: displaySnapshot,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 120, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, 20, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 420, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 300, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFrameCentersOffscreenValidWindowWithoutInflatingSize() {
+        let savedFrame = SessionRectSnapshot(x: 4_000, y: 4_000, width: 500, height: 400)
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        )
+
+        let restored = AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: nil,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 250, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, 200, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 500, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 400, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFrameForScreenParameterChangePrefersLivePrimaryGeometry() {
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_400, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_400, height: 900)
+        )
+        let currentFrame = CGRect(x: 260, y: 180, width: 840, height: 620)
+        let liveDisplaySnapshot = SessionDisplaySnapshot(
+            displayID: 1,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_400, height: 900),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_400, height: 900)
+        )
+        let matchingPersistedGeometry = AppDelegate.PersistedWindowGeometry.StoredGeometry(
+            frame: SessionRectSnapshot(x: 80, y: 60, width: 1_000, height: 700),
+            display: liveDisplaySnapshot
+        )
+
+        let restored = AppDelegate.resolvedWindowFrameForScreenParameterChange(
+            currentFrame: currentFrame,
+            currentDisplaySnapshot: liveDisplaySnapshot,
+            matchingPersistedGeometry: matchingPersistedGeometry,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, currentFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, currentFrame.minY, accuracy: 0.001)
+        XCTAssertEqual(restored.width, currentFrame.width, accuracy: 0.001)
+        XCTAssertEqual(restored.height, currentFrame.height, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFrameForScreenParameterChangeFallsBackToMatchingPrimaryGeometryWhenOffscreen() {
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_400, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_400, height: 900)
+        )
+        let displaySnapshot = SessionDisplaySnapshot(
+            displayID: 1,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_400, height: 900),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_400, height: 900)
+        )
+        let matchingPersistedGeometry = AppDelegate.PersistedWindowGeometry.StoredGeometry(
+            frame: SessionRectSnapshot(x: 120, y: 100, width: 960, height: 720),
+            display: displaySnapshot
+        )
+
+        let restored = AppDelegate.resolvedWindowFrameForScreenParameterChange(
+            currentFrame: CGRect(x: 4_000, y: 4_000, width: 900, height: 700),
+            currentDisplaySnapshot: nil,
+            matchingPersistedGeometry: matchingPersistedGeometry,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 120, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, 100, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 960, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 720, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFrameForScreenParameterChangeFallsBackToMatchingPrimaryGeometryWhenCurrentFrameIsOnlySliverVisible() {
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_400, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_400, height: 900)
+        )
+        let displaySnapshot = SessionDisplaySnapshot(
+            displayID: 1,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_400, height: 900),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_400, height: 900)
+        )
+        let matchingPersistedGeometry = AppDelegate.PersistedWindowGeometry.StoredGeometry(
+            frame: SessionRectSnapshot(x: 180, y: 120, width: 980, height: 740),
+            display: displaySnapshot
+        )
+
+        let restored = AppDelegate.resolvedWindowFrameForScreenParameterChange(
+            currentFrame: CGRect(x: -930, y: 100, width: 980, height: 740),
+            currentDisplaySnapshot: displaySnapshot,
+            matchingPersistedGeometry: matchingPersistedGeometry,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 180, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, 120, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 980, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 740, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFrameForScreenParameterChangePreservesAccessibleCurrentFrame() {
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        )
+        let displaySnapshot = SessionDisplaySnapshot(
+            displayID: 1,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_000, height: 800)
+        )
+        let currentFrame = CGRect(x: -380, y: 120, width: 500, height: 400)
+        let matchingPersistedGeometry = AppDelegate.PersistedWindowGeometry.StoredGeometry(
+            frame: SessionRectSnapshot(x: 160, y: 100, width: 900, height: 700),
+            display: displaySnapshot
+        )
+
+        let restored = AppDelegate.resolvedWindowFrameForScreenParameterChange(
+            currentFrame: currentFrame,
+            currentDisplaySnapshot: displaySnapshot,
+            matchingPersistedGeometry: matchingPersistedGeometry,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, currentFrame.minX, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, currentFrame.minY, accuracy: 0.001)
+        XCTAssertEqual(restored.width, currentFrame.width, accuracy: 0.001)
+        XCTAssertEqual(restored.height, currentFrame.height, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFrameFallsBackToCenteredDefaultWhenOnlySliverIsVisible() {
+        let savedFrame = SessionRectSnapshot(x: -850, y: 60, width: 900, height: 700)
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_200, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        )
+
+        let restored = AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: nil,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 120, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, 40, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 960, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 720, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFrameFallsBackToCenteredDefaultWhenSavedFrameIsBelowMinimumSize() {
+        let savedFrame = SessionRectSnapshot(x: 0, y: 0, width: 50, height: 240)
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_200, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        )
+
+        let restored = AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: nil,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 120, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, 40, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 960, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 720, accuracy: 0.001)
+    }
+
+    func testHasSufficientVisibleFrameRejectsDisjointSliversAcrossDisplays() {
+        // Two narrow strips, one on each display. Neither display individually
+        // sees enough of the window to be reachable, even though the bounding
+        // box of the two slivers is "wide".
+        let leftDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        )
+        let rightDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 2_000, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 2_000, y: 0, width: 1_000, height: 800)
+        )
+        // Frame straddles a 1000-wide gap between the two displays, leaving a
+        // 50pt strip on each side.
+        let straddlingFrame = CGRect(x: 950, y: 200, width: 1_100, height: 600)
+
+        XCTAssertFalse(
+            AppDelegate.hasSufficientVisibleFrame(
+                straddlingFrame,
+                in: [leftDisplay, rightDisplay],
+                minWidth: 400,
+                minHeight: 300,
+                minimumVisibleWidth: 480,
+                minimumVisibleHeight: 320
+            )
+        )
+    }
+
+    func testHasSufficientVisibleFramePreservesSpanningWindow() {
+        // A genuinely spanning window across two side-by-side displays. At
+        // least one display sees a wide chunk of the window, so we should
+        // preserve it instead of forcing a centered fallback.
+        let leftDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        )
+        let rightDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800)
+        )
+        let spanningFrame = CGRect(x: 200, y: 100, width: 1_600, height: 600)
+
+        XCTAssertTrue(
+            AppDelegate.hasSufficientVisibleFrame(
+                spanningFrame,
+                in: [leftDisplay, rightDisplay],
+                minWidth: 400,
+                minHeight: 300,
+                minimumVisibleWidth: 480,
+                minimumVisibleHeight: 320
+            )
+        )
+    }
+
+    func testShouldPreserveSpanningFrameAcrossMultipleDisplays() {
+        let leftDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        )
+        let rightDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800)
+        )
+        let spanningFrame = CGRect(x: 200, y: 100, width: 1_600, height: 600)
+
+        XCTAssertTrue(
+            AppDelegate.shouldPreserveSpanningFrame(
+                spanningFrame,
+                availableDisplays: [leftDisplay, rightDisplay],
+                minWidth: 400,
+                minHeight: 300,
+                minimumVisibleWidth: 480,
+                minimumVisibleHeight: 320
+            )
+        )
+    }
+
+    func testMergedDisplayConfigurationsEvictsOldEntriesPastCap() throws {
+        // Pre-populate the map with exactly the cap entries, all under
+        // distinct fingerprints. The newly-written fingerprint must survive;
+        // the least-recently-used entry should be evicted to preserve the cap.
+        let cap = AppDelegate.maxStoredDisplayConfigurations
+        var existing: [String: AppDelegate.PersistedWindowGeometry.StoredGeometry] = [:]
+        for index in 0..<cap {
+            existing["existing-\(index)"] = AppDelegate.PersistedWindowGeometry.StoredGeometry(
+                frame: SessionRectSnapshot(x: Double(index), y: 0, width: 800, height: 600),
+                display: nil,
+                lastUsedAt: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+
+        let newFingerprint = "newest-display-config"
+        let merged = AppDelegate.mergedDisplayConfigurations(
+            existing: existing,
+            fingerprint: newFingerprint,
+            frame: SessionRectSnapshot(x: 10, y: 20, width: 1_200, height: 800),
+            display: nil,
+            now: Date(timeIntervalSince1970: TimeInterval(cap + 1))
+        )
+
+        let resolved = merged ?? [:]
+        XCTAssertEqual(
+            resolved.count,
+            cap,
+            "Merging at capacity should evict exactly one least-recently-used entry"
+        )
+        XCTAssertNil(resolved["existing-0"])
+        let newestGeometry = try XCTUnwrap(
+            resolved[newFingerprint],
+            "newest fingerprint must survive eviction"
+        )
+        XCTAssertEqual(newestGeometry.frame.width, 1_200, accuracy: 0.001)
+        XCTAssertEqual(newestGeometry.lastUsedAt, Date(timeIntervalSince1970: TimeInterval(cap + 1)))
+    }
+
+    func testMergedDisplayConfigurationsKeepsExistingEntriesUnderCap() throws {
+        let existing: [String: AppDelegate.PersistedWindowGeometry.StoredGeometry] = [
+            "fp-a": AppDelegate.PersistedWindowGeometry.StoredGeometry(
+                frame: SessionRectSnapshot(x: 0, y: 0, width: 800, height: 600),
+                display: nil
+            ),
+            "fp-b": AppDelegate.PersistedWindowGeometry.StoredGeometry(
+                frame: SessionRectSnapshot(x: 50, y: 50, width: 900, height: 700),
+                display: nil
+            ),
+        ]
+
+        let merged = AppDelegate.mergedDisplayConfigurations(
+            existing: existing,
+            fingerprint: "fp-c",
+            frame: SessionRectSnapshot(x: 100, y: 100, width: 1_000, height: 800),
+            display: nil
+        )
+
+        let resolved = try XCTUnwrap(merged)
+        XCTAssertEqual(resolved.count, 3)
+        XCTAssertNotNil(resolved["fp-a"])
+        XCTAssertNotNil(resolved["fp-b"])
+        XCTAssertNotNil(resolved["fp-c"])
+    }
+
+    func testMergedDisplayConfigurationsRefreshesExistingFingerprintRecency() throws {
+        let staleTimestamp = Date(timeIntervalSince1970: 10)
+        let refreshedTimestamp = Date(timeIntervalSince1970: 20)
+        let merged = AppDelegate.mergedDisplayConfigurations(
+            existing: [
+                "fp-a": AppDelegate.PersistedWindowGeometry.StoredGeometry(
+                    frame: SessionRectSnapshot(x: 0, y: 0, width: 800, height: 600),
+                    display: nil,
+                    lastUsedAt: staleTimestamp
+                )
+            ],
+            fingerprint: "fp-a",
+            frame: SessionRectSnapshot(x: 100, y: 120, width: 900, height: 700),
+            display: nil,
+            now: refreshedTimestamp
+        )
+
+        let refreshed = try XCTUnwrap(merged?["fp-a"])
+        XCTAssertEqual(refreshed.frame.x, 100, accuracy: 0.001)
+        XCTAssertEqual(refreshed.frame.y, 120, accuracy: 0.001)
+        XCTAssertEqual(refreshed.frame.width, 900, accuracy: 0.001)
+        XCTAssertEqual(refreshed.frame.height, 700, accuracy: 0.001)
+        XCTAssertEqual(refreshed.lastUsedAt, refreshedTimestamp)
+    }
+
+    func testPersistedWindowGeometryEntryPrefersMatchingDisplayConfiguration() throws {
+        let builtInDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_510, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_510, height: 944)
+        )
+        let builtInFingerprint = try XCTUnwrap(
+            AppDelegate.displayConfigurationFingerprint(for: [builtInDisplay])
+        )
+        let builtInGeometry = AppDelegate.PersistedWindowGeometry.StoredGeometry(
+            frame: SessionRectSnapshot(x: 180, y: 120, width: 1_100, height: 760),
+            display: SessionDisplaySnapshot(
+                displayID: 1,
+                frame: SessionRectSnapshot(x: 0, y: 0, width: 1_510, height: 982),
+                visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_510, height: 944)
+            )
+        )
+        let fallbackGeometry = SessionRectSnapshot(x: 2_240, y: 140, width: 1_400, height: 900)
+        let payload = AppDelegate.PersistedWindowGeometry(
+            version: AppDelegate.persistedWindowGeometrySchemaVersion,
+            frame: fallbackGeometry,
+            display: nil,
+            displayConfigurations: [builtInFingerprint: builtInGeometry]
+        )
+
+        let resolved = AppDelegate.persistedWindowGeometryEntry(
+            from: payload,
+            displayConfigurationFingerprint: builtInFingerprint
+        )
+
+        let resolvedGeometry = try XCTUnwrap(resolved)
+        XCTAssertEqual(resolvedGeometry.frame.x, builtInGeometry.frame.x, accuracy: 0.001)
+        XCTAssertEqual(resolvedGeometry.frame.y, builtInGeometry.frame.y, accuracy: 0.001)
+        XCTAssertEqual(resolvedGeometry.frame.width, builtInGeometry.frame.width, accuracy: 0.001)
+        XCTAssertEqual(resolvedGeometry.frame.height, builtInGeometry.frame.height, accuracy: 0.001)
+        XCTAssertNil(
+            AppDelegate.persistedWindowGeometryEntry(
+                from: payload,
+                displayConfigurationFingerprint: "missing-fingerprint",
+                matchingOnly: true
+            )
+        )
+        let fallbackResolved = try XCTUnwrap(
+            AppDelegate.persistedWindowGeometryEntry(
+                from: payload,
+                displayConfigurationFingerprint: "missing-fingerprint"
+            )
+        )
+        XCTAssertEqual(fallbackResolved.frame.x, fallbackGeometry.x, accuracy: 0.001)
+        XCTAssertEqual(fallbackResolved.frame.y, fallbackGeometry.y, accuracy: 0.001)
+        XCTAssertEqual(fallbackResolved.frame.width, fallbackGeometry.width, accuracy: 0.001)
+        XCTAssertEqual(fallbackResolved.frame.height, fallbackGeometry.height, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFramePreservesVisibleSpanningGeometryWithoutDisplaySnapshot() throws {
+        let leftDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        )
+        let rightDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800)
+        )
+        let savedFrame = SessionRectSnapshot(x: 200, y: 100, width: 1_600, height: 600)
+
+        let restored = AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: nil,
+            availableDisplays: [leftDisplay, rightDisplay],
+            fallbackDisplay: leftDisplay
+        )
+
+        let restoredFrame = try XCTUnwrap(restored)
+        XCTAssertEqual(restoredFrame.minX, 200, accuracy: 0.001)
+        XCTAssertEqual(restoredFrame.minY, 100, accuracy: 0.001)
+        XCTAssertEqual(restoredFrame.width, 1_600, accuracy: 0.001)
+        XCTAssertEqual(restoredFrame.height, 600, accuracy: 0.001)
+    }
+
     func testResolvedWindowFramePreservesExactGeometryWhenDisplayIsUnchanged() {
         let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
         let savedDisplay = SessionDisplaySnapshot(
