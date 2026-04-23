@@ -352,7 +352,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
           "ui": {
             "surfaceTabBar": {
               "buttons": [
-                { "id": "emoji", "icon": { "type": "emoji", "value": "🤖" }, "command": "codex" },
+                { "id": "emoji", "icon": { "type": "emoji", "value": "🤖", "scale": 0.85 }, "command": "codex" },
                 { "id": "svg", "icon": { "type": "image", "path": "./icons/codex.svg" }, "command": "codex" },
                 { "id": "jpeg", "icon": { "type": "image", "path": "./icons/claude.jpg" }, "command": "claude" },
                 { "id": "pdf", "icon": { "type": "image", "path": "./icons/logo.pdf" }, "command": "open ." },
@@ -366,7 +366,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
         """
         let config = try decode(json)
-        XCTAssertEqual(config.surfaceTabBarButtons?[0].icon, .emoji("🤖"))
+        XCTAssertEqual(config.surfaceTabBarButtons?[0].icon, .emoji("🤖", scale: 0.85))
         XCTAssertEqual(config.surfaceTabBarButtons?[1].icon, .imagePath("./icons/codex.svg"))
         XCTAssertEqual(config.surfaceTabBarButtons?[2].icon, .imagePath("./icons/claude.jpg"))
         XCTAssertEqual(config.surfaceTabBarButtons?[3].icon, .imagePath("./icons/logo.pdf"))

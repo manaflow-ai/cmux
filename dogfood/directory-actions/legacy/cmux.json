@@ -16,7 +16,7 @@
       "command": "echo 'LEGACY ECHO'; echo 'SOURCE=legacy/cmux.json'; pwd",
       "target": "newTabInCurrentPane",
       "shortcut": "cmd+shift+l",
-      "icon": { "type": "emoji", "value": "📄" }
+      "icon": { "type": "emoji", "value": "📄", "scale": 0.8 }
     }
   },
   "ui": {

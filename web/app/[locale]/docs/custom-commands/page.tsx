@@ -82,7 +82,7 @@ export default function CustomCommandsPage() {
       "command": "opencode",
       "target": "newTabInCurrentPane",
       "palette": false,
-      "icon": { "type": "emoji", "value": "🧪" }
+      "icon": { "type": "emoji", "value": "🧪", "scale": 0.9 }
     },
     "web-dev": {
       "type": "workspaceCommand",
@@ -125,9 +125,10 @@ export default function CustomCommandsPage() {
         <code>ui.surfaceTabBar.buttons</code> replaces the default button list when present. Leave out a
         built-in ID to hide it. Icons always use an object shape:
         <code>{'{ "type": "symbol", "name": "play.circle" }'}</code>,
-        <code>{'{ "type": "emoji", "value": "🧪" }'}</code>, or
+        <code>{'{ "type": "emoji", "value": "🧪", "scale": 0.9 }'}</code>, or
         <code>{'{ "type": "image", "path": "./icons/codex.svg" }'}</code>. Image paths are relative to the
-        config file. SVG, PDF, PNG, JPEG, GIF, TIFF, BMP, HEIC, HEIF, WebP, AVIF, ICO, and ICNS are supported.
+        config file. Emoji <code>scale</code> is optional and defaults to <code>1</code>. SVG, PDF, PNG,
+        JPEG, GIF, TIFF, BMP, HEIC, HEIF, WebP, AVIF, ICO, and ICNS are supported.
       </p>
       <p>
         Each button entry can be either an action ID string or a button object. Use a button object when you
