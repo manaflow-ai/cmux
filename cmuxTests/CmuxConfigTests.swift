@@ -492,6 +492,45 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testInlineSurfaceButtonIconUsesTabBarConfigSourceForTrust() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-svg-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let iconsDirectory = projectDirectory.appendingPathComponent("icons", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: iconsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigPath = globalDirectory.appendingPathComponent("cmux.json").path
+        let projectConfigPath = projectDirectory.appendingPathComponent("cmux.json").path
+        let iconPath = iconsDirectory.appendingPathComponent("safe.svg")
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" fill="#000"/>
+        </svg>
+        """
+        try Data(svg.utf8).write(to: iconPath)
+
+        let button = CmuxSurfaceTabBarButton(
+            id: "inline-local",
+            icon: .imagePath("icons/safe.svg"),
+            action: .command("echo inline")
+        )
+        XCTAssertFalse(
+            CmuxConfigExecutor.isTrustedSurfaceButton(
+                button,
+                workspaceCommand: nil,
+                terminalCommandSourcePath: nil,
+                surfaceTabBarConfigSourcePath: projectConfigPath,
+                globalConfigPath: globalConfigPath
+            )
+        )
+    }
+
     func testDecodeNewWorkspaceAction() throws {
         let json = """
         {

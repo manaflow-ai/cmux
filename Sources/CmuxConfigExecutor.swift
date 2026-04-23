@@ -346,12 +346,14 @@ struct CmuxConfigExecutor {
         _ button: CmuxSurfaceTabBarButton,
         workspaceCommand: CmuxResolvedCommand?,
         terminalCommandSourcePath: String?,
+        surfaceTabBarConfigSourcePath: String?,
         globalConfigPath: String
     ) -> Bool {
         guard let descriptor = surfaceButtonTrustDescriptor(
             button,
             workspaceCommand: workspaceCommand,
             terminalCommandSourcePath: terminalCommandSourcePath,
+            surfaceTabBarConfigSourcePath: surfaceTabBarConfigSourcePath,
             globalConfigPath: globalConfigPath
         ) else {
             return true
@@ -367,11 +369,15 @@ struct CmuxConfigExecutor {
         _ button: CmuxSurfaceTabBarButton,
         workspaceCommand: CmuxResolvedCommand?,
         terminalCommandSourcePath: String?,
+        surfaceTabBarConfigSourcePath: String?,
         globalConfigPath: String
     ) -> CmuxActionTrustDescriptor? {
         let configSourcePath = terminalCommandSourcePath
             ?? workspaceCommand?.sourcePath
             ?? button.actionSourcePath
+            ?? surfaceTabBarConfigSourcePath
+        let iconSourcePath = button.iconSourcePath
+            ?? (button.icon == nil ? nil : surfaceTabBarConfigSourcePath)
         let resolvedIcon = button.icon ?? button.action.defaultButtonIcon
 
         if let workspaceCommand {
@@ -380,7 +386,7 @@ struct CmuxConfigExecutor {
                 actionID: button.id,
                 configSourcePath: configSourcePath,
                 icon: resolvedIcon,
-                iconSourcePath: button.iconSourcePath,
+                iconSourcePath: iconSourcePath,
                 globalConfigPath: globalConfigPath
             )
         }
@@ -395,7 +401,7 @@ struct CmuxConfigExecutor {
             target: button.resolvedTerminalCommandTarget,
             configSourcePath: configSourcePath,
             icon: resolvedIcon,
-            iconSourcePath: button.iconSourcePath,
+            iconSourcePath: iconSourcePath,
             globalConfigPath: globalConfigPath
         )
     }

@@ -7203,6 +7203,7 @@ final class Workspace: Identifiable, ObservableObject {
                     $0.button,
                     workspaceCommand: $0.workspaceCommand,
                     terminalCommandSourcePath: $0.terminalCommandSourcePath,
+                    surfaceTabBarConfigSourcePath: sourcePath,
                     globalConfigPath: globalConfigPath
                 )
             } ?? true
