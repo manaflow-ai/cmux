@@ -617,7 +617,14 @@
       "patternForm": "Preencher um formulário e verificar texto de sucesso",
       "patternDebug": "Capturar artefatos de debug em falha",
       "patternSession": "Persistir e restaurar sessão do navegador",
-      "metaTitle": "Automação do navegador"
+      "metaTitle": "Automação do navegador",
+      "navigationDesc": "Use open ou open-split para criar uma nova superfície de navegador e carregar uma URL. Use navigate quando você já tiver uma superfície e quiser mudar de página. Depois de qualquer uma delas, confirme a URL antes de esperar ou tirar um snapshot.",
+      "patternNavigateDesc": "O fluxo estável é: navigate, verificar com get url, wait e depois snapshot.",
+      "troubleshooting": "Solução de problemas",
+      "troubleBlankPage": "Páginas em branco e snapshots vazios",
+      "troubleBlankPageDesc": "Se a saída de snapshot estiver vazia ou wait em load-state continuar expirando, verifique primeiro a URL atual. Uma URL vazia ou about:blank normalmente significa que a página nunca navegou.",
+      "troubleJsError": "js_error em snapshot ou eval",
+      "troubleJsErrorDesc": "Algumas páginas bloqueiam ou quebram o JavaScript usado para snapshots avançados e eval ad hoc. Tente primeiro extrair texto ou HTML e depois repita em uma página mais simples, se necessário."
     },
     "changelog": {
       "title": "Changelog",

@@ -609,6 +609,7 @@
       "targetingSurface": "ブラウザサーフェスの指定",
       "targetingDesc": "ほとんどのサブコマンドにはターゲットサーフェスが必要です。位置引数または--surfaceで指定できます。",
       "navigation": "ナビゲーション",
+      "navigationDesc": "openとopen-splitは新しいブラウザサーフェスを作成してURLを読み込みます。既存サーフェスでページを切り替えるときはnavigateを使います。どちらの場合も、waitやsnapshotの前にURLを確認してください。",
       "waitingSection": "待機",
       "waitingDesc": "waitを使用して、セレクタ、テキスト、URLフラグメント、ロード状態、またはJavaScript条件が満たされるまでブロックします。",
       "domSection": "DOM操作",
@@ -626,9 +627,15 @@
       "downloadsSection": "ダウンロード",
       "commonPatterns": "よくあるパターン",
       "patternNavigate": "ナビゲート、待機、インスペクト",
+      "patternNavigateDesc": "安定したループは、ナビゲートしてget urlで確認し、waitしてからsnapshotする流れです。",
       "patternForm": "フォーム入力と成功テキストの確認",
       "patternDebug": "失敗時のデバッグアーティファクトの取得",
       "patternSession": "ブラウザセッションの保存と復元",
+      "troubleshooting": "トラブルシューティング",
+      "troubleBlankPage": "空白ページと空のスナップショット",
+      "troubleBlankPageDesc": "snapshotの出力が空だったり、load-stateのwaitがタイムアウトし続ける場合は、まず現在のURLを確認してください。URLが空、またはabout:blankなら、ページ遷移が起きていない可能性が高いです。",
+      "troubleJsError": "snapshotやevalのjs_error",
+      "troubleJsErrorDesc": "一部のページでは、リッチスナップショットやad-hoc evalに使うJavaScriptが拒否されたり壊れたりします。まずはテキストやHTMLの取得に切り替え、それでも難しければより単純なページで再試行してください。",
       "metaTitle": "ブラウザ自動化"
     },
     "changelog": {

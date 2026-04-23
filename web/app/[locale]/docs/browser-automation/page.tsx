@@ -104,10 +104,14 @@ cmux browser surface:2 url
 cmux browser --surface surface:2 url`}</CodeBlock>
 
       <h2>{t("navigation")}</h2>
-      <CodeBlock lang="bash">{`cmux browser open https://example.com
+      <p>{t("navigationDesc")}</p>
+      <CodeBlock lang="bash">{`# Create a new browser surface and load a URL
+cmux browser open https://example.com
 cmux browser open-split https://news.ycombinator.com
 
-cmux browser surface:2 navigate https://example.org/docs --snapshot-after
+# Reuse an existing surface for a new page
+cmux browser surface:2 navigate https://example.org/docs
+cmux browser surface:2 get url
 cmux browser surface:2 back
 cmux browser surface:2 forward
 cmux browser surface:2 reload --snapshot-after
@@ -242,7 +246,9 @@ cmux browser surface:2 download --path /tmp/report.csv --timeout-ms 30000`}</Cod
       <h2>{t("commonPatterns")}</h2>
 
       <h3>{t("patternNavigate")}</h3>
+      <p>{t("patternNavigateDesc")}</p>
       <CodeBlock lang="bash">{`cmux browser open https://example.com/login
+cmux browser surface:2 get url
 cmux browser surface:2 wait --load-state complete --timeout-ms 15000
 cmux browser surface:2 snapshot --interactive --compact
 cmux browser surface:2 get title`}</CodeBlock>
@@ -255,7 +261,8 @@ cmux browser surface:2 wait --text "Welcome"
 cmux browser surface:2 is visible "#dashboard"`}</CodeBlock>
 
       <h3>{t("patternDebug")}</h3>
-      <CodeBlock lang="bash">{`cmux browser surface:2 console list
+      <CodeBlock lang="bash">{`cmux browser surface:2 get url
+cmux browser surface:2 console list
 cmux browser surface:2 errors list
 cmux browser surface:2 screenshot --out /tmp/cmux-failure.png
 cmux browser surface:2 snapshot --interactive --compact`}</CodeBlock>
@@ -265,6 +272,23 @@ cmux browser surface:2 snapshot --interactive --compact`}</CodeBlock>
 # ...later...
 cmux browser surface:2 state load /tmp/session.json
 cmux browser surface:2 reload`}</CodeBlock>
+
+      <h2>{t("troubleshooting")}</h2>
+
+      <h3>{t("troubleBlankPage")}</h3>
+      <p>{t("troubleBlankPageDesc")}</p>
+      <CodeBlock lang="bash">{`cmux browser surface:2 get url
+# If the URL is empty or about:blank, navigate before waiting
+cmux browser surface:2 navigate https://example.com
+cmux browser surface:2 get url
+cmux browser surface:2 wait --load-state complete --timeout-ms 15000
+cmux browser surface:2 snapshot --interactive --compact`}</CodeBlock>
+
+      <h3>{t("troubleJsError")}</h3>
+      <p>{t("troubleJsErrorDesc")}</p>
+      <CodeBlock lang="bash">{`cmux browser surface:2 get url
+cmux browser surface:2 get text body
+cmux browser surface:2 get html body`}</CodeBlock>
     </>
   );
 }

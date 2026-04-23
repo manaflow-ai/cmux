@@ -617,7 +617,14 @@
       "patternForm": "Bir formu doldurun ve başarı metnini doğrulayın",
       "patternDebug": "Başarısızlıkta debug artefaktlarını yakalayın",
       "patternSession": "Tarayıcı oturumunu kaydet ve geri yükle",
-      "metaTitle": "Tarayıcı otomasyonu"
+      "metaTitle": "Tarayıcı otomasyonu",
+      "navigationDesc": "Yeni bir tarayıcı yüzeyi oluşturup URL yüklemek için open veya open-split kullanın. Zaten bir yüzeyiniz varsa ve sayfa değiştirmek istiyorsanız navigate kullanın. Her iki durumda da beklemeden veya snapshot almadan önce URL'yi doğrulayın.",
+      "patternNavigateDesc": "Kararlı döngü şudur: navigate, get url ile doğrula, wait, ardından snapshot.",
+      "troubleshooting": "Sorun giderme",
+      "troubleBlankPage": "Boş sayfalar ve boş snapshot'lar",
+      "troubleBlankPageDesc": "Snapshot çıktısı boşsa veya load-state için wait sürekli zaman aşımına uğruyorsa önce mevcut URL'yi kontrol edin. Boş bir URL ya da about:blank genellikle sayfanın hiç gezilmediği anlamına gelir.",
+      "troubleJsError": "snapshot veya eval üzerinde js_error",
+      "troubleJsErrorDesc": "Bazı sayfalar zengin snapshot'lar ve geçici eval için kullanılan JavaScript'i engelleyebilir veya bozabilir. Önce metin ya da HTML çıkarımını deneyin, gerekirse daha basit bir sayfada tekrar deneyin."
     },
     "changelog": {
       "title": "Değişiklik Günlüğü",

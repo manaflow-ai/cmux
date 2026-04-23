@@ -617,7 +617,14 @@
       "patternForm": "Fyll ut et skjema og verifiser suksessmeldingen",
       "patternDebug": "Fang debug-artefakter ved feil",
       "patternSession": "Lagre og gjenopprett nettleserøkt",
-      "metaTitle": "Nettleserautomatisering"
+      "metaTitle": "Nettleserautomatisering",
+      "navigationDesc": "Bruk open eller open-split for å opprette en ny nettleserflate og laste en URL. Bruk navigate når du allerede har en flate og vil bytte side. Bekreft URL-en etter begge før du venter eller tar et snapshot.",
+      "patternNavigateDesc": "Den stabile løkken er: navigate, bekreft med get url, wait, deretter snapshot.",
+      "troubleshooting": "Feilsøking",
+      "troubleBlankPage": "Tomme sider og tomme snapshots",
+      "troubleBlankPageDesc": "Hvis snapshot-utdata er tomme eller wait på load-state stadig får timeout, sjekk først gjeldende URL. En tom URL eller about:blank betyr vanligvis at siden aldri navigerte.",
+      "troubleJsError": "js_error på snapshot eller eval",
+      "troubleJsErrorDesc": "Noen sider blokkerer eller ødelegger JavaScript-en som brukes til rike snapshots og ad hoc-eval. Prøv tekst- eller HTML-uttrekk først, og prøv deretter igjen på en enklere side ved behov."
     },
     "changelog": {
       "title": "Endringslogg",

@@ -617,7 +617,14 @@
       "patternForm": "Formular ausfüllen und Erfolgstext überprüfen",
       "patternDebug": "Debug-Artefakte bei Fehler erfassen",
       "patternSession": "Browser-Sitzung speichern und wiederherstellen",
-      "metaTitle": "Browser-Automatisierung"
+      "metaTitle": "Browser-Automatisierung",
+      "navigationDesc": "Verwenden Sie open oder open-split, um eine neue Browser-Oberfläche zu erstellen und eine URL zu laden. Verwenden Sie navigate, wenn bereits eine Oberfläche vorhanden ist und Sie die Seite wechseln möchten. Bestätigen Sie danach zuerst die URL, bevor Sie warten oder einen Snapshot erstellen.",
+      "patternNavigateDesc": "Der stabile Ablauf ist: navigate, mit get url prüfen, wait, dann snapshot.",
+      "troubleshooting": "Fehlerbehebung",
+      "troubleBlankPage": "Leere Seiten und leere Snapshots",
+      "troubleBlankPageDesc": "Wenn die Snapshot-Ausgabe leer ist oder wait auf load-state ständig ausläuft, prüfen Sie zuerst die aktuelle URL. Eine leere URL oder about:blank bedeutet meist, dass die Seite nie navigiert wurde.",
+      "troubleJsError": "js_error bei snapshot oder eval",
+      "troubleJsErrorDesc": "Einige Seiten blockieren oder beschädigen das JavaScript, das für umfangreiche Snapshots und ad-hoc-eval verwendet wird. Weichen Sie zunächst auf Text- oder HTML-Extraktion aus und versuchen Sie es dann bei Bedarf erneut auf einer einfacheren Seite."
     },
     "changelog": {
       "title": "Changelog",

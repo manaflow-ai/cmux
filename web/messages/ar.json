@@ -617,7 +617,14 @@
       "patternForm": "ملء نموذج والتحقق من نص النجاح",
       "patternDebug": "التقاط مواد التصحيح عند الفشل",
       "patternSession": "حفظ واستعادة جلسة المتصفح",
-      "metaTitle": "أتمتة المتصفح"
+      "metaTitle": "أتمتة المتصفح",
+      "navigationDesc": "استخدم open أو open-split لإنشاء سطح متصفح جديد وتحميل عنوان URL. استخدم navigate عندما يكون لديك سطح بالفعل وتريد تغيير الصفحة. بعد أي من الطريقتين، أكّد عنوان URL قبل الانتظار أو أخذ لقطة.",
+      "patternNavigateDesc": "الدورة المستقرة هي: navigate ثم التحقق عبر get url ثم wait ثم snapshot.",
+      "troubleshooting": "استكشاف الأخطاء وإصلاحها",
+      "troubleBlankPage": "الصفحات الفارغة واللقطات الفارغة",
+      "troubleBlankPageDesc": "إذا كانت مخرجات snapshot فارغة أو استمر wait على load-state في انتهاء المهلة، فتحقق من عنوان URL الحالي أولاً. عنوان URL الفارغ أو about:blank يعني عادة أن الصفحة لم تنتقل.",
+      "troubleJsError": "js_error عند snapshot أو eval",
+      "troubleJsErrorDesc": "بعض الصفحات تحظر أو تكسر JavaScript المستخدم للقطات الغنية وعمليات eval السريعة. استخدم استخراج النص أو HTML أولاً، ثم أعد المحاولة على صفحة أبسط إذا لزم الأمر."
     },
     "changelog": {
       "title": "سجل التغييرات",

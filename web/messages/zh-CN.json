@@ -617,7 +617,14 @@
       "patternForm": "填写表单并验证成功文本",
       "patternDebug": "失败时捕获调试信息",
       "patternSession": "持久化和恢复浏览器会话",
-      "metaTitle": "浏览器自动化"
+      "metaTitle": "浏览器自动化",
+      "navigationDesc": "使用 open 或 open-split 创建新的浏览器表面并加载 URL。已有表面且想切换页面时，使用 navigate。无论哪一种，在等待或抓取快照之前，都先确认 URL。",
+      "patternNavigateDesc": "稳定流程是：navigate，用 get url 验证，wait，然后 snapshot。",
+      "troubleshooting": "故障排查",
+      "troubleBlankPage": "空白页面和空快照",
+      "troubleBlankPageDesc": "如果 snapshot 输出为空，或者对 load-state 的 wait 一直超时，请先检查当前 URL。空 URL 或 about:blank 通常表示页面根本没有发生导航。",
+      "troubleJsError": "snapshot 或 eval 上的 js_error",
+      "troubleJsErrorDesc": "有些页面会阻止或破坏用于富快照和临时 eval 的 JavaScript。先退回到提取文本或 HTML，如果还不行，再在更简单的页面上重试。"
     },
     "changelog": {
       "title": "更新日志",

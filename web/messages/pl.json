@@ -617,7 +617,14 @@
       "patternForm": "Wypełnij formularz i zweryfikuj tekst sukcesu",
       "patternDebug": "Przechwyć artefakty debugowania przy błędzie",
       "patternSession": "Zapisz i przywróć sesję przeglądarki",
-      "metaTitle": "Automatyzacja przeglądarki"
+      "metaTitle": "Automatyzacja przeglądarki",
+      "navigationDesc": "Użyj open lub open-split, aby utworzyć nową powierzchnię przeglądarki i wczytać URL. Użyj navigate, gdy masz już powierzchnię i chcesz zmienić stronę. Po każdej z tych komend najpierw potwierdź URL, zanim zaczekasz lub wykonasz snapshot.",
+      "patternNavigateDesc": "Stabilna pętla to: navigate, weryfikacja przez get url, wait, a potem snapshot.",
+      "troubleshooting": "Rozwiązywanie problemów",
+      "troubleBlankPage": "Puste strony i puste snapshoty",
+      "troubleBlankPageDesc": "Jeśli wynik snapshot jest pusty albo wait na load-state ciągle kończy się timeoutem, najpierw sprawdź bieżący URL. Pusty URL albo about:blank zwykle oznacza, że strona w ogóle nie przeszła nawigacji.",
+      "troubleJsError": "js_error przy snapshot lub eval",
+      "troubleJsErrorDesc": "Niektóre strony blokują albo psują JavaScript używany do bogatych snapshotów i doraźnych eval. Najpierw użyj pobierania tekstu lub HTML, a potem spróbuj ponownie na prostszej stronie, jeśli to potrzebne."
     },
     "changelog": {
       "title": "Dziennik zmian",

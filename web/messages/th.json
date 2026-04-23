@@ -617,7 +617,14 @@
       "patternForm": "กรอกฟอร์มและยืนยันข้อความสำเร็จ",
       "patternDebug": "จับ debug artifact เมื่อล้มเหลว",
       "patternSession": "บันทึกและกู้คืนเซสชันเบราว์เซอร์",
-      "metaTitle": "ระบบอัตโนมัติของเบราว์เซอร์"
+      "metaTitle": "ระบบอัตโนมัติของเบราว์เซอร์",
+      "navigationDesc": "ใช้ open หรือ open-split เพื่อสร้างพื้นผิวเบราว์เซอร์ใหม่และโหลด URL ใช้ navigate เมื่อคุณมีพื้นผิวอยู่แล้วและต้องการเปลี่ยนหน้า หลังจากใช้วิธีใดวิธีหนึ่ง ให้ยืนยัน URL ก่อนรอหรือทำ snapshot",
+      "patternNavigateDesc": "ลำดับที่เสถียรคือ navigate ตรวจสอบด้วย get url จากนั้น wait แล้วค่อย snapshot",
+      "troubleshooting": "การแก้ปัญหา",
+      "troubleBlankPage": "หน้าว่างและ snapshot ว่าง",
+      "troubleBlankPageDesc": "ถ้าเอาต์พุตของ snapshot ว่าง หรือ wait บน load-state หมดเวลาซ้ำ ๆ ให้ตรวจสอบ URL ปัจจุบันก่อน URL ที่ว่างหรือ about:blank มักหมายความว่าหน้ายังไม่ได้นำทางไปไหน",
+      "troubleJsError": "js_error บน snapshot หรือ eval",
+      "troubleJsErrorDesc": "บางหน้าอาจบล็อกหรือทำให้ JavaScript ที่ใช้กับ snapshot แบบสมบูรณ์และ eval แบบเฉพาะกิจเสียหาย ให้ลองดึงข้อความหรือ HTML ก่อน แล้วค่อยลองใหม่บนหน้าที่เรียบง่ายกว่าหากจำเป็น"
     },
     "changelog": {
       "title": "Changelog",

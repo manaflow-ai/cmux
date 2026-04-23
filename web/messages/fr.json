@@ -617,7 +617,14 @@
       "patternForm": "Remplir un formulaire et vérifier le texte de succès",
       "patternDebug": "Capturer les artefacts de debug en cas d'échec",
       "patternSession": "Persister et restaurer la session du navigateur",
-      "metaTitle": "Automatisation du navigateur"
+      "metaTitle": "Automatisation du navigateur",
+      "navigationDesc": "Utilisez open ou open-split pour créer une nouvelle surface navigateur et charger une URL. Utilisez navigate lorsque vous avez déjà une surface et souhaitez changer de page. Après l'une ou l'autre, confirmez l'URL avant d'attendre ou de prendre un snapshot.",
+      "patternNavigateDesc": "La boucle stable est : navigate, vérifier avec get url, wait, puis snapshot.",
+      "troubleshooting": "Dépannage",
+      "troubleBlankPage": "Pages vides et snapshots vides",
+      "troubleBlankPageDesc": "Si la sortie de snapshot est vide ou que wait sur load-state expire sans cesse, vérifiez d'abord l'URL actuelle. Une URL vide ou about:blank signifie généralement que la page n'a jamais navigué.",
+      "troubleJsError": "js_error sur snapshot ou eval",
+      "troubleJsErrorDesc": "Certaines pages bloquent ou cassent le JavaScript utilisé pour les snapshots enrichis et les eval ad hoc. Passez d'abord à l'extraction de texte ou de HTML, puis réessayez sur une page plus simple si nécessaire."
     },
     "changelog": {
       "title": "Changelog",

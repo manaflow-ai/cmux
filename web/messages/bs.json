@@ -617,7 +617,14 @@
       "patternForm": "Popuni formu i provjeri tekst uspjeha",
       "patternDebug": "Uhvati debug artefakte pri neuspjehu",
       "patternSession": "Sačuvaj i obnovi sesiju preglednika",
-      "metaTitle": "Automatizacija preglednika"
+      "metaTitle": "Automatizacija preglednika",
+      "navigationDesc": "Koristite open ili open-split da napravite novu površinu preglednika i učitate URL. Koristite navigate kada već imate površinu i želite promijeniti stranicu. Nakon bilo koje od tih komandi, potvrdite URL prije čekanja ili pravljenja snapshota.",
+      "patternNavigateDesc": "Stabilna petlja je: navigate, provjera sa get url, wait, pa snapshot.",
+      "troubleshooting": "Rješavanje problema",
+      "troubleBlankPage": "Prazne stranice i prazni snapshoti",
+      "troubleBlankPageDesc": "Ako je izlaz snapshota prazan ili wait za load-state stalno timeouta, prvo provjerite trenutni URL. Prazan URL ili about:blank obično znači da se stranica nije navigirala.",
+      "troubleJsError": "js_error na snapshotu ili eval",
+      "troubleJsErrorDesc": "Neke stranice blokiraju ili kvare JavaScript koji se koristi za bogate snapshote i ad-hoc eval. Prvo pređite na izdvajanje teksta ili HTML-a, pa pokušajte ponovo na jednostavnijoj stranici ako treba."
     },
     "changelog": {
       "title": "Zapisnik promjena",

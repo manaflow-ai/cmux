@@ -617,7 +617,14 @@
       "patternForm": "Llenar un formulario y verificar el texto de éxito",
       "patternDebug": "Capturar artefactos de depuración en caso de error",
       "patternSession": "Persistir y restaurar sesión del navegador",
-      "metaTitle": "Automatización del navegador"
+      "metaTitle": "Automatización del navegador",
+      "navigationDesc": "Usa open u open-split para crear una nueva superficie del navegador y cargar una URL. Usa navigate cuando ya tengas una superficie y quieras cambiar de página. Después de cualquiera de ellas, confirma la URL antes de esperar o tomar un snapshot.",
+      "patternNavigateDesc": "El flujo estable es: navigate, verificar con get url, wait y luego snapshot.",
+      "troubleshooting": "Solución de problemas",
+      "troubleBlankPage": "Páginas en blanco y snapshots vacíos",
+      "troubleBlankPageDesc": "Si la salida de snapshot está vacía o wait sobre load-state sigue agotando el tiempo, comprueba primero la URL actual. Una URL vacía o about:blank suele significar que la página nunca navegó.",
+      "troubleJsError": "js_error en snapshot o eval",
+      "troubleJsErrorDesc": "Algunas páginas bloquean o rompen el JavaScript usado para snapshots enriquecidos y eval ad hoc. Prueba primero con extracción de texto o HTML y luego vuelve a intentarlo en una página más simple si hace falta."
     },
     "changelog": {
       "title": "Changelog",

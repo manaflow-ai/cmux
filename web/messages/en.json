@@ -654,6 +654,7 @@
       "targetingSurface": "Targeting a browser surface",
       "targetingDesc": "Most subcommands require a target surface. You can pass it positionally or with --surface.",
       "navigation": "Navigation",
+      "navigationDesc": "Use open or open-split to create a new browser surface and load a URL. Use navigate when you already have a surface and want to change pages. After either one, confirm the URL before waiting or snapshotting.",
       "waitingSection": "Waiting",
       "waitingDesc": "Use wait to block until selectors, text, URL fragments, load state, or a JavaScript condition is satisfied.",
       "domSection": "DOM Interaction",
@@ -671,9 +672,15 @@
       "downloadsSection": "Downloads",
       "commonPatterns": "Common Patterns",
       "patternNavigate": "Navigate, wait, inspect",
+      "patternNavigateDesc": "The stable loop is navigate, verify with get url, wait, then snapshot.",
       "patternForm": "Fill a form and verify success text",
       "patternDebug": "Capture debug artifacts on failure",
-      "patternSession": "Persist and restore browser session"
+      "patternSession": "Persist and restore browser session",
+      "troubleshooting": "Troubleshooting",
+      "troubleBlankPage": "Blank pages and empty snapshots",
+      "troubleBlankPageDesc": "If snapshot output is empty or load-state waits keep timing out, check the current URL first. An empty URL or about:blank usually means the page never navigated.",
+      "troubleJsError": "js_error on snapshot or eval",
+      "troubleJsErrorDesc": "Some pages block or break the JavaScript used for rich snapshots and ad-hoc eval. Fall back to text or HTML extraction first, then retry on a simpler page if needed."
     },
     "ssh": {
       "title": "SSH",
