@@ -324,10 +324,21 @@ private struct ClaudeHookSessionRecord: Codable {
     var surfaceId: String
     var cwd: String?
     var pid: Int?
+    var launchCommand: AgentHookLaunchCommandRecord?
     var lastSubtitle: String?
     var lastBody: String?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
+}
+
+private struct AgentHookLaunchCommandRecord: Codable {
+    var launcher: String?
+    var executablePath: String?
+    var arguments: [String]
+    var workingDirectory: String?
+    var environment: [String: String]?
+    var capturedAt: TimeInterval?
+    var source: String?
 }
 
 private struct ClaudeHookSessionStoreFile: Codable {
@@ -351,6 +362,11 @@ private final class ClaudeHookSessionStore {
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
             self.statePath = NSString(string: overridePath).expandingTildeInPath
+        } else if let overrideDirectory = processEnv["CMUX_AGENT_HOOK_STATE_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !overrideDirectory.isEmpty {
+            self.statePath = URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
+                .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+                .path
         } else {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
@@ -372,6 +388,7 @@ private final class ClaudeHookSessionStore {
         surfaceId: String,
         cwd: String?,
         pid: Int? = nil,
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil
     ) throws {
@@ -385,6 +402,7 @@ private final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 cwd: nil,
                 pid: nil,
+                launchCommand: nil,
                 lastSubtitle: nil,
                 lastBody: nil,
                 startedAt: now,
@@ -399,6 +417,9 @@ private final class ClaudeHookSessionStore {
             }
             if let pid {
                 record.pid = pid
+            }
+            if let launchCommand, !launchCommand.arguments.isEmpty {
+                record.launchCommand = launchCommand
             }
             if let subtitle = normalizeOptional(lastSubtitle) {
                 record.lastSubtitle = subtitle
@@ -1752,6 +1773,16 @@ struct CMUXCLI {
             return
         }
 
+        if command == "restore-session" {
+            try runRestoreSession(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         if command == "feedback" {
             try runFeedback(
                 commandArgs: commandArgs,
@@ -1818,9 +1849,29 @@ struct CMUXCLI {
             }
         }
 
+        // OpenCode plugin management (no socket needed)
+        if command == "opencode" {
+            let sub = commandArgs.first?.lowercased() ?? "help"
+            if sub == "install-hooks" {
+                try installAgentHooks(Self.agentDef(named: "opencode")!)
+                return
+            } else if sub == "uninstall-hooks" {
+                try uninstallAgentHooks(Self.agentDef(named: "opencode")!)
+                return
+            }
+        }
+
         // Codex hook handler: gracefully no-op when not inside cmux
         // (before socket connection, so it doesn't fail when no socket exists)
         if command == "codex-hook" {
+            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
+                print("{}")
+                return
+            }
+        }
+
+        // OpenCode hook handler: gracefully no-op when not inside cmux
+        if command == "opencode-hook" {
             guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
                 print("{}")
                 return
@@ -2799,6 +2850,17 @@ struct CMUXCLI {
                 throw error
             }
 
+        case "opencode-hook":
+            cliTelemetry.breadcrumb("opencode-hook.dispatch")
+            do {
+                try runGenericAgentHook(def: Self.agentDef(named: "opencode")!, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                cliTelemetry.breadcrumb("opencode-hook.completed")
+            } catch {
+                cliTelemetry.breadcrumb("opencode-hook.failure")
+                cliTelemetry.captureError(stage: "opencode_hook_dispatch", error: error)
+                throw error
+            }
+
         case "cursor-hook":
             cliTelemetry.breadcrumb("cursor-hook.dispatch")
             do {
@@ -3213,6 +3275,47 @@ struct CMUXCLI {
         ])
         if jsonOutput {
             print(jsonString(response))
+        } else {
+            print("OK")
+        }
+    }
+
+    private func runRestoreSession(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let remaining = commandArgs.filter { $0 != "--" }
+        if let unknown = remaining.first {
+            throw CLIError(message: "restore-session: unknown flag '\(unknown)'")
+        }
+
+        let initialClient = SocketClient(path: socketPath)
+        let client: SocketClient
+        let launched: Bool
+        if (try? initialClient.connect()) == nil {
+            initialClient.close()
+            try launchApp()
+            client = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
+            launched = true
+        } else {
+            client = initialClient
+            launched = false
+        }
+
+        defer { client.close() }
+        try authenticateClientIfNeeded(
+            client,
+            explicitPassword: explicitPassword,
+            socketPath: socketPath
+        )
+
+        let response = try client.sendV2(method: "session.restore_previous")
+        if jsonOutput {
+            var payload = response
+            payload["launched"] = launched
+            print(jsonString(payload))
         } else {
             print("OK")
         }
@@ -6920,6 +7023,15 @@ struct CMUXCLI {
 
             Open the Settings window to Keyboard Shortcuts.
             """
+        case "restore-session":
+            return """
+            Usage: cmux restore-session
+
+            Reopen the previous saved cmux session.
+
+            If the app is already running, this restores the last saved session into the current app.
+            If the app is not running, this launches cmux and lets startup restore reopen the saved session.
+            """
         case "feedback":
             return """
             Usage: cmux feedback
@@ -7011,6 +7123,20 @@ struct CMUXCLI {
               cmux omo --continue
               cmux omo --model claude-sonnet-4-6
             """)
+        case "opencode":
+            return """
+            Usage: cmux opencode <install-hooks|uninstall-hooks> [--yes]
+
+            Install or remove the OpenCode plugin that lets cmux remember
+            restorable OpenCode session IDs for reopened terminals.
+
+            Files:
+              ~/.config/opencode/plugins/cmux-session.js
+
+            Examples:
+              cmux opencode install-hooks --yes
+              cmux opencode uninstall-hooks
+            """
         case "omx":
             return String(localized: "cli.omx.usage", defaultValue: """
             Usage: cmux omx [omx-args...]
@@ -10440,6 +10566,33 @@ struct CMUXCLI {
         return ["--teammate-mode", "auto"] + commandArgs
     }
 
+    private func exportAgentLaunchCommandEnvironment(
+        launcher: String,
+        executablePath: String,
+        arguments: [String],
+        workingDirectory: String? = nil
+    ) {
+        guard !arguments.isEmpty else { return }
+        setenv("CMUX_AGENT_LAUNCH_KIND", launcher, 1)
+        setenv("CMUX_AGENT_LAUNCH_EXECUTABLE", executablePath, 1)
+        setenv("CMUX_AGENT_LAUNCH_ARGV_B64", Self.nulSeparatedBase64(arguments), 1)
+        if let workingDirectory,
+           !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            setenv("CMUX_AGENT_LAUNCH_CWD", workingDirectory, 1)
+        } else {
+            unsetenv("CMUX_AGENT_LAUNCH_CWD")
+        }
+    }
+
+    private static func nulSeparatedBase64(_ values: [String]) -> String {
+        var data = Data()
+        for value in values {
+            data.append(contentsOf: value.utf8)
+            data.append(0)
+        }
+        return data.base64EncodedString()
+    }
+
     private func configureTmuxCompatEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
@@ -10531,7 +10684,7 @@ struct CMUXCLI {
         }
         if let existing = processEnvironment["NODE_OPTIONS"] {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", existing, 1)
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
         } else {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -10639,6 +10792,12 @@ struct CMUXCLI {
 
         let launchPath = claudeExecutablePath ?? "claude"
         let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
+        exportAgentLaunchCommandEnvironment(
+            launcher: "claudeTeams",
+            executablePath: executablePath,
+            arguments: [executablePath, "claude-teams"] + launchArguments,
+            workingDirectory: launcherEnvironment["PWD"]
+        )
         var argv = ([launchPath] + launchArguments).map { strdup($0) }
         defer {
             for item in argv {
@@ -10737,6 +10896,7 @@ struct CMUXCLI {
     }
 
     private static let omoPluginName = "oh-my-opencode"
+    private static let openCodeSessionPluginConfigSpec = "cmux-session"
 
     private func resolveExecutableInPath(_ name: String) -> String? {
         let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
@@ -10946,11 +11106,8 @@ struct CMUXCLI {
             config = [:]
         }
 
-        var plugins = (config["plugin"] as? [String]) ?? []
-        let alreadyPresent = plugins.contains {
-            $0 == Self.omoPluginName || $0.hasPrefix("\(Self.omoPluginName)@")
-        }
-        if !alreadyPresent {
+        var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
+        if !Self.openCodePluginListContains(plugins, spec: Self.omoPluginName, allowVersionSuffix: true) {
             plugins.append(Self.omoPluginName)
         }
         config["plugin"] = plugins
@@ -10971,6 +11128,8 @@ struct CMUXCLI {
         if omoFileType(at: shadowBunLockURL) == .typeSymbolicLink {
             try? fm.removeItem(at: shadowBunLockURL)
         }
+
+        try writeOpenCodeSessionPlugin(in: shadowDir)
 
         // Copy oh-my-opencode plugin config (jsonc) if the user has one
         for filename in ["oh-my-opencode.json", "oh-my-opencode.jsonc"] {
@@ -11098,7 +11257,10 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-omo",
             cmuxBinEnvVar: "CMUX_OMO_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMO_TERM",
-            extraEnvVars: [(key: "OPENCODE_PORT", value: openCodePort)]
+            extraEnvVars: [
+                (key: "OPENCODE_PORT", value: openCodePort),
+                (key: "CMUX_OPENCODE_CMUX_BIN", value: executablePath),
+            ]
         )
     }
 
@@ -11164,6 +11326,12 @@ struct CMUXCLI {
             effectiveArgs.append("--port")
             effectiveArgs.append(openCodePort)
         }
+        exportAgentLaunchCommandEnvironment(
+            launcher: "omo",
+            executablePath: executablePath,
+            arguments: [executablePath, "omo"] + effectiveArgs,
+            workingDirectory: launcherEnvironment["PWD"]
+        )
         var argv = ([launchPath] + effectiveArgs).map { strdup($0) }
         defer {
             for item in argv {
@@ -11267,6 +11435,12 @@ struct CMUXCLI {
         )
 
         let launchPath = omxExecutablePath ?? "omx"
+        exportAgentLaunchCommandEnvironment(
+            launcher: "omx",
+            executablePath: executablePath,
+            arguments: [executablePath, "omx"] + commandArgs,
+            workingDirectory: launcherEnvironment["PWD"]
+        )
         var argv = ([launchPath] + commandArgs).map { strdup($0) }
         defer {
             for item in argv {
@@ -11332,7 +11506,7 @@ struct CMUXCLI {
         }
         if let existing = processEnvironment["NODE_OPTIONS"] {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", existing, 1)
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
         } else {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -11391,6 +11565,12 @@ struct CMUXCLI {
         )
 
         let launchPath = omcExecutablePath ?? "omc"
+        exportAgentLaunchCommandEnvironment(
+            launcher: "omc",
+            executablePath: executablePath,
+            arguments: [executablePath, "omc"] + commandArgs,
+            workingDirectory: launcherEnvironment["PWD"]
+        )
         var argv = ([launchPath] + commandArgs).map { strdup($0) }
         defer {
             for item in argv {
@@ -12527,13 +12707,20 @@ struct CMUXCLI {
                 }
                 return pid
             }()
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                ProcessInfo.processInfo.environment,
+                fallbackPID: claudePid,
+                fallbackKind: "claude",
+                cwd: parsedInput.cwd
+            )
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
-                    pid: claudePid
+                    pid: claudePid,
+                    launchCommand: launchCommand
                 )
             }
             // Register PID for stale-session detection and OSC suppression,
@@ -13490,6 +13677,27 @@ struct CMUXCLI {
         return filtered.joined(separator: " ")
     }
 
+    private func normalizedNodeOptionsForRestore(_ existing: String) -> String {
+        let tokens = existing
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+        guard !tokens.isEmpty else { return "" }
+
+        var normalized: [String] = []
+        var index = 0
+        while index < tokens.count {
+            let token = tokens[index]
+            if token == "--max-old-space-size", index + 1 < tokens.count {
+                normalized.append("--max-old-space-size=\(tokens[index + 1])")
+                index += 2
+                continue
+            }
+            normalized.append(token)
+            index += 1
+        }
+        return normalized.joined(separator: " ")
+    }
+
     // MARK: - Codex hooks
 
     /// The hooks.json content that cmux installs into ~/.codex/.
@@ -13552,6 +13760,673 @@ struct CMUXCLI {
         }
         return URL(fileURLWithPath: output).lastPathComponent.lowercased()
     }
+
+    private func processArguments(for pid: pid_t) -> [String]? {
+        var argMax: Int32 = 0
+        var argMaxSize = MemoryLayout<Int32>.size
+        var argMaxMib: [Int32] = [CTL_KERN, KERN_ARGMAX]
+        guard sysctl(&argMaxMib, UInt32(argMaxMib.count), &argMax, &argMaxSize, nil, 0) == 0,
+              argMax > 0 else {
+            return nil
+        }
+
+        var buffer = [UInt8](repeating: 0, count: Int(argMax))
+        var size = buffer.count
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        let status = buffer.withUnsafeMutableBytes { rawBuffer in
+            sysctl(&mib, UInt32(mib.count), rawBuffer.baseAddress, &size, nil, 0)
+        }
+        guard status == 0, size > MemoryLayout<Int32>.size else {
+            return nil
+        }
+
+        var argc: Int32 = 0
+        withUnsafeMutableBytes(of: &argc) { argcBytes in
+            for offset in 0..<MemoryLayout<Int32>.size {
+                argcBytes[offset] = buffer[offset]
+            }
+        }
+        guard argc > 0 else { return nil }
+
+        var index = MemoryLayout<Int32>.size
+        while index < size, buffer[index] != 0 {
+            index += 1
+        }
+        while index < size, buffer[index] == 0 {
+            index += 1
+        }
+
+        var arguments: [String] = []
+        for _ in 0..<argc {
+            guard index < size else { break }
+            let start = index
+            while index < size, buffer[index] != 0 {
+                index += 1
+            }
+            guard index > start else { break }
+            if let value = String(bytes: buffer[start..<index], encoding: .utf8) {
+                arguments.append(value)
+            }
+            while index < size, buffer[index] == 0 {
+                index += 1
+            }
+        }
+
+        return arguments.isEmpty ? nil : arguments
+    }
+
+    private func agentLaunchCommandFromEnvironment(
+        _ env: [String: String],
+        fallbackPID: Int?,
+        fallbackKind: String,
+        cwd: String?
+    ) -> AgentHookLaunchCommandRecord? {
+        let envArguments = decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
+        let processArguments = fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+        let arguments = envArguments ?? processArguments
+        guard let arguments, !arguments.isEmpty else { return nil }
+
+        let executablePath = normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) ?? arguments.first
+        let workingDirectory = normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
+            ?? normalizedHookValue(cwd)
+            ?? normalizedHookValue(env["PWD"])
+        let launcher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? fallbackKind
+        guard let sanitizedArguments = sanitizedAgentLaunchArguments(
+            arguments,
+            launcher: launcher,
+            fallbackKind: fallbackKind
+        ) else {
+            return nil
+        }
+        let source = envArguments == nil ? "process" : "environment"
+        let environment = selectedAgentLaunchEnvironment(from: env)
+
+        return AgentHookLaunchCommandRecord(
+            launcher: launcher,
+            executablePath: executablePath,
+            arguments: sanitizedArguments,
+            workingDirectory: workingDirectory,
+            environment: environment.isEmpty ? nil : environment,
+            capturedAt: Date().timeIntervalSince1970,
+            source: source
+        )
+    }
+
+    private func decodeNULSeparatedBase64(_ rawValue: String?) -> [String]? {
+        guard let rawValue = normalizedHookValue(rawValue),
+              let data = Data(base64Encoded: rawValue) else {
+            return nil
+        }
+        var parts: [String] = []
+        var start = data.startIndex
+        var index = data.startIndex
+        while index < data.endIndex {
+            if data[index] == 0 {
+                guard let value = String(data: data[start..<index], encoding: .utf8) else {
+                    return nil
+                }
+                parts.append(value)
+                start = data.index(after: index)
+            }
+            index = data.index(after: index)
+        }
+        if start < data.endIndex {
+            guard let value = String(data: data[start..<data.endIndex], encoding: .utf8) else {
+                return nil
+            }
+            parts.append(value)
+        }
+        return parts.isEmpty ? nil : parts
+    }
+
+    private func selectedAgentLaunchEnvironment(from env: [String: String]) -> [String: String] {
+        let allowedKeys = [
+            "ANTHROPIC_MODEL",
+            "CLAUDE_CONFIG_DIR",
+            "CMUX_CUSTOM_CLAUDE_PATH",
+            "CODEX_HOME",
+            "OPENCODE_CONFIG_DIR"
+        ]
+        var result: [String: String] = [:]
+        for key in allowedKeys {
+            guard let value = env[key] else { continue }
+            result[key] = value
+        }
+        if let nodeOptions = selectedAgentLaunchNodeOptions(from: env) {
+            result["NODE_OPTIONS"] = nodeOptions
+        }
+        return result
+    }
+
+    private func selectedAgentLaunchNodeOptions(from env: [String: String]) -> String? {
+        switch normalizedHookValue(env["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"]) {
+        case "1":
+            return sanitizedAgentLaunchNodeOptions(env["CMUX_ORIGINAL_NODE_OPTIONS"])
+        case "0":
+            return nil
+        default:
+            return sanitizedAgentLaunchNodeOptions(env["NODE_OPTIONS"])
+        }
+    }
+
+    private func sanitizedAgentLaunchNodeOptions(_ rawValue: String?) -> String? {
+        let tokens = rawValue?
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init) ?? []
+        guard !tokens.isEmpty else { return nil }
+
+        var sanitized: [String] = []
+        var index = 0
+        var shouldDropInjectedHeapCap = false
+        while index < tokens.count {
+            let token = tokens[index]
+
+            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
+                index += nodeHeapCapWidth(tokens, index: index)
+                shouldDropInjectedHeapCap = false
+                continue
+            }
+            shouldDropInjectedHeapCap = false
+
+            if isRequireOption(token), index + 1 < tokens.count,
+               isCmuxNodeOptionsRestoreModulePath(tokens[index + 1]) {
+                index += 2
+                shouldDropInjectedHeapCap = true
+                continue
+            }
+            if let path = inlineRequireOptionPath(token),
+               isCmuxNodeOptionsRestoreModulePath(path) {
+                index += 1
+                shouldDropInjectedHeapCap = true
+                continue
+            }
+
+            sanitized.append(token)
+            index += 1
+        }
+
+        let joined = sanitized.joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return joined.isEmpty ? nil : joined
+    }
+
+    private func isRequireOption(_ token: String) -> Bool {
+        token == "--require" || token == "-r"
+    }
+
+    private func inlineRequireOptionPath(_ token: String) -> String? {
+        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
+            return String(token.dropFirst(prefix.count))
+        }
+        return nil
+    }
+
+    private func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+        guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
+            return false
+        }
+        return trimmed.contains("/cmux-")
+    }
+
+    private func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
+        guard index < tokens.count else { return false }
+        let token = tokens[index]
+        if token == "--max-old-space-size" {
+            return index + 1 < tokens.count && tokens[index + 1] == "4096"
+        }
+        return token == "--max-old-space-size=4096"
+    }
+
+    private func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
+        guard index < tokens.count else { return 1 }
+        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
+    }
+
+    private func normalizedHookValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func agentHookStatePath(sessionStoreSuffix: String, env: [String: String]) -> String {
+        let filename = "\(sessionStoreSuffix)-hook-sessions.json"
+        guard let overrideDirectory = normalizedHookValue(env["CMUX_AGENT_HOOK_STATE_DIR"]) else {
+            return "~/.cmuxterm/\(filename)"
+        }
+        return URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
+            .appendingPathComponent(filename, isDirectory: false)
+            .path
+    }
+
+    private func sanitizedAgentLaunchArguments(
+        _ arguments: [String],
+        launcher: String,
+        fallbackKind: String
+    ) -> [String]? {
+        guard let executable = arguments.first, !executable.isEmpty else { return nil }
+        var tail = Array(arguments.dropFirst())
+
+        switch launcher {
+        case "claudeTeams":
+            if tail.first == "claude-teams" {
+                tail.removeFirst()
+            }
+            guard let preserved = sanitizedAgentOptions(
+                tail,
+                valueOptions: Self.claudeLaunchValueOptions,
+                optionalValueOptions: Self.claudeLaunchOptionalValueOptions,
+                variadicOptions: Self.claudeLaunchVariadicOptions,
+                nonRestorableCommands: Self.claudeLaunchNonRestorableCommands,
+                droppedOptions: Self.claudeLaunchDroppedOptions,
+                droppedOptionPrefixes: Self.claudeLaunchDroppedOptionPrefixes,
+                rejectOptions: Self.claudeLaunchRejectOptions,
+                preserveFirstPositional: false
+            ) else {
+                return nil
+            }
+            return [executable, "claude-teams"] + preserved
+        case "omo":
+            if tail.first == "omo" {
+                tail.removeFirst()
+            }
+            guard let preserved = sanitizedAgentOptions(
+                tail,
+                valueOptions: Self.openCodeLaunchValueOptions,
+                optionalValueOptions: [],
+                variadicOptions: ["--cors"],
+                nonRestorableCommands: Self.openCodeLaunchNonRestorableCommands,
+                droppedOptions: Self.openCodeLaunchDroppedOptions,
+                droppedOptionPrefixes: Self.openCodeLaunchDroppedOptionPrefixes,
+                rejectOptions: [],
+                preserveFirstPositional: true
+            ) else {
+                return nil
+            }
+            return [executable, "omo"] + preserved
+        case "omx", "omc":
+            return nil
+        default:
+            break
+        }
+
+        switch fallbackKind {
+        case "claude":
+            return sanitizedAgentOptions(
+                tail,
+                valueOptions: Self.claudeLaunchValueOptions,
+                optionalValueOptions: Self.claudeLaunchOptionalValueOptions,
+                variadicOptions: Self.claudeLaunchVariadicOptions,
+                nonRestorableCommands: Self.claudeLaunchNonRestorableCommands,
+                droppedOptions: Self.claudeLaunchDroppedOptions,
+                droppedOptionPrefixes: Self.claudeLaunchDroppedOptionPrefixes,
+                rejectOptions: Self.claudeLaunchRejectOptions,
+                preserveFirstPositional: false
+            ).map { [executable] + $0 }
+        case "codex":
+            return sanitizedAgentOptions(
+                tail,
+                valueOptions: Self.codexLaunchValueOptions,
+                optionalValueOptions: [],
+                variadicOptions: ["--image", "-i", "--add-dir"],
+                nonRestorableCommands: Self.codexLaunchNonRestorableCommands,
+                droppedOptions: ["--last", "--all"],
+                droppedOptionPrefixes: [],
+                rejectOptions: [],
+                resumeSubcommand: "resume",
+                preserveFirstPositional: false
+            ).map { [executable] + $0 }
+        case "opencode":
+            return sanitizedAgentOptions(
+                tail,
+                valueOptions: Self.openCodeLaunchValueOptions,
+                optionalValueOptions: [],
+                variadicOptions: ["--cors"],
+                nonRestorableCommands: Self.openCodeLaunchNonRestorableCommands,
+                droppedOptions: Self.openCodeLaunchDroppedOptions,
+                droppedOptionPrefixes: Self.openCodeLaunchDroppedOptionPrefixes,
+                rejectOptions: [],
+                preserveFirstPositional: true
+            ).map { [executable] + $0 }
+        default:
+            return nil
+        }
+    }
+
+    private func sanitizedAgentOptions(
+        _ args: [String],
+        valueOptions: Set<String>,
+        optionalValueOptions: Set<String>,
+        variadicOptions: Set<String>,
+        nonRestorableCommands: Set<String>,
+        droppedOptions: Set<String>,
+        droppedOptionPrefixes: [String],
+        rejectOptions: Set<String>,
+        resumeSubcommand: String? = nil,
+        preserveFirstPositional: Bool
+    ) -> [String]? {
+        var result: [String] = []
+        var index = 0
+        var consumedFirstPositional = false
+        var skippingResumePositionals = false
+
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" {
+                break
+            }
+            if !arg.hasPrefix("-") || arg == "-" {
+                if let resumeSubcommand, arg == resumeSubcommand {
+                    skippingResumePositionals = true
+                    index += 1
+                    continue
+                }
+                if skippingResumePositionals {
+                    break
+                }
+                if nonRestorableCommands.contains(arg) {
+                    return nil
+                }
+                if preserveFirstPositional && !consumedFirstPositional {
+                    result.append(arg)
+                    consumedFirstPositional = true
+                    index += 1
+                    continue
+                }
+                break
+            }
+            if Self.shouldDropAgentOption(arg, droppedOptions: rejectOptions) {
+                return nil
+            }
+
+            if droppedOptionPrefixes.contains(where: { arg.hasPrefix($0) }) {
+                index += 1
+                continue
+            }
+            let width = Self.agentOptionWidth(
+                args,
+                index: index,
+                valueOptions: valueOptions,
+                optionalValueOptions: optionalValueOptions,
+                variadicOptions: variadicOptions
+            )
+            if Self.shouldDropAgentOption(arg, droppedOptions: droppedOptions) {
+                index += width
+                continue
+            }
+            if Self.isClaudeHookSettingsOption(args, index: index) {
+                index += width
+                continue
+            }
+            result.append(contentsOf: args[index..<min(args.count, index + width)])
+            index += width
+        }
+
+        return result
+    }
+
+    private static func shouldDropAgentOption(_ arg: String, droppedOptions: Set<String>) -> Bool {
+        if droppedOptions.contains(arg) { return true }
+        guard let equals = arg.firstIndex(of: "=") else { return false }
+        return droppedOptions.contains(String(arg[..<equals]))
+    }
+
+    private static func agentOptionWidth(
+        _ args: [String],
+        index: Int,
+        valueOptions: Set<String>,
+        optionalValueOptions: Set<String>,
+        variadicOptions: Set<String>
+    ) -> Int {
+        let arg = args[index]
+        if arg.contains("=") {
+            return 1
+        }
+        if optionalValueOptions.contains(arg) {
+            guard index + 1 < args.count,
+                  Self.looksLikeOptionalAgentOptionValue(
+                    args[index + 1],
+                    following: index + 2 < args.count ? args[index + 2] : nil
+                  ) else {
+                return 1
+            }
+            return 2
+        }
+        guard valueOptions.contains(arg), index + 1 < args.count else {
+            return 1
+        }
+        if variadicOptions.contains(arg) {
+            var end = index + 1
+            while end < args.count, !args[end].hasPrefix("-") {
+                end += 1
+            }
+            return max(1, end - index)
+        }
+        return 2
+    }
+
+    private static func looksLikeOptionalAgentOptionValue(_ value: String, following: String?) -> Bool {
+        guard !value.isEmpty,
+              !value.hasPrefix("-"),
+              value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            return false
+        }
+        return value.contains(",") || (following?.hasPrefix("-") == true)
+    }
+
+    private static func isClaudeHookSettingsOption(_ args: [String], index: Int) -> Bool {
+        let arg = args[index]
+        if arg.hasPrefix("--settings=") {
+            return arg.contains("claude-hook")
+        }
+        guard arg == "--settings", index + 1 < args.count else {
+            return false
+        }
+        return args[index + 1].contains("claude-hook")
+    }
+
+    private static let claudeLaunchValueOptions: Set<String> = [
+        "--add-dir",
+        "--agent",
+        "--agents",
+        "--allowedTools",
+        "--allowed-tools",
+        "--append-system-prompt",
+        "--betas",
+        "--debug-file",
+        "--disallowedTools",
+        "--disallowed-tools",
+        "--effort",
+        "--fallback-model",
+        "--file",
+        "--fork-session",
+        "--from-pr",
+        "--input-format",
+        "--json-schema",
+        "--max-budget-usd",
+        "--mcp-config",
+        "--model",
+        "--name",
+        "-n",
+        "--output-format",
+        "--permission-mode",
+        "--plugin-dir",
+        "--remote-control-session-name-prefix",
+        "--resume",
+        "-r",
+        "--session-id",
+        "--setting-sources",
+        "--settings",
+        "--system-prompt",
+        "--teammate-mode",
+        "--tmux",
+        "--tools",
+        "--worktree",
+        "-w"
+    ]
+
+    private static let claudeLaunchOptionalValueOptions: Set<String> = [
+        "--debug"
+    ]
+
+    private static let claudeLaunchVariadicOptions: Set<String> = [
+        "--add-dir",
+        "--allowedTools",
+        "--allowed-tools",
+        "--betas",
+        "--disallowedTools",
+        "--disallowed-tools",
+        "--file",
+        "--mcp-config",
+        "--tools"
+    ]
+
+    private static let claudeLaunchNonRestorableCommands: Set<String> = [
+        "agents",
+        "auth",
+        "auto-mode",
+        "api-key",
+        "config",
+        "doctor",
+        "install",
+        "mcp",
+        "plugin",
+        "plugins",
+        "rc",
+        "remote-control",
+        "setup-token",
+        "update",
+        "upgrade"
+    ]
+
+    private static let claudeLaunchDroppedOptions: Set<String> = [
+        "--continue",
+        "-c",
+        "--fork-session",
+        "--from-pr",
+        "--resume",
+        "-r",
+        "--session-id",
+        "--tmux",
+        "--worktree",
+        "-w"
+    ]
+
+    private static let claudeLaunchDroppedOptionPrefixes = [
+        "--fork-session=",
+        "--from-pr=",
+        "--resume=",
+        "--session-id=",
+        "--tmux=",
+        "--worktree="
+    ]
+
+    private static let claudeLaunchRejectOptions: Set<String> = [
+        "--print",
+        "-p",
+        "--no-session-persistence"
+    ]
+
+    private static let codexLaunchValueOptions: Set<String> = [
+        "--config",
+        "-c",
+        "--remote",
+        "--remote-auth-token-env",
+        "--image",
+        "-i",
+        "--model",
+        "-m",
+        "--local-provider",
+        "--profile",
+        "-p",
+        "--sandbox",
+        "-s",
+        "--ask-for-approval",
+        "-a",
+        "--cd",
+        "-C",
+        "--add-dir",
+        "--enable",
+        "--disable"
+    ]
+
+    private static let codexLaunchNonRestorableCommands: Set<String> = [
+        "exec",
+        "e",
+        "review",
+        "login",
+        "logout",
+        "mcp",
+        "mcp-server",
+        "app-server",
+        "app",
+        "completion",
+        "sandbox",
+        "debug",
+        "apply",
+        "a",
+        "fork",
+        "cloud",
+        "exec-server",
+        "features",
+        "help"
+    ]
+
+    private static let openCodeLaunchValueOptions: Set<String> = [
+        "--log-level",
+        "--port",
+        "--hostname",
+        "--mdns-domain",
+        "--cors",
+        "--model",
+        "-m",
+        "--session",
+        "-s",
+        "--prompt",
+        "--agent"
+    ]
+
+    private static let openCodeLaunchNonRestorableCommands: Set<String> = [
+        "completion",
+        "acp",
+        "mcp",
+        "attach",
+        "run",
+        "debug",
+        "providers",
+        "auth",
+        "agent",
+        "upgrade",
+        "uninstall",
+        "serve",
+        "web",
+        "models",
+        "stats",
+        "export",
+        "import",
+        "pr",
+        "github",
+        "session",
+        "plugin",
+        "plug",
+        "db"
+    ]
+
+    private static let openCodeLaunchDroppedOptions: Set<String> = [
+        "--continue",
+        "-c",
+        "--fork",
+        "--session",
+        "-s",
+        "--prompt"
+    ]
+
+    private static let openCodeLaunchDroppedOptionPrefixes = [
+        "--session=",
+        "--prompt="
+    ]
 
     // MARK: - Generic agent hook system
 
@@ -13635,6 +14510,13 @@ struct CMUXCLI {
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
             ],
             postInstallAction: .codexConfigToml
+        ),
+        AgentHookDef(
+            name: "opencode", displayName: "OpenCode", statusKey: "opencode",
+            configDir: ".config/opencode", configFile: "plugins/cmux-session.js", configDirEnvOverride: "OPENCODE_CONFIG_DIR",
+            sessionStoreSuffix: "opencode", disableEnvVar: "CMUX_OPENCODE_HOOKS_DISABLED",
+            hookMarker: "cmux opencode-hook", format: .flat,
+            events: []
         ),
         AgentHookDef(
             name: "cursor", displayName: "Cursor", statusKey: "cursor",
@@ -13734,7 +14616,318 @@ struct CMUXCLI {
         return result
     }
 
+    private static let openCodeSessionPluginMarker = "cmux-opencode-session-plugin-marker"
+    private static let openCodeSessionPluginFilename = "cmux-session.js"
+    private static let openCodeSessionPluginSource = #"""
+// cmux-opencode-session-plugin-marker v1
+// Bridges OpenCode session lifecycle events into cmux's restorable session store.
+// Installed by `cmux opencode install-hooks` or `cmux setup-hooks`.
+// DO NOT EDIT MANUALLY. cmux upgrades this file in place.
+
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+const CMUX_PLUGIN_INSTALLED_KEY = Symbol.for("cmux.session.restore.plugin.installed");
+
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function eventProperties(event) {
+  return (event && typeof event === "object" && event.properties) || {};
+}
+
+function sessionIdFor(event) {
+  const props = eventProperties(event);
+  return firstString(
+    props.info && props.info.id,
+    props.sessionID,
+    props.sessionId,
+    props.session_id,
+    props.session && props.session.id,
+    event && event.sessionID,
+    event && event.sessionId,
+    event && event.id
+  );
+}
+
+function cwdFor(ctx, event) {
+  const props = eventProperties(event);
+  return firstString(
+    props.info && props.info.directory,
+    props.cwd,
+    props.directory,
+    ctx && ctx.directory,
+    process.cwd()
+  );
+}
+
+function resolveExecutable(name) {
+  const pathEnv = process.env.PATH || "";
+  for (const dir of pathEnv.split(path.delimiter)) {
+    if (!dir) continue;
+    const candidate = path.join(dir, name);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (_) {}
+  }
+  return name;
+}
+
+function looksLikeOpenCodeScript(value) {
+  if (!value) return false;
+  const lower = String(value).toLowerCase();
+  return lower.includes("opencode") || lower.includes("open-code");
+}
+
+function isOpenCodeInternalWorkerArg(value) {
+  if (!value) return false;
+  const normalized = String(value).replaceAll("\\", "/");
+  return normalized.includes("/$bunfs/") && normalized.includes("/src/cli/cmd/tui/worker.js");
+}
+
+function withoutOpenCodeInternalWorkerArgs(argv) {
+  const result = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const value = argv[i];
+    if (i > 0 && isOpenCodeInternalWorkerArg(value)) continue;
+    result.push(value);
+  }
+  return result.length > 0 ? result : [resolveExecutable("opencode")];
+}
+
+function normalizedLaunchArgv() {
+  const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
+  if (raw.length === 0) return [resolveExecutable("opencode")];
+
+  const firstBase = path.basename(raw[0]).toLowerCase();
+  if (looksLikeOpenCodeScript(firstBase)) return withoutOpenCodeInternalWorkerArgs(raw);
+
+  let tail = raw.slice(1);
+  if (tail.length > 0 && looksLikeOpenCodeScript(tail[0])) {
+    tail = tail.slice(1);
+  }
+  return withoutOpenCodeInternalWorkerArgs([resolveExecutable("opencode"), ...tail]);
+}
+
+function base64NulSeparated(values) {
+  const bytes = [];
+  for (const value of values) {
+    bytes.push(Buffer.from(String(value), "utf8"));
+    bytes.push(Buffer.from([0]));
+  }
+  return Buffer.concat(bytes).toString("base64");
+}
+
+function hookEnvironment(cwd) {
+  const env = { ...process.env };
+  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+    const argv = normalizedLaunchArgv();
+    env.CMUX_AGENT_LAUNCH_KIND = "opencode";
+    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
+    env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
+    env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
+  }
+  return env;
+}
+
+function sendHook(subcommand, ctx, event, extra = {}) {
+  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+
+  const sessionId = sessionIdFor(event);
+  if (!sessionId) return;
+
+  const cwd = cwdFor(ctx, event);
+  const payload = {
+    session_id: sessionId,
+    cwd,
+    event: event && event.type,
+    hook_event_name: event && event.type,
+    ...extra,
+  };
+  const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
+  try {
+    spawnSync(cmux, ["opencode-hook", subcommand], {
+      input: JSON.stringify(payload),
+      encoding: "utf8",
+      env: hookEnvironment(cwd),
+      stdio: ["pipe", "ignore", "ignore"],
+      timeout: 5000,
+    });
+  } catch (_) {}
+}
+
+const CMUXSessionRestore = async (ctx) => {
+  if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
+  globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
+  return {
+    event: async ({ event }) => {
+      const props = eventProperties(event);
+      switch (event && event.type) {
+        case "session.created":
+          sendHook("session-start", ctx, event);
+          break;
+        case "session.updated":
+          if (props.info && props.info.time && props.info.time.archived) {
+            sendHook("session-end", ctx, event);
+          } else {
+            sendHook("session-start", ctx, event);
+          }
+          break;
+        case "session.status":
+          if (props.status && props.status.type === "idle") {
+            sendHook("stop", ctx, event);
+          }
+          break;
+        case "session.idle":
+          sendHook("stop", ctx, event);
+          break;
+        case "session.deleted":
+          sendHook("session-end", ctx, event);
+          break;
+        default:
+          break;
+      }
+    },
+  };
+};
+
+export { CMUXSessionRestore };
+export default CMUXSessionRestore;
+"""#
+
+    private func openCodeSessionPluginURL(for def: AgentHookDef) -> URL {
+        URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(Self.openCodeSessionPluginFilename, isDirectory: false)
+    }
+
+    private func writeOpenCodeSessionPlugin(in configDir: URL) throws {
+        let pluginURL = configDir
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(Self.openCodeSessionPluginFilename, isDirectory: false)
+        let fm = FileManager.default
+        try fm.createDirectory(at: pluginURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Self.openCodeSessionPluginSource.write(to: pluginURL, atomically: true, encoding: .utf8)
+    }
+
+    private static func openCodePluginListContains(
+        _ plugins: [Any],
+        spec: String,
+        allowVersionSuffix: Bool = false
+    ) -> Bool {
+        plugins.contains { entry in
+            let value: String?
+            if let string = entry as? String {
+                value = string
+            } else if let tuple = entry as? [Any], let string = tuple.first as? String {
+                value = string
+            } else {
+                value = nil
+            }
+            guard let value else { return false }
+            if value == spec { return true }
+            if allowVersionSuffix, value.hasPrefix("\(spec)@") { return true }
+            if spec == Self.openCodeSessionPluginConfigSpec {
+                return value == "./plugins/\(Self.openCodeSessionPluginFilename)"
+                    || value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
+                    || value.hasSuffix("/\(Self.openCodeSessionPluginFilename)")
+            }
+            return false
+        }
+    }
+
+    private static func openCodePluginListRemovingSessionPlugin(_ plugins: [Any]) -> [Any] {
+        plugins.filter { entry in
+            guard let value = (entry as? String) ?? ((entry as? [Any])?.first as? String) else {
+                return true
+            }
+            return value != Self.openCodeSessionPluginConfigSpec
+                && value != "./plugins/\(Self.openCodeSessionPluginFilename)"
+                && !value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
+                && !value.hasSuffix("/\(Self.openCodeSessionPluginFilename)")
+        }
+    }
+
+    private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws {
+        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
+        var config: [String: Any]
+        if let data = try? Data(contentsOf: configURL) {
+            guard let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw CLIError(message: "Failed to parse \(configURL.path). Fix the JSON syntax and retry.")
+            }
+            config = decoded
+        } else {
+            config = [:]
+        }
+
+        var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
+        if shouldInstall,
+           !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
+            plugins.append(Self.openCodeSessionPluginConfigSpec)
+        }
+        config["plugin"] = plugins
+
+        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try output.write(to: configURL, options: .atomic)
+    }
+
+    private func installOpenCodePluginHooks(_ def: AgentHookDef) throws {
+        let pluginURL = openCodeSessionPluginURL(for: def)
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+
+        if !skipConfirm {
+            print("Will write OpenCode cmux plugin to \(pluginURL.path):")
+            print(Self.openCodeSessionPluginSource)
+            print("\nProceed? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print("Aborted.")
+                return
+            }
+        }
+
+        let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+        try writeOpenCodeSessionPlugin(in: configDir)
+        try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
+        print("OpenCode hooks installed at \(pluginURL.path)")
+    }
+
+    private func uninstallOpenCodePluginHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let pluginURL = openCodeSessionPluginURL(for: def)
+        guard fm.fileExists(atPath: pluginURL.path) else {
+            print("No OpenCode cmux plugin found at \(pluginURL.path)")
+            return
+        }
+
+        let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
+        guard existing.contains(Self.openCodeSessionPluginMarker) else {
+            print("Refusing to remove \(pluginURL.path): missing cmux marker")
+            return
+        }
+
+        try fm.removeItem(at: pluginURL)
+        try updateOpenCodePluginRegistration(
+            configDir: URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true),
+            shouldInstall: false
+        )
+        print("Removed OpenCode cmux plugin from \(pluginURL.path)")
+    }
+
     private func installAgentHooks(_ def: AgentHookDef) throws {
+        if def.name == "opencode" {
+            try installOpenCodePluginHooks(def)
+            return
+        }
+
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
@@ -13839,6 +15032,11 @@ struct CMUXCLI {
     }
 
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
+        if def.name == "opencode" {
+            try uninstallOpenCodePluginHooks(def)
+            return
+        }
+
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
@@ -13917,7 +15115,7 @@ struct CMUXCLI {
 
         let store = ClaudeHookSessionStore(
             processEnv: env.merging(
-                ["CMUX_CLAUDE_HOOK_STATE_PATH": "~/.cmuxterm/\(def.sessionStoreSuffix)-hook-sessions.json"],
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
                 uniquingKeysWith: { _, new in new }
             )
         )
@@ -13931,8 +15129,21 @@ struct CMUXCLI {
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: nil, fallback: workspaceArg, client: client)
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: nil, fallback: surfaceArg, workspaceId: workspaceId, client: client)
             let pid = inferredCodexAgentPID()
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: pid,
+                fallbackKind: def.name,
+                cwd: input.cwd
+            )
             if !sessionId.isEmpty {
-                try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: input.cwd, pid: pid)
+                try? store.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: input.cwd,
+                    pid: pid,
+                    launchCommand: launchCommand
+                )
             }
             if let pid {
                 _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)", client: client)
@@ -13942,8 +15153,21 @@ struct CMUXCLI {
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
             let pid = mapped?.pid ?? inferredCodexAgentPID()
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: pid,
+                fallbackKind: def.name,
+                cwd: input.cwd ?? mapped?.cwd
+            )
             if !sessionId.isEmpty {
-                try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: mapped?.surfaceId ?? (surfaceArg ?? ""), cwd: input.cwd ?? mapped?.cwd, pid: pid)
+                try? store.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: mapped?.surfaceId ?? (surfaceArg ?? ""),
+                    cwd: input.cwd ?? mapped?.cwd,
+                    pid: pid,
+                    launchCommand: launchCommand
+                )
             }
             if let pid {
                 _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)", client: client)
@@ -13967,7 +15191,14 @@ struct CMUXCLI {
                 }()
 
                 if !sessionId.isEmpty {
+                    let launchCommand = agentLaunchCommandFromEnvironment(
+                        env,
+                        fallbackPID: pid,
+                        fallbackKind: def.name,
+                        cwd: cwd
+                    )
                     try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
+                                      launchCommand: launchCommand,
                                       lastSubtitle: "Completed", lastBody: lastMsg.map { truncate($0, maxLength: 200) })
                 }
                 if let pid {
@@ -14039,7 +15270,7 @@ struct CMUXCLI {
         for def in Self.agentDefs {
             if let filter = agentFilter, filter.lowercased() != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            if !fm.fileExists(atPath: configDir) {
+            if def.name != "opencode", !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (not found)")
                 skipped += 1
                 continue
@@ -14437,6 +15668,7 @@ struct CMUXCLI {
         Commands:
           welcome
           shortcuts
+          restore-session
           feedback [--email <email> --body <text> [--image <path> ...]]
           themes [list|set|clear]
           claude-teams [claude-args...]
@@ -14444,6 +15676,7 @@ struct CMUXCLI {
           omx [omx-args...]
           omc [omc-args...]
           codex <install-hooks|uninstall-hooks>
+          opencode <install-hooks|uninstall-hooks>
           ping
           version
           capabilities
@@ -14495,6 +15728,7 @@ struct CMUXCLI {
           list-notifications
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
+          opencode-hook <session-start|prompt-submit|stop|session-end> [--workspace <id|ref>] [--surface <id|ref>]
           set-app-focus <active|inactive|clear>
           simulate-app-active
 

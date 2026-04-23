@@ -4,186 +4,6 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 
-enum WorkspaceTitlebarSettings {
-    static let showTitlebarKey = "workspaceTitlebarVisible"
-    static let defaultShowTitlebar = true
-
-    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: showTitlebarKey) == nil {
-            return defaultShowTitlebar
-        }
-        return defaults.bool(forKey: showTitlebarKey)
-    }
-}
-
-enum WorkspacePresentationModeSettings {
-    static let modeKey = "workspacePresentationMode"
-
-    enum Mode: String {
-        case standard
-        case minimal
-    }
-
-    static let defaultMode: Mode = .standard
-
-    static func mode(for rawValue: String?) -> Mode {
-        Mode(rawValue: rawValue ?? "") ?? defaultMode
-    }
-
-    static func mode(defaults: UserDefaults = .standard) -> Mode {
-        mode(for: defaults.string(forKey: modeKey))
-    }
-
-    static func isMinimal(defaults: UserDefaults = .standard) -> Bool {
-        mode(defaults: defaults) == .minimal
-    }
-}
-
-enum WorkspaceButtonFadeSettings {
-    static let modeKey = "workspaceButtonsFadeMode"
-    static let legacyTitlebarControlsVisibilityModeKey = "titlebarControlsVisibilityMode"
-    static let legacyPaneTabBarControlsVisibilityModeKey = "paneTabBarControlsVisibilityMode"
-
-    enum Mode: String {
-        case enabled
-        case disabled
-    }
-
-    static let defaultMode: Mode = .disabled
-
-    static func mode(for rawValue: String?) -> Mode {
-        Mode(rawValue: rawValue ?? "") ?? defaultMode
-    }
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        mode(for: defaults.string(forKey: modeKey)) == .enabled
-    }
-
-    static func initializeStoredModeIfNeeded(defaults: UserDefaults = .standard) {
-        guard defaults.string(forKey: modeKey) == nil else { return }
-
-        if let migratedMode = migratedLegacyMode(defaults: defaults) {
-            defaults.set(migratedMode.rawValue, forKey: modeKey)
-            return
-        }
-
-        let initialMode: Mode = WorkspaceTitlebarSettings.isVisible(defaults: defaults) ? .disabled : .enabled
-        defaults.set(initialMode.rawValue, forKey: modeKey)
-    }
-
-    private static func migratedLegacyMode(defaults: UserDefaults) -> Mode? {
-        let legacyValues = [
-            defaults.string(forKey: legacyTitlebarControlsVisibilityModeKey),
-            defaults.string(forKey: legacyPaneTabBarControlsVisibilityModeKey),
-        ]
-
-        if legacyValues.contains(where: { $0 == "onHover" || $0 == "hover" || $0 == "enabled" }) {
-            return .enabled
-        }
-        if legacyValues.contains(where: { $0 == "always" || $0 == "disabled" }) {
-            return .disabled
-        }
-        return nil
-    }
-}
-
-enum PaneFirstClickFocusSettings {
-    static let enabledKey = "paneFirstClickFocus.enabled"
-    static let defaultEnabled = false
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
-    }
-}
-
-enum TerminalRightClickSettings {
-    static let behaviorKey = "terminalRightClickBehavior"
-    static let longPressContextMenuEnabledKey = "terminalRightClickLongPressContextMenuEnabled"
-    static let longPressDurationKey = "terminalRightClickLongPressDuration"
-
-    enum Behavior: String, CaseIterable, Identifiable {
-        case contextMenu
-        case pasteFromClipboard
-
-        var id: String { rawValue }
-    }
-
-    static let defaultBehavior: Behavior = .contextMenu
-    static let defaultLongPressContextMenuEnabled = false
-    static let defaultLongPressDuration: TimeInterval = 0.30
-
-    static func behavior(for rawValue: String?) -> Behavior {
-        Behavior(rawValue: rawValue ?? "") ?? defaultBehavior
-    }
-
-    static func behavior(defaults: UserDefaults = .standard) -> Behavior {
-        behavior(for: defaults.string(forKey: behaviorKey))
-    }
-
-    static func longPressContextMenuEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: longPressContextMenuEnabledKey) as? Bool ?? defaultLongPressContextMenuEnabled
-    }
-
-    static func longPressDuration(defaults: UserDefaults = .standard) -> TimeInterval {
-        let raw = defaults.object(forKey: longPressDurationKey) as? Double ?? defaultLongPressDuration
-        return min(max(raw, 0.15), 1.00)
-    }
-}
-
-enum TerminalScrollBarSettings {
-    static let showScrollBarKey = "terminal.showScrollBar"
-    static let defaultShowScrollBar = true
-    static let didChangeNotification = Notification.Name("cmux.terminalScrollBarSettingsDidChange")
-
-    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: showScrollBarKey) == nil {
-            return defaultShowScrollBar
-        }
-        return defaults.bool(forKey: showScrollBarKey)
-    }
-
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        notificationCenter.post(name: didChangeNotification, object: nil)
-    }
-}
-
-enum UITestLaunchManifest {
-    static let argumentName = "-cmuxUITestLaunchManifest"
-
-    struct Payload: Decodable {
-        let environment: [String: String]
-    }
-
-    static func applyIfPresent(
-        arguments: [String] = CommandLine.arguments,
-        loadData: (String) -> Data? = { path in
-            try? Data(contentsOf: URL(fileURLWithPath: path))
-        },
-        applyEnvironment: (String, String) -> Void = { key, value in
-            setenv(key, value, 1)
-        }
-    ) {
-        guard let path = manifestPath(from: arguments),
-              let data = loadData(path),
-              let payload = try? JSONDecoder().decode(Payload.self, from: data) else {
-            return
-        }
-
-        for (key, value) in payload.environment {
-            applyEnvironment(key, value)
-        }
-    }
-
-    static func manifestPath(from arguments: [String]) -> String? {
-        guard let index = arguments.firstIndex(of: argumentName) else { return nil }
-        let valueIndex = arguments.index(after: index)
-        guard valueIndex < arguments.endIndex else { return nil }
-
-        let rawPath = arguments[valueIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-        return rawPath.isEmpty ? nil : rawPath
-    }
-}
-
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -682,6 +502,12 @@ struct cmuxApp: App {
 
                 Menu(String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace")) {
                     workspaceCommandMenuContent(manager: activeTabManager)
+                }
+
+                splitCommandButton(title: String(localized: "menu.file.reopenPreviousSession", defaultValue: "Reopen Previous Session"), shortcut: menuShortcut(for: .reopenPreviousSession)) {
+                    if AppDelegate.shared?.reopenPreviousSession() != true {
+                        NSSound.beep()
+                    }
                 }
 
                 splitCommandButton(title: String(localized: "menu.file.reopenClosedBrowserPanel", defaultValue: "Reopen Closed Browser Panel"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
@@ -7521,12 +7347,11 @@ private struct ShortcutSettingRow: View {
     }
 
     var body: some View {
-        KeyboardShortcutRecorder(
-            label: action.label,
-            subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: action),
+        ShortcutRecorderSettingsControl(
+            action: action,
             shortcut: $shortcut,
+            subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: action),
             displayString: { action.displayedShortcutString(for: $0) },
-            transformRecordedShortcut: { action.normalizedRecordedShortcut($0) },
             isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(action)
         )
             .onChange(of: shortcut) { newValue in
@@ -7538,6 +7363,71 @@ private struct ShortcutSettingRow: View {
                     shortcut = latest
                 }
             }
+    }
+}
+
+private struct ShortcutRecorderSettingsControl: View {
+    let action: KeyboardShortcutSettings.Action
+    @Binding var shortcut: StoredShortcut
+    var subtitle: String? = nil
+    var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var isDisabled: Bool = false
+
+    @State private var rejectedAttempt: ShortcutRecorderRejectedAttempt?
+
+    var body: some View {
+        KeyboardShortcutRecorder(
+            label: action.label,
+            subtitle: subtitle,
+            shortcut: $shortcut,
+            displayString: displayString,
+            transformRecordedShortcut: { action.normalizedRecordedShortcutResult($0) },
+            validationMessage: validationPresentation?.message,
+            validationButtonTitle: validationPresentation?.swapButtonTitle,
+            onValidationButtonPressed: validationPresentation?.canSwap == true
+                ? { swapConflictingShortcut() }
+                : nil,
+            undoButtonTitle: validationPresentation?.undoButtonTitle,
+            onUndoButtonPressed: rejectedAttempt != nil ? { rejectedAttempt = nil } : nil,
+            hasPendingRejection: rejectedAttempt != nil,
+            isDisabled: isDisabled,
+            onRecorderFeedbackChanged: { rejectedAttempt = $0 }
+        )
+        .onChange(of: shortcut) { _ in
+            rejectedAttempt = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification)) { _ in
+            if KeyboardShortcutRecorderActivity.isAnyRecorderActive {
+                rejectedAttempt = nil
+            }
+        }
+    }
+
+    private var validationPresentation: ShortcutRecorderValidationPresentation? {
+        ShortcutRecorderValidationPresentation(
+            attempt: rejectedAttempt,
+            action: action,
+            currentShortcut: shortcut
+        )
+    }
+
+    private func swapConflictingShortcut() {
+        guard case let .conflictsWithAction(conflictingAction)? = rejectedAttempt?.reason,
+              let proposedShortcut = rejectedAttempt?.proposedShortcut else {
+            return
+        }
+
+        KeyboardShortcutRecorderActivity.stopAllRecording()
+
+        let previousShortcut = shortcut
+        KeyboardShortcutSettings.swapShortcutConflict(
+            proposedShortcut: proposedShortcut,
+            currentAction: action,
+            conflictingAction: conflictingAction,
+            previousShortcut: previousShortcut
+        )
+        shortcut = proposedShortcut
+        rejectedAttempt = nil
     }
 }
 
@@ -7585,11 +7475,10 @@ private struct GlobalHotkeySection: View {
 
             SettingsCardDivider()
 
-            KeyboardShortcutRecorder(
-                label: String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows"),
-                subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action),
+            ShortcutRecorderSettingsControl(
+                action: SystemWideHotkeySettings.action,
                 shortcut: $shortcut,
-                transformRecordedShortcut: { SystemWideHotkeySettings.action.normalizedRecordedShortcut($0) },
+                subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action),
                 isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(SystemWideHotkeySettings.action)
             )
                 .padding(.horizontal, 14)

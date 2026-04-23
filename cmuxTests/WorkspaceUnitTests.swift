@@ -59,6 +59,142 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
+
+    @MainActor
+    func testSolidFillKeepsSelectedBackgroundForActiveCustomColoredWorkspaceRow() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        var observedSidebarInvalidation = false
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            observedSidebarInvalidation = true
+        }
+
+        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
+
+        XCTAssertEqual(workspace.customColor, "#C0392B")
+        XCTAssertTrue(observedSidebarInvalidation)
+
+        let background = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: true,
+            isMultiSelected: false,
+            customColorHex: workspace.customColor,
+            colorScheme: .light,
+            sidebarSelectionColorHex: nil
+        )
+
+        XCTAssertEqual(
+            background.color?.hexString(),
+            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+        )
+        XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
+        withExtendedLifetime(cancellable) {}
+    }
+
+    @MainActor
+    func testLeftRailKeepsSelectedBackgroundForActiveCustomColoredWorkspaceRow() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        var observedSidebarInvalidation = false
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            observedSidebarInvalidation = true
+        }
+
+        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
+
+        XCTAssertEqual(workspace.customColor, "#C0392B")
+        XCTAssertTrue(observedSidebarInvalidation)
+
+        let background = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .leftRail,
+            isActive: true,
+            isMultiSelected: false,
+            customColorHex: workspace.customColor,
+            colorScheme: .light,
+            sidebarSelectionColorHex: nil
+        )
+
+        XCTAssertEqual(
+            background.color?.hexString(),
+            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+        )
+        XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
+        withExtendedLifetime(cancellable) {}
+    }
+
+    @MainActor
+    func testLeftRailLeavesInactiveCustomColoredWorkspaceRowTransparent() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
+
+        let background = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .leftRail,
+            isActive: false,
+            isMultiSelected: false,
+            customColorHex: workspace.customColor,
+            colorScheme: .light,
+            sidebarSelectionColorHex: nil
+        )
+
+        XCTAssertNil(background.color)
+        XCTAssertEqual(background.opacity, 0, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testLeftRailResolvesExplicitRailColorForCustomColoredWorkspaceRow() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
+
+        let railColor = sidebarWorkspaceRowExplicitRailNSColor(
+            activeTabIndicatorStyle: .leftRail,
+            customColorHex: workspace.customColor,
+            colorScheme: .light
+        )
+
+        XCTAssertNotNil(railColor)
+        XCTAssertEqual(railColor?.hexString(), "#C0392B")
+    }
+
+    @MainActor
+    func testSolidFillUsesInactiveCustomWorkspaceColorAsBackground() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
+
+        let background = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: false,
+            customColorHex: workspace.customColor,
+            colorScheme: .light,
+            sidebarSelectionColorHex: nil
+        )
+
+        XCTAssertEqual(background.color?.hexString(), "#C0392B")
+        XCTAssertEqual(background.opacity, 0.7, accuracy: 0.001)
+    }
 }
 
 
@@ -301,7 +437,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testShortcutRecorderStopsRecordingWhenFirstStrokeConfirmationIsRejected() {
 #if DEBUG
         let button = ShortcutRecorderNSButton(frame: .zero)
-        button.transformRecordedShortcut = { _ in nil }
+        button.transformRecordedShortcut = { _ in .rejected(.reservedBySystem) }
         button.debugSetPendingChordStart(
             ShortcutStroke(
                 key: "x",
@@ -313,6 +449,178 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         )
 
         button.performClick(nil)
+
+        XCTAssertFalse(button.debugIsRecording)
+#else
+        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
+#endif
+    }
+
+    func testShortcutRecorderReportsFirstStrokeConflictImmediately() {
+#if DEBUG
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        let button = ShortcutRecorderNSButton(frame: .zero)
+        let conflictingShortcut = StoredShortcut(
+            key: "t",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 17
+        )
+        var rejectedAttempt: ShortcutRecorderRejectedAttempt?
+
+        button.transformRecordedShortcut = { shortcut in
+            XCTAssertEqual(shortcut, conflictingShortcut)
+            return .rejected(.conflictsWithAction(.newSurface))
+        }
+        button.onRecorderFeedbackChanged = { rejectedAttempt = $0 }
+        button.performClick(nil)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "t",
+            charactersIgnoringModifiers: "t",
+            isARepeat: false,
+            keyCode: 17
+        ) else {
+            XCTFail("Failed to construct Command-T event")
+            return
+        }
+
+        XCTAssertNil(button.debugHandleRecordingEvent(event))
+        XCTAssertEqual(
+            rejectedAttempt,
+            ShortcutRecorderRejectedAttempt(
+                reason: .conflictsWithAction(.newSurface),
+                proposedShortcut: conflictingShortcut
+            )
+        )
+        XCTAssertFalse(button.debugIsRecording)
+#else
+        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
+#endif
+    }
+
+    func testShortcutRecorderCommitsAcceptedFirstStrokeImmediately() {
+#if DEBUG
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        let button = ShortcutRecorderNSButton(frame: .zero)
+        let recordedShortcut = StoredShortcut(
+            key: "l",
+            command: true,
+            shift: true,
+            option: false,
+            control: false,
+            keyCode: 37
+        )
+        var committedShortcut: StoredShortcut?
+        var feedbackEvents: [ShortcutRecorderRejectedAttempt?] = []
+
+        button.transformRecordedShortcut = { shortcut in
+            XCTAssertEqual(shortcut, recordedShortcut)
+            return .accepted(shortcut)
+        }
+        button.onShortcutRecorded = { committedShortcut = $0 }
+        button.onRecorderFeedbackChanged = { feedbackEvents.append($0) }
+        button.performClick(nil)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "L",
+            charactersIgnoringModifiers: "l",
+            isARepeat: false,
+            keyCode: 37
+        ) else {
+            XCTFail("Failed to construct Command-Shift-L event")
+            return
+        }
+
+        XCTAssertNil(button.debugHandleRecordingEvent(event))
+        XCTAssertEqual(committedShortcut, recordedShortcut)
+        XCTAssertEqual(button.shortcut, recordedShortcut)
+        XCTAssertFalse(button.debugIsRecording)
+        XCTAssertTrue(feedbackEvents.contains { $0 == nil })
+#else
+        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
+#endif
+    }
+
+    func testShortcutRecorderCapturesKeyEquivalentWhileRecording() {
+#if DEBUG
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        let button = ShortcutRecorderNSButton(frame: .zero)
+        let recordedShortcut = StoredShortcut(
+            key: "t",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 17
+        )
+        var committedShortcut: StoredShortcut?
+
+        button.transformRecordedShortcut = { shortcut in
+            XCTAssertEqual(shortcut, recordedShortcut)
+            return .accepted(shortcut)
+        }
+        button.onShortcutRecorded = { committedShortcut = $0 }
+        button.performClick(nil)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "t",
+            charactersIgnoringModifiers: "t",
+            isARepeat: false,
+            keyCode: 17
+        ) else {
+            XCTFail("Failed to construct Command-T event")
+            return
+        }
+
+        XCTAssertTrue(button.performKeyEquivalent(with: event))
+        XCTAssertEqual(committedShortcut, recordedShortcut)
+        XCTAssertFalse(button.debugIsRecording)
+#else
+        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
+#endif
+    }
+
+    func testShortcutRecorderStopAllNotificationStopsActiveRecorder() {
+#if DEBUG
+        let button = ShortcutRecorderNSButton(frame: .zero)
+        button.debugSetPendingChordStart(
+            ShortcutStroke(
+                key: "l",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            )
+        )
+
+        KeyboardShortcutRecorderActivity.stopAllRecording()
 
         XCTAssertFalse(button.debugIsRecording)
 #else
@@ -1307,6 +1615,25 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 }
 
 final class StoredShortcutMatchingTests: XCTestCase {
+    private func makeMediaKeyEvent(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = [],
+        keyState: UInt8 = 0x0A
+    ) -> NSEvent? {
+        let data1 = Int((UInt32(keyCode) << 16) | (UInt32(keyState) << 8))
+        return NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: Int16(8),
+            data1: data1,
+            data2: -1
+        )
+    }
+
     func testMatchingIgnoresCapsLock() {
         let shortcut = StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
 
@@ -1404,7 +1731,210 @@ final class StoredShortcutMatchingTests: XCTestCase {
         XCTAssertEqual(stroke.carbonHotKeyRegistration?.keyCode, 13)
     }
 
-    func testSystemWideHotkeyNormalizationRejectsReservedShortcutByRecordedPhysicalKey() {
+    func testShortcutRecordingResultRejectsBareLetterWithoutModifier() {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ) else {
+            XCTFail("Failed to construct bare letter event")
+            return
+        }
+
+        XCTAssertEqual(
+            ShortcutStroke.recordingResult(from: event, requireModifier: true),
+            .rejected(.bareKeyNotAllowed)
+        )
+    }
+
+    func testShortcutRecordingResultAcceptsBareFunctionKeyWithoutModifier() {
+        let f1Characters = String(UnicodeScalar(NSF1FunctionKey)!)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: f1Characters,
+            charactersIgnoringModifiers: f1Characters,
+            isARepeat: false,
+            keyCode: 122
+        ) else {
+            XCTFail("Failed to construct F1 event")
+            return
+        }
+
+        XCTAssertEqual(
+            ShortcutStroke.recordingResult(from: event, requireModifier: true),
+            .accepted(ShortcutStroke(key: "f1", command: false, shift: false, option: false, control: false, keyCode: 122))
+        )
+    }
+
+    func testShortcutRecordingResultSafelyIgnoresNonMediaSystemDefinedEvent() {
+        guard let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: 0,
+            data1: 0,
+            data2: 0
+        ) else {
+            XCTFail("Failed to construct non-media system-defined event")
+            return
+        }
+
+        XCTAssertFalse(ShortcutStroke.isEscapeCancelEvent(event))
+        XCTAssertEqual(
+            ShortcutStroke.recordingResult(from: event, requireModifier: true),
+            .unsupportedKey
+        )
+    }
+
+    func testMediaShortcutDoesNotMatchOrdinaryKeyDownWithSameKeyCode() {
+        let shortcut = ShortcutStroke(
+            key: "media.volumeUp",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 0
+        )
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ) else {
+            XCTFail("Failed to construct A key event")
+            return
+        }
+
+        XCTAssertFalse(shortcut.matches(event: event))
+    }
+
+    func testMediaShortcutMatchesSystemDefinedMediaEvent() {
+        let shortcut = ShortcutStroke(
+            key: "media.volumeUp",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 0
+        )
+
+        guard let event = makeMediaKeyEvent(keyCode: 0) else {
+            XCTFail("Failed to construct media key event")
+            return
+        }
+
+        XCTAssertTrue(shortcut.matches(event: event))
+    }
+
+    func testShortcutRecorderResolutionReportsConflictingAction() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        let shortcut = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.openBrowser.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.conflictsWithAction(.newSurface))
+        )
+    }
+
+    func testShortcutRecorderResolutionRejectsNumberedShortcutAgainstReservedDigitFamily() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "3", command: true, shift: false, option: false, control: false),
+            for: .openBrowser
+        )
+
+        let shortcut = StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.selectWorkspaceByNumber.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.conflictsWithAction(.openBrowser))
+        )
+    }
+
+    func testShortcutRecorderResolutionRejectsSingleStrokeThatMatchesChordPrefix() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "k",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                chordKey: "c",
+                chordCommand: true,
+                chordShift: false,
+                chordOption: false,
+                chordControl: false
+            ),
+            for: .openBrowser
+        )
+
+        let shortcut = StoredShortcut(key: "k", command: true, shift: false, option: false, control: false)
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.newTab.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.conflictsWithAction(.openBrowser))
+        )
+    }
+
+    func testShortcutRecorderResolutionRejectsChordThatMatchesExistingSingleStrokePrefix() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "k", command: true, shift: false, option: false, control: false),
+            for: .openBrowser
+        )
+
+        let shortcut = StoredShortcut(
+            key: "k",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "c",
+            chordCommand: true,
+            chordShift: false,
+            chordOption: false,
+            chordControl: false
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.newTab.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.conflictsWithAction(.openBrowser))
+        )
+    }
+
+    func testSystemWideHotkeyNormalizationReportsCmuxActionConflictByRecordedPhysicalKey() {
         KeyboardShortcutSettings.resetAll()
         defer { KeyboardShortcutSettings.resetAll() }
 
@@ -1417,7 +1947,87 @@ final class StoredShortcutMatchingTests: XCTestCase {
             keyCode: 13
         )
 
-        XCTAssertNil(KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcut(shortcut))
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.conflictsWithAction(.quit))
+        )
+    }
+
+    func testSystemWideHotkeyNormalizationReportsReservedHotkeyReason() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        let shortcut = StoredShortcut(key: ".", command: true, shift: false, option: false, control: false)
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.reservedBySystem)
+        )
+    }
+
+    func testShortcutRecorderValidationPresentationSurfacesBareKeyMessage() {
+        let presentation = ShortcutRecorderValidationPresentation(
+            attempt: ShortcutRecorderRejectedAttempt(reason: .bareKeyNotAllowed, proposedShortcut: nil),
+            action: .openBrowser,
+            currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut
+        )
+
+        XCTAssertEqual(presentation?.message, "Shortcuts must include ⌘ ⌥ ⌃ or ⇧")
+        XCTAssertNil(presentation?.swapButtonTitle)
+        XCTAssertFalse(presentation?.canSwap ?? true)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
+    }
+
+    func testShortcutRecorderValidationPresentationSurfacesConflictActionAndSwapAffordance() {
+        let presentation = ShortcutRecorderValidationPresentation(
+            attempt: ShortcutRecorderRejectedAttempt(
+                reason: .conflictsWithAction(.newSurface),
+                proposedShortcut: StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            ),
+            action: .openBrowser,
+            currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
+            isManagedBySettingsFile: { _ in false },
+            shortcutForAction: { $0.defaultShortcut }
+        )
+
+        XCTAssertEqual(presentation?.message, "This shortcut conflicts with New Surface (⌘T). Swap shortcuts?")
+        XCTAssertEqual(presentation?.swapButtonTitle, "Swap")
+        XCTAssertTrue(presentation?.canSwap ?? false)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
+    }
+
+    func testShortcutRecorderValidationPresentationUsesNumberedDisplayOnlyForNumberedConflicts() {
+        let presentation = ShortcutRecorderValidationPresentation(
+            attempt: ShortcutRecorderRejectedAttempt(
+                reason: .conflictsWithAction(.selectWorkspaceByNumber),
+                proposedShortcut: StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)
+            ),
+            action: .openBrowser,
+            currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
+            isManagedBySettingsFile: { _ in false },
+            shortcutForAction: { $0.defaultShortcut }
+        )
+
+        XCTAssertEqual(
+            presentation?.message,
+            "This shortcut conflicts with Select Workspace 1…9 (⌘1…9)."
+        )
+        XCTAssertNil(presentation?.swapButtonTitle)
+        XCTAssertFalse(presentation?.canSwap ?? true)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
+    }
+
+    func testShortcutRecorderValidationPresentationSurfacesReservedSystemMessage() {
+        let presentation = ShortcutRecorderValidationPresentation(
+            attempt: ShortcutRecorderRejectedAttempt(reason: .reservedBySystem, proposedShortcut: nil),
+            action: .showHideAllWindows,
+            currentShortcut: KeyboardShortcutSettings.Action.showHideAllWindows.defaultShortcut
+        )
+
+        XCTAssertEqual(presentation?.message, "This keystroke is reserved by macOS.")
+        XCTAssertNil(presentation?.swapButtonTitle)
+        XCTAssertFalse(presentation?.canSwap ?? true)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
     }
 }
 

@@ -450,6 +450,25 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
         )
     }
 
+    func testNavigationIgnoresCapsLockModifier() {
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.capsLock],
+                chars: "",
+                keyCode: 125
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control, .capsLock],
+                chars: "p",
+                keyCode: 35
+            ),
+            -1
+        )
+    }
+
     func testDoesNotTreatControlJKAsPaletteNavigation() {
         XCTAssertNil(
             commandPaletteSelectionDeltaForKeyboardNavigation(
@@ -639,6 +658,19 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
 final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
     private final class NonViewTextDelegate: NSObject, NSTextViewDelegate {}
     private final class UnrelatedViewTextDelegate: NSView, NSTextViewDelegate {}
+    private final class DelegateTrackingTextView: NSTextView {
+        private(set) var delegateReadCount = 0
+
+        override var delegate: NSTextViewDelegate? {
+            get {
+                delegateReadCount += 1
+                return super.delegate
+            }
+            set {
+                super.delegate = newValue
+            }
+        }
+    }
 
     func testTreatsGhosttySurfaceViewAsFocusStealer() {
         let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
@@ -663,6 +695,17 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
 
         XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textField))
+    }
+
+    func testDoesNotReadTextViewDelegateForFocusStealerClassification() {
+        let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+
+        XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView))
+        XCTAssertEqual(
+            textView.delegateReadCount,
+            0,
+            "Command palette focus-stealer classification must avoid NSTextView.delegate because AppKit exposes it as unsafe-unretained"
+        )
     }
 
     func testTreatsTextViewInsideTerminalHostedViewAsFocusStealerWhenDelegateIsNotAView() {

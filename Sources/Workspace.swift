@@ -57,6 +57,23 @@ struct CmuxSurfaceConfigTemplate {
     }
 }
 
+enum WorkspacePendingTerminalInputReason {
+    case configurationCommand
+}
+
+enum WorkspacePendingTerminalInputPolicy {
+    static func timeout(for reason: WorkspacePendingTerminalInputReason) -> TimeInterval? {
+        switch reason {
+        case .configurationCommand:
+            return 3.0
+        }
+    }
+}
+
+private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
+    var observer: NSObjectProtocol?
+}
+
 func cmuxSurfaceContextName(_ context: ghostty_surface_context_e) -> String {
     switch context {
     case GHOSTTY_SURFACE_CONTEXT_WINDOW:
@@ -247,7 +264,10 @@ extension Workspace {
         )
     }
 
-    func sessionSnapshot(includeScrollback: Bool) -> SessionWorkspaceSnapshot {
+    func sessionSnapshot(
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+    ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
         let layout = sessionLayoutSnapshot(from: tree)
 
@@ -263,7 +283,13 @@ extension Workspace {
 
         let panelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
-            .compactMap { sessionPanelSnapshot(panelId: $0, includeScrollback: includeScrollback) }
+            .compactMap { panelId in
+                sessionPanelSnapshot(
+                    panelId: panelId,
+                    includeScrollback: includeScrollback,
+                    restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId)
+                )
+            }
 
         let statusSnapshots = statusEntries.values
             .sorted { lhs, rhs in lhs.key < rhs.key }
@@ -312,6 +338,9 @@ extension Workspace {
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
+        restoredAgentAutoResumePendingPanelIds.removeAll(keepingCapacity: false)
+        invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -429,12 +458,27 @@ extension Workspace {
         return decoded.id
     }
 
-    private func sessionPanelSnapshot(panelId: UUID, includeScrollback: Bool) -> SessionPanelSnapshot? {
+    private func sessionPanelSnapshot(
+        panelId: UUID,
+        includeScrollback: Bool,
+        restorableAgent: SessionRestorableAgentSnapshot?
+    ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
+
+        if let restorableAgent {
+            let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restorableAgent)
+            if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
+                restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+            } else {
+                restoredAgentSnapshotsByPanelId[panelId] = restorableAgent
+                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+            }
+        }
+        let effectiveRestorableAgent = restoredAgentSnapshotsByPanelId[panelId]
 
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]
-        let directory = panelDirectories[panelId]
+        let directory = panelDirectories[panelId] ?? effectiveRestorableAgent?.workingDirectory
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
         let branchSnapshot = panelGitBranches[panelId].map {
@@ -469,8 +513,9 @@ extension Workspace {
                 allowFallbackScrollback: shouldPersistScrollback
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
-                workingDirectory: panelDirectories[panelId],
-                scrollback: resolvedScrollback
+                workingDirectory: directory,
+                scrollback: resolvedScrollback,
+                agent: effectiveRestorableAgent
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -522,6 +567,14 @@ extension Workspace {
         }
         guard allowFallbackScrollback else { return nil }
         return SessionPersistencePolicy.truncatedScrollback(fallbackScrollback)
+    }
+
+    nonisolated static func shouldReplaySessionScrollback(
+        restorableAgent: SessionRestorableAgentSnapshot?
+    ) -> Bool {
+        // Agent restores relaunch from the provider's session ID. Replaying the
+        // old TUI scrollback can print stale launch commands and race the resume input.
+        restorableAgent == nil
     }
 
     private func terminalSnapshotScrollback(
@@ -641,23 +694,61 @@ extension Workspace {
     private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
         switch snapshot.type {
         case .terminal:
-            let workingDirectory = snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory
+            let workingDirectory =
+                snapshot.terminal?.workingDirectory
+                ?? snapshot.terminal?.agent?.workingDirectory
+                ?? snapshot.directory
+                ?? currentDirectory
+            let restorableAgent = snapshot.terminal?.agent
+            let shouldReplayScrollback = Self.shouldReplaySessionScrollback(
+                restorableAgent: restorableAgent
+            )
+            let restoredAgentResumeInput = restorableAgent?.resumeStartupInput()
+#if DEBUG
+            if let restorableAgent {
+                let sessionPreview = String(restorableAgent.sessionId.prefix(8))
+                let launchArgc = restorableAgent.launchCommand?.arguments.count ?? 0
+                dlog(
+                    "session.restore.agent panel=\(snapshot.id.uuidString.prefix(5)) " +
+                    "kind=\(restorableAgent.kind.rawValue) session=\(sessionPreview) " +
+                    "hasLaunch=\(restorableAgent.launchCommand == nil ? 0 : 1) " +
+                    "launchArgc=\(launchArgc) hasResume=\(restoredAgentResumeInput == nil ? 0 : 1) " +
+                    "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
+                )
+            }
+#endif
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
-                for: snapshot.terminal?.scrollback
+                for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
             )
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: workingDirectory,
+                initialInput: restoredAgentResumeInput,
                 startupEnvironment: replayEnvironment
             ) else {
                 return nil
             }
-            let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
+            let fallbackScrollback = shouldReplayScrollback
+                ? SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
+                : nil
             if let fallbackScrollback {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
             } else {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
+            }
+            if let restorableAgent {
+                restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
+                if restoredAgentResumeInput != nil {
+                    restoredAgentAutoResumePendingPanelIds.insert(terminalPanel.id)
+                } else {
+                    restoredAgentAutoResumePendingPanelIds.remove(terminalPanel.id)
+                }
+                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
+            } else {
+                restoredAgentSnapshotsByPanelId.removeValue(forKey: terminalPanel.id)
+                restoredAgentAutoResumePendingPanelIds.remove(terminalPanel.id)
+                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
             }
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
@@ -950,33 +1041,94 @@ extension Workspace {
         }
     }
 
-    private func sendInputWhenReady(_ text: String, to panel: TerminalPanel) {
+    private func sendInputWhenReady(
+        _ text: String,
+        to panel: TerminalPanel,
+        reason: WorkspacePendingTerminalInputReason = .configurationCommand
+    ) {
         if panel.surface.surface != nil {
             panel.sendInput(text)
             return
         }
 
-        var resolved = false
-        var observer: NSObjectProtocol?
+        let timeout = WorkspacePendingTerminalInputPolicy.timeout(for: reason)
+        let panelId = panel.id
+        let registration = WorkspacePendingTerminalInputObserver()
 
-        observer = NotificationCenter.default.addObserver(
+        registration.observer = NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: panel.surface,
             queue: .main
-        ) { [weak panel] _ in
-            guard !resolved, let panel else { return }
-            resolved = true
-            if let observer { NotificationCenter.default.removeObserver(observer) }
-            panel.sendInput(text)
-        }
+        ) { [weak self, registration] _ in
+            Task { @MainActor [weak self, registration] in
+                guard
+                    let self,
+                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
+                else {
+                    return
+                }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            guard !resolved else { return }
-            resolved = true
-            if let observer { NotificationCenter.default.removeObserver(observer) }
-            NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
+                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
+                if let panel = self.panels[panelId] as? TerminalPanel {
+                    panel.sendInput(text)
+                }
+            }
+        }
+        pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
+
+        guard let timeout else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
+            Task { @MainActor [weak self, registration] in
+                guard
+                    let self,
+                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
+                else {
+                    return
+                }
+
+                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
+                NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
+            }
         }
     }
+
+    private func hasPendingTerminalInputObserver(
+        _ registration: WorkspacePendingTerminalInputObserver,
+        forPanelId panelId: UUID
+    ) -> Bool {
+        pendingTerminalInputObserversByPanelId[panelId]?.contains {
+            $0 === registration
+        } == true
+    }
+
+    private func removePendingTerminalInputObserver(
+        _ registration: WorkspacePendingTerminalInputObserver,
+        forPanelId panelId: UUID
+    ) {
+        if let observer = registration.observer {
+            NotificationCenter.default.removeObserver(observer)
+            registration.observer = nil
+        }
+        pendingTerminalInputObserversByPanelId[panelId]?.removeAll {
+            $0 === registration
+        }
+        if pendingTerminalInputObserversByPanelId[panelId]?.isEmpty == true {
+            pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId)
+        }
+    }
+
+    private func removePendingTerminalInputObservers(forPanelId panelId: UUID) {
+        guard let observers = pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId) else {
+            return
+        }
+        for registration in observers {
+            if let observer = registration.observer {
+                NotificationCenter.default.removeObserver(observer)
+                registration.observer = nil
+            }
+        }
+    }
+
 }
 
 final class WorkspaceRemoteDaemonPendingCallRegistry {
@@ -6620,6 +6772,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    private var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    private var restoredAgentAutoResumePendingPanelIds: Set<UUID> = []
+    private var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
+    private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
 
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher
@@ -6971,6 +7127,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     deinit {
+        for registrations in pendingTerminalInputObserversByPanelId.values {
+            for registration in registrations {
+                if let observer = registration.observer {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+            }
+        }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
     }
@@ -7602,6 +7765,19 @@ final class Workspace: Identifiable, ObservableObject {
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         guard previousState != state else { return }
         panelShellActivityStates[panelId] = state
+        if state == .commandRunning, let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
+            if restoredAgentAutoResumePendingPanelIds.remove(panelId) == nil {
+                let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restoredAgent)
+                invalidatedRestoredAgentFingerprintsByPanelId[panelId] = fingerprint
+                restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+#if DEBUG
+                dlog(
+                    "session.restore.agent.invalidate panel=\(panelId.uuidString.prefix(5)) " +
+                    "kind=\(restoredAgent.kind.rawValue) session=\(restoredAgent.sessionId.prefix(8))"
+                )
+#endif
+            }
+        }
 #if DEBUG
         dlog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
@@ -7799,6 +7975,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
+        for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
+            removePendingTerminalInputObservers(forPanelId: panelId)
+        }
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
@@ -7811,6 +7990,15 @@ final class Workspace: Identifiable, ObservableObject {
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
+        restoredAgentSnapshotsByPanelId = restoredAgentSnapshotsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        restoredAgentAutoResumePendingPanelIds = restoredAgentAutoResumePendingPanelIds.filter {
+            validSurfaceIds.contains($0)
+        }
+        invalidatedRestoredAgentFingerprintsByPanelId = invalidatedRestoredAgentFingerprintsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
     }
@@ -9331,6 +9519,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
+            removePendingTerminalInputObservers(forPanelId: panelId)
             panelSubscriptions.removeValue(forKey: panelId)
             PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
             panel.close()
@@ -9342,6 +9531,7 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteTerminalChildExitSurfaceIds.removeAll(keepingCapacity: false)
         pruneSurfaceMetadata(validSurfaceIds: [])
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
@@ -11860,6 +12050,7 @@ extension Workspace: BonsplitDelegate {
         #endif
 
         let panel = panels[panelId]
+        removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
 
         if isDetaching, let panel {
@@ -11910,6 +12101,9 @@ extension Workspace: BonsplitDelegate {
         surfaceTTYNames.removeValue(forKey: panelId)
         syncRemotePortScanTTYs()
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        restoredAgentAutoResumePendingPanelIds.remove(panelId)
+        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
         if lastTerminalConfigInheritancePanelId == panelId {
@@ -12047,6 +12241,7 @@ extension Workspace: BonsplitDelegate {
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
+                removePendingTerminalInputObservers(forPanelId: panelId)
                 panels[panelId]?.close()
                 panels.removeValue(forKey: panelId)
                 untrackRemoteTerminalSurface(panelId)
@@ -12063,6 +12258,9 @@ extension Workspace: BonsplitDelegate {
                 surfaceTTYNames.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+                restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+                restoredAgentAutoResumePendingPanelIds.remove(panelId)
+                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
                 PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
             }
 
