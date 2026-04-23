@@ -4487,6 +4487,24 @@ struct SettingsView: View {
         )
     }
 
+    private var longRightClickDurationPresetValues: [Double] { [0.20, 0.30, 0.45] }
+
+    private var longRightClickDurationNeedsCustomPickerOption: Bool {
+        let v = terminalRightClickLongPressDuration
+        return !longRightClickDurationPresetValues.contains { abs($0 - v) < 0.000_1 }
+    }
+
+    private func longRightClickCustomDurationPickerLabel(for duration: Double) -> String {
+        let formatted = String(format: "%.2f", duration)
+        return String(
+            format: String(
+                localized: "settings.app.terminalLongRightClickDuration.optionCustomFormat",
+                defaultValue: "Custom (%@ s)"
+            ),
+            formatted
+        )
+    }
+
     @ViewBuilder
     private func terminalRightClickAppSettingsRows() -> some View {
         SettingsCardDivider()
@@ -4565,6 +4583,10 @@ struct SettingsView: View {
                         )
                     )
                     .tag(0.45)
+                    if longRightClickDurationNeedsCustomPickerOption {
+                        Text(longRightClickCustomDurationPickerLabel(for: terminalRightClickLongPressDuration))
+                            .tag(terminalRightClickLongPressDuration)
+                    }
                 }
             }
         }

@@ -11286,6 +11286,59 @@
         }
       }
     },
+    "browser.reactGrab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inject React Grab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grabを注入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注入 React Grab"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注入 React Grab"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab 주입"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab einfügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inyectar React Grab"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Injecter React Grab"
+          }
+        }
+      }
+    },
     "browser.search.placeholder": {
       "extractionState": "manual",
       "localizations": {
@@ -88454,6 +88507,23 @@
         }
       }
     },
+    "settings.app.terminalLongRightClickDuration.optionCustomFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom (%@ s)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム（%@ 秒）"
+          }
+        }
+      }
+    },
     "terminalContextMenu.triggerFlash": {
       "extractionState": "manual",
       "localizations": {
@@ -88582,29 +88652,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "세로 분할"
-          }
-        }
-      }
-    },
-    "terminalContextMenu.resetTerminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset Terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルをリセット"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "플래시 실행"
           }
         }
       }

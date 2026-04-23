@@ -8174,7 +8174,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func rightMouseDragged(with event: NSEvent) {
         didRightMouseDrag = true
-        guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         if let down = rightMouseDownLocation {
             let dx = point.x - down.x
@@ -8184,26 +8183,35 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 cancelLongRightClickContextMenu()
             }
         }
+        guard let surface = surface else { return }
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
     }
 
     override func rightMouseUp(with event: NSEvent) {
-        guard let surface = surface else { return }
         let rightClickBehavior = rightClickBehaviorForCurrentGesture ?? TerminalRightClickSettings.behavior()
-        if !ghostty_surface_mouse_captured(surface) {
-            if rightClickBehavior == .pasteFromClipboard {
-                let didTriggerContextMenu = didTriggerContextMenuOnLongRightClick
-                let didDrag = didRightMouseDrag
-                cancelLongRightClickContextMenu()
-                didTriggerContextMenuOnLongRightClick = false
-                didRightMouseDrag = false
-                rightMouseDownLocation = nil
-                rightClickBehaviorForCurrentGesture = nil
-                if !didTriggerContextMenu && !didDrag {
-                    paste(nil)
-                }
-                return
+
+        if rightClickBehavior == .pasteFromClipboard,
+           surface.map { !ghostty_surface_mouse_captured($0) } ?? true {
+            let didTriggerContextMenu = didTriggerContextMenuOnLongRightClick
+            let didDrag = didRightMouseDrag
+            cancelLongRightClickContextMenu()
+            didTriggerContextMenuOnLongRightClick = false
+            didRightMouseDrag = false
+            rightMouseDownLocation = nil
+            rightClickBehaviorForCurrentGesture = nil
+            if let surface, !didTriggerContextMenu, !didDrag, !ghostty_surface_mouse_captured(surface) {
+                paste(nil)
             }
+            return
+        }
+
+        guard let surface = surface else {
+            cancelLongRightClickContextMenu()
+            rightClickBehaviorForCurrentGesture = nil
+            return
+        }
+
+        if !ghostty_surface_mouse_captured(surface) {
             rightClickBehaviorForCurrentGesture = nil
             super.rightMouseUp(with: event)
             return

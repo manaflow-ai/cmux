@@ -432,11 +432,11 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[PaneFirstClickFocusSettings.enabledKey] = .bool(value)
         }
         if let raw = jsonString(section["terminalRightClickBehavior"]) {
-            guard let behavior = TerminalRightClickSettings.Behavior(rawValue: raw) else {
+            if let behavior = TerminalRightClickSettings.Behavior(rawValue: raw) {
+                snapshot.managedUserDefaults[TerminalRightClickSettings.behaviorKey] = .string(behavior.rawValue)
+            } else {
                 logInvalid("app.terminalRightClickBehavior", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[TerminalRightClickSettings.behaviorKey] = .string(behavior.rawValue)
         }
         if let value = jsonBool(section["terminalRightClickLongPressContextMenuEnabled"]) {
             snapshot.managedUserDefaults[TerminalRightClickSettings.longPressContextMenuEnabledKey] = .bool(value)
