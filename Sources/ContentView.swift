@@ -14739,15 +14739,18 @@ private final class SystemSidebarToggleStripperView: NSView {
         }
     }
 
+    private static let toggleSidebarSelector = Selector(("toggleSidebar:"))
+
     private static func shouldStrip(_ item: NSToolbarItem) -> Bool {
         let itemId = item.itemIdentifier.rawValue
         if itemId.contains("toggleSidebar") || itemId.contains("splitViewSeparator") {
             return true
         }
         // NavigationSplitView re-injects the toggle into the overflow popover
-        // with an opaque identifier, so also match the user-facing label.
-        let label = item.label
-        if label == "Hide Sidebar" || label == "Show Sidebar" {
+        // with an opaque identifier, so also match by action selector. This is
+        // language-independent; matching on the user-facing label would fail
+        // on localized macOS builds.
+        if item.action == toggleSidebarSelector {
             return true
         }
         return false
