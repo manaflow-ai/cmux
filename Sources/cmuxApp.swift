@@ -4265,6 +4265,7 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserDefaultZoomSettings.key) private var browserDefaultZoom = BrowserDefaultZoomSettings.defaultValue
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
@@ -5898,6 +5899,25 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsPickerRow(
+                            String(localized: "settings.browser.defaultZoom", defaultValue: "Default Browser Zoom"),
+                            subtitle: String(localized: "settings.browser.defaultZoom.subtitle", defaultValue: "Applied when opening new browser panes. Use Actual Size to reset an existing pane."),
+                            controlWidth: pickerColumnWidth,
+                            selection: $browserDefaultZoom
+                        ) {
+                            Text(verbatim: "75%").tag(0.75)
+                            Text(verbatim: "80%").tag(0.8)
+                            Text(verbatim: "90%").tag(0.9)
+                            Text(verbatim: "100%").tag(1.0)
+                            Text(verbatim: "110%").tag(1.1)
+                            Text(verbatim: "125%").tag(1.25)
+                            Text(verbatim: "150%").tag(1.5)
+                            Text(verbatim: "175%").tag(1.75)
+                            Text(verbatim: "200%").tag(2.0)
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(
                             configurationReview: .json("browser.openTerminalLinksInCmuxBrowser"),
                             String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
@@ -6430,6 +6450,7 @@ struct SettingsView: View {
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+        browserDefaultZoom = BrowserDefaultZoomSettings.defaultValue
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
