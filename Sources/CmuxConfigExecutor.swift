@@ -74,6 +74,7 @@ struct CmuxConfigExecutor {
     ) -> Bool {
         if let commandName = action.workspaceCommandName,
            let command = commands.first(where: { $0.name == commandName }) {
+            guard command.workspace != nil else { return false }
             return execute(
                 command: command,
                 tabManager: tabManager,

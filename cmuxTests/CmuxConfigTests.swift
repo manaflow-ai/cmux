@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -601,6 +602,90 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertTrue(store.configurationIssues.isEmpty)
         XCTAssertNotNil(store.resolvedAction(id: "bad"))
+    }
+
+    @MainActor
+    func testLocalWatcherDetectsFirstCanonicalConfigAfterDirectoryCreation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        let configURL = configDirectory.appendingPathComponent("cmux.json", isDirectory: false)
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: true
+        )
+        store.loadAll()
+        XCTAssertNil(store.resolvedAction(id: "created"))
+
+        let loaded = expectation(description: "created local cmux config is loaded")
+        loaded.assertForOverFulfill = false
+        var cancellable: AnyCancellable?
+        cancellable = store.$loadedActions.dropFirst().sink { actions in
+            if actions.contains(where: { $0.id == "created" }) {
+                loaded.fulfill()
+            }
+        }
+
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try """
+        {
+          "actions": {
+            "created": { "type": "command", "command": "echo created" }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        await fulfillment(of: [loaded], timeout: 3)
+        cancellable?.cancel()
+    }
+
+    @MainActor
+    func testLocalWatcherDetectsFirstLegacyConfigWhenCmuxDirectoryExists() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let configDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let canonicalConfigURL = configDirectory.appendingPathComponent("cmux.json", isDirectory: false)
+        let legacyConfigURL = projectDirectory.appendingPathComponent("cmux.json", isDirectory: false)
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: canonicalConfigURL.path,
+            startFileWatchers: true
+        )
+        store.loadAll()
+        XCTAssertNil(store.resolvedAction(id: "legacy-created"))
+
+        let loaded = expectation(description: "created legacy cmux config is loaded")
+        loaded.assertForOverFulfill = false
+        var cancellable: AnyCancellable?
+        cancellable = store.$loadedActions.dropFirst().sink { actions in
+            if actions.contains(where: { $0.id == "legacy-created" }) {
+                loaded.fulfill()
+            }
+        }
+
+        try """
+        {
+          "actions": {
+            "legacy-created": { "type": "command", "command": "echo created" }
+          }
+        }
+        """.write(to: legacyConfigURL, atomically: true, encoding: .utf8)
+
+        await fulfillment(of: [loaded], timeout: 3)
+        cancellable?.cancel()
     }
 
     @MainActor

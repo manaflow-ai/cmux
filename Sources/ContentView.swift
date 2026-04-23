@@ -7634,9 +7634,7 @@ struct ContentView: View {
 
     @discardableResult
     private func executeConfiguredAction(_ action: CmuxResolvedConfigAction) -> Bool {
-        let rawCwd = tabManager.selectedWorkspace?.currentDirectory
-        let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
-            : FileManager.default.homeDirectoryForCurrentUser.path
+        let baseCwd = configuredActionBaseCwd()
         return CmuxConfigExecutor.execute(
             action: action,
             commands: cmuxConfigStore.loadedCommands,
@@ -7645,6 +7643,25 @@ struct ContentView: View {
             baseCwd: baseCwd,
             globalConfigPath: cmuxConfigStore.globalConfigPath
         )
+    }
+
+    private func configuredActionBaseCwd() -> String {
+        guard let workspace = tabManager.selectedWorkspace else {
+            return FileManager.default.homeDirectoryForCurrentUser.path
+        }
+        let focusedPanelId = workspace.focusedPanelId
+        let candidates = [
+            focusedPanelId.flatMap { workspace.panelDirectories[$0] },
+            focusedPanelId.flatMap { workspace.terminalPanel(for: $0)?.requestedWorkingDirectory },
+            workspace.currentDirectory
+        ]
+        for candidate in candidates {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     private var focusedPanelContext: (workspace: Workspace, panelId: UUID, panel: any Panel)? {

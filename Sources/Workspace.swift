@@ -12683,6 +12683,12 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestCustomAction identifier: String, inPane pane: PaneID) {
+#if DEBUG
+        dlog(
+            "split.customAction.request workspace=\(id.uuidString.prefix(5)) " +
+            "pane=\(pane.id.uuidString.prefix(5)) identifier=\(identifier)"
+        )
+#endif
         executeSurfaceTabBarCommandButton(identifier: identifier, inPane: pane)
     }
 

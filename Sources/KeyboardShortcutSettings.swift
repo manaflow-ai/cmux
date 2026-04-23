@@ -2001,6 +2001,9 @@ extension ShortcutStroke {
         if preserveDigit {
             return key
         }
+        if let digit = Int(key), (1...9).contains(digit) {
+            return "1"
+        }
         return key
     }
 
@@ -2043,7 +2046,28 @@ extension ShortcutStroke {
             return "["
         case "rightbracket", "closebracket":
             return "]"
+        case "volumeup", "mediavolumeup", "media.volumeup":
+            return "media.volumeUp"
+        case "volumedown", "mediavolumedown", "media.volumedown":
+            return "media.volumeDown"
+        case "brightnessup", "mediabrightnessup", "media.brightnessup":
+            return "media.brightnessUp"
+        case "brightnessdown", "mediabrightnessdown", "media.brightnessdown":
+            return "media.brightnessDown"
+        case "mute", "mediamute", "media.mute":
+            return "media.mute"
+        case "playpause", "mediaplaypause", "media.playpause":
+            return "media.playPause"
+        case "nexttrack", "medianext", "media.next", "media.nexttrack":
+            return "media.next"
+        case "previoustrack", "mediaprevious", "media.previous", "media.previoustrack":
+            return "media.previous"
         default:
+            if lowered.hasPrefix("f"),
+               let number = Int(lowered.dropFirst()),
+               (1...20).contains(number) {
+                return "f\(number)"
+            }
             guard lowered.count == 1 else { return nil }
             return lowered
         }

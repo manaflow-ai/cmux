@@ -26,10 +26,10 @@ export default function CustomCommandsPage() {
       <p>{t("fileLocationsDesc")}</p>
       <ul>
         <li>
-          <strong>{t("localConfig")}</strong> <code>./.cmux/cmux.json</code> - canonical project config
+          <strong>{t("localConfig")}</strong> <code>./.cmux/cmux.json</code> - {t("localConfigDesc")}
         </li>
         <li>
-          <strong>Fallback local:</strong> <code>./cmux.json</code> - still supported for existing repos
+          <strong>{t("fallbackLocal")}</strong> <code>./cmux.json</code> - {t("fallbackLocalDesc")}
         </li>
         <li>
           <strong>{t("globalConfig")}</strong> <code>~/.config/cmux/cmux.json</code> - {t("globalConfigDesc")}
@@ -37,25 +37,28 @@ export default function CustomCommandsPage() {
       </ul>
       <Callout type="info">{t("precedenceNote")}</Callout>
       <Callout type="info">
-        The action registry is a nightly feature. Install the latest nightly build before using
-        <code>actions</code>, <code>shortcut</code>, or <code>ui.surfaceTabBar.buttons</code>.
+        {t.rich("nightlyFeatureCallout", {
+          actions: (chunks) => <code>{chunks}</code>,
+          shortcut: (chunks) => <code>{chunks}</code>,
+          buttons: (chunks) => <code>{chunks}</code>,
+        })}
       </Callout>
       <Callout type="info">
-        Project-local actions show up in the surface tab bar and Command Palette immediately. The first run
-        still prompts for trust. Trust is per exact action fingerprint, not per repo. Project-local image
-        icons stay locked until that action is trusted.
+        {t("trustCallout")}
       </Callout>
       <Callout type="info">
-        If a project or global config has a schema error, cmux falls back to the next valid config and shows
-        a <strong>cmux.json Schema Error</strong> row in Command Palette. Select it to open the config file.
+        {t.rich("schemaErrorCallout", {
+          title: (chunks) => <strong>{chunks}</strong>,
+        })}
       </Callout>
       <p>{t("liveReload")}</p>
 
       <h2>{t("schema")}</h2>
       <p>
-        <code>commands</code> still define reusable shell commands and workspace layouts. Nightly builds add
-        an <code>actions</code> registry. Actions are the public IDs shared by the surface tab bar, the
-        Command Palette, and action-level shortcuts.
+        {t.rich("schemaIntro", {
+          commands: (chunks) => <code>{chunks}</code>,
+          actions: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
@@ -109,36 +112,43 @@ export default function CustomCommandsPage() {
     }
   ]
 }`}</CodeBlock>
-      <h3>Nightly action registry</h3>
+      <h3>{t("nightlyActionRegistry")}</h3>
       <p>
-        <code>actions</code> maps stable IDs to runnable behavior. Use the built-in IDs
-        <code>cmux.newTerminal</code>, <code>cmux.newBrowser</code>, <code>cmux.splitRight</code>, and
-        <code>cmux.splitDown</code> to override the defaults. Use your own IDs for project-specific tools.
+        {t.rich("nightlyActionRegistryDesc", {
+          actions: (chunks) => <code>{chunks}</code>,
+          newTerminal: (chunks) => <code>{chunks}</code>,
+          newBrowser: (chunks) => <code>{chunks}</code>,
+          splitRight: (chunks) => <code>{chunks}</code>,
+          splitDown: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
       <p>
-        <code>palette</code> defaults to <code>true</code>. Set it to <code>false</code> to keep an action
-        out of Command Palette while still making it available to the surface tab bar or a shortcut.
-        <code>shortcut</code> uses the same syntax as settings shortcuts, for example
-        <code>cmd+shift+c</code> or <code>{'["cmd+k", "cmd+c"]'}</code>.
+        {t.rich("paletteDesc", {
+          palette: (chunks) => <code>{chunks}</code>,
+          trueValue: (chunks) => <code>{chunks}</code>,
+          falseValue: (chunks) => <code>{chunks}</code>,
+          shortcut: (chunks) => <code>{chunks}</code>,
+          singleShortcut: (chunks) => <code>{chunks}</code>,
+          chordShortcut: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
       <p>
-        <code>ui.surfaceTabBar.buttons</code> replaces the default button list when present. Leave out a
-        built-in ID to hide it. Icons always use an object shape:
-        <code>{'{ "type": "symbol", "name": "play.circle" }'}</code>,
-        <code>{'{ "type": "emoji", "value": "🧪", "scale": 0.9 }'}</code>, or
-        <code>{'{ "type": "image", "path": "./icons/codex.svg" }'}</code>. Image paths are relative to the
-        config file. Emoji <code>scale</code> is optional and defaults to <code>1</code>. SVG, PDF, PNG,
-        JPEG, GIF, TIFF, BMP, HEIC, HEIF, WebP, AVIF, ICO, and ICNS are supported.
+        {t.rich("iconsDesc", {
+          buttons: (chunks) => <code>{chunks}</code>,
+          symbolIcon: (chunks) => <code>{chunks}</code>,
+          emojiIcon: (chunks) => <code>{chunks}</code>,
+          imageIcon: (chunks) => <code>{chunks}</code>,
+          scale: (chunks) => <code>{chunks}</code>,
+          defaultScale: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
       <p>
-        Each button entry can be either an action ID string or a button object. Use a button object when you
-        want the same action with a different surface label, icon, or tooltip. The resolved button title is
-        also used as the trust prompt title.
+        {t("buttonEntriesDesc")}
       </p>
       <p>
-        Put any approval or permission flags directly in the command string you actually want to run. The
-        default action target is <code>newTabInCurrentPane</code>, so the common pattern is to open a new
-        terminal tab in the current pane and start Codex, Claude Code, or OpenCode there.
+        {t.rich("permissionFlagsDesc", {
+          target: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
 
       <h2>{t("simpleCommands")}</h2>

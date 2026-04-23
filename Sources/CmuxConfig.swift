@@ -1486,9 +1486,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .agent(let agent, _):
             switch agent {
             case .codex:
-                return "Codex"
+                return String(localized: "command.cmuxConfig.defaultCodexTitle", defaultValue: "Codex")
             case .claudeCode:
-                return "Claude Code"
+                return String(localized: "command.cmuxConfig.defaultClaudeCodeTitle", defaultValue: "Claude Code")
             }
         case .command:
             return id
@@ -1874,12 +1874,23 @@ final class CmuxConfigStore: ObservableObject {
     private var trackingCancellables = Set<AnyCancellable>()
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
+    private var localConfigSearchDirectory: String?
+    private var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
+    private var localFallbackDirectoryDescriptor: Int32 = -1
     private var globalFileWatchSource: DispatchSourceFileSystemObject?
     private var globalFileDescriptor: Int32 = -1
     private let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")
 
     private static let maxReattachAttempts = 5
     private static let reattachDelay: TimeInterval = 0.5
+
+    private static func searchDirectoryForLocalConfigPath(_ path: String) -> String {
+        let configDirectory = (path as NSString).deletingLastPathComponent
+        if (configDirectory as NSString).lastPathComponent == ".cmux" {
+            return (configDirectory as NSString).deletingLastPathComponent
+        }
+        return configDirectory
+    }
 
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
@@ -1888,6 +1899,7 @@ final class CmuxConfigStore: ObservableObject {
     ) {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
+        self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -1906,6 +1918,7 @@ final class CmuxConfigStore: ObservableObject {
 
     deinit {
         localFileWatchSource?.cancel()
+        localFallbackDirectoryWatchSource?.cancel()
         globalFileWatchSource?.cancel()
     }
 
@@ -1944,10 +1957,10 @@ final class CmuxConfigStore: ObservableObject {
     private func updateLocalConfigPath(_ directory: String?) {
         let newPath: String?
         if let directory, !directory.isEmpty {
-            newPath = findCmuxConfig(startingFrom: directory)
-                ?? (((directory as NSString).appendingPathComponent(".cmux") as NSString)
-                    .appendingPathComponent("cmux.json"))
+            localConfigSearchDirectory = directory
+            newPath = resolvedLocalConfigPath(startingFrom: directory)
         } else {
+            localConfigSearchDirectory = nil
             newPath = nil
         }
 
@@ -1958,6 +1971,16 @@ final class CmuxConfigStore: ObservableObject {
             startLocalFileWatcher()
         }
         loadAll()
+    }
+
+    private func resolvedLocalConfigPath(startingFrom directory: String) -> String {
+        findCmuxConfig(startingFrom: directory)
+            ?? defaultLocalConfigPath(startingFrom: directory)
+    }
+
+    private func defaultLocalConfigPath(startingFrom directory: String) -> String {
+        (((directory as NSString).appendingPathComponent(".cmux") as NSString)
+            .appendingPathComponent("cmux.json"))
     }
 
     private func findCmuxConfig(startingFrom directory: String) -> String? {
@@ -2611,35 +2634,72 @@ final class CmuxConfigStore: ObservableObject {
 
     private func startLocalDirectoryWatcher() {
         guard let path = localConfigPath else { return }
-        let dirPath = (path as NSString).deletingLastPathComponent
-        let fd = open(dirPath, O_EVTONLY)
-        guard fd >= 0 else { return }
-        localFileDescriptor = fd
+        let configDirectory = (path as NSString).deletingLastPathComponent
+        let fs = FileManager.default
+        let dirPath: String
+        if fs.fileExists(atPath: configDirectory) {
+            dirPath = configDirectory
+        } else if let searchDirectory = localConfigSearchDirectory,
+                  fs.fileExists(atPath: searchDirectory) {
+            dirPath = searchDirectory
+        } else {
+            dirPath = (configDirectory as NSString).deletingLastPathComponent
+        }
+        let eventHandler = { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleLocalDirectoryWatchEvent()
+            }
+        }
 
+        guard let primaryWatch = startLocalDirectoryWatchSource(at: dirPath, eventHandler: eventHandler) else {
+            return
+        }
+        localFileWatchSource = primaryWatch.source
+        localFileDescriptor = primaryWatch.fileDescriptor
+
+        if let searchDirectory = localConfigSearchDirectory,
+           fs.fileExists(atPath: configDirectory),
+           searchDirectory != dirPath,
+           let fallbackWatch = startLocalDirectoryWatchSource(at: searchDirectory, eventHandler: eventHandler) {
+            localFallbackDirectoryWatchSource = fallbackWatch.source
+            localFallbackDirectoryDescriptor = fallbackWatch.fileDescriptor
+        }
+    }
+
+    private func startLocalDirectoryWatchSource(
+        at dirPath: String,
+        eventHandler: @escaping () -> Void
+    ) -> (source: DispatchSourceFileSystemObject, fileDescriptor: Int32)? {
+        let fd = open(dirPath, O_EVTONLY)
+        guard fd >= 0 else { return nil }
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
             eventMask: [.write, .link, .rename],
             queue: watchQueue
         )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                guard let configPath = self.localConfigPath,
-                      FileManager.default.fileExists(atPath: configPath) else { return }
-                // File appeared — switch to file-level watching
-                self.stopLocalFileWatcher()
-                self.loadAll()
-                self.startLocalFileWatcher()
-            }
-        }
-
+        source.setEventHandler(handler: eventHandler)
         source.setCancelHandler {
             Darwin.close(fd)
         }
-
         source.resume()
-        localFileWatchSource = source
+        return (source, fd)
+    }
+
+    private func handleLocalDirectoryWatchEvent() {
+        if let searchDirectory = localConfigSearchDirectory {
+            let resolvedPath = resolvedLocalConfigPath(startingFrom: searchDirectory)
+            if resolvedPath != localConfigPath {
+                localConfigPath = resolvedPath
+            }
+        }
+        guard let configPath = localConfigPath else { return }
+        let configDirectory = (configPath as NSString).deletingLastPathComponent
+        guard FileManager.default.fileExists(atPath: configPath) ||
+            FileManager.default.fileExists(atPath: configDirectory) else { return }
+        // File or its parent directory appeared — switch to file-level watching.
+        stopLocalFileWatcher()
+        loadAll()
+        startLocalFileWatcher()
     }
 
     private func scheduleLocalReattach(attempt: Int) {
@@ -2663,7 +2723,12 @@ final class CmuxConfigStore: ObservableObject {
             source.cancel()
             localFileWatchSource = nil
         }
+        if let source = localFallbackDirectoryWatchSource {
+            source.cancel()
+            localFallbackDirectoryWatchSource = nil
+        }
         localFileDescriptor = -1
+        localFallbackDirectoryDescriptor = -1
     }
 
     // MARK: - File watching (global)
