@@ -841,9 +841,62 @@ final class CmuxWebView: WKWebView {
 
     private func debugContextDownload(_ message: @autoclosure () -> String) {
 #if DEBUG
-        cmuxDebugLog(message())
+        cmuxDebugLog(Self.redactedContextDownloadDebugMessage(message()))
 #endif
     }
+
+    #if DEBUG
+    private static func redactedContextDownloadDebugMessage(_ message: String) -> String {
+        message
+            .components(separatedBy: " ")
+            .map(redactedContextDownloadToken)
+            .joined(separator: " ")
+    }
+
+    private static func redactedContextDownloadToken(_ token: String) -> String {
+        guard let separatorIndex = token.firstIndex(of: "=") else { return token }
+        let key = String(token[..<separatorIndex])
+        let valueStart = token.index(after: separatorIndex)
+        let value = String(token[valueStart...])
+        guard shouldRedactContextDownloadField(key) else { return token }
+        return "\(key)=\(redactedContextDownloadValue(key: key, value: value))"
+    }
+
+    private static func shouldRedactContextDownloadField(_ key: String) -> Bool {
+        let normalized = key.lowercased()
+        return normalized == "referer" ||
+            normalized == "path" ||
+            normalized == "payload" ||
+            normalized.hasSuffix("url")
+    }
+
+    private static func redactedContextDownloadValue(key: String, value: String) -> String {
+        guard value != "nil", !value.isEmpty else { return value }
+
+        if shouldTreatContextDownloadFieldAsURL(key),
+           let url = URL(string: value),
+           let scheme = url.scheme?.lowercased(),
+           !scheme.isEmpty {
+            switch scheme {
+            case "http", "https":
+                return "\(scheme)://\(url.host ?? "unknown")"
+            case "data":
+                return "data:<redacted>"
+            case "file":
+                return "file:<redacted>"
+            default:
+                return "\(scheme):<redacted>"
+            }
+        }
+
+        return "<redacted>"
+    }
+
+    private static func shouldTreatContextDownloadFieldAsURL(_ key: String) -> Bool {
+        let normalized = key.lowercased()
+        return normalized == "referer" || normalized.hasSuffix("url")
+    }
+    #endif
 
     private static func selectorName(_ selector: Selector?) -> String {
         guard let selector else { return "nil" }

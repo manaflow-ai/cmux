@@ -1141,6 +1141,12 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
         super.init()
     }
 
+    #if DEBUG
+    private func debugHasValue(_ value: String?) -> Int {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? 1 : 0
+    }
+    #endif
+
     func install(on webView: WKWebView) {
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: BrowserWebAuthnBridgeContract.handlerName, contentWorld: .page)
@@ -1183,7 +1189,13 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                         from: envelope
                     )
                     #if DEBUG
-                    cmuxDebugLog("webauthn.createCredential rp=\(request.publicKey.rp?.id ?? "(nil)") user=\(request.publicKey.user.name ?? "(nil)") attachment=\(request.publicKey.authenticatorSelection?.attachment ?? "(nil)") algorithms=\(request.publicKey.requestedAlgorithms)")
+                    cmuxDebugLog(
+                        "webauthn.createCredential hasRP=\(debugHasValue(request.publicKey.rp?.id)) " +
+                        "hasUserName=\(debugHasValue(request.publicKey.user.name)) " +
+                        "userIDBytes=\(request.publicKey.user.id.data.count) " +
+                        "attachment=\(request.publicKey.authenticatorSelection?.attachment ?? "(nil)") " +
+                        "algorithmCount=\(request.publicKey.requestedAlgorithms.count)"
+                    )
                     #endif
                     let reply = try await handleCreateCredential(request, message: message)
                     #if DEBUG
@@ -1196,7 +1208,11 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                         from: envelope
                     )
                     #if DEBUG
-                    cmuxDebugLog("webauthn.getCredential rpId=\(request.publicKey.rpId ?? "(nil)") allowCredentials=\(request.publicKey.allowCredentials?.count ?? 0) mediation=\(request.mediation ?? "(nil)")")
+                    cmuxDebugLog(
+                        "webauthn.getCredential hasRPID=\(debugHasValue(request.publicKey.rpId)) " +
+                        "allowCredentials=\(request.publicKey.allowCredentials?.count ?? 0) " +
+                        "mediation=\(request.mediation ?? "(nil)")"
+                    )
                     #endif
                     let reply = try await handleGetCredential(request, message: message)
                     #if DEBUG
@@ -1248,7 +1264,7 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
     ) {
         #if DEBUG
         let nsError = error as NSError
-        cmuxDebugLog("webauthn.asAuth.didFail domain=\(nsError.domain) code=\(nsError.code) desc=\(nsError.localizedDescription)")
+        cmuxDebugLog("webauthn.asAuth.didFail domain=\(nsError.domain) code=\(nsError.code)")
         #endif
         finishAuthorization(with: .failure(bridgeError(from: error)))
     }
@@ -1256,7 +1272,7 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         let anchor = activePresentationWindow ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSWindow()
         #if DEBUG
-        cmuxDebugLog("webauthn.asAuth.presentationAnchor window=\(anchor.title) isVisible=\(anchor.isVisible) isKey=\(anchor.isKeyWindow)")
+        cmuxDebugLog("webauthn.asAuth.presentationAnchor hasTitle=\(anchor.title.isEmpty ? 0 : 1) isVisible=\(anchor.isVisible) isKey=\(anchor.isKeyWindow)")
         #endif
         return anchor
     }
@@ -1285,7 +1301,10 @@ private extension BrowserWebAuthnCoordinator {
         message: WKScriptMessage
     ) async throws -> [String: Any] {
         #if DEBUG
-        cmuxDebugLog("webauthn.handleCreate BEGIN origin=\(message.frameInfo.securityOrigin.host) webViewURL=\(message.webView?.url?.absoluteString ?? "(nil)")")
+        cmuxDebugLog(
+            "webauthn.handleCreate BEGIN origin=\(message.frameInfo.securityOrigin.host) " +
+            "webViewHost=\(message.webView?.url?.host ?? "(nil)") hasWebViewURL=\(message.webView?.url == nil ? 0 : 1)"
+        )
         #endif
         let clientDataContext = try BrowserWebAuthnClientDataContext.resolve(for: message)
         guard let plan = try buildCreationPlan(request, clientDataContext: clientDataContext) else {
@@ -1315,7 +1334,10 @@ private extension BrowserWebAuthnCoordinator {
         message: WKScriptMessage
     ) async throws -> [String: Any] {
         #if DEBUG
-        cmuxDebugLog("webauthn.handleGet BEGIN origin=\(message.frameInfo.securityOrigin.host) webViewURL=\(message.webView?.url?.absoluteString ?? "(nil)")")
+        cmuxDebugLog(
+            "webauthn.handleGet BEGIN origin=\(message.frameInfo.securityOrigin.host) " +
+            "webViewHost=\(message.webView?.url?.host ?? "(nil)") hasWebViewURL=\(message.webView?.url == nil ? 0 : 1)"
+        )
         #endif
         let clientDataContext = try BrowserWebAuthnClientDataContext.resolve(for: message)
         guard let plan = try buildAssertionPlan(request, clientDataContext: clientDataContext) else {
@@ -1400,7 +1422,12 @@ private extension BrowserWebAuthnCoordinator {
         prefersImmediatelyAvailableCredentials: Bool
     ) async throws -> [String: Any] {
         #if DEBUG
-        cmuxDebugLog("webauthn.performAuth requestCount=\(requests.count) window=\(window?.title ?? "(nil)") prefersImmediate=\(prefersImmediatelyAvailableCredentials) hasPendingContinuation=\(activeAuthorizationContinuation != nil)")
+        cmuxDebugLog(
+            "webauthn.performAuth requestCount=\(requests.count) hasWindow=\(window == nil ? 0 : 1) " +
+            "hasWindowTitle=\((window?.title.isEmpty == false) ? 1 : 0) " +
+            "prefersImmediate=\(prefersImmediatelyAvailableCredentials) " +
+            "hasPendingContinuation=\(activeAuthorizationContinuation != nil)"
+        )
         for (i, req) in requests.enumerated() {
             cmuxDebugLog("webauthn.performAuth request[\(i)]=\(type(of: req))")
         }
