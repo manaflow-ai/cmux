@@ -48,7 +48,7 @@ public final class DebugEventLog: @unchecked Sendable {
 
     /// Writes the current buffer to disk, replacing the existing log file.
     public func dump() {
-        queue.async {
+        queue.sync {
             let content = self.entries.joined(separator: "\n") + "\n"
             try? content.write(toFile: Self.logPath, atomically: true, encoding: .utf8)
         }
