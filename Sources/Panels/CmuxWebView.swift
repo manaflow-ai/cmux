@@ -401,7 +401,7 @@ final class CmuxWebView: WKWebView {
         guard pasteAsPlainTextTargetAvailable != available else { return }
         pasteAsPlainTextTargetAvailable = available
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.pasteAsPlainText.target " +
             "web=\(ObjectIdentifier(self)) available=\(available ? 1 : 0)"
         )
@@ -416,7 +416,7 @@ final class CmuxWebView: WKWebView {
         guard allowsFirstResponderAcquisitionEffective else {
 #if DEBUG
             let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.blockedBecome web=\(ObjectIdentifier(self)) " +
                 "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
                 "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
@@ -430,7 +430,7 @@ final class CmuxWebView: WKWebView {
         }
 #if DEBUG
         let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-        dlog(
+        cmuxDebugLog(
             "browser.focus.become web=\(ObjectIdentifier(self)) result=\(result ? 1 : 0) " +
             "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
             "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
@@ -444,7 +444,7 @@ final class CmuxWebView: WKWebView {
     func withPointerFocusAllowance<T>(_ body: () -> T) -> T {
         pointerFocusAllowanceDepth += 1
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.focus.pointerAllowance.enter web=\(ObjectIdentifier(self)) " +
             "depth=\(pointerFocusAllowanceDepth)"
         )
@@ -452,7 +452,7 @@ final class CmuxWebView: WKWebView {
         defer {
             pointerFocusAllowanceDepth = max(0, pointerFocusAllowanceDepth - 1)
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.pointerAllowance.exit web=\(ObjectIdentifier(self)) " +
                 "depth=\(pointerFocusAllowanceDepth)"
             )
@@ -527,7 +527,7 @@ final class CmuxWebView: WKWebView {
         let errorDescription = evaluation.completed
             ? (evaluation.error?.localizedDescription ?? "nil")
             : "timeout"
-        dlog(
+        cmuxDebugLog(
             "browser.pasteAsPlainText.preflight " +
             "web=\(ObjectIdentifier(self)) canPaste=\(canPaste ? 1 : 0) " +
             "error=\(errorDescription)"
@@ -555,7 +555,7 @@ final class CmuxWebView: WKWebView {
 
         webKitPasteAsPlainTextFallback(sender)
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.pasteAsPlainText " +
             "web=\(ObjectIdentifier(self)) routedNative=1"
         )
@@ -731,7 +731,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let windowNumber = window?.windowNumber ?? -1
         let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
+        cmuxDebugLog(
             "browser.focus.mouseDown web=\(ObjectIdentifier(self)) " +
             "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
             "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
@@ -752,7 +752,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        dlog(
+        cmuxDebugLog(
             "browser.mouse.otherDown web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
@@ -762,13 +762,13 @@ final class CmuxWebView: WKWebView {
         switch event.buttonNumber {
         case 3:
 #if DEBUG
-            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
+            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
 #endif
             goBack()
             return
         case 4:
 #if DEBUG
-            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
+            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
 #endif
             goForward()
             return
@@ -785,7 +785,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        dlog(
+        cmuxDebugLog(
             "browser.mouse.otherUp web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
@@ -841,7 +841,7 @@ final class CmuxWebView: WKWebView {
 
     private func debugContextDownload(_ message: @autoclosure () -> String) {
 #if DEBUG
-        dlog(message())
+        cmuxDebugLog(message())
 #endif
     }
 

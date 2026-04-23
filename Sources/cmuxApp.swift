@@ -516,7 +516,7 @@ struct cmuxApp: App {
                 Menu(String(localized: "menu.find.title", defaultValue: "Find")) {
                     splitCommandButton(title: String(localized: "menu.find.find", defaultValue: "Find…"), shortcut: menuShortcut(for: .find)) {
 #if DEBUG
-                        dlog("find.menu Cmd+F fired")
+                        cmuxDebugLog("find.menu Cmd+F fired")
 #endif
                         activeTabManager.startSearch()
                     }
@@ -2390,7 +2390,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func show(navigationTarget: SettingsNavigationTarget? = nil) {
         guard let window else { return }
 #if DEBUG
-        dlog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
+        cmuxDebugLog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
         SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
         if !window.isVisible {
@@ -2403,7 +2403,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             }
         }
 #if DEBUG
-        dlog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
+        cmuxDebugLog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
     }
 
@@ -4780,7 +4780,7 @@ struct SettingsView: View {
     private func handleNotificationPermissionAction() {
         let state = notificationStore.authorizationState.statusLabel
 #if DEBUG
-        dlog("notification.ui enableTapped state=\(state)")
+        cmuxDebugLog("notification.ui enableTapped state=\(state)")
 #endif
         NSLog("notification.ui enableTapped state=%@", state)
         switch notificationStore.authorizationState {

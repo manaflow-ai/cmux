@@ -917,7 +917,7 @@ final class SystemWideHotkeyController {
 
         guard status == noErr, let hotKeyRef else {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "globalHotkey.register failed shortcut=\(normalizedShortcut.displayString) " +
                 "keyCode=\(registration.keyCode) modifiers=\(registration.modifiers) status=\(status)"
             )
@@ -930,7 +930,7 @@ final class SystemWideHotkeyController {
         registeredHotKeyRegistration = registration
 
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "globalHotkey.register success shortcut=\(normalizedShortcut.displayString) " +
             "keyCode=\(registration.keyCode) modifiers=\(registration.modifiers)"
         )
@@ -957,7 +957,7 @@ final class SystemWideHotkeyController {
 
 #if DEBUG
         if status != noErr {
-            dlog("globalHotkey.handlerInstall failed status=\(status)")
+            cmuxDebugLog("globalHotkey.handlerInstall failed status=\(status)")
         }
 #endif
     }
@@ -1000,7 +1000,7 @@ final class SystemWideHotkeyController {
         }
 
 #if DEBUG
-        dlog("globalHotkey.fire shortcut=\(shortcut.displayString) active=\(NSApp.isActive ? 1 : 0)")
+        cmuxDebugLog("globalHotkey.fire shortcut=\(shortcut.displayString) active=\(NSApp.isActive ? 1 : 0)")
 #endif
 
         DispatchQueue.main.async { [weak self] in

@@ -101,7 +101,7 @@ private extension WKWebView {
         }
 #if DEBUG
         if !firedSelectors.isEmpty {
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.webview.hidden web=\(browserPortalDebugToken(self)) " +
                 "reason=\(reason) selectors=\(firedSelectors.joined(separator: ","))"
             )
@@ -136,7 +136,7 @@ private extension WKWebView {
 
 #if DEBUG
         if !firedSelectors.isEmpty {
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.webview.reattach web=\(browserPortalDebugToken(self)) " +
                 "reason=\(reason) selectors=\(firedSelectors.joined(separator: ",")) " +
                 "frame=\(browserPortalDebugFrame(frame))"
@@ -364,7 +364,7 @@ final class WindowBrowserHostView: NSView {
             return "kind=\(kind),hosted=\(dividerHit.isInHostedContent ? 1 : 0)"
         }()
         let windowPoint = convert(point, to: nil)
-        dlog(
+        cmuxDebugLog(
             "browser.portal.pointer stage=\(stage) event=\(String(describing: event?.type)) " +
             "host=\(browserPortalDebugToken(self)) point=\(browserPortalDebugFrame(NSRect(origin: point, size: .zero))) " +
             "windowPoint=\(browserPortalDebugFrame(NSRect(origin: windowPoint, size: .zero))) " +
@@ -589,7 +589,7 @@ final class WindowBrowserHostView: NSView {
             initialInspectorFrame: hostedInspectorHit.inspectorView.frame
         )
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.portal.manualInspectorDrag stage=start slot=\(browserPortalDebugToken(hostedInspectorHit.slotView)) " +
             "page=\(browserPortalDebugToken(hostedInspectorHit.pageView)) " +
             "inspector=\(browserPortalDebugToken(hostedInspectorHit.inspectorView)) " +
@@ -657,7 +657,7 @@ final class WindowBrowserHostView: NSView {
             )
         )
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.portal.manualInspectorDrag stage=update slot=\(browserPortalDebugToken(dragState.slotView)) " +
             "dividerX=\(String(format: "%.1f", clampedDividerX)) " +
             "pageFrame=\(browserPortalDebugFrame(appliedFrames.pageFrame)) " +
@@ -670,7 +670,7 @@ final class WindowBrowserHostView: NSView {
         if let dragState = hostedInspectorDividerDrag {
             dragState.slotView.isHostedInspectorDividerDragActive = false
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.manualInspectorDrag stage=end slot=\(browserPortalDebugToken(dragState.slotView)) " +
                 "pageFrame=\(browserPortalDebugFrame(dragState.pageView.frame)) " +
                 "inspectorFrame=\(browserPortalDebugFrame(dragState.inspectorView.frame))"
@@ -1006,7 +1006,7 @@ final class WindowBrowserHostView: NSView {
     fileprivate func reapplyHostedInspectorDividerIfNeeded(in slot: WindowBrowserSlotView, reason: String) -> Bool {
         guard !slot.isHostedInspectorDividerDragActive else {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.manualInspectorDrag stage=skipReapply slot=\(browserPortalDebugToken(slot)) " +
                 "reason=\(reason)"
             )
@@ -1071,7 +1071,7 @@ final class WindowBrowserHostView: NSView {
         hit.slotView.needsDisplay = true
         hit.slotView.setNeedsDisplay(hit.slotView.bounds)
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.portal.manualInspectorDrag stage=reapply slot=\(browserPortalDebugToken(hit.slotView)) " +
             "container=\(browserPortalDebugToken(hit.containerView)) reason=\(reason) " +
             "preferredWidth=\(String(format: "%.1f", preferredWidth)) " +
@@ -1482,7 +1482,7 @@ final class BrowserPaneDropTargetView: NSView {
               let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
               transfer.isFromCurrentProcess else {
 #if DEBUG
-            dlog("browser.paneDrop.perform allowed=0 reason=missingTransfer")
+            cmuxDebugLog("browser.paneDrop.perform allowed=0 reason=missingTransfer")
 #endif
             return false
         }
@@ -1499,7 +1499,7 @@ final class BrowserPaneDropTargetView: NSView {
             zone: zone
         ) else {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
                 "reason=noAction zone=\(zone)"
             )
@@ -1510,7 +1510,7 @@ final class BrowserPaneDropTargetView: NSView {
         switch action {
         case .noOp:
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.paneDrop.perform allowed=1 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
                 "tab=\(transfer.tabId.uuidString.prefix(5)) action=noop"
             )
@@ -1529,7 +1529,7 @@ final class BrowserPaneDropTargetView: NSView {
             let splitLabel = splitTarget.map {
                 "\($0.orientation.rawValue):\($0.insertFirst ? 1 : 0)"
             } ?? "none"
-            dlog(
+            cmuxDebugLog(
                 "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
                 "tab=\(tabId.uuidString.prefix(5)) zone=\(zone) pane=\(targetPane.id.uuidString.prefix(5)) " +
                 "split=\(splitLabel) moved=\(moved ? 1 : 0)"
@@ -1556,7 +1556,7 @@ final class BrowserPaneDropTargetView: NSView {
         activeZone = zone
         slotView?.setPortalDragDropZone(zone)
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
             "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone)"
         )
@@ -1570,7 +1570,7 @@ final class BrowserPaneDropTargetView: NSView {
         slotView?.setPortalDragDropZone(nil)
 #if DEBUG
         if let dropContext {
-            dlog(
+            cmuxDebugLog(
                 "browser.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) zone=none"
             )
         }
@@ -1596,7 +1596,7 @@ final class BrowserPaneDropTargetView: NSView {
         lastHitTestSignature = signature
 
         let types = pasteboardTypes?.map(\.rawValue).joined(separator: ",") ?? "-"
-        dlog(
+        cmuxDebugLog(
             "browser.paneDrop.hitTest capture=\(capture ? 1 : 0) " +
             "hasTransfer=\(hasTransferType ? 1 : 0) context=\(dropContext != nil ? 1 : 0) " +
             "event=\(eventType.map { String($0.rawValue) } ?? "nil") types=\(types)"
@@ -1732,7 +1732,7 @@ final class WindowBrowserSlotView: NSView {
             }
             return String(describing: type(of: firstResponder))
         }()
-        dlog(
+        cmuxDebugLog(
             "browser.findbar.portal action=\(action) " +
             "panel=\(panelId?.uuidString.prefix(5) ?? "nil") " +
             "window=\(window?.windowNumber ?? -1) " +
@@ -1862,7 +1862,7 @@ final class WindowBrowserSlotView: NSView {
             return false
         }
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.slot.firstResponder.yield reason=\(reason) " +
             "slot=\(browserPortalDebugToken(self)) " +
             "responder=\(String(describing: type(of: firstResponder)))"
@@ -2372,7 +2372,7 @@ final class WindowBrowserPortal: NSObject {
             hostView.frame = frameInContainer
             CATransaction.commit()
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.hostFrame.update host=\(browserPortalDebugToken(hostView)) " +
                 "frame=\(browserPortalDebugFrame(frameInContainer))"
             )
@@ -2680,7 +2680,7 @@ final class WindowBrowserPortal: NSObject {
         created.setSearchOverlay(entry.searchOverlay)
         created.setPaneTopChromeHeight(entry.paneTopChromeHeight)
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.portal.container.create web=\(browserPortalDebugToken(webView)) " +
             "container=\(browserPortalDebugToken(created))"
         )
@@ -2698,7 +2698,7 @@ final class WindowBrowserPortal: NSObject {
         guard !containerView.isHidden else { return }
         guard !containerView.isHostedInspectorDividerDragActive else {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
                 "container=\(browserPortalDebugToken(containerView)) reason=\(reason) phase=\(phase) " +
                 "drag=1 reattach=\(reattachRenderingState ? 1 : 0)"
@@ -2747,7 +2747,7 @@ final class WindowBrowserPortal: NSObject {
         containerView.displayIfNeeded()
         (containerView.window ?? webView.window ?? hostView.window)?.displayIfNeeded()
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "\(reattachRenderingState ? "browser.portal.refresh" : "browser.portal.invalidate") " +
             "web=\(browserPortalDebugToken(webView)) " +
             "container=\(browserPortalDebugToken(containerView)) reason=\(reason) " +
@@ -2900,7 +2900,7 @@ final class WindowBrowserPortal: NSObject {
         )
         guard !relatedSubviews.isEmpty else { return }
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.portal.reparent.batch reason=\(reason) source=\(browserPortalDebugToken(sourceSuperview)) " +
             "container=\(browserPortalDebugToken(containerView)) count=\(relatedSubviews.count) " +
             "sourceType=\(String(describing: type(of: sourceSuperview))) targetType=\(String(describing: type(of: containerView))) " +
@@ -2916,7 +2916,7 @@ final class WindowBrowserPortal: NSObject {
             let convertedFrame = containerView.convert(frameInWindow, from: nil)
             view.frame = convertedFrame
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.reparent.batch.item reason=\(reason) class=\(className) " +
                 "view=\(browserPortalDebugToken(view)) frameInWindow=\(browserPortalDebugFrame(frameInWindow)) " +
                 "converted=\(browserPortalDebugFrame(convertedFrame))"
@@ -2934,7 +2934,7 @@ final class WindowBrowserPortal: NSObject {
 #if DEBUG
         let hadContainerSuperview = (entry.containerView?.superview === hostView) ? 1 : 0
         let hadWebSuperview = entry.webView?.superview == nil ? 0 : 1
-        dlog(
+        cmuxDebugLog(
             "browser.portal.detach web=\(browserPortalDebugToken(entry.webView)) " +
             "container=\(browserPortalDebugToken(entry.containerView)) " +
             "anchor=\(browserPortalDebugToken(entry.anchorView)) " +
@@ -2967,7 +2967,7 @@ final class WindowBrowserPortal: NSObject {
 
         let portalOwnsWebView = entry.webView?.superview === entry.containerView
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.portal.discard web=\(browserPortalDebugToken(entry.webView)) " +
             "container=\(browserPortalDebugToken(entry.containerView)) " +
             "anchor=\(browserPortalDebugToken(entry.anchorView)) " +
@@ -3126,7 +3126,7 @@ final class WindowBrowserPortal: NSObject {
             let previousToken = entriesByWebViewId[previousWebViewId]
                 .map { browserPortalDebugToken($0.webView) }
                 ?? String(describing: previousWebViewId)
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.bind.replace anchor=\(browserPortalDebugToken(anchorView)) " +
                 "oldWeb=\(previousToken) newWeb=\(browserPortalDebugToken(webView))"
             )
@@ -3168,7 +3168,7 @@ final class WindowBrowserPortal: NSObject {
             priorityIncreased ||
             webView.superview !== containerView ||
             containerView.superview !== hostView {
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.bind web=\(browserPortalDebugToken(webView)) " +
                 "container=\(browserPortalDebugToken(containerView)) " +
                 "anchor=\(browserPortalDebugToken(anchorView)) prevAnchor=\(browserPortalDebugToken(previousEntry?.anchorView)) " +
@@ -3180,7 +3180,7 @@ final class WindowBrowserPortal: NSObject {
 
         if shouldPreserveExternalFullscreenHost {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
                 "reason=fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
                 "container=\(browserPortalDebugToken(containerView)) " +
@@ -3189,7 +3189,7 @@ final class WindowBrowserPortal: NSObject {
 #endif
         } else if webView.superview !== containerView {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.reparent web=\(browserPortalDebugToken(webView)) " +
                 "reason=attachContainer super=\(browserPortalDebugToken(webView.superview)) " +
                 "container=\(browserPortalDebugToken(containerView))"
@@ -3214,7 +3214,7 @@ final class WindowBrowserPortal: NSObject {
 
         if containerView.superview !== hostView {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.reparent container=\(browserPortalDebugToken(containerView)) " +
                 "reason=attach super=\(browserPortalDebugToken(containerView.superview))"
             )
@@ -3222,7 +3222,7 @@ final class WindowBrowserPortal: NSObject {
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
         } else if (becameVisible || priorityIncreased), hostView.subviews.last !== containerView {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.reparent container=\(browserPortalDebugToken(containerView)) reason=raise " +
                 "didChangeAnchor=\(didChangeAnchor ? 1 : 0) becameVisible=\(becameVisible ? 1 : 0) " +
                 "priorityIncreased=\(priorityIncreased ? 1 : 0)"
@@ -3259,13 +3259,13 @@ final class WindowBrowserPortal: NSObject {
         guard !hasDeferredFullSyncScheduled else { return }
         hasDeferredFullSyncScheduled = true
 #if DEBUG
-        dlog("browser.portal.sync.defer.schedule entries=\(entriesByWebViewId.count)")
+        cmuxDebugLog("browser.portal.sync.defer.schedule entries=\(entriesByWebViewId.count)")
 #endif
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.hasDeferredFullSyncScheduled = false
 #if DEBUG
-            dlog("browser.portal.sync.defer.tick entries=\(self.entriesByWebViewId.count)")
+            cmuxDebugLog("browser.portal.sync.defer.tick entries=\(self.entriesByWebViewId.count)")
 #endif
             self.synchronizeAllWebViews(excluding: nil, source: "deferredTick")
         }
@@ -3300,7 +3300,7 @@ final class WindowBrowserPortal: NSObject {
         }
 #if DEBUG
         if entry.transientRecoveryRetriesRemaining <= 0 {
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.sync.deferRecover.skip web=\(browserPortalDebugToken(webView)) " +
                 "reason=\(reason) exhausted=1"
             )
@@ -3311,7 +3311,7 @@ final class WindowBrowserPortal: NSObject {
         entry.transientRecoveryRetriesRemaining -= 1
         entriesByWebViewId[webViewId] = entry
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.portal.sync.deferRecover web=\(browserPortalDebugToken(webView)) " +
             "reason=\(reason) remaining=\(entry.transientRecoveryRetriesRemaining)"
         )
@@ -3380,7 +3380,7 @@ final class WindowBrowserPortal: NSObject {
             )
             guard didScheduleTransientRecovery else { return false }
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
                 "reason=\(reason) frame=\(browserPortalDebugFrame(containerView.frame))"
             )
@@ -3403,7 +3403,7 @@ final class WindowBrowserPortal: NSObject {
             }
 #if DEBUG
             if !containerView.isHidden {
-                dlog(
+                cmuxDebugLog(
                     "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
                     "web=\(browserPortalDebugToken(webView)) value=1 reason=missingAnchorOrWindow"
                 )
@@ -3435,7 +3435,7 @@ final class WindowBrowserPortal: NSObject {
             }
 #if DEBUG
             if !containerView.isHidden {
-                dlog(
+                cmuxDebugLog(
                     "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
                     "web=\(browserPortalDebugToken(webView)) value=1 " +
                     "reason=anchorWindowMismatch anchorWindow=\(browserPortalDebugToken(anchorView.window?.contentView))"
@@ -3452,7 +3452,7 @@ final class WindowBrowserPortal: NSObject {
         var refreshReasons: [String] = []
         if containerView.superview !== hostView {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.reparent container=\(browserPortalDebugToken(containerView)) " +
                 "reason=syncAttach super=\(browserPortalDebugToken(containerView.superview))"
             )
@@ -3468,7 +3468,7 @@ final class WindowBrowserPortal: NSObject {
             webView.superview !== containerView
         if shouldPreserveExternalFullscreenHost {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
                 "reason=fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
                 "container=\(browserPortalDebugToken(containerView)) " +
@@ -3477,7 +3477,7 @@ final class WindowBrowserPortal: NSObject {
 #endif
         } else if shouldPreserveExternalHostForHiddenEntry {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
                 "reason=hiddenEntryExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
                 "container=\(browserPortalDebugToken(containerView))"
@@ -3485,7 +3485,7 @@ final class WindowBrowserPortal: NSObject {
 #endif
         } else if webView.superview !== containerView {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.reparent web=\(browserPortalDebugToken(webView)) " +
                 "reason=syncAttachContainer super=\(browserPortalDebugToken(webView.superview)) " +
                 "container=\(browserPortalDebugToken(containerView))"
@@ -3520,7 +3520,7 @@ final class WindowBrowserPortal: NSObject {
         let hostBoundsReady = hasFiniteHostBounds && hostBounds.width > 1 && hostBounds.height > 1
         if !hostBoundsReady {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.sync.defer container=\(browserPortalDebugToken(containerView)) " +
                 "web=\(browserPortalDebugToken(webView)) " +
                 "reason=hostBoundsNotReady host=\(browserPortalDebugFrame(hostBounds)) " +
@@ -3537,7 +3537,7 @@ final class WindowBrowserPortal: NSObject {
                     )
                 if shouldPreserveVisibleOnTransient {
 #if DEBUG
-                    dlog(
+                    cmuxDebugLog(
                         "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
                         "reason=hostBoundsNotReady frame=\(browserPortalDebugFrame(containerView.frame))"
                     )
@@ -3614,7 +3614,7 @@ final class WindowBrowserPortal: NSObject {
 #if DEBUG
         let frameWasClamped = hasFiniteFrame && !Self.rectApproximatelyEqual(frameInHost, targetFrame)
         if frameWasClamped {
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.frame.clamp container=\(browserPortalDebugToken(containerView)) " +
                 "web=\(browserPortalDebugToken(webView)) anchor=\(browserPortalDebugToken(anchorView)) " +
                 "raw=\(browserPortalDebugFrame(frameInHost)) clamped=\(browserPortalDebugFrame(targetFrame)) " +
@@ -3624,13 +3624,13 @@ final class WindowBrowserPortal: NSObject {
         let collapsedToTiny = oldFrame.width > 1 && oldFrame.height > 1 && tinyFrame
         let restoredFromTiny = (oldFrame.width <= 1 || oldFrame.height <= 1) && !tinyFrame
         if collapsedToTiny {
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.frame.collapse container=\(browserPortalDebugToken(containerView)) " +
                 "web=\(browserPortalDebugToken(webView)) anchor=\(browserPortalDebugToken(anchorView)) " +
                 "old=\(browserPortalDebugFrame(oldFrame)) new=\(browserPortalDebugFrame(targetFrame))"
             )
         } else if restoredFromTiny {
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.frame.restore container=\(browserPortalDebugToken(containerView)) " +
                 "web=\(browserPortalDebugToken(webView)) anchor=\(browserPortalDebugToken(anchorView)) " +
                 "old=\(browserPortalDebugFrame(oldFrame)) new=\(browserPortalDebugFrame(targetFrame))"
@@ -3644,7 +3644,7 @@ final class WindowBrowserPortal: NSObject {
                 containerView.bounds.width > 1 &&
                 containerView.bounds.height > 1
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
                 "reason=\(transientRecoveryReason ?? "unknown") frame=\(browserPortalDebugFrame(containerView.frame)) " +
                 "keepFrame=\(hasExistingVisibleFrame ? 1 : 0)"
@@ -3673,7 +3673,7 @@ final class WindowBrowserPortal: NSObject {
             containerView.bounds = expectedContainerBounds
             CATransaction.commit()
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.bounds.normalize container=\(browserPortalDebugToken(containerView)) " +
                 "web=\(browserPortalDebugToken(webView)) old=\(browserPortalDebugFrame(oldContainerBounds)) " +
                 "target=\(browserPortalDebugFrame(expectedContainerBounds))"
@@ -3702,7 +3702,7 @@ final class WindowBrowserPortal: NSObject {
             webView.frame = repairedBottomDockFrame
             CATransaction.commit()
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.webframe.bottomDockRepair web=\(browserPortalDebugToken(webView)) " +
                 "container=\(browserPortalDebugToken(containerView)) old=\(browserPortalDebugFrame(oldWebFrame)) " +
                 "new=\(browserPortalDebugFrame(repairedBottomDockFrame)) bounds=\(browserPortalDebugFrame(containerBounds)) " +
@@ -3721,7 +3721,7 @@ final class WindowBrowserPortal: NSObject {
             webView.frame = containerBounds
             CATransaction.commit()
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.webframe.normalize web=\(browserPortalDebugToken(webView)) " +
                 "container=\(browserPortalDebugToken(containerView)) old=\(browserPortalDebugFrame(oldWebFrame)) " +
                 "new=\(browserPortalDebugFrame(webView.frame)) bounds=\(browserPortalDebugFrame(containerBounds)) " +
@@ -3738,7 +3738,7 @@ final class WindowBrowserPortal: NSObject {
         let revealedForDisplay = !shouldHide && containerView.isHidden
         if shouldHide, !containerView.isHidden, !shouldPreserveVisibleOnTransientGeometry {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
                 "web=\(browserPortalDebugToken(webView)) value=\(shouldHide ? 1 : 0) " +
                 "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
@@ -3750,7 +3750,7 @@ final class WindowBrowserPortal: NSObject {
             hideContainerView(reason: transientRecoveryReason ?? "geometryHidden")
         } else if !shouldHide, containerView.isHidden {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
                 "web=\(browserPortalDebugToken(webView)) value=0 " +
                 "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
@@ -3794,7 +3794,7 @@ final class WindowBrowserPortal: NSObject {
                 !recoveredFromTransientGeometry &&
                 !requiresRenderingStateReattach {
 #if DEBUG
-                dlog(
+                cmuxDebugLog(
                     "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
                     "container=\(browserPortalDebugToken(containerView)) reason=\(source):" +
                     "\(refreshReasons.joined(separator: ",")) adjustedDuringSync=1"
@@ -3829,7 +3829,7 @@ final class WindowBrowserPortal: NSObject {
             _ = hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync.postRefresh")
         }
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.portal.sync.result web=\(browserPortalDebugToken(webView)) source=\(source) " +
             "container=\(browserPortalDebugToken(containerView)) " +
             "anchor=\(browserPortalDebugToken(anchorView)) host=\(browserPortalDebugToken(hostView)) " +
