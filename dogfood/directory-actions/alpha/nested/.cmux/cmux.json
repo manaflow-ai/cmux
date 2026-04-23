@@ -16,7 +16,7 @@
       "command": "echo 'NESTED ECHO'; echo 'SOURCE=alpha/nested/.cmux/cmux.json'; pwd",
       "target": "newTabInCurrentPane",
       "shortcut": "cmd+shift+n",
-      "icon": "emoji:🪺"
+      "icon": { "type": "emoji", "value": "🪺" }
     }
   },
   "ui": {
