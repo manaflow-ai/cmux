@@ -7246,6 +7246,7 @@ class TerminalController {
                     }
                 }
             } else {
+                // macOS < 11.0: WKContentWorld API unavailable; JS always runs in .page world
                 webView.evaluateJavaScript(script) { value, error in
                     if let error {
                         finish(nil, error.localizedDescription)
@@ -7515,7 +7516,7 @@ class TerminalController {
                 script: asyncFunctionBody,
                 timeout: timeout,
                 preferAsync: true,
-                contentWorld: .page
+                contentWorld: .defaultClient
             )
         } else {
             let evaluateFallback = """
@@ -7523,25 +7524,7 @@ class TerminalController {
               \(asyncFunctionBody)
             })()
             """
-            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout, contentWorld: .page)
-        }
-
-        if !useEval, case .failure(let pageMessage) = rawResult, #available(macOS 11.0, *) {
-            let isolatedResult = v2RunJavaScript(
-                webView,
-                script: asyncFunctionBody,
-                timeout: timeout,
-                preferAsync: true,
-                contentWorld: .defaultClient
-            )
-            switch isolatedResult {
-            case .success:
-                rawResult = isolatedResult
-            case .failure(let isolatedMessage):
-                if isolatedMessage != pageMessage {
-                    rawResult = .failure("\(pageMessage) (isolated-world retry: \(isolatedMessage))")
-                }
-            }
+            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout, contentWorld: .defaultClient)
         }
 
         switch rawResult {
@@ -9782,7 +9765,8 @@ class TerminalController {
             browserPanel.webView,
             script: BrowserPanel.telemetryHookBootstrapScriptSource,
             timeout: 5.0,
-            contentWorld: .page
+            preferAsync: true,
+            contentWorld: .defaultClient
         )
     }
 
@@ -9791,7 +9775,8 @@ class TerminalController {
             browserPanel.webView,
             script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
             timeout: 5.0,
-            contentWorld: .page
+            preferAsync: true,
+            contentWorld: .defaultClient
         )
     }
 
@@ -9823,7 +9808,7 @@ class TerminalController {
             })()
             """
 
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, preferAsync: true, contentWorld: .defaultClient) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -10481,7 +10466,7 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, preferAsync: true, contentWorld: .defaultClient) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -10519,7 +10504,7 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, preferAsync: true, contentWorld: .defaultClient) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -10696,7 +10681,7 @@ class TerminalController {
             scripts.append(script)
             v2BrowserInitScriptsBySurface[surfaceId] = scripts
 
-            let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+            let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .defaultClient)
             browserPanel.webView.configuration.userContentController.addUserScript(userScript)
             _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0)
 
@@ -10749,7 +10734,7 @@ class TerminalController {
             })()
             """
 
-            let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+            let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .defaultClient)
             browserPanel.webView.configuration.userContentController.addUserScript(userScript)
             _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: source, timeout: 10.0)
 
