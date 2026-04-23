@@ -518,6 +518,7 @@
               "toggleSidebar",
               "newTab",
               "openFolder",
+              "reopenPreviousSession",
               "goToWorkspace",
               "commandPalette",
               "sendFeedback",

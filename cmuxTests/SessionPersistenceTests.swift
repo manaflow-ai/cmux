@@ -98,6 +98,52 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(visibleFrame.y, 25, accuracy: 0.001)
     }
 
+    func testLoadReopenSessionSnapshotRequiresPreviousSnapshotFile() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
+        let activeSnapshotURL = try XCTUnwrap(
+            SessionPersistenceStore.defaultSnapshotFileURL(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+        let previousSnapshotURL = try XCTUnwrap(
+            SessionPersistenceStore.manualRestoreSnapshotFileURL(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                makeSnapshot(version: SessionSnapshotSchema.currentVersion),
+                fileURL: activeSnapshotURL
+            )
+        )
+        XCTAssertNil(
+            SessionPersistenceStore.loadReopenSessionSnapshot(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+
+        var previousSnapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        previousSnapshot.windows[0].sidebar.width = 321
+        XCTAssertTrue(SessionPersistenceStore.save(previousSnapshot, fileURL: previousSnapshotURL))
+
+        let loaded = try XCTUnwrap(
+            SessionPersistenceStore.loadReopenSessionSnapshot(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+        XCTAssertEqual(loaded.windows.first?.sidebar.width, 321)
+    }
+
     func testSaveAndLoadRoundTripPreservesWorkspaceCustomColor() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -433,22 +479,22 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testShouldSkipSessionSaveDuringStartupRestorePolicy() {
+    func testShouldSkipSessionSaveDuringRestorePolicy() {
         XCTAssertTrue(
-            AppDelegate.shouldSkipSessionSaveDuringStartupRestore(
-                isApplyingStartupSessionRestore: true,
+            AppDelegate.shouldSkipSessionSaveDuringRestore(
+                isApplyingSessionRestore: true,
                 includeScrollback: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionSaveDuringStartupRestore(
-                isApplyingStartupSessionRestore: true,
+            AppDelegate.shouldSkipSessionSaveDuringRestore(
+                isApplyingSessionRestore: true,
                 includeScrollback: true
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionSaveDuringStartupRestore(
-                isApplyingStartupSessionRestore: false,
+            AppDelegate.shouldSkipSessionSaveDuringRestore(
+                isApplyingSessionRestore: false,
                 includeScrollback: false
             )
         )
@@ -486,6 +532,19 @@ final class SessionPersistenceTests: XCTestCase {
             AppDelegate.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: true,
                 includeScrollback: true
+            )
+        )
+    }
+
+    func testRestoreCompletionSavePolicySkipsManualReopen() {
+        XCTAssertTrue(
+            AppDelegate.shouldSaveSessionSnapshotOnRestoreCompletion(
+                isManualReopen: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotOnRestoreCompletion(
+                isManualReopen: true
             )
         )
     }
@@ -542,6 +601,47 @@ final class SessionPersistenceTests: XCTestCase {
                 now: now
             )
         )
+    }
+
+    func testSessionAutosaveFingerprintIncludesRestorableAgentMetadata() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let baselineFingerprint = TabManager.restorableAgentSnapshotFingerprint(nil)
+
+        let firstIndex = try makeRestorableAgentIndex(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: "codex-session-1",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+                "resume",
+                "codex-session-1",
+            ]
+        )
+        let firstFingerprint = TabManager.restorableAgentSnapshotFingerprint(
+            try XCTUnwrap(firstIndex.snapshot(workspaceId: workspaceId, panelId: panelId))
+        )
+
+        let secondIndex = try makeRestorableAgentIndex(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: "codex-session-2",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4-mini",
+                "resume",
+                "codex-session-2",
+            ]
+        )
+        let secondFingerprint = TabManager.restorableAgentSnapshotFingerprint(
+            try XCTUnwrap(secondIndex.snapshot(workspaceId: workspaceId, panelId: panelId))
+        )
+
+        XCTAssertNotEqual(baselineFingerprint, firstFingerprint)
+        XCTAssertNotEqual(firstFingerprint, secondFingerprint)
     }
 
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
@@ -872,6 +972,341 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(resolved)
     }
 
+    func testRestorableAgentRestoreSuppressesSavedScrollbackReplay() {
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: "/tmp/repo",
+            launchCommand: nil
+        )
+
+        XCTAssertFalse(Workspace.shouldReplaySessionScrollback(restorableAgent: agent))
+        XCTAssertTrue(Workspace.shouldReplaySessionScrollback(restorableAgent: nil))
+    }
+
+    @MainActor
+    func testRestoredAgentFirstAutoResumeCommandDoesNotClearSnapshot() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceIndex = try makeRestorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "codex-restored-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+        let autoResumeSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(autoResumeSnapshot.panels.first?.terminal?.agent?.sessionId, "codex-restored-session")
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+        let userCommandSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
+    }
+
+    @MainActor
+    func testRestoredAgentWithoutResumeCommandInvalidatesOnFirstCommand() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceIndex = try makeRestorableAgentIndex(
+            kind: .claude,
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "claude-print-session",
+            arguments: [
+                "/usr/local/bin/claude",
+                "--print",
+            ]
+        )
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.resumeCommand)
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+        let userCommandSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
+    }
+
+    @MainActor
+    func testPruneSurfaceMetadataRemovesRestoredAgentBookkeeping() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceIndex = try makeRestorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "codex-prune-pending-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        restored.pruneSurfaceMetadata(validSurfaceIds: [])
+
+        let postPruneIndex = try makeRestorableAgentIndex(
+            workspaceId: restored.id,
+            panelId: restoredPanelId,
+            sessionId: "codex-post-prune-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4-mini",
+            ]
+        )
+        let postPruneSnapshot = restored.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: postPruneIndex
+        )
+        XCTAssertEqual(
+            postPruneSnapshot.panels.first?.terminal?.agent?.sessionId,
+            "codex-post-prune-session"
+        )
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+        let userCommandSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
+
+        let staleWorkspace = Workspace()
+        let stalePanelId = try XCTUnwrap(staleWorkspace.focusedPanelId)
+        let staleIndex = try makeRestorableAgentIndex(
+            workspaceId: staleWorkspace.id,
+            panelId: stalePanelId,
+            sessionId: "codex-prune-invalidated-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+        _ = staleWorkspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: staleIndex
+        )
+
+        staleWorkspace.updatePanelShellActivityState(panelId: stalePanelId, state: .promptIdle)
+        staleWorkspace.updatePanelShellActivityState(panelId: stalePanelId, state: .commandRunning)
+        let staleSnapshot = staleWorkspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: staleIndex
+        )
+        XCTAssertNil(staleSnapshot.panels.first?.terminal?.agent)
+
+        staleWorkspace.pruneSurfaceMetadata(validSurfaceIds: [])
+        let acceptedSnapshot = staleWorkspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: staleIndex
+        )
+        XCTAssertEqual(
+            acceptedSnapshot.panels.first?.terminal?.agent?.sessionId,
+            "codex-prune-invalidated-session"
+        )
+    }
+
+    @MainActor
+    func testUserCommandInvalidatesStaleRestoredAgentForAllProviders() throws {
+        let scenarios: [(kind: RestorableAgentKind, arguments: [String])] = [
+            (
+                .claude,
+                [
+                    "/usr/local/bin/claude",
+                    "--model",
+                    "sonnet",
+                ]
+            ),
+            (
+                .codex,
+                [
+                    "/usr/local/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                ]
+            ),
+            (
+                .opencode,
+                [
+                    "/usr/local/bin/opencode",
+                    "--model",
+                    "anthropic/claude-sonnet-4-5",
+                ]
+            ),
+        ]
+
+        for scenario in scenarios {
+            let workspace = Workspace()
+            let panelId = try XCTUnwrap(workspace.focusedPanelId)
+            let staleIndex = try makeRestorableAgentIndex(
+                kind: scenario.kind,
+                workspaceId: workspace.id,
+                panelId: panelId,
+                sessionId: "\(scenario.kind.rawValue)-old-session",
+                arguments: scenario.arguments
+            )
+            let initialSnapshot = workspace.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: staleIndex
+            )
+            XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, scenario.kind)
+
+            workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+            workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+            let staleSnapshot = workspace.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: staleIndex
+            )
+            XCTAssertNil(staleSnapshot.panels.first?.terminal?.agent, scenario.kind.rawValue)
+        }
+    }
+
+    @MainActor
+    func testUserCommandInvalidatesStaleRestoredAgentButAcceptsNewHookFlags() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let staleIndex = try makeRestorableAgentIndex(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            sessionId: "codex-old-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+        let initialSnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: staleIndex
+        )
+        XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.sessionId, "codex-old-session")
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        let staleSnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: staleIndex
+        )
+        XCTAssertNil(staleSnapshot.panels.first?.terminal?.agent)
+
+        let newIndex = try makeRestorableAgentIndex(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            sessionId: "codex-new-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4-mini",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+        let newSnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: newIndex
+        )
+        let newAgent = try XCTUnwrap(newSnapshot.panels.first?.terminal?.agent)
+        XCTAssertEqual(newAgent.sessionId, "codex-new-session")
+        XCTAssertEqual(
+            newAgent.launchCommand?.arguments,
+            [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4-mini",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    private func makeRestorableAgentIndex(
+        kind: RestorableAgentKind = .codex,
+        workspaceId: UUID,
+        panelId: UUID,
+        sessionId: String,
+        arguments: [String],
+        launcher: String? = nil,
+        executablePath: String? = nil,
+        environment: [String: String]? = nil
+    ) throws -> RestorableAgentSessionIndex {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = kind.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let resolvedEnvironment: [String: String]
+        if let environment {
+            resolvedEnvironment = environment
+        } else {
+            switch kind {
+            case .claude:
+                resolvedEnvironment = ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
+            case .codex:
+                resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
+            case .opencode:
+                resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
+            }
+        }
+        let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"
+        let resolvedLauncher = launcher ?? kind.rawValue
+
+        let jsonObject: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": "/tmp/repo",
+                    "updatedAt": Date().timeIntervalSince1970,
+                    "launchCommand": [
+                        "launcher": resolvedLauncher,
+                        "executablePath": resolvedExecutablePath,
+                        "arguments": arguments,
+                        "workingDirectory": "/tmp/repo",
+                        "environment": resolvedEnvironment,
+                        "capturedAt": Date().timeIntervalSince1970,
+                        "source": "process",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
+        try data.write(to: storeURL, options: .atomic)
+
+        return RestorableAgentSessionIndex.load(homeDirectory: home.path)
+    }
+
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
@@ -1087,6 +1522,606 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testClaudeResumeCommandPreservesLaunchFlagsAndDropsInjectedHookSettings() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: "/tmp/cmux project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet",
+                    "--permission-mode",
+                    "auto",
+                    "--settings",
+                    #"{"hooks":{"SessionStart":[{"hooks":[{"command":"cmux claude-hook session-start"}]}]}}"#,
+                    "--session-id",
+                    "old-session",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/cmux project",
+                environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/tmp/cmux project' && 'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' '/opt/Claude Code/bin/claude' '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'"
+        )
+    }
+
+    func testRestorableAgentStartupInputUsesInlineCommandWhenShort() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: "/tmp/cmux project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet"
+                ],
+                workingDirectory: "/tmp/cmux project",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(snapshot.resumeStartupInput(), snapshot.resumeCommand.map { $0 + "\n" })
+    }
+
+    func testRestorableAgentStartupInputUsesLauncherScriptWhenCommandExceedsTerminalInputBudget() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let longPath = "/tmp/" + String(repeating: "nested-path-", count: 120)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "--add-dir",
+                    longPath,
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/repo",
+                environment: ["CODEX_HOME": "/tmp/codex"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let input = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
+        XCTAssertLessThanOrEqual(input.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        XCTAssertFalse(input.contains(longPath))
+
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "/bin/zsh '"
+        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertTrue(scriptContents.contains(longPath))
+        XCTAssertTrue(scriptContents.contains("'resume'"))
+        XCTAssertTrue(scriptContents.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: scriptPath)
+        let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue & 0o777
+        XCTAssertEqual(permissions, 0o600)
+    }
+
+    func testRestorableAgentStartupInputSkipsOversizedCommandWhenScriptCannotBeWritten() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let blockedDirectory = tempDir.appendingPathComponent("not-a-directory", isDirectory: false)
+        try "occupied".write(to: blockedDirectory, atomically: true, encoding: .utf8)
+        let longPath = "/tmp/" + String(repeating: "nested-path-", count: 120)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "--add-dir",
+                    longPath,
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/repo",
+                environment: ["CODEX_HOME": "/tmp/codex"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertNil(snapshot.resumeStartupInput(temporaryDirectory: blockedDirectory))
+    }
+
+    func testClaudeResumeCommandPreservesDangerouslySkipPermissionsAndObservedEnvironment() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
+            workingDirectory: "/Users/lawrence/fun",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/Users/lawrence/.local/bin/claude",
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--dangerously-skip-permissions"
+                ],
+                workingDirectory: "/Users/lawrence/fun",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397",
+                    "PATH": "/Users/lawrence/.local/bin:/usr/bin",
+                    "SHELL": "/bin/zsh"
+                ],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/lawrence/fun' && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' '/Users/lawrence/.local/bin/claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-skip-permissions'"
+        )
+    }
+
+    func testCodexResumeCommandPreservesFlagsAndDropsOriginalPrompt() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--ask-for-approval",
+                    "never",
+                    "--search",
+                    "--cd",
+                    "/Users/example/repo",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '--cd' '/Users/example/repo' '019dad34-d218-7943-b81a-eddac5c87951'"
+        )
+    }
+
+    func testClaudeTeamsResumeCommandPreservesRemoteControlLauncher() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-team-session",
+            workingDirectory: "/tmp/team repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claudeTeams",
+                executablePath: "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                arguments: [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "claude-teams",
+                    "--teammate-mode",
+                    "auto",
+                    "--model",
+                    "sonnet",
+                    "--remote-control-session-name-prefix",
+                    "cmux-team",
+                    "--tmux",
+                    "side effect should be dropped",
+                    "--permission-mode",
+                    "auto",
+                    "initial team prompt"
+                ],
+                workingDirectory: "/tmp/team repo",
+                environment: [
+                    "CMUX_CUSTOM_CLAUDE_PATH": "/opt/Claude Code/bin/claude",
+                    "PATH": "/opt/Claude Code/bin:/usr/bin"
+                ],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/tmp/team repo' && 'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'"
+        )
+    }
+
+    func testClaudeResumeCommandHandlesOptionalDebugValueAndFilteredEnvironment() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-debug",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: [
+                    "claude",
+                    "--debug",
+                    "api,mcp",
+                    "--model",
+                    "sonnet",
+                    "prompt should not replay"
+                ],
+                workingDirectory: nil,
+                environment: [
+                    "UNSAFE_TOKEN": "secret",
+                    "NODE_OPTIONS": "--max-old-space-size=4096"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "'env' 'NODE_OPTIONS=--max-old-space-size=4096' 'claude' '--resume' 'claude-session-debug' '--debug' 'api,mcp' '--model' 'sonnet'"
+        )
+    }
+
+    func testResumeCommandPreservesSafeProviderEnvironmentValuesOnly() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-env",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude"],
+                workingDirectory: nil,
+                environment: [
+                    "ANTHROPIC_MODEL": "",
+                    "PATH": " /tmp/bin ",
+                    "UNSAFE_TOKEN": "secret"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "'env' 'ANTHROPIC_MODEL=' 'claude' '--resume' 'claude-session-env'"
+        )
+    }
+
+    func testClaudeResumeCommandStripsStaleCmuxNodeOptionsRestoreModule() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-node-options",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--model", "sonnet"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "'env' 'NODE_OPTIONS=--trace-warnings' 'claude' '--resume' 'claude-session-node-options' '--model' 'sonnet'"
+        )
+    }
+
+    func testClaudeResumeCommandDropsEmptyStaleCmuxNodeOptionsEnvironment() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-empty-node-options",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--model", "sonnet"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require /tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size 4096"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "'claude' '--resume' 'claude-session-empty-node-options' '--model' 'sonnet'"
+        )
+    }
+
+    func testHookStoreDirectoryCanBeOverriddenForTests() {
+        let url = RestorableAgentKind.codex.hookStoreFileURL(
+            homeDirectory: "/Users/example",
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": "/tmp/cmux hook state"]
+        )
+
+        XCTAssertEqual(url.path, "/tmp/cmux hook state/codex-hook-sessions.json")
+    }
+
+    func testOpenCodeWrapperResumeCommandAndUnsupportedOhMyLaunchers() {
+        let direct = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "direct-opencode-session-456",
+            workingDirectory: "/tmp/direct opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: [
+                    "/opt/homebrew/bin/opencode",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "--session",
+                    "old-session",
+                    "--prompt",
+                    "old prompt",
+                    "--port",
+                    "4096",
+                    "/tmp/direct opencode repo",
+                    "initial prompt"
+                ],
+                workingDirectory: "/tmp/direct opencode repo",
+                environment: ["OPENCODE_CONFIG_DIR": "/tmp/opencode config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let omo = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-123",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omo",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "omo",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/opencode repo",
+                    "initial prompt"
+                ],
+                workingDirectory: "/tmp/opencode repo",
+                environment: ["OPENCODE_CONFIG_DIR": "/tmp/opencode config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let staleBunWorker = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "ses_24b0be92affeVRRBplLmUzbXQl",
+            workingDirectory: "/Users/lawrence/fun",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/Users/lawrence/.bun/bin/opencode",
+                arguments: [
+                    "/Users/lawrence/.bun/bin/opencode",
+                    "/$bunfs/root/src/cli/cmd/tui/worker.js"
+                ],
+                workingDirectory: "/Users/lawrence/fun",
+                environment: [
+                    "PATH": "/Users/lawrence/.bun/bin:/usr/bin",
+                    "SHELL": "/bin/zsh"
+                ],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let omx = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omx",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: ["/usr/local/bin/cmux", "omx", "team"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let omc = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omc",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: ["/usr/local/bin/cmux", "omc", "team"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            direct.resumeCommand,
+            "cd '/tmp/direct opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+        )
+        XCTAssertEqual(
+            omo.resumeCommand,
+            "cd '/tmp/opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+        )
+        XCTAssertEqual(
+            staleBunWorker.resumeCommand,
+            "cd '/Users/lawrence/fun' && '/Users/lawrence/.bun/bin/opencode' '--session' 'ses_24b0be92affeVRRBplLmUzbXQl'"
+        )
+        XCTAssertNil(omx.resumeCommand)
+        XCTAssertNil(omc.resumeCommand)
+    }
+
+    func testNonInteractiveAgentLaunchesAreNotAutoRestored() {
+        let claudePrint = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--print", "summarize this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let claudePrintEquals = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-456",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--print=summarize this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let codexExec = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "exec", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let opencodeRun = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "opencode",
+                arguments: ["opencode", "run", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let opencodePR = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-pr-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "opencode",
+                arguments: ["opencode", "pr", "123"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertNil(claudePrint.resumeCommand)
+        XCTAssertNil(claudePrintEquals.resumeCommand)
+        XCTAssertNil(codexExec.resumeCommand)
+        XCTAssertNil(opencodeRun.resumeCommand)
+        XCTAssertNil(opencodePR.resumeCommand)
+    }
+
+    func testRestorableAgentIndexLoadsLaunchCommandFromHookStore() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
+        let storeDir = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let storeURL = storeDir.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
+        let json = """
+        {
+          "version": 1,
+          "sessions": {
+            "codex-session-123": {
+              "sessionId": "codex-session-123",
+              "workspaceId": "\(workspaceId.uuidString)",
+              "surfaceId": "\(panelId.uuidString)",
+              "cwd": "/tmp/repo",
+              "updatedAt": 123,
+              "launchCommand": {
+                "launcher": "codex",
+                "executablePath": "/usr/local/bin/codex",
+                "arguments": [
+                  "/usr/local/bin/codex",
+                  "--model",
+                  "gpt-5.4",
+                  "--search",
+                  "old prompt"
+                ],
+                "workingDirectory": "/tmp/repo",
+                "environment": {
+                  "CODEX_HOME": "/tmp/codex"
+                },
+                "capturedAt": 122,
+                "source": "process"
+              }
+            }
+          }
+        }
+        """
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/usr/local/bin/codex")
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/tmp/repo' && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' '--model' 'gpt-5.4' '--search' 'codex-session-123'"
+        )
+    }
+
 }
 
 final class SidebarDragFailsafePolicyTests: XCTestCase {

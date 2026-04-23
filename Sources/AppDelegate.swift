@@ -782,7 +782,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     private var didAttemptStartupSessionRestore = false
-    private var isApplyingStartupSessionRestore = false
+    private var isApplyingSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
@@ -2144,8 +2144,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func prepareStartupSessionSnapshotIfNeeded() {
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
-        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
         Self.removeLegacyPersistedWindowGeometry()
+        SessionPersistenceStore.syncManualRestoreSnapshotCache()
+        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
@@ -2240,7 +2241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
         if let primaryWindowSnapshot {
-            isApplyingStartupSessionRestore = true
+            isApplyingSessionRestore = true
 #if DEBUG
             dlog(
                 "session.restore.start windows=\(startupSnapshot?.windows.count ?? 0) " +
@@ -2287,18 +2288,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     for windowSnapshot in additionalWindows {
                         _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
                     }
-                    self.completeStartupSessionRestore()
+                    self.completeSessionRestoreOperation(isManualReopen: false)
                 }
             } else {
-                completeStartupSessionRestore()
+                completeSessionRestoreOperation(isManualReopen: false)
             }
         }
     }
 
-    private func completeStartupSessionRestore() {
+    private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
-        isApplyingStartupSessionRestore = false
-        _ = saveSessionSnapshot(includeScrollback: false)
+        isApplyingSessionRestore = false
+        if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
+            _ = saveSessionSnapshot(includeScrollback: false)
+        }
+    }
+
+    nonisolated static func shouldSaveSessionSnapshotOnRestoreCompletion(
+        isManualReopen: Bool
+    ) -> Bool {
+        !isManualReopen
+    }
+
+    @discardableResult
+    func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
+        guard let snapshot = SessionPersistenceStore.loadReopenSessionSnapshot() else {
+            return false
+        }
+
+        let snapshotWindows = Array(
+            snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+        )
+        guard !snapshotWindows.isEmpty else { return false }
+
+        let existingContexts = sortedMainWindowContextsForSessionSnapshot()
+        isApplyingSessionRestore = true
+        startupSessionSnapshot = nil
+        didAttemptStartupSessionRestore = true
+
+        if existingContexts.isEmpty {
+            for windowSnapshot in snapshotWindows {
+                _ = createMainWindow(
+                    sessionWindowSnapshot: windowSnapshot,
+                    shouldActivate: shouldActivate
+                )
+            }
+        } else {
+            for (context, windowSnapshot) in zip(existingContexts, snapshotWindows) {
+                applySessionWindowSnapshot(
+                    windowSnapshot,
+                    to: context,
+                    window: context.window ?? windowForMainWindowId(context.windowId)
+                )
+            }
+
+            if snapshotWindows.count > existingContexts.count {
+                for windowSnapshot in snapshotWindows.dropFirst(existingContexts.count) {
+                    _ = createMainWindow(
+                        sessionWindowSnapshot: windowSnapshot,
+                        shouldActivate: shouldActivate
+                    )
+                }
+            }
+
+            if existingContexts.count > snapshotWindows.count {
+                for context in existingContexts.dropFirst(snapshotWindows.count) {
+                    _ = closeMainWindow(windowId: context.windowId)
+                }
+            }
+        }
+
+        completeSessionRestoreOperation(isManualReopen: true)
+
+        if shouldActivate,
+           let primaryWindow = sortedMainWindowContextsForSessionSnapshot()
+            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
+            .first {
+            primaryWindow.makeKeyAndOrderFront(nil)
+            setActiveMainWindow(primaryWindow)
+            NSRunningApplication.current.activate(
+                options: [.activateAllWindows, .activateIgnoringOtherApps]
+            )
+        }
+
+        return true
     }
 
     private func applySessionWindowSnapshot(
@@ -2786,7 +2859,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didDisableSuddenTermination = false
     }
 
-    private func sessionAutosaveFingerprint(includeScrollback: Bool) -> Int? {
+    private func sessionAutosaveFingerprint(
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> Int? {
         guard !includeScrollback else { return nil }
 
         var hasher = Hasher()
@@ -2797,7 +2873,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         for context in contexts.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
             hasher.combine(context.windowId)
-            hasher.combine(context.tabManager.sessionAutosaveFingerprint())
+            hasher.combine(
+                context.tabManager.sessionAutosaveFingerprint(
+                    restorableAgentIndex: restorableAgentIndex
+                )
+            )
             hasher.combine(context.sidebarState.isVisible)
             hasher.combine(
                 Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth)).rounded())
@@ -2821,13 +2901,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func saveSessionSnapshot(includeScrollback: Bool, removeWhenEmpty: Bool = false) -> Bool {
-        if Self.shouldSkipSessionSaveDuringStartupRestore(
-            isApplyingStartupSessionRestore: isApplyingStartupSessionRestore,
+    private func saveSessionSnapshot(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+    ) -> Bool {
+        if Self.shouldSkipSessionSaveDuringRestore(
+            isApplyingSessionRestore: isApplyingSessionRestore,
             includeScrollback: includeScrollback
         ) {
 #if DEBUG
-            dlog("session.save.skipped reason=startup_restore_in_progress includeScrollback=0")
+            dlog("session.save.skipped reason=session_restore_in_progress includeScrollback=0")
 #endif
             return false
         }
@@ -2847,7 +2931,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        guard let snapshot = buildSessionSnapshot(includeScrollback: includeScrollback) else {
+        guard let snapshot = buildSessionSnapshot(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex
+        ) else {
             persistSessionSnapshot(
                 nil,
                 removeWhenEmpty: removeWhenEmpty,
@@ -2886,11 +2973,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         !isTerminatingApp
     }
 
-    nonisolated static func shouldSkipSessionSaveDuringStartupRestore(
-        isApplyingStartupSessionRestore: Bool,
+    nonisolated static func shouldSkipSessionSaveDuringRestore(
+        isApplyingSessionRestore: Bool,
         includeScrollback: Bool
     ) -> Bool {
-        isApplyingStartupSessionRestore && !includeScrollback
+        isApplyingSessionRestore && !includeScrollback
     }
 
     nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
@@ -2966,7 +3053,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let autosaveFingerprint = sessionAutosaveFingerprint(includeScrollback: false)
+        let restorableAgentIndex = RestorableAgentSessionIndex.load()
+        let autosaveFingerprint = sessionAutosaveFingerprint(
+            includeScrollback: false,
+            restorableAgentIndex: restorableAgentIndex
+        )
 #if DEBUG
         fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
 #endif
@@ -2989,7 +3080,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let saveStart = ProcessInfo.processInfo.systemUptime
 #endif
-        _ = saveSessionSnapshot(includeScrollback: false)
+        _ = saveSessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: restorableAgentIndex
+        )
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
 #endif
@@ -3082,8 +3176,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func buildSessionSnapshot(includeScrollback: Bool) -> AppSessionSnapshot? {
-        let contexts = mainWindowContexts.values.sorted { lhs, rhs in
+    private func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
+        mainWindowContexts.values.sorted { lhs, rhs in
             let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
             let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
             let lhsIsKey = lhsWindow?.isKeyWindow ?? false
@@ -3093,8 +3187,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return lhs.windowId.uuidString < rhs.windowId.uuidString
         }
+    }
+
+    private func buildSessionSnapshot(
+        includeScrollback: Bool,
+        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil
+    ) -> AppSessionSnapshot? {
+        let contexts = sortedMainWindowContextsForSessionSnapshot()
 
         guard !contexts.isEmpty else { return nil }
+        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
         let windows: [SessionWindowSnapshot] = contexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
@@ -3103,7 +3205,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return SessionWindowSnapshot(
                     frame: window.map { SessionRectSnapshot($0.frame) },
                     display: displaySnapshot(for: window),
-                    tabManager: context.tabManager.sessionSnapshot(includeScrollback: includeScrollback),
+                    tabManager: context.tabManager.sessionSnapshot(
+                        includeScrollback: includeScrollback,
+                        restorableAgentIndex: restorableAgentIndex
+                    ),
                     sidebar: SessionSidebarSnapshot(
                         isVisible: context.sidebarState.isVisible,
                         selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
@@ -5585,7 +5690,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func createMainWindow(
         initialWorkingDirectory: String? = nil,
-        sessionWindowSnapshot: SessionWindowSnapshot? = nil
+        sessionWindowSnapshot: SessionWindowSnapshot? = nil,
+        shouldActivate: Bool = true
     ) -> UUID {
         let windowId = UUID()
         let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
@@ -5715,9 +5821,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxConfigStore: cmuxConfigStore
         )
         installFileDropOverlay(on: window, tabManager: tabManager)
-        if TerminalController.shouldSuppressSocketCommandActivation() {
+        if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
             window.orderFront(nil)
-            if TerminalController.socketCommandAllowsInAppFocusMutations() {
+            if shouldActivate, TerminalController.socketCommandAllowsInAppFocusMutations() {
                 setActiveMainWindow(window)
             }
         } else {
@@ -10057,6 +10163,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .useSelectionForFind) {
             tabManager?.searchSelection()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .reopenPreviousSession) {
+            if !reopenPreviousSession() {
+                NSSound.beep()
+            }
             return true
         }
 

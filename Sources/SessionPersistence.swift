@@ -224,6 +224,7 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
+    var agent: SessionRestorableAgentSnapshot?
 }
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
@@ -401,9 +402,55 @@ enum SessionPersistenceStore {
         try? FileManager.default.removeItem(at: fileURL)
     }
 
+    static func loadReopenSessionSnapshot(
+        fileURL: URL? = nil,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) -> AppSessionSnapshot? {
+        guard let fileURL = fileURL ?? manualRestoreSnapshotFileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else {
+            return nil
+        }
+        return load(fileURL: fileURL)
+    }
+
+    static func syncManualRestoreSnapshotCache() {
+        guard let fileURL = manualRestoreSnapshotFileURL() else { return }
+        guard let snapshot = load() else {
+            removeSnapshot(fileURL: fileURL)
+            return
+        }
+        _ = save(snapshot, fileURL: fileURL)
+    }
+
     static func defaultSnapshotFileURL(
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appSupportDirectory: URL? = nil
+    ) -> URL? {
+        snapshotFileURL(
+            suffix: "",
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        )
+    }
+
+    static func manualRestoreSnapshotFileURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) -> URL? {
+        snapshotFileURL(
+            suffix: "-previous",
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        )
+    }
+
+    private static func snapshotFileURL(
+        suffix: String,
+        bundleIdentifier: String?,
+        appSupportDirectory: URL?
     ) -> URL? {
         let resolvedAppSupport: URL
         if let appSupportDirectory {
@@ -423,7 +470,7 @@ enum SessionPersistenceStore {
         )
         return resolvedAppSupport
             .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("session-\(safeBundleId).json", isDirectory: false)
+            .appendingPathComponent("session-\(safeBundleId)\(suffix).json", isDirectory: false)
     }
 }
 

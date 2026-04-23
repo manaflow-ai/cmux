@@ -661,5 +661,3 @@ enum MenuBarIconRenderer {
         (text as NSString).draw(in: textRect, withAttributes: attrs)
     }
 }
-
-

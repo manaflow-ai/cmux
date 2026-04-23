@@ -2135,6 +2135,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRemoteStatus(params: params))
         case "workspace.remote.terminal_session_end":
             return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
+        case "session.restore_previous":
+            return v2Result(id: id, self.v2SessionRestorePrevious())
 
         // Settings
         case "settings.open":
@@ -2511,6 +2513,7 @@ class TerminalController {
             "workspace.remote.disconnect",
             "workspace.remote.status",
             "workspace.remote.terminal_session_end",
+            "session.restore_previous",
             "settings.open",
             "feedback.open",
             "feedback.submit",
@@ -7017,6 +7020,24 @@ class TerminalController {
             FeedbackComposerBridge.openComposer(in: targetWindow)
         }
         return .ok(["opened": true])
+    }
+
+    private func v2SessionRestorePrevious() -> V2CallResult {
+        var restored = false
+        v2MainSync {
+            restored = AppDelegate.shared?.reopenPreviousSession(shouldActivate: false) ?? false
+        }
+        guard restored else {
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "terminal.restore.no_snapshot",
+                    defaultValue: "No previous session snapshot available"
+                ),
+                data: nil
+            )
+        }
+        return .ok(["restored": true])
     }
 
     private func v2SettingsOpen(params: [String: Any]) -> V2CallResult {
