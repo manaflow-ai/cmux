@@ -4601,6 +4601,18 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
+        if tab.handleRemoteTerminalChildExit(surfaceId: surfaceId, onClose: { [weak tab] in
+            let manager = tab?.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: tabId)
+            manager?.finishClosePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
+        }) {
+            return
+        }
+        finishClosePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
+    }
+
+    private func finishClosePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard tab.panels[surfaceId] != nil else { return }
         let keepsRemoteWorkspaceOpen =
             tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 

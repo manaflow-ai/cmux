@@ -895,6 +895,133 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private nonisolated static func sweepStaleRelayStateAtStartup() {
+        let relayRootURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("relay", isDirectory: true)
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: relayRootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        var portArtifacts: [Int: [URL]] = [:]
+        for entryURL in entries {
+            let isDirectory = (try? entryURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDirectory {
+                let pidURL = entryURL.appendingPathComponent("pid", isDirectory: false)
+                guard FileManager.default.fileExists(atPath: pidURL.path),
+                      let pidData = try? Data(contentsOf: pidURL),
+                      let pidText = String(data: pidData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines),
+                      let pid = Int32(pidText),
+                      pid > 0,
+                      Darwin.kill(pid, 0) == -1,
+                      errno == ESRCH else {
+                    continue
+                }
+                guard let lockFD = tryLockRelaySession(at: entryURL) else {
+                    continue
+                }
+                defer { unlockRelaySession(lockFD) }
+                try? FileManager.default.removeItem(at: entryURL)
+                continue
+            }
+
+            if let port = startupRelayArtifactPort(from: entryURL.lastPathComponent) {
+                portArtifacts[port, default: []].append(entryURL)
+            }
+        }
+
+        for (port, artifactURLs) in portArtifacts where !isStartupLoopbackPortReachable(port: port) {
+            for artifactURL in artifactURLs {
+                try? FileManager.default.removeItem(at: artifactURL)
+            }
+        }
+    }
+
+    private nonisolated static func startupRelayArtifactPort(from filename: String) -> Int? {
+        let suffixes = [
+            ".auth",
+            ".daemon_path",
+            ".tty",
+            ".shell",
+            ".bootstrap.sh",
+        ]
+        for suffix in suffixes where filename.hasSuffix(suffix) {
+            let prefix = String(filename.dropLast(suffix.count))
+            if let port = Int(prefix), (1...65535).contains(port) {
+                return port
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func isStartupLoopbackPortReachable(port: Int) -> Bool {
+        guard (1...65535).contains(port) else { return false }
+
+        let socketFD = socket(AF_INET, SOCK_STREAM, 0)
+        guard socketFD >= 0 else { return false }
+        defer { Darwin.close(socketFD) }
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(port).bigEndian)
+        let parsedAddress = withUnsafeMutablePointer(to: &address.sin_addr) { pointer in
+            "127.0.0.1".withCString { hostPointer in
+                inet_pton(AF_INET, hostPointer, pointer)
+            }
+        }
+        guard parsedAddress == 1 else { return false }
+
+        let previousFlags = fcntl(socketFD, F_GETFL, 0)
+        if previousFlags >= 0 {
+            _ = fcntl(socketFD, F_SETFL, previousFlags | O_NONBLOCK)
+        }
+
+        let connectResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+            }
+        }
+        if connectResult == 0 {
+            return true
+        }
+        guard errno == EINPROGRESS else {
+            return false
+        }
+
+        var pollFD = pollfd(fd: socketFD, events: Int16(POLLOUT), revents: 0)
+        let pollResult = Darwin.poll(&pollFD, 1, 150)
+        guard pollResult > 0 else { return false }
+
+        var socketError: Int32 = 0
+        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+        let optionResult = withUnsafeMutablePointer(to: &socketError) { pointer in
+            getsockopt(socketFD, SOL_SOCKET, SO_ERROR, pointer, &socketErrorLength)
+        }
+        return optionResult == 0 && socketError == 0
+    }
+
+    private nonisolated static func tryLockRelaySession(at entryURL: URL) -> Int32? {
+        let lockPath = entryURL.appendingPathComponent(".lock", isDirectory: false).path
+        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        guard fd >= 0 else { return nil }
+        if flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            Darwin.close(fd)
+            return nil
+        }
+        return fd
+    }
+
+    private nonisolated static func unlockRelaySession(_ fd: Int32) {
+        _ = flock(fd, LOCK_UN)
+        Darwin.close(fd)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
@@ -916,6 +1043,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: .reactGrabDidCopySelection,
             object: nil
         )
+        if !isRunningUnderXCTest {
+            DispatchQueue.global(qos: .utility).async {
+                Self.sweepStaleRelayStateAtStartup()
+            }
+        }
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make

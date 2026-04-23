@@ -3936,6 +3936,27 @@ class TerminalController {
             }
         }
 
+        let config = WorkspaceRemoteConfiguration(
+            destination: destination,
+            port: sshPort,
+            identityFile: identityFile?.isEmpty == true ? nil : identityFile,
+            sshOptions: sshOptions,
+            localProxyPort: localProxyPort,
+            relayPort: relayPort,
+            relayID: relayID?.isEmpty == true ? nil : relayID,
+            relayToken: relayToken?.isEmpty == true ? nil : relayToken,
+            localSocketPath: localSocketPath,
+            terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
+            foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken
+        )
+        if relayPort != nil, config.relaySessionID == nil {
+            return .err(
+                code: "invalid_params",
+                message: "relay_id must contain only letters, numbers, '.', '_', and '-'",
+                data: nil
+            )
+        }
+
 #if DEBUG
         dlog(
             "workspace.remote.configure.request workspace=\(workspaceId.uuidString.prefix(8)) " +
@@ -3957,19 +3978,6 @@ class TerminalController {
                 return
             }
 
-            let config = WorkspaceRemoteConfiguration(
-                destination: destination,
-                port: sshPort,
-                identityFile: identityFile?.isEmpty == true ? nil : identityFile,
-                sshOptions: sshOptions,
-                localProxyPort: localProxyPort,
-                relayPort: relayPort,
-                relayID: relayID?.isEmpty == true ? nil : relayID,
-                relayToken: relayToken?.isEmpty == true ? nil : relayToken,
-                localSocketPath: localSocketPath,
-                terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
-                foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken
-            )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
 
             let windowId = v2ResolveWindowId(tabManager: owner)
@@ -4039,6 +4047,32 @@ class TerminalController {
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
         ])
 
+        var relayProbeController: WorkspaceRemoteSessionController?
+        var shouldReconnect = false
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+
+            guard workspace.remoteConfiguration != nil else {
+                result = .err(code: "invalid_state", message: "Remote workspace is not configured", data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                ])
+                return
+            }
+
+            relayProbeController = workspace.currentRemoteRelayProbeController()
+            shouldReconnect = true
+        }
+
+        guard shouldReconnect else {
+            return result
+        }
+
+        let relayProbe = relayProbeController?.probeRelayLiveness()
+
         // Must run on main for v2MainSync because reconnect mutates TabManager/UI-owned workspace state.
         v2MainSync {
             guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
@@ -4054,15 +4088,31 @@ class TerminalController {
                 return
             }
 
-            workspace.reconnectRemoteConnection()
+            let reconnectOutcome = workspace.reconnectRemoteConnection(relayProbe: relayProbe)
             let windowId = v2ResolveWindowId(tabManager: owner)
-            result = .ok([
+            var payload: [String: Any] = [
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": workspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
                 "remote": workspace.remoteStatusPayload(),
-            ])
+            ]
+            if reconnectOutcome.relayRecreated {
+                payload["warning_code"] = "relay_recreated"
+                payload["warning"] = String(
+                    localized: "workspace.remote.reconnect.warning.relayRecreated",
+                    defaultValue: "Remote relay was recreated. Fresh SSH shells are starting; running processes and scrollback from the dead session are not preserved."
+                )
+                payload["replaced_surfaces"] = reconnectOutcome.replacedSurfaces.map { replacement in
+                    [
+                        "old_surface_id": replacement.oldSurfaceId.uuidString,
+                        "old_surface_ref": v2Ref(kind: .surface, uuid: replacement.oldSurfaceId),
+                        "new_surface_id": replacement.newSurfaceId.uuidString,
+                        "new_surface_ref": v2Ref(kind: .surface, uuid: replacement.newSurfaceId),
+                    ]
+                }
+            }
+            result = .ok(payload)
         }
 
         return result

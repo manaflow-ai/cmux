@@ -125,6 +125,10 @@ doneFlags:
 		return 0
 	}
 
+	if cmdName == "relay" {
+		return runRelayCommand(cmdArgs, jsonOutput)
+	}
+
 	// refreshAddr is set when the address came from socket_addr file (not env/flag),
 	// allowing one stale-address refresh if another workspace has replaced socket_addr.
 	var refreshAddr func() string
@@ -180,6 +184,44 @@ doneFlags:
 	default:
 		fmt.Fprintf(os.Stderr, "cmux: internal error: unknown protocol for %q\n", cmdName)
 		return 1
+	}
+}
+
+func runRelayCommand(args []string, jsonOutput bool) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "cmux: relay requires a subcommand (try 'relay cleanup')")
+		return 2
+	}
+
+	switch args[0] {
+	case "cleanup":
+		if len(args) > 1 {
+			fmt.Fprintln(os.Stderr, "cmux: relay cleanup does not accept additional arguments")
+			return 2
+		}
+		summary, err := sweepRelayState(nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cmux: relay cleanup failed: %v\n", err)
+			return 1
+		}
+		payload := map[string]any{
+			"removed_port_artifacts": summary.removedPortArtifacts,
+			"removed_session_dirs":   summary.removedSessionDirs,
+		}
+		if jsonOutput {
+			data, _ := json.Marshal(payload)
+			fmt.Println(string(data))
+		} else {
+			fmt.Printf(
+				"OK removed_session_dirs=%d removed_port_artifacts=%d\n",
+				summary.removedSessionDirs,
+				summary.removedPortArtifacts,
+			)
+		}
+		return 0
+	default:
+		fmt.Fprintf(os.Stderr, "cmux: unknown relay subcommand %q\n", args[0])
+		return 2
 	}
 }
 
@@ -778,5 +820,6 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  omo [args...]              Launch OpenCode with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omx [args...]              Launch Oh My Codex with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omc [args...]              Launch Oh My Claude Code with cmux integration")
+	fmt.Fprintln(os.Stderr, "  relay cleanup              Remove stale relay pidfiles and metadata")
 	fmt.Fprintln(os.Stderr, "  rpc <method> [json-params] Send arbitrary JSON-RPC")
 }

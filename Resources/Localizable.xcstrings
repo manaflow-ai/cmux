@@ -91142,6 +91142,57 @@
           }
         }
       }
+    },
+    "workspace.remote.connection.detail.childExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote SSH session exited. Reconnect creates a fresh relay and shell; running processes and scrollback from the dead session are not preserved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート SSH セッションが終了しました。再接続すると新しいリレーとシェルが作成されます。切断されたセッションの実行中プロセスとスクロールバックは保持されません。"
+          }
+        }
+      }
+    },
+    "workspace.remote.reconnect.sidebar.relayRecreated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote relay for %@ was recreated. Fresh SSH shells are starting; process state and scrollback from the dead session are not preserved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のリモートリレーが再作成されました。新しい SSH シェルを起動しています。切断されたセッションのプロセス状態とスクロールバックは保持されません。"
+          }
+        }
+      }
+    },
+    "workspace.remote.reconnect.warning.relayRecreated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote relay was recreated. Fresh SSH shells are starting; running processes and scrollback from the dead session are not preserved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートリレーが再作成されました。新しい SSH シェルを起動しています。切断されたセッションの実行中プロセスとスクロールバックは保持されません。"
+          }
+        }
+      }
     }
   }
 }

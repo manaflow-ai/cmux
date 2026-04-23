@@ -12,11 +12,13 @@ import (
 	"math"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -64,6 +66,7 @@ type rpcServer struct {
 	streams       map[string]*streamState
 	sessions      map[string]*sessionState
 	frameWriter   *stdioFrameWriter
+	logger        *relayLogger
 }
 
 type sessionAttachment struct {
@@ -123,6 +126,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		stdio := fs.Bool("stdio", false, "serve over stdin/stdout")
+		logPath := fs.String("log", "", "append relay lifecycle logs to a file")
+		sessionID := fs.String("session-id", "", "relay session identifier used for pidfile state")
+		invocationReason := fs.String("invocation-reason", "", "human-readable reason for this relay start")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -130,7 +136,84 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintln(stderr, "serve requires --stdio")
 			return 2
 		}
-		if err := runStdioServer(stdin, stdout); err != nil {
+		resolvedLogPath := strings.TrimSpace(*logPath)
+		if resolvedLogPath == "" {
+			resolvedLogPath = strings.TrimSpace(os.Getenv("CMUX_RELAY_LOG"))
+		}
+		resolvedSessionID := strings.TrimSpace(*sessionID)
+		resolvedInvocationReason := strings.TrimSpace(*invocationReason)
+		if resolvedInvocationReason == "" {
+			resolvedInvocationReason = strings.TrimSpace(os.Getenv("CMUX_RELAY_INVOCATION_REASON"))
+		}
+		logger, err := newRelayLogger(resolvedLogPath)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "serve failed: %v\n", err)
+			return 1
+		}
+		defer logger.Close()
+		cleanupSummary, err := sweepRelayState(logger)
+		if err != nil {
+			logger.Log("error", "relay.cleanup.error", map[string]any{
+				"error": err,
+			})
+		} else if cleanupSummary.removedSessionDirs > 0 || cleanupSummary.removedPortArtifacts > 0 {
+			logger.Log("info", "relay.cleanup.complete", map[string]any{
+				"removed_port_artifacts": cleanupSummary.removedPortArtifacts,
+				"removed_session_dirs":   cleanupSummary.removedSessionDirs,
+			})
+		}
+
+		sessionState, err := beginRelaySession(resolvedSessionID, logger)
+		if err != nil {
+			logger.Log("error", "relay.startup.error", map[string]any{
+				"error":      err,
+				"session_id": resolvedSessionID,
+			})
+			_, _ = fmt.Fprintf(stderr, "serve failed: %v\n", err)
+			return 1
+		}
+		if sessionState != nil {
+			defer sessionState.Close()
+		}
+
+		logger.Log("info", "relay.startup", map[string]any{
+			"invocation_reason": resolvedInvocationReason,
+			"mode":              "stdio",
+			"pid":               os.Getpid(),
+			"ppid":              os.Getppid(),
+			"session_id":        resolvedSessionID,
+		})
+
+		var terminatedBySignal atomicShutdownReason
+		stopSignalWatch := installRelaySignalWatch(logger, sessionState, &terminatedBySignal)
+		defer stopSignalWatch()
+
+		shutdownReason, err := runStdioServer(stdin, stdout, logger)
+		if signalName := terminatedBySignal.Load(); signalName != "" {
+			shutdownReason = "signal:" + signalName
+			err = nil
+		}
+		if shutdownReason == "" {
+			if err == nil {
+				shutdownReason = "stdio_closed"
+			} else {
+				shutdownReason = "error"
+			}
+		}
+		logFields := map[string]any{
+			"mode":       "stdio",
+			"reason":     shutdownReason,
+			"session_id": resolvedSessionID,
+		}
+		if err != nil {
+			logFields["error"] = err
+		}
+		level := "info"
+		if err != nil {
+			level = "error"
+		}
+		logger.Log(level, "relay.shutdown", logFields)
+		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "serve failed: %v\n", err)
 			return 1
 		}
@@ -146,11 +229,72 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote version")
-	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio [--log <path>] [--session-id <id>] [--invocation-reason <reason>]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
 }
 
-func runStdioServer(stdin io.Reader, stdout io.Writer) error {
+type atomicShutdownReason struct {
+	mu     sync.Mutex
+	reason string
+}
+
+func (a *atomicShutdownReason) Set(reason string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.reason != "" {
+		return
+	}
+	a.reason = strings.TrimSpace(reason)
+}
+
+func (a *atomicShutdownReason) Load() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.reason
+}
+
+func installRelaySignalWatch(
+	logger *relayLogger,
+	sessionState *relaySessionState,
+	shutdownReason *atomicShutdownReason,
+) func() {
+	signals := make(chan os.Signal, 4)
+	signal.Notify(signals, syscall.SIGHUP, syscall.SIGINT, syscall.SIGPIPE, syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case sig := <-signals:
+			if sig == nil {
+				return
+			}
+			signalName := strings.ToLower(strings.TrimSpace(sig.String()))
+			shutdownReason.Set(signalName)
+			logger.Log("info", "relay.shutdown", map[string]any{
+				"mode":   "stdio",
+				"reason": "signal:" + signalName,
+				"session_id": func() string {
+					if sessionState == nil {
+						return ""
+					}
+					return sessionState.sessionID
+				}(),
+			})
+			if sessionState != nil {
+				sessionState.Close()
+			}
+			_ = logger.Close()
+			os.Exit(0)
+		case <-done:
+		}
+	}()
+
+	return func() {
+		close(done)
+		signal.Stop(signals)
+	}
+}
+
+func runStdioServer(stdin io.Reader, stdout io.Writer, logger *relayLogger) (string, error) {
 	writer := &stdioFrameWriter{
 		writer: bufio.NewWriter(stdout),
 	}
@@ -160,6 +304,7 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
 		frameWriter:   writer,
+		logger:        logger,
 	}
 	defer server.closeAll()
 
@@ -170,9 +315,9 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
-				return nil
+				return "eof", nil
 			}
-			return readErr
+			return "read_error", readErr
 		}
 		if oversized {
 			if err := writer.writeResponse(rpcResponse{
@@ -182,8 +327,13 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 					Message: "request frame exceeds maximum size",
 				},
 			}); err != nil {
-				return err
+				return "write_error", err
 			}
+			logger.Log("error", "rpc.error", map[string]any{
+				"code":    "invalid_request",
+				"message": "request frame exceeds maximum size",
+				"method":  "",
+			})
 			continue
 		}
 		line = bytes.TrimSuffix(line, []byte{'\n'})
@@ -201,14 +351,19 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 					Message: "invalid JSON request",
 				},
 			}); err != nil {
-				return err
+				return "write_error", err
 			}
+			logger.Log("error", "rpc.error", map[string]any{
+				"code":    "invalid_request",
+				"message": "invalid JSON request",
+				"method":  "",
+			})
 			continue
 		}
 
 		resp := server.handleRequest(req)
 		if err := writer.writeResponse(resp); err != nil {
-			return err
+			return "write_error", err
 		}
 	}
 }
@@ -292,7 +447,7 @@ func (w *stdioFrameWriter) writeJSONFrame(payload any) error {
 
 func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 	if req.Method == "" {
-		return rpcResponse{
+		resp := rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
@@ -300,11 +455,14 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 				Message: "method is required",
 			},
 		}
+		s.logRPC(req, resp)
+		return resp
 	}
 
+	var resp rpcResponse
 	switch req.Method {
 	case "hello":
-		return rpcResponse{
+		resp = rpcResponse{
 			ID: req.ID,
 			OK: true,
 			Result: map[string]any{
@@ -321,7 +479,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 			},
 		}
 	case "ping":
-		return rpcResponse{
+		resp = rpcResponse{
 			ID: req.ID,
 			OK: true,
 			Result: map[string]any{
@@ -329,27 +487,27 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 			},
 		}
 	case "proxy.open":
-		return s.handleProxyOpen(req)
+		resp = s.handleProxyOpen(req)
 	case "proxy.close":
-		return s.handleProxyClose(req)
+		resp = s.handleProxyClose(req)
 	case "proxy.write":
-		return s.handleProxyWrite(req)
+		resp = s.handleProxyWrite(req)
 	case "proxy.stream.subscribe":
-		return s.handleProxyStreamSubscribe(req)
+		resp = s.handleProxyStreamSubscribe(req)
 	case "session.open":
-		return s.handleSessionOpen(req)
+		resp = s.handleSessionOpen(req)
 	case "session.close":
-		return s.handleSessionClose(req)
+		resp = s.handleSessionClose(req)
 	case "session.attach":
-		return s.handleSessionAttach(req)
+		resp = s.handleSessionAttach(req)
 	case "session.resize":
-		return s.handleSessionResize(req)
+		resp = s.handleSessionResize(req)
 	case "session.detach":
-		return s.handleSessionDetach(req)
+		resp = s.handleSessionDetach(req)
 	case "session.status":
-		return s.handleSessionStatus(req)
+		resp = s.handleSessionStatus(req)
 	default:
-		return rpcResponse{
+		resp = rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
@@ -357,6 +515,44 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 				Message: fmt.Sprintf("unknown method %q", req.Method),
 			},
 		}
+	}
+	s.logRPC(req, resp)
+	return resp
+}
+
+func (s *rpcServer) logRPC(req rpcRequest, resp rpcResponse) {
+	if s == nil || s.logger == nil {
+		return
+	}
+
+	method := strings.TrimSpace(req.Method)
+	if resp.Error != nil {
+		s.logger.Log("error", "rpc.error", map[string]any{
+			"code":    resp.Error.Code,
+			"message": resp.Error.Message,
+			"method":  method,
+		})
+		return
+	}
+
+	switch method {
+	case "session.open", "session.close", "session.attach", "session.detach", "session.resize":
+		fields := map[string]any{"method": method}
+		if result, ok := resp.Result.(map[string]any); ok {
+			if sessionID, ok := result["session_id"]; ok {
+				fields["session_id"] = sessionID
+			}
+			if attachmentID, ok := result["attachment_id"]; ok {
+				fields["attachment_id"] = attachmentID
+			}
+		}
+		if attachmentID, ok := req.Params["attachment_id"]; ok {
+			fields["attachment_id"] = attachmentID
+		}
+		if sessionID, ok := req.Params["session_id"]; ok {
+			fields["session_id"] = sessionID
+		}
+		s.logger.Log("info", method, fields)
 	}
 }
 
