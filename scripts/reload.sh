@@ -493,13 +493,13 @@ fi
 # Build cmuxd and ghostty helper binaries (needed for both launch and no-launch).
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 GHOSTTY_HELPER_SRC="$PWD/ghostty/zig-out/bin/ghostty"
-if [[ -d "$PWD/cmuxd" ]]; then
-  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
-fi
-if [[ -d "$PWD/ghostty" ]]; then
-  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
-    echo "Skipping direct ghostty CLI helper zig build (CMUX_SKIP_ZIG_BUILD=1)"
-  else
+if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+  echo "Skipping zig builds (CMUX_SKIP_ZIG_BUILD=1)"
+else
+  if [[ -d "$PWD/cmuxd" ]]; then
+    (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+  fi
+  if [[ -d "$PWD/ghostty" ]]; then
     (cd "$PWD/ghostty" && zig build cli-helper -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Doptimize=ReleaseFast)
   fi
 fi
