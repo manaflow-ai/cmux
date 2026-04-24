@@ -14,4 +14,28 @@ final class SidebarWidthPolicyTests: XCTestCase {
             accuracy: 0.001
         )
     }
+
+    func testRightSidebarClampAllowsWideExplorerOnLargeWindows() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(900, availableWidth: 1600),
+            900,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarClampLeavesTerminalWidth() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(10_000, availableWidth: 1000),
+            640,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarClampKeepsMinimumWidth() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(20, availableWidth: 1000),
+            150,
+            accuracy: 0.001
+        )
+    }
 }

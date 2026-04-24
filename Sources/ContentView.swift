@@ -2027,6 +2027,9 @@ struct ContentView: View {
     private static let commandPaletteVisiblePreviewCandidateLimit = 192
     private static let minimumSidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
+    private static let minimumRightSidebarWidth: CGFloat = 150
+    private static let maximumRightSidebarWidth: CGFloat = 1200
+    private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private enum SidebarResizerHandle: Hashable {
         case divider
@@ -2063,7 +2066,10 @@ struct ContentView: View {
                 captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
-                    let nextWidth = min(500, max(150, startWidth - translation))
+                    let nextWidth = Self.clampedRightSidebarWidth(
+                        startWidth - translation,
+                        availableWidth: availableWidth
+                    )
                     withTransaction(Transaction(animation: nil)) {
                         fileExplorerWidth = nextWidth
                     }
@@ -2109,6 +2115,18 @@ struct ContentView: View {
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
     }
 
+    static func clampedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat) -> CGFloat {
+        let minimumWidth = Self.minimumRightSidebarWidth
+        let sanitizedCandidate = candidate.isFinite ? candidate : 220
+        let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
+        let availableWidthCap = sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
+        let maximumWidth = min(
+            Self.maximumRightSidebarWidth,
+            max(minimumWidth, availableWidthCap)
+        )
+        return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
+    }
+
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
         let nextWidth = Self.clampedSidebarWidth(
             sidebarWidth,
@@ -2122,6 +2140,33 @@ struct ContentView: View {
 
     private func normalizedSidebarWidth(_ candidate: CGFloat) -> CGFloat {
         Self.clampedSidebarWidth(candidate, maximumWidth: maxSidebarWidth())
+    }
+
+    private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
+        availableWidth
+            ?? observedWindow?.contentView?.bounds.width
+            ?? observedWindow?.contentLayoutRect.width
+            ?? NSApp.keyWindow?.contentView?.bounds.width
+            ?? NSApp.keyWindow?.contentLayoutRect.width
+            ?? NSApp.keyWindow?.screen?.frame.width
+            ?? NSScreen.main?.frame.width
+            ?? 1920
+    }
+
+    private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
+        Self.clampedRightSidebarWidth(
+            candidate,
+            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth)
+        )
+    }
+
+    private func clampRightSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
+        let nextWidth = normalizedRightSidebarWidth(fileExplorerWidth, availableWidth: availableWidth)
+        guard abs(nextWidth - fileExplorerWidth) > 0.5 else { return }
+        withTransaction(Transaction(animation: nil)) {
+            fileExplorerWidth = nextWidth
+        }
+        fileExplorerState.width = nextWidth
     }
 
     private func activateSidebarResizerCursor() {
@@ -2554,11 +2599,24 @@ struct ContentView: View {
         }
         .transaction { $0.animation = nil }
         .onAppear {
-            fileExplorerWidth = fileExplorerState.width
+            let sanitized = normalizedRightSidebarWidth(fileExplorerState.width)
+            fileExplorerWidth = sanitized
+            if abs(fileExplorerState.width - sanitized) > 0.5 {
+                DispatchQueue.main.async {
+                    fileExplorerState.width = sanitized
+                }
+            }
         }
         .onChange(of: fileExplorerState.width) { newValue in
             if fileExplorerDragStartWidth == nil {
-                fileExplorerWidth = newValue
+                let sanitized = normalizedRightSidebarWidth(newValue)
+                if abs(newValue - sanitized) > 0.5 {
+                    DispatchQueue.main.async {
+                        fileExplorerState.width = sanitized
+                    }
+                    return
+                }
+                fileExplorerWidth = sanitized
             }
         }
     }
@@ -3363,7 +3421,9 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
             guard let window = notification.object as? NSWindow,
                   window === observedWindow else { return }
-            clampSidebarWidthIfNeeded(availableWidth: window.contentView?.bounds.width ?? window.contentLayoutRect.width)
+            let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
+            clampSidebarWidthIfNeeded(availableWidth: availableWidth)
+            clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
             updateSidebarResizerBandState()
         })
 
@@ -3456,7 +3516,9 @@ struct ContentView: View {
                 DispatchQueue.main.async {
                     observedWindow = window
                     isFullScreen = window.styleMask.contains(.fullScreen)
-                    clampSidebarWidthIfNeeded(availableWidth: window.contentView?.bounds.width ?? window.contentLayoutRect.width)
+                    let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
+                    clampSidebarWidthIfNeeded(availableWidth: availableWidth)
+                    clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
                     syncCommandPaletteDebugStateForObservedWindow()
                     installSidebarResizerPointerMonitorIfNeeded()
                     updateSidebarResizerBandState()
