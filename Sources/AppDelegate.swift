@@ -8,6 +8,7 @@ import WebKit
 import Combine
 import ObjectiveC.runtime
 import Darwin
+import os
 
 func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     guard let value else { return nil }
@@ -1316,8 +1317,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Mark terminating immediately to prevent autosave timer ticks from queuing
+        // async snapshot writes that could race with the termination snapshot.
+        // Reset to false if the user cancels the quit dialog.
         isTerminatingApp = true
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
@@ -1366,8 +1369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        isTerminatingApp = true
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        persistProfilesAndSessionForTermination()
         stopSessionAutosaveTimer()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
@@ -1386,8 +1388,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func persistSessionForUpdateRelaunch() {
+        persistProfilesAndSessionForTermination()
+    }
+
+    /// Consolidates full-fidelity session + profile persistence for all termination paths
+    /// (quit, update relaunch, power-off).
+    private func persistProfilesAndSessionForTermination() {
         isTerminatingApp = true
+        // Drain any pending async session writes before taking the termination snapshot.
+        // Without this, previously enqueued non-scrollback writes could complete after our
+        // full-fidelity snapshot and overwrite it.
+        sessionPersistenceQueue.sync {}
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        autosaveActiveProfiles(includeScrollback: true)
     }
 
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
@@ -2791,8 +2804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.isTerminatingApp = true
-                _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+                self.persistProfilesAndSessionForTermination()
             }
         }
         lifecycleSnapshotObservers.append(powerOffObserver)
@@ -3061,7 +3073,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
 #endif
-        if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
+        // Check if profile autosave needs retry due to previous failures
+        let forceProfileRetry = consumeProfileAutosaveRetryFlag()
+
+        if !forceProfileRetry && Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
             isTerminatingApp: isTerminatingApp,
             includeScrollback: false,
             previousFingerprint: lastSessionAutosaveFingerprint,
@@ -3084,6 +3099,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeScrollback: false,
             restorableAgentIndex: restorableAgentIndex
         )
+        // Use async version to move profile disk I/O off main thread
+        autosaveActiveProfilesAsync()
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
 #endif
@@ -3092,6 +3109,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistedAt: now,
             fingerprint: autosaveFingerprint
         )
+    }
+
+    /// Auto-saves any active profiles so changes are persisted without explicit user action.
+    /// Synchronous profile autosave - use only for termination paths where we must block.
+    private func autosaveActiveProfiles(includeScrollback: Bool = false) {
+        let contexts = Array(mainWindowContexts.values)
+        var savedProfileNames: Set<String> = []
+        for context in contexts {
+            guard let rawName = context.tabManager.activeProfileName else { continue }
+            let profileName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !profileName.isEmpty else { continue }
+            guard savedProfileNames.insert(profileName).inserted else { continue }
+            _ = ProfileStore.saveCurrentSession(
+                name: profileName,
+                tabManager: context.tabManager,
+                includeScrollback: includeScrollback
+            )
+        }
+    }
+
+    /// Tracks whether the last async profile autosave had failures, triggering retry on next tick.
+    private var profileAutosaveNeedsRetry = false
+
+    /// Async profile autosave - moves disk I/O off the main thread.
+    /// Use for periodic autosave ticks where blocking the main thread is undesirable.
+    /// Tracks failures and sets `profileAutosaveNeedsRetry` for retry on next tick.
+    private func autosaveActiveProfilesAsync() {
+        let contexts = Array(mainWindowContexts.values)
+        var savedProfileNames: Set<String> = []
+        var saveTargets: [(name: String, tabManager: TabManager)] = []
+
+        for context in contexts {
+            guard let rawName = context.tabManager.activeProfileName else { continue }
+            let profileName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !profileName.isEmpty else { continue }
+            guard savedProfileNames.insert(profileName).inserted else { continue }
+            saveTargets.append((name: profileName, tabManager: context.tabManager))
+        }
+
+        guard !saveTargets.isEmpty else { return }
+
+        let expectedCount = saveTargets.count
+
+        // Use a single Task with TaskGroup to await all saves with proper completion tracking.
+        // Each child task re-validates state before saving to avoid re-creating deleted/renamed
+        // profiles or saving when the active profile changed.
+        Task {
+            let failureCount = await withTaskGroup(of: Bool.self, returning: Int.self) { group in
+                for target in saveTargets {
+                    group.addTask {
+                        // Re-check that activeProfileName still matches the snapshot.
+                        // If it changed, skip (don't save stale state, don't count as failure).
+                        let currentName = await MainActor.run { target.tabManager.activeProfileName }
+                        guard currentName == target.name else { return false }
+
+                        // Verify profile still exists to avoid re-creating deleted/renamed profiles.
+                        guard ProfileStore.load(name: target.name) != nil else { return false }
+
+                        let result = await ProfileStore.saveCurrentSessionAsync(
+                            name: target.name,
+                            tabManager: target.tabManager,
+                            includeScrollback: false
+                        )
+                        return result == nil // true = actual save failure
+                    }
+                }
+
+                var failures = 0
+                for await failed in group {
+                    if failed { failures += 1 }
+                }
+                return failures
+            }
+
+            if failureCount > 0 {
+                await MainActor.run {
+                    self.profileAutosaveNeedsRetry = true
+#if DEBUG
+                    dlog("profile.autosave.failed count=\(failureCount)/\(expectedCount) willRetry=true")
+#endif
+                }
+            }
+        }
+    }
+
+    /// Returns true if profile autosave needs retry due to previous failures.
+    /// Clears the flag after returning.
+    private func consumeProfileAutosaveRetryFlag() -> Bool {
+        let needsRetry = profileAutosaveNeedsRetry
+        profileAutosaveNeedsRetry = false
+        return needsRetry
     }
 
     fileprivate func recordTypingActivity() {
@@ -3789,6 +3897,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func tabManagerFor(windowId: UUID) -> TabManager? {
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
+    }
+
+    /// Clears `activeProfileName` on every TabManager that currently holds the given name.
+    /// Must be called on the main thread.
+    /// Normalizes names (trims whitespace) before comparing to match autosaveActiveProfiles behavior.
+    func clearActiveProfileNameInAllWindows(_ profileName: String) {
+        let normalizedTarget = profileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTarget.isEmpty else { return }
+        for context in mainWindowContexts.values {
+            guard let rawActive = context.tabManager.activeProfileName else { continue }
+            let normalizedActive = rawActive.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedActive == normalizedTarget {
+                context.tabManager.setActiveProfileName(nil)
+            }
+        }
+    }
+
+    /// Clears `activeProfileName` on every TabManager unconditionally.
+    /// Use when deleting all profiles to ensure stale names are also cleared.
+    func clearAllActiveProfileNames() {
+        for context in mainWindowContexts.values {
+            context.tabManager.setActiveProfileName(nil)
+        }
+    }
+
+    /// Updates `activeProfileName` from oldName to newName in all windows.
+    /// Used when renaming a profile to keep windows in sync.
+    /// Normalizes names (trims whitespace) before comparing.
+    func updateActiveProfileNameInAllWindows(from oldName: String, to newName: String) {
+        let normalizedOld = oldName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedOld.isEmpty else { return }
+        for context in mainWindowContexts.values {
+            guard let rawActive = context.tabManager.activeProfileName else { continue }
+            let normalizedActive = rawActive.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedActive == normalizedOld {
+                context.tabManager.setActiveProfileName(newName)
+            }
+        }
     }
 
     func windowId(for tabManager: TabManager) -> UUID? {

@@ -1840,6 +1840,17 @@ class TerminalController {
         case "read_screen":
             return readScreenText(args)
 
+        case "profile_list":
+            return profileList()
+
+        case "profile_save":
+            return profileSave(args)
+
+        case "profile_load":
+            return profileLoad(args)
+
+        case "profile_delete":
+            return profileDelete(args)
 
 #if DEBUG
         case "send_workspace":
@@ -2403,6 +2414,16 @@ class TerminalController {
         case "markdown.open":
             return v2Result(id: id, self.v2MarkdownOpen(params: params))
 
+        // Profiles
+        case "profile.list":
+            return v2Result(id: id, self.v2ProfileList(params: params))
+        case "profile.save":
+            return v2Result(id: id, self.v2ProfileSave(params: params))
+        case "profile.load":
+            return v2Result(id: id, self.v2ProfileLoad(params: params))
+        case "profile.delete":
+            return v2Result(id: id, self.v2ProfileDelete(params: params))
+
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
 
@@ -2555,6 +2576,10 @@ class TerminalController {
             "app.focus_override.set",
             "app.simulate_active",
             "markdown.open",
+            "profile.list",
+            "profile.save",
+            "profile.load",
+            "profile.delete",
             "browser.open_split",
             "browser.navigate",
             "browser.back",
@@ -7773,6 +7798,169 @@ class TerminalController {
         return result
     }
 
+    // MARK: - Profiles
+
+    private func v2ProfileList(params: [String: Any]) -> V2CallResult {
+        let profiles = ProfileStore.list()
+        let entries: [[String: Any]] = profiles.map { profile in
+            [
+                "id": profile.id.uuidString,
+                "name": profile.name,
+                "workspace_count": profile.snapshot.workspaces.count,
+                "created_at": profile.createdAt.timeIntervalSince1970,
+                "updated_at": profile.updatedAt.timeIntervalSince1970,
+            ]
+        }
+        return .ok(["profiles": entries, "count": entries.count])
+    }
+
+    private func v2ProfileSave(params: [String: Any]) -> V2CallResult {
+        guard let rawName = v2String(params, "name") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'name' parameter", data: nil)
+        }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or empty 'name' parameter", data: nil)
+        }
+        // Validate include_scrollback if present
+        let includeScrollback: Bool
+        if params["include_scrollback"] != nil {
+            guard let value = v2Bool(params, "include_scrollback") else {
+                return .err(code: "invalid_params", message: "Invalid 'include_scrollback' value (expected boolean)", data: nil)
+            }
+            includeScrollback = value
+        } else {
+            includeScrollback = true
+        }
+
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to save profile", data: nil)
+        v2MainSync {
+            guard let profile = ProfileStore.saveCurrentSession(
+                name: name,
+                tabManager: tabManager,
+                includeScrollback: includeScrollback
+            ) else {
+                result = .err(code: "save_failed", message: "Failed to save profile '\(name)'", data: nil)
+                return
+            }
+            // Clear from other windows first to maintain single-owner invariant (mirrors UI activateProfile).
+            AppDelegate.shared?.clearActiveProfileNameInAllWindows(name)
+            tabManager.setActiveProfileName(name)
+            result = .ok([
+                "id": profile.id.uuidString,
+                "name": profile.name,
+                "workspace_count": profile.snapshot.workspaces.count,
+            ])
+        }
+        return result
+    }
+
+    private func v2ProfileLoad(params: [String: Any]) -> V2CallResult {
+        guard let rawName = v2String(params, "name") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'name' parameter", data: nil)
+        }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or empty 'name' parameter", data: nil)
+        }
+
+        guard let profile = ProfileStore.load(name: name) else {
+            return .err(code: "not_found", message: "Profile '\(name)' not found", data: nil)
+        }
+
+        // Validate new_window if present
+        let inNewWindow: Bool
+        if params["new_window"] != nil {
+            guard let value = v2Bool(params, "new_window") else {
+                return .err(code: "invalid_params", message: "Invalid 'new_window' value (expected boolean)", data: nil)
+            }
+            inNewWindow = value
+        } else {
+            inNewWindow = false
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to load profile", data: nil)
+        v2MainSync {
+            if inNewWindow {
+                guard let appDelegate = AppDelegate.shared else {
+                    result = .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+                    return
+                }
+                let snapshot = SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: profile.snapshot,
+                    sidebar: SessionSidebarSnapshot(
+                        isVisible: true,
+                        selection: .tabs,
+                        width: nil
+                    )
+                )
+                let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
+                let newTabManager = appDelegate.tabManagerFor(windowId: windowId)
+                // Clear from other windows first to maintain single-owner invariant (mirrors UI activateProfile).
+                appDelegate.clearActiveProfileNameInAllWindows(profile.name)
+                newTabManager?.setActiveProfileName(profile.name)
+                result = .ok([
+                    "name": profile.name,
+                    "window_id": windowId.uuidString,
+                    "workspace_count": newTabManager?.tabs.count ?? 0,
+                    "mode": "new_window",
+                ])
+            } else {
+                guard let tabManager = v2ResolveTabManager(params: params) else {
+                    result = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                    return
+                }
+                tabManager.restoreSessionSnapshot(profile.snapshot)
+                // Clear from other windows first to maintain single-owner invariant (mirrors UI activateProfile).
+                AppDelegate.shared?.clearActiveProfileNameInAllWindows(profile.name)
+                tabManager.setActiveProfileName(profile.name)
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "name": profile.name,
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "workspace_count": tabManager.tabs.count,
+                    "mode": "replace",
+                ])
+            }
+        }
+        return result
+    }
+
+    private func v2ProfileDelete(params: [String: Any]) -> V2CallResult {
+        guard let rawName = v2String(params, "name") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'name' parameter", data: nil)
+        }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or empty 'name' parameter", data: nil)
+        }
+
+        guard ProfileStore.load(name: name) != nil else {
+            return .err(code: "not_found", message: "Profile '\(name)' not found", data: nil)
+        }
+
+        guard ProfileStore.delete(name: name) else {
+            return .err(code: "delete_failed", message: "Failed to delete profile '\(name)'", data: nil)
+        }
+
+        // Clear active profile name across all windows so autosave doesn't resurrect the deleted profile.
+        var result: V2CallResult = .ok(["name": name, "deleted": true])
+        v2MainSync {
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.clearActiveProfileNameInAllWindows(name)
+            } else if let tabManager, tabManager.activeProfileName == name {
+                tabManager.setActiveProfileName(nil)
+            }
+        }
+        return result
+    }
+
     // MARK: - Browser
 
     private func v2BrowserOpenSplit(params: [String: Any]) -> V2CallResult {
@@ -11435,6 +11623,128 @@ class TerminalController {
         return result
     }
 
+    // MARK: - Profile Commands (v1)
+
+    private func profileList() -> String {
+        let profiles = ProfileStore.list()
+        if profiles.isEmpty {
+            return "OK: No profiles saved"
+        }
+        let lines = profiles.map { profile in
+            "\(profile.name) (workspaces: \(profile.snapshot.workspaces.count))"
+        }
+        return "OK:\n" + lines.joined(separator: "\n")
+    }
+
+    private func profileSave(_ args: String) -> String {
+        let name = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            return "ERROR: Usage: profile_save <name>"
+        }
+        guard let tabManager else {
+            return "ERROR: TabManager not available"
+        }
+        var result = "ERROR: Failed to save profile '\(name)'"
+        v2MainSync {
+            guard let profile = ProfileStore.saveCurrentSession(name: name, tabManager: tabManager) else {
+                return
+            }
+            // Clear from other windows first to maintain single-owner invariant (mirrors UI activateProfile).
+            AppDelegate.shared?.clearActiveProfileNameInAllWindows(name)
+            tabManager.setActiveProfileName(name)
+            result = "OK: Profile '\(profile.name)' saved with \(profile.snapshot.workspaces.count) workspace(s)"
+        }
+        return result
+    }
+
+    private func profileLoad(_ args: String) -> String {
+        var raw = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else {
+            return "ERROR: Usage: profile_load <name> [--new-window]"
+        }
+
+        // Parse --new-window only when it appears as a standalone trailing argument,
+        // so profile names that happen to contain the substring are not corrupted.
+        // Use regex word boundary to handle variable whitespace before the flag.
+        let inNewWindow: Bool
+        if let range = raw.range(of: #"\s+--new-window$"#, options: .regularExpression) {
+            inNewWindow = true
+            raw = String(raw[raw.startIndex..<range.lowerBound])
+        } else if raw == "--new-window" {
+            // Bare flag with no name — fall through to the empty-name guard below.
+            inNewWindow = true
+            raw = ""
+        } else {
+            inNewWindow = false
+        }
+        let name = raw
+        guard !name.isEmpty else {
+            return "ERROR: Usage: profile_load <name> [--new-window]"
+        }
+
+        guard let profile = ProfileStore.load(name: name) else {
+            return "ERROR: Profile '\(name)' not found"
+        }
+
+        var result = "ERROR: Failed to load profile '\(name)'"
+        v2MainSync {
+            if inNewWindow {
+                guard let appDelegate = AppDelegate.shared else {
+                    result = "ERROR: AppDelegate not available"
+                    return
+                }
+                let snapshot = SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: profile.snapshot,
+                    sidebar: SessionSidebarSnapshot(
+                        isVisible: true,
+                        selection: .tabs,
+                        width: nil
+                    )
+                )
+                let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
+                // Clear from other windows first to maintain single-owner invariant (mirrors UI activateProfile).
+                appDelegate.clearActiveProfileNameInAllWindows(name)
+                appDelegate.tabManagerFor(windowId: windowId)?.setActiveProfileName(name)
+                result = "OK: Profile '\(name)' loaded in new window (\(profile.snapshot.workspaces.count) workspace(s))"
+            } else {
+                guard let tabManager else {
+                    result = "ERROR: TabManager not available"
+                    return
+                }
+                tabManager.restoreSessionSnapshot(profile.snapshot)
+                // Clear from other windows first to maintain single-owner invariant (mirrors UI activateProfile).
+                AppDelegate.shared?.clearActiveProfileNameInAllWindows(name)
+                tabManager.setActiveProfileName(name)
+                result = "OK: Profile '\(name)' loaded (\(profile.snapshot.workspaces.count) workspace(s))"
+            }
+        }
+        return result
+    }
+
+    private func profileDelete(_ args: String) -> String {
+        let name = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            return "ERROR: Usage: profile_delete <name>"
+        }
+        guard ProfileStore.load(name: name) != nil else {
+            return "ERROR: Profile '\(name)' not found"
+        }
+        guard ProfileStore.delete(name: name) else {
+            return "ERROR: Failed to delete profile '\(name)'"
+        }
+        // Clear active profile name across all windows so autosave doesn't resurrect the deleted profile.
+        v2MainSync {
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.clearActiveProfileNameInAllWindows(name)
+            } else if let tabManager, tabManager.activeProfileName == name {
+                tabManager.setActiveProfileName(nil)
+            }
+        }
+        return "OK: Profile '\(name)' deleted"
+    }
+
     private func readScreenText(_ args: String) -> String {
         let options: ReadScreenOptions
         switch parseReadScreenArgs(args) {
@@ -11533,6 +11843,12 @@ class TerminalController {
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata
+
+        Profile commands:
+          profile_list                    - List all saved profiles
+          profile_save <name>             - Save current workspaces as a named profile
+          profile_load <name> [--new-window] - Load a profile (replace current or open in new window)
+          profile_delete <name>           - Delete a saved profile
 
         Browser commands:
           open_browser [url]              - Create browser panel with optional URL
