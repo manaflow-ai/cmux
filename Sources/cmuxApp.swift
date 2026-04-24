@@ -3602,7 +3602,7 @@ private struct StartupAppearanceDebugView: View {
     }
 
     private var selectedConfigText: String {
-        selectedProfile.previewConfigContents ?? "Loads real user config files."
+        selectedProfile.previewConfigContents() ?? "Loads real user config files."
     }
 
     private func applyPreview() {

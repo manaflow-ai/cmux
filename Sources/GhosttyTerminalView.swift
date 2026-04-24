@@ -47,7 +47,7 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
         case .realUserConfig:
             return "Loads your actual Ghostty and cmux config files."
         case .freshInstall:
-            return "No user theme or terminal colors, so cmux injects its managed default theme pair."
+            return "No user theme or terminal colors, so cmux applies its managed default colors."
         case .userThemePair:
             return "Simulates a user with an explicit light/dark Ghostty theme."
         case .userSingleTheme:
@@ -61,12 +61,16 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
         self == .realUserConfig
     }
 
-    var previewConfigContents: String? {
+    func previewConfigContents(
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
+    ) -> String? {
         switch self {
         case .realUserConfig:
             return nil
         case .freshInstall:
-            return "theme = \(GhosttyConfig.cmuxDefaultTheme)"
+            return GhosttyConfig.cmuxDefaultThemeConfigContents(
+                preferredColorScheme: preferredColorScheme
+            )
         case .userThemePair:
             return "theme = light:Catppuccin Latte,dark:Catppuccin Mocha"
         case .userSingleTheme:
@@ -1983,15 +1987,17 @@ class GhosttyApp {
             loadLegacyGhosttyConfigIfNeeded(config)
             ghostty_config_load_recursive_files(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
-            if Self.shouldInjectManagedDefaultTheme() {
+            if Self.shouldApplyManagedDefaultAppearance() {
                 loadInlineGhosttyConfig(
-                    "theme = \(GhosttyConfig.cmuxDefaultTheme)",
+                    GhosttyConfig.cmuxDefaultThemeConfigContents(
+                        preferredColorScheme: GhosttyConfig.currentColorSchemePreference()
+                    ),
                     into: config,
-                    prefix: "cmux-default-theme",
-                    logLabel: "default theme fallback"
+                    prefix: "cmux-default-appearance",
+                    logLabel: "default appearance fallback"
                 )
             }
-        } else if let contents = startupPreviewProfile.previewConfigContents {
+        } else if let contents = startupPreviewProfile.previewConfigContents() {
             loadInlineGhosttyConfig(
                 contents,
                 into: config,
@@ -2004,12 +2010,14 @@ class GhosttyApp {
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
-        if Self.shouldInjectManagedDefaultTheme() {
+        if Self.shouldApplyManagedDefaultAppearance() {
             loadInlineGhosttyConfig(
-                "theme = \(GhosttyConfig.cmuxDefaultTheme)",
+                GhosttyConfig.cmuxDefaultThemeConfigContents(
+                    preferredColorScheme: GhosttyConfig.currentColorSchemePreference()
+                ),
                 into: config,
-                prefix: "cmux-default-theme",
-                logLabel: "default theme fallback"
+                prefix: "cmux-default-appearance",
+                logLabel: "default appearance fallback"
             )
         }
         #endif
@@ -2165,7 +2173,7 @@ class GhosttyApp {
         var hasThemeDirective = false
         var hasExplicitTerminalColorDirective = false
 
-        var shouldInjectDefaultTheme: Bool {
+        var shouldApplyDefaultAppearance: Bool {
             !hasThemeDirective && !hasExplicitTerminalColorDirective
         }
 
@@ -2287,10 +2295,10 @@ class GhosttyApp {
         ) != nil
     }
 
-    static func shouldInjectManagedDefaultTheme(
+    static func shouldApplyManagedDefaultAppearance(
         configPaths: [String] = loadedCJKScanPaths()
     ) -> Bool {
-        userAppearanceConfigSummary(configPaths: configPaths).shouldInjectDefaultTheme
+        userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
     }
 
     /// Resolve auto-injected CJK families through the regular-weight descriptor

@@ -2715,36 +2715,36 @@ final class GhosttyMouseFocusTests: XCTestCase {
         )
     }
 
-    // MARK: shouldInjectManagedDefaultTheme
+    // MARK: shouldApplyManagedDefaultAppearance
 
-    func testShouldInjectManagedDefaultThemeAllowsNonAppearanceConfig() throws {
+    func testShouldApplyManagedDefaultAppearanceAllowsNonAppearanceConfig() throws {
         try withTempConfig("""
         font-family = JetBrains Mono
         background-opacity = 0.92
         """) { path in
             XCTAssertTrue(
-                GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: [path])
+                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
             )
         }
     }
 
-    func testShouldInjectManagedDefaultThemeSkipsExplicitTheme() throws {
+    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTheme() throws {
         try withTempConfig("theme = Catppuccin Mocha\n") { path in
             XCTAssertFalse(
-                GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: [path])
+                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
             )
         }
     }
 
-    func testShouldInjectManagedDefaultThemeSkipsExplicitTerminalColorDirective() throws {
+    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
         try withTempConfig("background = #101010\n") { path in
             XCTAssertFalse(
-                GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: [path])
+                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
             )
         }
     }
 
-    func testShouldInjectManagedDefaultThemeFollowsConfigFileIncludes() throws {
+    func testShouldApplyManagedDefaultAppearanceFollowsConfigFileIncludes() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-test-theme-include-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -2759,11 +2759,11 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: [main.path])
+            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
         )
     }
 
-    func testStartupAppearanceFreshInstallPreviewUsesManagedDefaultTheme() {
+    func testStartupAppearanceFreshInstallPreviewUsesManagedDefaultColorsWithoutSettingTheme() {
         #if DEBUG
         let previousProfile = GhosttyStartupAppearancePreviewState.profile
         GhosttyStartupAppearancePreviewState.profile = .freshInstall
@@ -2774,7 +2774,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
 
         let config = GhosttyConfig.load(preferredColorScheme: .light, useCache: false)
-        XCTAssertEqual(config.theme, GhosttyConfig.cmuxDefaultTheme)
+        XCTAssertNil(config.theme)
+        XCTAssertEqual(config.backgroundColor.hexString(), "#FEFFFF")
         #endif
     }
 }
