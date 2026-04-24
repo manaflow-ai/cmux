@@ -1978,23 +1978,21 @@ class GhosttyApp {
         _ contents: String,
         into config: ghostty_config_t,
         prefix: String,
-        logLabel: String
+        logLabel _: String
     ) {
         let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let tmpURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(prefix)-\(UUID().uuidString).conf")
-        do {
-            try trimmed.write(to: tmpURL, atomically: true, encoding: .utf8)
-            defer { try? FileManager.default.removeItem(at: tmpURL) }
-            tmpURL.path.withCString { path in
-                ghostty_config_load_file(config, path)
+        let syntheticPath = "/__cmux_inline__/\(prefix).conf"
+        trimmed.withCString { contents in
+            syntheticPath.withCString { path in
+                ghostty_config_load_string(
+                    config,
+                    contents,
+                    UInt(trimmed.lengthOfBytes(using: .utf8)),
+                    path
+                )
             }
-        } catch {
-            #if DEBUG
-            cmuxDebugLog("ghostty.config.inlineLoad.failed label=\(logLabel) error=\(error.localizedDescription)")
-            #endif
         }
     }
 
