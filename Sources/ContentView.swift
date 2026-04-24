@@ -12031,7 +12031,12 @@ private struct TabItemView: View, Equatable {
         // close X, shortcut pill) don't clip or overlap. At scale <= 1 this
         // is a no-op — the 16pt floor preserves the original hit-target size.
         let scaledAccessorySize = max(16, 16 * fontScale)
-        let scaledTrailingAccessoryWidth = max(trailingAccessoryWidth, scaledAccessorySize)
+        // Preserve the zero-width gutter when no trailing accessory is shown
+        // (e.g. workspaces with no close button and no shortcut pill), so the
+        // 16pt floor doesn't steal title space from rows that had none.
+        let scaledTrailingAccessoryWidth = trailingAccessoryWidth > 0
+            ? max(trailingAccessoryWidth, scaledAccessorySize)
+            : 0
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
