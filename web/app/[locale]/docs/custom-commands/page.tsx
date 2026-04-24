@@ -26,31 +26,130 @@ export default function CustomCommandsPage() {
       <p>{t("fileLocationsDesc")}</p>
       <ul>
         <li>
-          <strong>{t("localConfig")}</strong> <code>./cmux.json</code> &mdash; {t("localConfigDesc")}
+          <strong>{t("localConfig")}</strong> <code>./.cmux/cmux.json</code> - {t("localConfigDesc")}
         </li>
         <li>
-          <strong>{t("globalConfig")}</strong> <code>~/.config/cmux/cmux.json</code> &mdash; {t("globalConfigDesc")}
+          <strong>{t("fallbackLocal")}</strong> <code>./cmux.json</code> - {t("fallbackLocalDesc")}
+        </li>
+        <li>
+          <strong>{t("globalConfig")}</strong> <code>~/.config/cmux/cmux.json</code> - {t("globalConfigDesc")}
         </li>
       </ul>
       <Callout type="info">{t("precedenceNote")}</Callout>
+      <Callout type="info">
+        {t.rich("nightlyFeatureCallout", {
+          actions: (chunks) => <code>{chunks}</code>,
+          shortcut: (chunks) => <code>{chunks}</code>,
+          buttons: (chunks) => <code>{chunks}</code>,
+        })}
+      </Callout>
+      <Callout type="info">
+        {t("trustCallout")}
+      </Callout>
+      <Callout type="info">
+        {t.rich("schemaErrorCallout", {
+          title: (chunks) => <strong>{chunks}</strong>,
+        })}
+      </Callout>
       <p>{t("liveReload")}</p>
 
       <h2>{t("schema")}</h2>
-      <p>{t("schemaDesc")}</p>
+      <p>
+        {t.rich("schemaIntro", {
+          commands: (chunks) => <code>{chunks}</code>,
+          actions: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
       <CodeBlock title="cmux.json" lang="json">{`{
+  "actions": {
+    "cmux.newTerminal": {
+      "type": "command",
+      "title": "Codex",
+      "subtitle": "Open Codex in a new terminal tab",
+      "command": "codex --dangerously-bypass-approvals-and-sandbox",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+t",
+      "icon": { "type": "image", "path": "./icons/codex.svg" }
+    },
+    "claude": {
+      "type": "command",
+      "title": "Claude Code",
+      "command": "claude --dangerously-skip-permissions",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+shift+c",
+      "icon": { "type": "image", "path": "./icons/claude.svg" }
+    },
+    "opencode": {
+      "type": "command",
+      "title": "OpenCode",
+      "command": "opencode",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "emoji", "value": "🧪", "scale": 0.9 }
+    },
+    "web-dev": {
+      "type": "workspaceCommand",
+      "title": "Web Dev",
+      "commandName": "Web Dev"
+    }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        "cmux.splitRight",
+        "cmux.splitDown",
+        "claude"
+      ]
+    }
+  },
   "commands": [
     {
-      "name": "Start Dev",
+      "name": "Web Dev",
       "keywords": ["dev", "start"],
       "workspace": { ... }
-    },
-    {
-      "name": "Run Tests",
-      "command": "npm test",
-      "confirm": true
     }
   ]
 }`}</CodeBlock>
+      <h3>{t("nightlyActionRegistry")}</h3>
+      <p>
+        {t.rich("nightlyActionRegistryDesc", {
+          actions: (chunks) => <code>{chunks}</code>,
+          newTerminal: (chunks) => <code>{chunks}</code>,
+          newBrowser: (chunks) => <code>{chunks}</code>,
+          splitRight: (chunks) => <code>{chunks}</code>,
+          splitDown: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <p>
+        {t.rich("paletteDesc", {
+          palette: (chunks) => <code>{chunks}</code>,
+          trueValue: (chunks) => <code>{chunks}</code>,
+          falseValue: (chunks) => <code>{chunks}</code>,
+          shortcut: (chunks) => <code>{chunks}</code>,
+          singleShortcut: (chunks) => <code>{chunks}</code>,
+          chordShortcut: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <p>
+        {t.rich("iconsDesc", {
+          buttons: (chunks) => <code>{chunks}</code>,
+          symbolIcon: (chunks) => <code>{chunks}</code>,
+          emojiIcon: (chunks) => <code>{chunks}</code>,
+          imageIcon: (chunks) => <code>{chunks}</code>,
+          scale: (chunks) => <code>{chunks}</code>,
+          defaultScale: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <p>
+        {t("buttonEntriesDesc")}
+      </p>
+      <p>
+        {t.rich("permissionFlagsDesc", {
+          target: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
 
       <h2>{t("simpleCommands")}</h2>
       <p>{t("simpleCommandsDesc")}</p>
@@ -174,6 +273,46 @@ export default function CustomCommandsPage() {
 
       <h2>{t("fullExample")}</h2>
       <CodeBlock title="cmux.json" lang="json">{`{
+  "actions": {
+    "web-dev": { "type": "workspaceCommand", "commandName": "Web Dev" },
+    "cmux.newTerminal": {
+      "type": "command",
+      "title": "Codex",
+      "command": "codex --dangerously-bypass-approvals-and-sandbox",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+t",
+      "icon": { "type": "image", "path": "./icons/codex.svg" }
+    },
+    "claude": {
+      "type": "command",
+      "title": "Claude Code",
+      "command": "claude --dangerously-skip-permissions",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+shift+c",
+      "icon": { "type": "image", "path": "./icons/claude.svg" }
+    },
+    "start-dev": {
+      "type": "command",
+      "command": "npm run dev",
+      "target": "newTabInCurrentPane",
+      "icon": { "type": "symbol", "name": "play.circle" }
+    }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        "cmux.splitRight",
+        "cmux.splitDown",
+        {
+          "action": "claude",
+          "title": "Claude Here"
+        },
+        "start-dev"
+      ]
+    }
+  },
   "commands": [
     {
       "name": "Web Dev",

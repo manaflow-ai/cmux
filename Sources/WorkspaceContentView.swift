@@ -695,9 +695,9 @@ extension WorkspaceContentView {
             let line = "[\(ts)] PANEL NOT FOUND for tabId=\(tab.id) ws=\(workspace.id) panelCount=\(workspace.panels.count)\n"
             let logPath = "/tmp/cmux-panel-debug.log"
             if let handle = FileHandle(forWritingAtPath: logPath) {
-                handle.seekToEndOfFile()
-                handle.write(Data(line.utf8))
-                handle.closeFile()
+                defer { try? handle.close() }
+                guard (try? handle.seekToEnd()) != nil else { return }
+                try? handle.write(contentsOf: Data(line.utf8))
             } else {
                 FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
             }
@@ -736,7 +736,7 @@ struct EmptyPanelView: View {
 
     private func createTerminal() {
         #if DEBUG
-        dlog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
+        cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
         _ = workspace.newTerminalSurface(inPane: paneId)
@@ -744,7 +744,7 @@ struct EmptyPanelView: View {
 
     private func createBrowser() {
         #if DEBUG
-        dlog("emptyPane.newBrowser pane=\(paneId.id.uuidString.prefix(5))")
+        cmuxDebugLog("emptyPane.newBrowser pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
         _ = workspace.newBrowserSurface(inPane: paneId)

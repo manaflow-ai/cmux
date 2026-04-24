@@ -416,22 +416,6 @@
         }
       }
     },
-    "customCommands": {
-      "title": "customCommands",
-      "description": "Custom command trust settings from Settings > Custom Commands.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "trustedDirectories": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "description": "Directories whose cmux.json commands can run without confirmation."
-        }
-      }
-    },
     "browser": {
       "title": "browser",
       "description": "Embedded browser settings from Settings > Browser.",
@@ -534,6 +518,7 @@
               "toggleSidebar",
               "newTab",
               "openFolder",
+              "reopenPreviousSession",
               "goToWorkspace",
               "commandPalette",
               "sendFeedback",
