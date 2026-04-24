@@ -311,7 +311,7 @@ struct GhosttyConfig {
                 forThemeName: candidateName,
                 environment: environment,
                 bundleResourceURL: bundleResourceURL
-            ) where FileManager.default.isReadableFile(atPath: path) {
+            ) where (try? String(contentsOfFile: path, encoding: .utf8)) != nil {
                 return URL(fileURLWithPath: path)
             }
         }

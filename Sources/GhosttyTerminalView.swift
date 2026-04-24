@@ -2050,8 +2050,8 @@ class GhosttyApp {
         if startupPreviewProfile.loadsRealUserConfig {
             ghostty_config_load_default_files(config)
             loadLegacyGhosttyConfigIfNeeded(config)
-            ghostty_config_load_recursive_files(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
+            ghostty_config_load_recursive_files(config)
             if Self.shouldApplyManagedDefaultAppearance() {
                 loadCmuxDefaultAppearanceConfig(config)
             }
@@ -2061,8 +2061,8 @@ class GhosttyApp {
         #else
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
-        ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
+        ghostty_config_load_recursive_files(config)
         if Self.shouldApplyManagedDefaultAppearance() {
             loadCmuxDefaultAppearanceConfig(config)
         }
@@ -2473,10 +2473,8 @@ class GhosttyApp {
         }
 
         var loadedRecursivePaths = Set<String>()
-        var index = 0
-        while index < recursiveConfigPaths.count {
-            let path = recursiveConfigPaths[index]
-            index += 1
+        while !recursiveConfigPaths.isEmpty {
+            let path = recursiveConfigPaths.removeFirst()
             let resolved = (path as NSString).standardizingPath
             guard !loadedRecursivePaths.contains(resolved) else { continue }
             loadedRecursivePaths.insert(resolved)
@@ -2506,10 +2504,8 @@ class GhosttyApp {
         }
 
         var loadedRecursivePaths = Set<String>()
-        var index = 0
-        while index < recursiveConfigPaths.count {
-            let path = recursiveConfigPaths[index]
-            index += 1
+        while !recursiveConfigPaths.isEmpty {
+            let path = recursiveConfigPaths.removeFirst()
             let resolved = (path as NSString).standardizingPath
             guard !loadedRecursivePaths.contains(resolved) else { continue }
             loadedRecursivePaths.insert(resolved)

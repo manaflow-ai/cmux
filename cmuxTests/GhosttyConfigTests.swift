@@ -93,6 +93,36 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertTrue(paths.contains("\(pathB)/ghostty/themes/Solarized Light"))
     }
 
+    func testCmuxDefaultThemeConfigContentsSkipsInvalidUTF8Candidate() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-managed-theme-search-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let firstDataDir = root.appendingPathComponent("first", isDirectory: true)
+        let secondDataDir = root.appendingPathComponent("second", isDirectory: true)
+        let firstThemeDir = firstDataDir.appendingPathComponent("ghostty/themes", isDirectory: true)
+        let secondThemeDir = secondDataDir.appendingPathComponent("ghostty/themes", isDirectory: true)
+        try fileManager.createDirectory(at: firstThemeDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: secondThemeDir, withIntermediateDirectories: true)
+
+        let firstTheme = firstThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
+        try Data([0xff, 0xfe]).write(to: firstTheme)
+
+        let secondTheme = secondThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
+        let expected = "foreground = #123456\n"
+        try expected.write(to: secondTheme, atomically: true, encoding: .utf8)
+
+        let contents = GhosttyConfig.cmuxDefaultThemeConfigContents(
+            preferredColorScheme: .light,
+            environment: ["XDG_DATA_DIRS": "\(firstDataDir.path):\(secondDataDir.path)"],
+            bundleResourceURL: nil
+        )
+
+        XCTAssertEqual(contents, expected)
+    }
+
     func testLoadReadsSymlinkedGhosttyConfigFile() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -2798,6 +2828,32 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         let main = dir.appendingPathComponent("config")
         try "config-file = \"?appearance.conf\"\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+        )
+    }
+
+    func testShouldApplyManagedDefaultAppearanceProcessesIncludeQueuedAfterReset() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-theme-reset-include-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let themed = dir.appendingPathComponent("appearance.conf")
+        try "theme = Catppuccin Latte\n"
+            .write(to: themed, atomically: true, encoding: .utf8)
+
+        let first = dir.appendingPathComponent("first.conf")
+        try """
+        config-file =
+        config-file = appearance.conf
+        """
+        .write(to: first, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = first.conf\n"
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(

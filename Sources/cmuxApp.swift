@@ -3637,6 +3637,7 @@ private struct StartupAppearanceDebugView: View {
                         ) {
                             copySelectedConfig()
                         }
+                        .disabled(selectedPreviewConfigText == nil)
                     }
                     .padding(.top, 2)
                 }
@@ -3688,8 +3689,12 @@ private struct StartupAppearanceDebugView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    private var selectedPreviewConfigText: String? {
+        selectedProfile.previewConfigContents()
+    }
+
     private var selectedConfigText: String {
-        selectedProfile.previewConfigContents() ?? String(
+        selectedPreviewConfigText ?? String(
             localized: "debug.startupAppearance.realConfigFallback",
             defaultValue: "Loads real user config files."
         )
@@ -3740,9 +3745,10 @@ private struct StartupAppearanceDebugView: View {
     }
 
     private func copySelectedConfig() {
+        guard let config = selectedPreviewConfigText else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(selectedConfigText, forType: .string)
+        pasteboard.setString(config, forType: .string)
     }
 }
 
