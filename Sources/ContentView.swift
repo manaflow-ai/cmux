@@ -1517,6 +1517,344 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     }
 }
 
+// MARK: - Collapsed Workspace Tabs Policy
+
+enum CollapsedWorkspaceTabsPolicy {
+    /// Whether horizontal collapsed tabs should be shown in the titlebar.
+    static func shouldShowCollapsedTabs(sidebarVisible: Bool, workspaceCount: Int) -> Bool {
+        !sidebarVisible && workspaceCount > 1
+    }
+
+    /// Whether the titlebar bottom separator should be visible.
+    static func shouldShowTitlebarSeparator(sidebarVisible: Bool, workspaceCount: Int) -> Bool {
+        sidebarVisible || workspaceCount <= 1
+    }
+
+    /// Resolve the foreground color for a collapsed tab element.
+    static func foregroundNSColor(isActive: Bool, opacity: CGFloat, colorScheme: ColorScheme) -> NSColor {
+        isActive
+            ? sidebarSelectedWorkspaceForegroundNSColor(opacity: opacity)
+            : NSColor.secondaryLabelColor.withAlphaComponent(opacity)
+    }
+
+    /// Resolve the background color for a collapsed tab.
+    static func backgroundNSColor(isActive: Bool, colorScheme: ColorScheme) -> NSColor {
+        isActive
+            ? sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)
+            : .clear
+    }
+}
+
+// MARK: - Collapsed Workspace Tab Item
+
+private struct CollapsedTabDropDelegate: DropDelegate {
+    let targetTabId: UUID
+    let tabManager: TabManager
+    @Binding var draggedTabId: UUID?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedTabId = nil
+        return true
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedId = draggedTabId, draggedId != targetTabId else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            _ = tabManager.reorderWorkspace(tabId: draggedId, toIndex: tabManager.tabs.firstIndex(where: { $0.id == targetTabId }) ?? 0)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+}
+
+private struct CollapsedWorkspaceTabItem: View {
+    let tab: Workspace
+    let isActive: Bool
+    let unreadCount: Int
+    let canClose: Bool
+    let shortcutLabel: String?
+    let index: Int
+    let tabManager: TabManager
+    @Binding var draggedTabId: UUID?
+    let onSelect: () -> Void
+    let onClose: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
+    @State private var didPushCursor = false
+    @State private var workspaceObservationGeneration: UInt64 = 0
+
+    private var tabCount: Int { tabManager.tabs.count }
+
+    // MARK: - Colors (derived from CollapsedWorkspaceTabsPolicy / sidebar palette)
+
+    private var activeBackgroundColor: Color {
+        Color(nsColor: CollapsedWorkspaceTabsPolicy.backgroundNSColor(isActive: true, colorScheme: colorScheme))
+    }
+
+    private var primaryTextColor: Color {
+        Color(nsColor: CollapsedWorkspaceTabsPolicy.foregroundNSColor(isActive: isActive, opacity: 1.0, colorScheme: colorScheme))
+    }
+
+    private var secondaryColor: Color {
+        Color(nsColor: CollapsedWorkspaceTabsPolicy.foregroundNSColor(isActive: isActive, opacity: 0.7, colorScheme: colorScheme))
+    }
+
+    private var unreadBadgeFillColor: Color {
+        isActive
+            ? Color(nsColor: CollapsedWorkspaceTabsPolicy.foregroundNSColor(isActive: true, opacity: 0.25, colorScheme: colorScheme))
+            : cmuxAccentColor()
+    }
+
+    var body: some View {
+        let _ = workspaceObservationGeneration
+        HStack(spacing: 0) {
+            if let shortcutLabel {
+                Text(shortcutLabel)
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundColor(secondaryColor.opacity(isActive ? 1 : 0.85))
+                    .padding(.leading, 8)
+            }
+
+            Spacer(minLength: 4)
+
+            HStack(spacing: 4) {
+                if unreadCount > 0 {
+                    ZStack {
+                        Circle().fill(unreadBadgeFillColor)
+                        Text("\(unreadCount)")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                    .frame(width: 14, height: 14)
+                }
+                if tab.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(secondaryColor)
+                }
+                Text(tab.title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(primaryTextColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 4)
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundColor(secondaryColor)
+            }
+            .buttonStyle(.plain)
+            .opacity(isHovering && canClose ? 1 : 0)
+            .allowsHitTesting(isHovering && canClose)
+            .frame(width: 20, alignment: .center)
+            .padding(.trailing, 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(isActive ? activeBackgroundColor : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect() }
+        .onHover { isHovering = $0 }
+        .onDrag {
+            NSCursor.closedHand.push()
+            didPushCursor = true
+            draggedTabId = tab.id
+            return SidebarTabDragPayload.provider(for: tab.id)
+        } preview: {
+            Color.clear.frame(width: 1, height: 1)
+        }
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: CollapsedTabDropDelegate(
+            targetTabId: tab.id, tabManager: tabManager, draggedTabId: $draggedTabId
+        ))
+        .onChange(of: draggedTabId) { newValue in
+            if newValue == nil && didPushCursor {
+                NSCursor.pop()
+                didPushCursor = false
+            }
+        }
+        .contextMenu { collapsedTabContextMenu }
+        .onReceive(
+            tab.sidebarImmediateObservationPublisher
+                .receive(on: RunLoop.main)
+        ) { _ in
+            workspaceObservationGeneration &+= 1
+        }
+    }
+
+    // MARK: - Context Menu
+
+    @ViewBuilder
+    private var collapsedTabContextMenu: some View {
+        let shouldPin = !tab.isPinned
+
+        Button(shouldPin
+            ? String(localized: "contextMenu.pinWorkspace", defaultValue: "Pin Workspace")
+            : String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace")
+        ) {
+            tabManager.setPinned(tab, pinned: shouldPin)
+        }
+
+        renameButton
+        if tab.hasCustomTitle {
+            Button(String(localized: "contextMenu.removeCustomWorkspaceName", defaultValue: "Remove Custom Workspace Name")) {
+                tabManager.clearCustomTitle(tabId: tab.id)
+            }
+        }
+
+        workspaceColorMenu
+
+        Divider()
+
+        Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
+            _ = tabManager.reorderWorkspace(tabId: tab.id, toIndex: index - 1)
+        }.disabled(index == 0)
+
+        Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
+            _ = tabManager.reorderWorkspace(tabId: tab.id, toIndex: index + 1)
+        }.disabled(index >= tabCount - 1)
+
+        Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
+            tabManager.moveTabsToTop(Set([tab.id]))
+        }.disabled(index == 0)
+
+        moveToWindowMenu
+
+        Divider()
+
+        closeButton
+
+        Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
+            tabManager.closeWorkspacesWithConfirmation(
+                tabManager.tabs.filter { $0.id != tab.id }.map(\.id), allowPinned: false
+            )
+        }.disabled(tabCount <= 1)
+
+        Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
+            let below = tabManager.tabs.suffix(from: index + 1).map(\.id)
+            tabManager.closeWorkspacesWithConfirmation(Array(below), allowPinned: false)
+        }.disabled(index >= tabCount - 1)
+
+        Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
+            let above = tabManager.tabs.prefix(index).map(\.id)
+            tabManager.closeWorkspacesWithConfirmation(Array(above), allowPinned: false)
+        }.disabled(index == 0)
+
+        Divider()
+
+        Button(String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read")) {
+            TerminalNotificationStore.shared.markRead(forTabId: tab.id)
+        }
+        Button(String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread")) {
+            TerminalNotificationStore.shared.markUnread(forTabId: tab.id)
+        }
+        Button(String(localized: "contextMenu.clearLatestNotification", defaultValue: "Clear Latest Notification")) {
+            TerminalNotificationStore.shared.clearLatestNotification(forTabId: tab.id)
+        }
+    }
+
+    @ViewBuilder
+    private var renameButton: some View {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
+        let button = Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) { promptRename() }
+        if let key = shortcut.keyEquivalent {
+            button.keyboardShortcut(key, modifiers: shortcut.eventModifiers)
+        } else {
+            button
+        }
+    }
+
+    @ViewBuilder
+    private var closeButton: some View {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
+        let button = Button(String(localized: "contextMenu.closeWorkspace", defaultValue: "Close Workspace")) {
+            tabManager.closeWorkspaceWithConfirmation(tab)
+        }.disabled(!canClose)
+        if let key = shortcut.keyEquivalent {
+            button.keyboardShortcut(key, modifiers: shortcut.eventModifiers)
+        } else {
+            button
+        }
+    }
+
+    private var workspaceColorMenu: some View {
+        Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
+            if tab.customColor != nil {
+                Button { tab.setCustomColor(nil) } label: {
+                    Label(String(localized: "contextMenu.clearColor", defaultValue: "Clear Color"), systemImage: "xmark.circle")
+                }
+            }
+            Button { promptCustomColor() } label: {
+                Label(String(localized: "contextMenu.chooseCustomColor", defaultValue: "Choose Custom Color…"), systemImage: "paintpalette")
+            }
+            if !WorkspaceTabColorSettings.palette().isEmpty { Divider() }
+            ForEach(WorkspaceTabColorSettings.palette(), id: \.id) { entry in
+                Button { tab.setCustomColor(entry.hex) } label: { Text(entry.name) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var moveToWindowMenu: some View {
+        let targets = AppDelegate.shared?.windowMoveTargets(
+            referenceWindowId: AppDelegate.shared?.windowId(for: tabManager)
+        ) ?? []
+        Menu(String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")) {
+            Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
+                _ = AppDelegate.shared?.moveWorkspaceToNewWindow(workspaceId: tab.id)
+            }
+            if !targets.isEmpty { Divider() }
+            ForEach(targets) { target in
+                Button(target.label) {
+                    _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: tab.id, windowId: target.windowId)
+                }.disabled(target.isCurrentWindow)
+            }
+        }
+    }
+
+    private func promptRename() {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
+        alert.informativeText = String(localized: "alert.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
+        let input = NSTextField(string: tab.customTitle ?? tab.title)
+        input.placeholderString = String(localized: "alert.renameWorkspace.placeholder", defaultValue: "Workspace name")
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
+        alert.window.initialFirstResponder = input
+        DispatchQueue.main.async { alert.window.makeFirstResponder(input); input.selectText(nil) }
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+    }
+
+    private func promptCustomColor() {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
+        alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
+        let input = NSTextField(string: tab.customColor ?? "")
+        input.placeholderString = "#1565C0"
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
+        alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
+        alert.window.initialFirstResponder = input
+        DispatchQueue.main.async { alert.window.makeFirstResponder(input); input.selectText(nil) }
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) {
+            tab.setCustomColor(normalized)
+        }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
@@ -1549,6 +1887,7 @@ struct ContentView: View {
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
+    @State private var collapsedTabDraggedId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
     @State private var sidebarResizerPointerMonitor: Any?
@@ -2619,34 +2958,46 @@ struct ContentView: View {
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
                 .allowsHitTesting(false)
 
-            HStack(spacing: 8) {
-                if isFullScreen && !sidebarState.isVisible {
-                    fullscreenControls
+            if CollapsedWorkspaceTabsPolicy.shouldShowCollapsedTabs(sidebarVisible: sidebarState.isVisible, workspaceCount: tabManager.tabs.count) {
+                HStack(spacing: 0) {
+                    if isFullScreen {
+                        fullscreenControls.padding(.leading, 8)
+                    }
+                    collapsedWorkspaceTabs
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.leading, isFullScreen ? 0 : titlebarLeadingInset + CGFloat(debugTitlebarLeadingExtra))
+                .transition(.opacity)
+            } else {
+                HStack(spacing: 8) {
+                    if isFullScreen && !sidebarState.isVisible {
+                        fullscreenControls
+                    }
 
-                // Draggable folder icon + focused command name
-                if let directory = focusedDirectory {
-                    DraggableFolderIcon(directory: directory)
-                        .padding(.leading, -6)
+                    if let directory = focusedDirectory {
+                        DraggableFolderIcon(directory: directory)
+                            .padding(.leading, -6)
+                    }
+
+                    Text(titlebarText)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(fakeTitlebarTextColor)
+                        .lineLimit(1)
+                        .allowsHitTesting(false)
+
+                    Spacer()
                 }
-
-                Text(titlebarText)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(fakeTitlebarTextColor)
-                    .lineLimit(1)
-                    .allowsHitTesting(false)
-
-                Spacer()
-
+                .frame(height: 28)
+                .padding(.top, 2)
+                .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset + CGFloat(debugTitlebarLeadingExtra)))
+                .padding(.trailing, 8)
+                .transition(.opacity)
             }
-            .frame(height: 28)
-            .padding(.top, 2)
-            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset + CGFloat(debugTitlebarLeadingExtra)))
-            .padding(.trailing, 8)
         }
         .frame(height: titlebarPadding)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
+        .animation(.easeInOut(duration: 0.2), value: sidebarState.isVisible)
         .background(TitlebarDoubleClickMonitorView())
         .background({
             // The terminal background is provided by a single CALayer
@@ -2659,9 +3010,51 @@ struct ContentView: View {
             )
         }())
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(height: 1)
+            if CollapsedWorkspaceTabsPolicy.shouldShowTitlebarSeparator(sidebarVisible: sidebarState.isVisible, workspaceCount: tabManager.tabs.count) {
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(height: 1)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    @StateObject private var collapsedTabDragFailsafe = SidebarDragFailsafeMonitor()
+
+    private var collapsedWorkspaceTabs: some View {
+        let tabs = tabManager.tabs
+        let selectedId = tabManager.selectedTabId
+        let shortcutPrefix = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber).numberedDigitHintPrefix
+        return HStack(spacing: 0) {
+            ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                let isActive = tab.id == selectedId
+
+                CollapsedWorkspaceTabItem(
+                    tab: tab, isActive: isActive,
+                    unreadCount: TerminalNotificationStore.shared.unreadCount(forTabId: tab.id),
+                    canClose: tabs.count > 1,
+                    shortcutLabel: WorkspaceShortcutMapper.digitForWorkspace(at: index, workspaceCount: tabs.count)
+                        .map { "\(shortcutPrefix)\($0)" },
+                    index: index, tabManager: tabManager,
+                    draggedTabId: $collapsedTabDraggedId,
+                    onSelect: { tabManager.selectTab(tab) },
+                    onClose: { tabManager.closeWorkspaceWithConfirmation(tab) }
+                )
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .onDisappear {
+            collapsedTabDragFailsafe.stop()
+            collapsedTabDraggedId = nil
+        }
+        .onChange(of: collapsedTabDraggedId) { newValue in
+            if newValue != nil {
+                collapsedTabDragFailsafe.start { _ in
+                    collapsedTabDraggedId = nil
+                }
+                return
+            }
+            collapsedTabDragFailsafe.stop()
         }
     }
 
