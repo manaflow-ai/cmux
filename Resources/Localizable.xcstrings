@@ -16813,121 +16813,19 @@
         }
       }
     },
-    "dialog.cmuxConfig.confirmCommand.message": {
+    "dialog.cmuxConfig.confirmCommand.messageWithCommand": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هل أنت متأكد أنك تريد تشغيل هذا الأمر؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jeste li sigurni da želite pokrenuti ovu naredbu?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Er du sikker på, at du vil køre denne kommando?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Möchten Sie diesen Befehl wirklich ausführen?"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Are you sure you want to run this command?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Estás seguro de que deseas ejecutar este comando?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Êtes-vous sûr de vouloir exécuter cette commande ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sei sicuro di voler eseguire questo comando?"
+            "value": "This project action comes from:\n\n%@\n\nIt will run:\n\n%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコマンドを実行してもよろしいですか？"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 명령을 실행하시겠습니까?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Er du sikker på at du vil kjøre denne kommandoen?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Czy na pewno chcesz uruchomić to polecenie?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tem certeza de que deseja executar este comando?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вы уверены, что хотите выполнить эту команду?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คุณแน่ใจหรือไม่ว่าต้องการรันคำสั่งนี้?"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu komutu çalıştırmak istediğinizden emin misiniz?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "确定要运行此命令吗？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確定要執行此命令嗎？"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ви впевнені, що хочете виконати цю команду?"
+            "value": "このプロジェクトアクションは次の設定から読み込まれました:\n\n%@\n\n実行内容:\n\n%@"
           }
         }
       }
@@ -16962,7 +16860,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run"
+            "value": "Run Once"
           }
         },
         "es": {
@@ -16986,7 +16884,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行"
+            "value": "1回のみ実行"
           }
         },
         "ko": {
@@ -17051,6 +16949,23 @@
         }
       }
     },
+    "dialog.cmuxConfig.confirmCommand.trustAndRun": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trust and Run"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼して実行"
+          }
+        }
+      }
+    },
     "dialog.cmuxConfig.confirmCommand.title": {
       "extractionState": "manual",
       "localizations": {
@@ -17081,7 +16996,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run Command"
+            "value": "Run Project Action?"
           }
         },
         "es": {
@@ -17105,7 +17020,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドを実行"
+            "value": "プロジェクトアクションを実行しますか？"
           }
         },
         "ko": {
@@ -17765,6 +17680,40 @@
         }
       }
     },
+    "command.cmuxConfig.defaultClaudeCodeTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.defaultCodexTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        }
+      }
+    },
     "command.cmuxConfig.customTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -17880,6 +17829,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Власне: %@"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.newWorkspaceActionRequiresWorkspaceCommand.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ must reference a workspace command action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はワークスペースコマンドアクションを参照する必要があります"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.newWorkspaceCommandNotFound.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ references missing command '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は存在しないコマンド '%@' を参照しています"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.newWorkspaceCommandRequiresWorkspace.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ '%@' must reference a workspace command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ '%@' はワークスペースコマンドを参照する必要があります"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.schemaError.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.schemaError.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid cmux.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効な cmux.json"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.schemaError.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json Schema Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json スキーマエラー"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.warning.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json Configuration Warning"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 設定警告"
           }
         }
       }

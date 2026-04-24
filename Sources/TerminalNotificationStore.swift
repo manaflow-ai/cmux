@@ -780,7 +780,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func logAuthorization(_ message: String) {
 #if DEBUG
-        dlog("notification.auth \(message)")
+        cmuxDebugLog("notification.auth \(message)")
 #endif
         NSLog("notification.auth %@", message)
     }

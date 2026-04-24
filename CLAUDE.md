@@ -123,10 +123,11 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - `reload.sh` writes the selected dev CLI path to `/tmp/cmux-last-cli-path`
 - `reload.sh` updates `/tmp/cmux-cli` and `$HOME/.local/bin/cmux-dev` to that CLI
 
-- Implementation: `vendor/bonsplit/Sources/Bonsplit/Public/DebugEventLog.swift`
-- Free function `dlog("message")` — logs with timestamp and appends to file in real time
-- Entire file is `#if DEBUG`; all call sites must be wrapped in `#if DEBUG` / `#endif`
-- 500-entry ring buffer; `DebugEventLog.shared.dump()` writes full buffer to file
+- Implementation: `Packages/CMUXDebugLog/Sources/CMUXDebugLog/DebugEventLog.swift`
+- App shim: `Sources/App/DebugLogging.swift`
+- Free function `cmuxDebugLog("message")` — logs with timestamp and appends to file in real time from cmux code
+- The package implementation and app shim are `#if DEBUG`; all call sites must be wrapped in `#if DEBUG` / `#endif`
+- 500-entry ring buffer; `CMUXDebugLog.DebugEventLog.shared.dump()` writes full buffer to file
 - Key events logged in `AppDelegate.swift` (monitor, performKeyEquivalent)
 - Mouse/UI events logged inline in views (ContentView, BrowserPanelView, etc.)
 - Focus events: `focus.panel`, `focus.bonsplit`, `focus.firstResponder`, `focus.moveFocus`

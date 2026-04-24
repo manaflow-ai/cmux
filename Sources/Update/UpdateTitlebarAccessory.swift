@@ -359,7 +359,7 @@ struct TitlebarControlsView: View {
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
-                dlog("titlebar.toggleSidebar")
+                cmuxDebugLog("titlebar.toggleSidebar")
                 #endif
                 onToggleSidebar()
             }) {
@@ -371,7 +371,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
-                dlog("titlebar.notifications")
+                cmuxDebugLog("titlebar.notifications")
                 #endif
                 onToggleNotifications()
             }) {
@@ -398,7 +398,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
-                dlog("titlebar.newTab")
+                cmuxDebugLog("titlebar.newTab")
                 #endif
                 onNewTab()
             }) {
@@ -558,7 +558,9 @@ struct HiddenTitlebarSidebarControlsView: View {
                     anchorView: viewModel.notificationsAnchorView
                 )
             },
-            onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() },
+            onNewTab: {
+                AppDelegate.shared?.performNewWorkspaceAction(debugSource: "titlebar.hiddenNewWorkspace")
+            },
             visibilityMode: .onHover
         )
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
@@ -791,7 +793,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         self.notificationStore = notificationStore
         let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
         let toggleNotifications: () -> Void = { _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
-        let newTab = { _ = AppDelegate.shared?.tabManager?.addTab() }
+        let newTab = { _ = AppDelegate.shared?.performNewWorkspaceAction(debugSource: "titlebar.accessoryNewWorkspace") }
         hostingView = NonDraggableHostingView(
             rootView: TitlebarControlsView(
                 notificationStore: notificationStore,

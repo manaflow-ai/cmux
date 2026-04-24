@@ -633,6 +633,26 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
 
+    func testShortcutConfigStringCanonicalizesNumberedDigitsWhenRequested() {
+        let stroke = ShortcutStroke(
+            key: "7",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        XCTAssertEqual(stroke.configString(), "cmd+7")
+        XCTAssertEqual(stroke.configString(preserveDigit: false), "cmd+1")
+    }
+
+    func testShortcutConfigParsingRoundTripsFunctionAndMediaKeys() {
+        XCTAssertEqual(ShortcutStroke.parseConfig("cmd+f5")?.key, "f5")
+        XCTAssertEqual(ShortcutStroke.parseConfig("cmd+media.playPause")?.key, "media.playPause")
+        XCTAssertEqual(ShortcutStroke.parseConfig("cmd+playPause")?.key, "media.playPause")
+        XCTAssertNil(ShortcutStroke.parseConfig("cmd+f21"))
+    }
+
     override func setUp() {
         super.setUp()
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore

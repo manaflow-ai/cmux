@@ -986,7 +986,7 @@ final class SessionIndexStore: ObservableObject {
         let totalStart = ProcessInfo.processInfo.systemUptime
         defer {
             let totalMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000
-            dlog("session.search.total ms=\(String(format: "%.0f", totalMs)) needle=\"\(trimmed.prefix(20))\" offset=\(offset) limit=\(limit) errors=\(bag.snapshot().count)")
+            cmuxDebugLog("session.search.total ms=\(String(format: "%.0f", totalMs)) needle=\"\(trimmed.prefix(20))\" offset=\(offset) limit=\(limit) errors=\(bag.snapshot().count)")
         }
         #endif
         let entries: [SessionEntry]
@@ -1028,7 +1028,7 @@ final class SessionIndexStore: ObservableObject {
         let start = ProcessInfo.processInfo.systemUptime
         let result = await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
-        dlog("session.search.agent agent=\(agent.rawValue) ms=\(String(format: "%.0f", ms)) results=\(result.count) cwd=\(cwdFilter?.suffix(40) ?? "nil")")
+        cmuxDebugLog("session.search.agent agent=\(agent.rawValue) ms=\(String(format: "%.0f", ms)) results=\(result.count) cwd=\(cwdFilter?.suffix(40) ?? "nil")")
         return result
         #else
         return await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
@@ -1260,7 +1260,7 @@ final class SessionIndexStore: ObservableObject {
         let cachedCount = sorted.filter { $0.2 }.count
         let skippedCount = sorted.filter { $0.1 == nil && !$0.2 }.count + sorted.filter { $0.1 == nil && $0.2 }.count
         let totalMs = (ProcessInfo.processInfo.systemUptime - loopStart) * 1000
-        dlog("session.claude.detail target=\(target) workSize=\(workSize) matched=\(matched.count) cachedHits=\(cachedCount) skipped=\(skippedCount) parallelMs=\(Int(totalMs))")
+        cmuxDebugLog("session.claude.detail target=\(target) workSize=\(workSize) matched=\(matched.count) cachedHits=\(cachedCount) skipped=\(skippedCount) parallelMs=\(Int(totalMs))")
         #endif
         return Array(matched.prefix(target).dropFirst(offset).prefix(limit))
     }

@@ -736,7 +736,7 @@ struct EmptyPanelView: View {
 
     private func createTerminal() {
         #if DEBUG
-        dlog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
+        cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
         _ = workspace.newTerminalSurface(inPane: paneId)
@@ -744,7 +744,7 @@ struct EmptyPanelView: View {
 
     private func createBrowser() {
         #if DEBUG
-        dlog("emptyPane.newBrowser pane=\(paneId.id.uuidString.prefix(5))")
+        cmuxDebugLog("emptyPane.newBrowser pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
         _ = workspace.newBrowserSurface(inPane: paneId)
