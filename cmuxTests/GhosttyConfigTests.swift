@@ -2762,6 +2762,21 @@ final class GhosttyMouseFocusTests: XCTestCase {
             GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: [main.path])
         )
     }
+
+    func testStartupAppearanceFreshInstallPreviewUsesManagedDefaultTheme() {
+        #if DEBUG
+        let previousProfile = GhosttyStartupAppearancePreviewState.profile
+        GhosttyStartupAppearancePreviewState.profile = .freshInstall
+        GhosttyConfig.invalidateLoadCache()
+        defer {
+            GhosttyStartupAppearancePreviewState.profile = previousProfile
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let config = GhosttyConfig.load(preferredColorScheme: .light, useCache: false)
+        XCTAssertEqual(config.theme, GhosttyConfig.cmuxDefaultTheme)
+        #endif
+    }
 }
 
 final class SidebarBackgroundConfigTests: XCTestCase {

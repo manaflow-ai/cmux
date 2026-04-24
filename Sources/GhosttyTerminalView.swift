@@ -18,6 +18,92 @@ private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t
 @_silgen_name("ghostty_surface_select_cursor_cell")
 private func ghostty_surface_select_cursor_cell_compat(_ surface: ghostty_surface_t) -> Bool
 
+enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
+    case realUserConfig
+    case freshInstall
+    case userThemePair
+    case userSingleTheme
+    case userExplicitColors
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .realUserConfig:
+            return "Real User Config"
+        case .freshInstall:
+            return "Fresh Install"
+        case .userThemePair:
+            return "User Light/Dark Theme"
+        case .userSingleTheme:
+            return "User Single Theme"
+        case .userExplicitColors:
+            return "User Explicit Colors"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .realUserConfig:
+            return "Loads your actual Ghostty and cmux config files."
+        case .freshInstall:
+            return "No user theme or terminal colors, so cmux injects its managed default theme pair."
+        case .userThemePair:
+            return "Simulates a user with an explicit light/dark Ghostty theme."
+        case .userSingleTheme:
+            return "Simulates a user with one Ghostty theme applied in both appearances."
+        case .userExplicitColors:
+            return "Simulates a user with direct terminal color settings and no theme."
+        }
+    }
+
+    var loadsRealUserConfig: Bool {
+        self == .realUserConfig
+    }
+
+    var previewConfigContents: String? {
+        switch self {
+        case .realUserConfig:
+            return nil
+        case .freshInstall:
+            return "theme = \(GhosttyConfig.cmuxDefaultTheme)"
+        case .userThemePair:
+            return "theme = light:Catppuccin Latte,dark:Catppuccin Mocha"
+        case .userSingleTheme:
+            return "theme = Catppuccin Mocha"
+        case .userExplicitColors:
+            return """
+            background = #101820
+            foreground = #F4F7F7
+            cursor-color = #FEE715
+            cursor-text = #101820
+            selection-background = #28536B
+            selection-foreground = #F4F7F7
+            palette = 0=#101820
+            palette = 1=#C14953
+            palette = 2=#47A025
+            palette = 3=#D9A441
+            palette = 4=#2E86AB
+            palette = 5=#9B5DE5
+            palette = 6=#00A6A6
+            palette = 7=#D6D6D6
+            palette = 8=#5C6672
+            palette = 9=#FF6B6B
+            palette = 10=#7BD88F
+            palette = 11=#FFD166
+            palette = 12=#54C6EB
+            palette = 13=#C77DFF
+            palette = 14=#4ECDC4
+            palette = 15=#FFFFFF
+            """
+        }
+    }
+}
+
+enum GhosttyStartupAppearancePreviewState {
+    static var profile: GhosttyStartupAppearancePreviewProfile = .realUserConfig
+}
+
 #if os(macOS)
 func cmuxShouldApplyWindowGlass(
     sidebarBlendMode: String,
@@ -1890,6 +1976,30 @@ class GhosttyApp {
     }
 
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
+        #if DEBUG
+        let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
+        if startupPreviewProfile.loadsRealUserConfig {
+            ghostty_config_load_default_files(config)
+            loadLegacyGhosttyConfigIfNeeded(config)
+            ghostty_config_load_recursive_files(config)
+            loadCmuxAppSupportGhosttyConfigIfNeeded(config)
+            if Self.shouldInjectManagedDefaultTheme() {
+                loadInlineGhosttyConfig(
+                    "theme = \(GhosttyConfig.cmuxDefaultTheme)",
+                    into: config,
+                    prefix: "cmux-default-theme",
+                    logLabel: "default theme fallback"
+                )
+            }
+        } else if let contents = startupPreviewProfile.previewConfigContents {
+            loadInlineGhosttyConfig(
+                contents,
+                into: config,
+                prefix: "cmux-startup-preview",
+                logLabel: "startup appearance preview"
+            )
+        }
+        #else
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
@@ -1902,6 +2012,7 @@ class GhosttyApp {
                 logLabel: "default theme fallback"
             )
         }
+        #endif
         loadCJKFontFallbackIfNeeded(config)
         let useHostLayerBackground = !hasConfiguredBackgroundImage(config)
         usesHostLayerBackground = useHostLayerBackground

@@ -205,6 +205,23 @@ struct GhosttyConfig {
             "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
         ].map { NSString(string: $0).expandingTildeInPath } + cmuxConfigPaths()
 
+        #if DEBUG
+        let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
+        if startupPreviewProfile.loadsRealUserConfig {
+            for path in configPaths {
+                if let contents = readConfigFile(at: path) {
+                    config.parse(contents)
+                }
+            }
+
+            if config.theme == nil,
+               GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: configPaths) {
+                config.theme = Self.cmuxDefaultTheme
+            }
+        } else if let contents = startupPreviewProfile.previewConfigContents {
+            config.parse(contents)
+        }
+        #else
         for path in configPaths {
             if let contents = readConfigFile(at: path) {
                 config.parse(contents)
@@ -215,6 +232,7 @@ struct GhosttyConfig {
            GhosttyApp.shouldInjectManagedDefaultTheme(configPaths: configPaths) {
             config.theme = Self.cmuxDefaultTheme
         }
+        #endif
 
         // Load theme if specified
         if let themeName = config.theme {
