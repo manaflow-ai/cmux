@@ -356,7 +356,12 @@ struct cmuxApp: App {
                     Button("Debug Window Controls…") {
                         DebugWindowControlsWindowController.shared.show()
                     }
-                    Button("Startup Appearance Debug…") {
+                    Button(
+                        String(
+                            localized: "debug.menu.startupAppearanceDebug",
+                            defaultValue: "Startup Appearance Debug…"
+                        )
+                    ) {
                         StartupAppearanceDebugWindowController.shared.show()
                     }
                     Button("Menu Bar Extra Debug…") {
@@ -1034,6 +1039,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.sidebarDebug",
     "cmux.menubarDebug",
     "cmux.backgroundDebug",
+    "cmux.startupAppearanceDebug",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1667,7 +1673,12 @@ private struct DebugWindowControlsView: View {
                         Button("Background Debug…") {
                             BackgroundDebugWindowController.shared.show()
                         }
-                        Button("Startup Appearance Debug…") {
+                        Button(
+                            String(
+                                localized: "debug.menu.startupAppearanceDebug",
+                                defaultValue: "Startup Appearance Debug…"
+                            )
+                        ) {
                             StartupAppearanceDebugWindowController.shared.show()
                         }
                         Button("Menu Bar Extra Debug…") {
@@ -3466,7 +3477,10 @@ private final class StartupAppearanceDebugWindowController: NSWindowController, 
             backing: .buffered,
             defer: false
         )
-        window.title = "Startup Appearance Debug"
+        window.title = String(
+            localized: "debug.startupAppearance.window.title",
+            defaultValue: "Startup Appearance Debug"
+        )
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
@@ -3500,11 +3514,20 @@ private enum StartupAppearancePreviewMode: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .stored:
-            return "Stored App Setting"
+            return String(
+                localized: "debug.startupAppearance.mode.stored",
+                defaultValue: "Stored App Setting"
+            )
         case .light:
-            return "Force Light"
+            return String(
+                localized: "debug.startupAppearance.mode.light",
+                defaultValue: "Force Light"
+            )
         case .dark:
-            return "Force Dark"
+            return String(
+                localized: "debug.startupAppearance.mode.dark",
+                defaultValue: "Force Dark"
+            )
         }
     }
 }
@@ -3518,12 +3541,28 @@ private struct StartupAppearanceDebugView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Startup Appearance Debug")
+                Text(
+                    String(
+                        localized: "debug.startupAppearance.window.title",
+                        defaultValue: "Startup Appearance Debug"
+                    )
+                )
                     .font(.headline)
 
-                GroupBox("Preview") {
+                GroupBox(
+                    String(
+                        localized: "debug.startupAppearance.preview.heading",
+                        defaultValue: "Preview"
+                    )
+                ) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Picker("Startup config", selection: $selectedProfile) {
+                        Picker(
+                            String(
+                                localized: "debug.startupAppearance.startupConfig.label",
+                                defaultValue: "Startup config"
+                            ),
+                            selection: $selectedProfile
+                        ) {
                             ForEach(GhosttyStartupAppearancePreviewProfile.allCases) { profile in
                                 Text(profile.displayName).tag(profile)
                             }
@@ -3535,7 +3574,13 @@ private struct StartupAppearanceDebugView: View {
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        Picker("Appearance", selection: $selectedAppearance) {
+                        Picker(
+                            String(
+                                localized: "debug.startupAppearance.appearance.label",
+                                defaultValue: "Appearance"
+                            ),
+                            selection: $selectedAppearance
+                        ) {
                             ForEach(StartupAppearancePreviewMode.allCases) { mode in
                                 Text(mode.displayName).tag(mode)
                             }
@@ -3543,12 +3588,22 @@ private struct StartupAppearanceDebugView: View {
                         .pickerStyle(.segmented)
 
                         HStack(spacing: 12) {
-                            Button("Apply Preview") {
+                            Button(
+                                String(
+                                    localized: "debug.startupAppearance.applyPreview.button",
+                                    defaultValue: "Apply Preview"
+                                )
+                            ) {
                                 applyPreview()
                             }
                             .keyboardShortcut(.defaultAction)
 
-                            Button("Restore Real Startup") {
+                            Button(
+                                String(
+                                    localized: "debug.startupAppearance.restoreRealStartup.button",
+                                    defaultValue: "Restore Real Startup"
+                                )
+                            ) {
                                 restoreRealStartup()
                             }
                         }
@@ -3556,7 +3611,12 @@ private struct StartupAppearanceDebugView: View {
                     .padding(.top, 2)
                 }
 
-                GroupBox("Selected Config") {
+                GroupBox(
+                    String(
+                        localized: "debug.startupAppearance.selectedConfig.heading",
+                        defaultValue: "Selected Config"
+                    )
+                ) {
                     VStack(alignment: .leading, spacing: 8) {
                         ScrollView {
                             Text(selectedConfigText)
@@ -3569,18 +3629,49 @@ private struct StartupAppearanceDebugView: View {
                         .background(Color(nsColor: .textBackgroundColor))
                         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
-                        Button("Copy Selected Config") {
+                        Button(
+                            String(
+                                localized: "debug.startupAppearance.copySelectedConfig.button",
+                                defaultValue: "Copy Selected Config"
+                            )
+                        ) {
                             copySelectedConfig()
                         }
                     }
                     .padding(.top, 2)
                 }
 
-                GroupBox("Applied") {
+                GroupBox(
+                    String(
+                        localized: "debug.startupAppearance.applied.heading",
+                        defaultValue: "Applied"
+                    )
+                ) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Config: \(lastAppliedProfile.displayName)")
-                        Text("Appearance: \(lastAppliedAppearance.displayName)")
-                        Text("Reloads the running app through Ghostty config update, matching startup theme resolution without editing config files.")
+                        HStack(spacing: 4) {
+                            Text(
+                                String(
+                                    localized: "debug.startupAppearance.applied.configLabel",
+                                    defaultValue: "Config:"
+                                )
+                            )
+                            Text(lastAppliedProfile.displayName)
+                        }
+                        HStack(spacing: 4) {
+                            Text(
+                                String(
+                                    localized: "debug.startupAppearance.applied.appearanceLabel",
+                                    defaultValue: "Appearance:"
+                                )
+                            )
+                            Text(lastAppliedAppearance.displayName)
+                        }
+                        Text(
+                            String(
+                                localized: "debug.startupAppearance.applied.help",
+                                defaultValue: "Reloads the running app through Ghostty config update, matching startup theme resolution without editing config files."
+                            )
+                        )
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -3598,7 +3689,10 @@ private struct StartupAppearanceDebugView: View {
     }
 
     private var selectedConfigText: String {
-        selectedProfile.previewConfigContents() ?? "Loads real user config files."
+        selectedProfile.previewConfigContents() ?? String(
+            localized: "debug.startupAppearance.realConfigFallback",
+            defaultValue: "Loads real user config files."
+        )
     }
 
     private func applyPreview() {

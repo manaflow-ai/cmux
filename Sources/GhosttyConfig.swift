@@ -266,11 +266,12 @@ struct GhosttyConfig {
         bundleResourceURL: URL?,
         preferredColorScheme: ColorSchemePreference
     ) {
-        loadTheme(
-            Self.cmuxDefaultThemeName(preferredColorScheme: preferredColorScheme),
-            environment: environment,
-            bundleResourceURL: bundleResourceURL,
-            preferredColorScheme: preferredColorScheme
+        parse(
+            Self.cmuxDefaultThemeConfigContents(
+                preferredColorScheme: preferredColorScheme,
+                environment: environment,
+                bundleResourceURL: bundleResourceURL
+            )
         )
     }
 
@@ -288,20 +289,34 @@ struct GhosttyConfig {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleResourceURL: URL? = Bundle.main.resourceURL
     ) -> String {
+        if let url = cmuxDefaultThemeConfigURL(
+            preferredColorScheme: preferredColorScheme,
+            environment: environment,
+            bundleResourceURL: bundleResourceURL
+        ), let contents = try? String(contentsOf: url, encoding: .utf8) {
+            return contents
+        }
+
+        return cmuxDefaultFallbackConfigContents(preferredColorScheme: preferredColorScheme)
+    }
+
+    static func cmuxDefaultThemeConfigURL(
+        preferredColorScheme: ColorSchemePreference,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleResourceURL: URL? = Bundle.main.resourceURL
+    ) -> URL? {
         let themeName = cmuxDefaultThemeName(preferredColorScheme: preferredColorScheme)
         for candidateName in themeNameCandidates(from: themeName) {
             for path in themeSearchPaths(
                 forThemeName: candidateName,
                 environment: environment,
                 bundleResourceURL: bundleResourceURL
-            ) {
-                if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
-                    return contents
-                }
+            ) where FileManager.default.isReadableFile(atPath: path) {
+                return URL(fileURLWithPath: path)
             }
         }
 
-        return cmuxDefaultFallbackConfigContents(preferredColorScheme: preferredColorScheme)
+        return nil
     }
 
     private static func cmuxDefaultFallbackConfigContents(

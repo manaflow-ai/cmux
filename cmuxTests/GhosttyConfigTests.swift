@@ -2682,7 +2682,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testLoadedCJKScanPathsSkipsReleaseAppSupportWhenTaggedConfigExists() throws {
+    func testLoadedCJKScanPathsIncludesNativeGhosttyAppSupportWhenTaggedConfigExists() throws {
         let appSupport = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-test-cjk-app-support-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
@@ -2697,6 +2697,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         let releaseDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
         try FileManager.default.createDirectory(at: releaseDir, withIntermediateDirectories: true)
         let releaseConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
+        let releaseConfigGhostty = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
         try "font-family = LXGW WenKai Mono TC\n"
             .write(to: releaseConfig, atomically: true, encoding: .utf8)
 
@@ -2706,13 +2707,35 @@ final class GhosttyMouseFocusTests: XCTestCase {
         )
 
         XCTAssertTrue(paths.contains(taggedConfig.path))
-        XCTAssertFalse(paths.contains(releaseConfig.path))
-        XCTAssertTrue(
+        XCTAssertTrue(paths.contains(releaseConfig.path))
+        XCTAssertTrue(paths.contains(releaseConfigGhostty.path))
+        XCTAssertFalse(
             GhosttyApp.shouldInjectCJKFontFallback(
                 preferredLanguages: ["zh-Hans-CN"],
                 configPaths: paths
             )
         )
+    }
+
+    func testShouldApplyManagedDefaultAppearanceScansNativeGhosttyAppSupport() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-appearance-app-support-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appSupport) }
+
+        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
+        let nativeConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
+        try "theme = Dracula\n"
+            .write(to: nativeConfig, atomically: true, encoding: .utf8)
+
+        let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
+            currentBundleIdentifier: "com.example.cmux-dev",
+            appSupportDirectory: appSupport
+        )
+
+        XCTAssertTrue(paths.contains(nativeConfig.path))
+        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: paths))
     }
 
     // MARK: shouldApplyManagedDefaultAppearance
@@ -2756,6 +2779,25 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         let main = dir.appendingPathComponent("config")
         try "font-family = JetBrains Mono\nconfig-file = \(included.path)\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+        )
+    }
+
+    func testShouldApplyManagedDefaultAppearancePreservesQuotedQuestionMarkConfigFile() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-theme-quoted-include-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("?appearance.conf")
+        try "theme = Catppuccin Latte\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = \"?appearance.conf\"\n"
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(

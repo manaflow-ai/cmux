@@ -30,30 +30,60 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
     var displayName: String {
         switch self {
         case .realUserConfig:
-            return "Real User Config"
+            return String(
+                localized: "debug.startupAppearance.profile.realUserConfig.title",
+                defaultValue: "Real User Config"
+            )
         case .freshInstall:
-            return "Fresh Install"
+            return String(
+                localized: "debug.startupAppearance.profile.freshInstall.title",
+                defaultValue: "Fresh Install"
+            )
         case .userThemePair:
-            return "User Light/Dark Theme"
+            return String(
+                localized: "debug.startupAppearance.profile.userThemePair.title",
+                defaultValue: "User Light/Dark Theme"
+            )
         case .userSingleTheme:
-            return "User Single Theme"
+            return String(
+                localized: "debug.startupAppearance.profile.userSingleTheme.title",
+                defaultValue: "User Single Theme"
+            )
         case .userExplicitColors:
-            return "User Explicit Colors"
+            return String(
+                localized: "debug.startupAppearance.profile.userExplicitColors.title",
+                defaultValue: "User Explicit Colors"
+            )
         }
     }
 
     var detail: String {
         switch self {
         case .realUserConfig:
-            return "Loads your actual Ghostty and cmux config files."
+            return String(
+                localized: "debug.startupAppearance.profile.realUserConfig.detail",
+                defaultValue: "Loads your actual Ghostty and cmux config files."
+            )
         case .freshInstall:
-            return "No user theme or terminal colors, so cmux applies its managed default colors."
+            return String(
+                localized: "debug.startupAppearance.profile.freshInstall.detail",
+                defaultValue: "No user theme or terminal colors, so cmux applies its managed default colors."
+            )
         case .userThemePair:
-            return "Simulates a user with an explicit light/dark Ghostty theme."
+            return String(
+                localized: "debug.startupAppearance.profile.userThemePair.detail",
+                defaultValue: "Simulates a user with an explicit light/dark Ghostty theme."
+            )
         case .userSingleTheme:
-            return "Simulates a user with one Ghostty theme applied in both appearances."
+            return String(
+                localized: "debug.startupAppearance.profile.userSingleTheme.detail",
+                defaultValue: "Simulates a user with one Ghostty theme applied in both appearances."
+            )
         case .userExplicitColors:
-            return "Simulates a user with direct terminal color settings and no theme."
+            return String(
+                localized: "debug.startupAppearance.profile.userExplicitColors.detail",
+                defaultValue: "Simulates a user with direct terminal color settings and no theme."
+            )
         }
     }
 
@@ -1968,6 +1998,41 @@ class GhosttyApp {
         }
     }
 
+    private func loadCmuxDefaultAppearanceConfig(_ config: ghostty_config_t) {
+        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference()
+        if let url = GhosttyConfig.cmuxDefaultThemeConfigURL(preferredColorScheme: preferredColorScheme) {
+            url.path.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+            return
+        }
+
+        loadInlineGhosttyConfig(
+            GhosttyConfig.cmuxDefaultThemeConfigContents(preferredColorScheme: preferredColorScheme),
+            into: config,
+            prefix: "cmux-default-appearance",
+            logLabel: "default appearance fallback"
+        )
+    }
+
+    private func loadStartupPreviewProfile(
+        _ profile: GhosttyStartupAppearancePreviewProfile,
+        into config: ghostty_config_t
+    ) {
+        if profile == .freshInstall {
+            loadCmuxDefaultAppearanceConfig(config)
+            return
+        }
+
+        guard let contents = profile.previewConfigContents() else { return }
+        loadInlineGhosttyConfig(
+            contents,
+            into: config,
+            prefix: "cmux-startup-preview",
+            logLabel: "startup appearance preview"
+        )
+    }
+
     private func hasConfiguredBackgroundImage(_ config: ghostty_config_t) -> Bool {
         var backgroundImage: UnsafePointer<Int8>?
         let key = "background-image"
@@ -1988,22 +2053,10 @@ class GhosttyApp {
             ghostty_config_load_recursive_files(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
             if Self.shouldApplyManagedDefaultAppearance() {
-                loadInlineGhosttyConfig(
-                    GhosttyConfig.cmuxDefaultThemeConfigContents(
-                        preferredColorScheme: GhosttyConfig.currentColorSchemePreference()
-                    ),
-                    into: config,
-                    prefix: "cmux-default-appearance",
-                    logLabel: "default appearance fallback"
-                )
+                loadCmuxDefaultAppearanceConfig(config)
             }
-        } else if let contents = startupPreviewProfile.previewConfigContents() {
-            loadInlineGhosttyConfig(
-                contents,
-                into: config,
-                prefix: "cmux-startup-preview",
-                logLabel: "startup appearance preview"
-            )
+        } else {
+            loadStartupPreviewProfile(startupPreviewProfile, into: config)
         }
         #else
         ghostty_config_load_default_files(config)
@@ -2011,14 +2064,7 @@ class GhosttyApp {
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         if Self.shouldApplyManagedDefaultAppearance() {
-            loadInlineGhosttyConfig(
-                GhosttyConfig.cmuxDefaultThemeConfigContents(
-                    preferredColorScheme: GhosttyConfig.currentColorSchemePreference()
-                ),
-                into: config,
-                prefix: "cmux-default-appearance",
-                logLabel: "default appearance fallback"
-            )
+            loadCmuxDefaultAppearanceConfig(config)
         }
         #endif
         loadCJKFontFallbackIfNeeded(config)
@@ -2272,13 +2318,13 @@ class GhosttyApp {
     /// a `font-codepoint-map` entry covering CJK ranges. Also checks
     /// application-support config paths that cmux may load at runtime.
     static func userConfigContainsCJKCodepointMap(
-        configPaths: [String] = loadedCJKScanPaths()
+        configPaths: [String] = loadedGhosttyConfigScanPaths()
     ) -> Bool {
         userFontConfigSummary(configPaths: configPaths).containsCodepointMap
     }
 
     static func userConfigHasExplicitFontFamilyFallbackChain(
-        configPaths: [String] = loadedCJKScanPaths()
+        configPaths: [String] = loadedGhosttyConfigScanPaths()
     ) -> Bool {
         userFontConfigSummary(configPaths: configPaths).hasExplicitFontFamilyFallbackChain
     }
@@ -2296,7 +2342,7 @@ class GhosttyApp {
     }
 
     static func shouldApplyManagedDefaultAppearance(
-        configPaths: [String] = loadedCJKScanPaths()
+        configPaths: [String] = loadedGhosttyConfigScanPaths()
     ) -> Bool {
         userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
     }
@@ -2478,9 +2524,9 @@ class GhosttyApp {
         return summary
     }
 
-    /// Returns the top-level config paths that cmux will actually load before
+    /// Returns the top-level Ghostty config paths cmux may load before
     /// recursive `config-file` processing.
-    static func loadedCJKScanPaths(
+    static func loadedGhosttyConfigScanPaths(
         currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appSupportDirectory: URL? = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -2492,9 +2538,14 @@ class GhosttyApp {
             "~/.config/ghostty/config.ghostty",
         ]
 
+        guard let appSupportDirectory else { return paths }
+
+        let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        paths.append(ghosttyDir.appendingPathComponent("config", isDirectory: false).path)
+        paths.append(ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false).path)
+
         guard let bundleId = currentBundleIdentifier,
-              !bundleId.isEmpty,
-              let appSupportDirectory else { return paths }
+              !bundleId.isEmpty else { return paths }
 
         let appSupportConfigURLs = cmuxAppSupportConfigURLs(
             currentBundleIdentifier: bundleId,
@@ -2517,6 +2568,19 @@ class GhosttyApp {
         }
 
         return paths
+    }
+
+    static func loadedCJKScanPaths(
+        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
+    ) -> [String] {
+        loadedGhosttyConfigScanPaths(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        )
     }
 
     private static func configFileSize(at url: URL) -> Int? {
@@ -2553,6 +2617,7 @@ class GhosttyApp {
                 guard let value = entry.value else { continue }
                 applyConfigFileDirective(
                     value,
+                    valueWasQuoted: entry.valueWasQuoted,
                     parentDir: parentDir,
                     recursiveConfigPaths: &recursiveConfigPaths
                 )
@@ -2590,6 +2655,7 @@ class GhosttyApp {
                 guard let value = entry.value else { continue }
                 applyConfigFileDirective(
                     value,
+                    valueWasQuoted: entry.valueWasQuoted,
                     parentDir: parentDir,
                     recursiveConfigPaths: &recursiveConfigPaths
                 )
@@ -2601,7 +2667,7 @@ class GhosttyApp {
 
     private static func parsedConfigEntry(
         from rawLine: String
-    ) -> (key: String, value: String?)? {
+    ) -> (key: String, value: String?, valueWasQuoted: Bool)? {
         var trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("\u{FEFF}") {
             trimmed.removeFirst()
@@ -2609,23 +2675,25 @@ class GhosttyApp {
         if trimmed.isEmpty || trimmed.hasPrefix("#") { return nil }
 
         guard let separatorIndex = trimmed.firstIndex(of: "=") else {
-            return (trimmed.trimmingCharacters(in: .whitespacesAndNewlines), nil)
+            return (trimmed.trimmingCharacters(in: .whitespacesAndNewlines), nil, false)
         }
 
         let key = trimmed[..<separatorIndex].trimmingCharacters(in: .whitespacesAndNewlines)
         var value = trimmed[trimmed.index(after: separatorIndex)...]
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let valueWasQuoted = value.count >= 2 && value.hasPrefix("\"") && value.hasSuffix("\"")
 
-        if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") {
+        if valueWasQuoted {
             value.removeFirst()
             value.removeLast()
         }
 
-        return (String(key), String(value))
+        return (String(key), String(value), valueWasQuoted)
     }
 
     private static func applyConfigFileDirective(
         _ value: String,
+        valueWasQuoted: Bool,
         parentDir: String,
         recursiveConfigPaths: inout [String]
     ) {
@@ -2635,12 +2703,8 @@ class GhosttyApp {
         }
 
         var includePath = value
-        if includePath.hasPrefix("?") {
+        if !valueWasQuoted, includePath.hasPrefix("?") {
             includePath.removeFirst()
-        }
-        if includePath.count >= 2, includePath.hasPrefix("\""), includePath.hasSuffix("\"") {
-            includePath.removeFirst()
-            includePath.removeLast()
         }
         guard !includePath.isEmpty else { return }
 
