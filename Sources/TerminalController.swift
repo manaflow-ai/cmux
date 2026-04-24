@@ -51,7 +51,7 @@ class TerminalController {
     private nonisolated let listenerStateLock = NSLock()
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
-    private var accessMode: SocketControlMode = .cmuxOnly
+    private var accessMode: SocketControlMode = SocketControlSettings.defaultMode
     private let myPid = getpid()
     private nonisolated(unsafe) static var socketCommandPolicyDepth: Int = 0
     private nonisolated(unsafe) static var socketCommandFocusAllowanceStack: [Bool] = []

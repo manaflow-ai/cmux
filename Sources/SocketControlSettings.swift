@@ -296,6 +296,8 @@ struct SocketControlSettings {
     static let socketPasswordEnvKey = "CMUX_SOCKET_PASSWORD"
     static let launchTagEnvKey = "CMUX_TAG"
     static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
+    private static let modeDefaultMigrationDefaultsKey = "socketControlModeDefaultMigrationVersion"
+    private static let modeDefaultMigrationVersion = 1
     private static let socketDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
     private static let lastSocketPathFileName = "last-socket-path"
@@ -353,7 +355,37 @@ struct SocketControlSettings {
     }
 
     static var defaultMode: SocketControlMode {
-        return .cmuxOnly
+        return .automation
+    }
+
+    static func migratePersistedModeIfNeeded(defaults: UserDefaults = .standard) {
+        let requiresDefaultModeMigration =
+            defaults.integer(forKey: modeDefaultMigrationDefaultsKey) < modeDefaultMigrationVersion
+
+        defer {
+            if requiresDefaultModeMigration {
+                defaults.set(modeDefaultMigrationVersion, forKey: modeDefaultMigrationDefaultsKey)
+            }
+        }
+
+        if let stored = defaults.string(forKey: appStorageKey) {
+            let migrated = migrateMode(stored)
+            let resolvedMode: SocketControlMode
+            if requiresDefaultModeMigration && migrated == .cmuxOnly {
+                resolvedMode = .automation
+            } else {
+                resolvedMode = migrated
+            }
+
+            if resolvedMode.rawValue != stored {
+                defaults.set(resolvedMode.rawValue, forKey: appStorageKey)
+            }
+            return
+        }
+
+        if let legacy = defaults.object(forKey: legacyEnabledKey) as? Bool {
+            defaults.set((legacy ? defaultMode : .off).rawValue, forKey: appStorageKey)
+        }
     }
 
     private static var isDebugBuild: Bool {
@@ -671,7 +703,7 @@ struct SocketControlSettings {
             if let overrideMode = envOverrideMode(environment: environment) {
                 return overrideMode
             }
-            return userMode == .off ? .cmuxOnly : userMode
+            return userMode == .off ? defaultMode : userMode
         }
 
         if let overrideMode = envOverrideMode(environment: environment) {
