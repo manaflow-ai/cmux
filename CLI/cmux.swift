@@ -1837,6 +1837,15 @@ struct CMUXCLI {
             return
         }
 
+        if command == "hermes" {
+            try runHermes(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
         // Codex hooks management (no socket needed)
         if command == "codex" {
             let sub = commandArgs.first?.lowercased() ?? "help"
@@ -7182,6 +7191,28 @@ struct CMUXCLI {
               cmux omc
               cmux omc team 3:claude "implement feature"
               cmux omc --watch
+            """)
+        case "hermes":
+            return String(localized: "cli.hermes.usage", defaultValue: """
+            Usage: cmux hermes [hermes-args...]
+
+            Launch Hermes Agent with native cmux pane integration.
+
+            Hermes is an open-source AI coding agent with TUI mode, multi-model
+            support, and a skill/delegation system. This command sets up a tmux
+            shim so Hermes delegation creates native cmux splits.
+
+            This command:
+              - sets a tmux-like environment so Hermes uses cmux splits
+              - prepends a private tmux shim to PATH
+              - forwards all remaining arguments to hermes
+
+            Install: pip install hermes-agent  (or uv pip install hermes-agent)
+
+            Examples:
+              cmux hermes
+              cmux hermes --tui
+              cmux hermes --tui --yolo
             """)
         case "identify":
             return """
@@ -13698,6 +13729,115 @@ struct CMUXCLI {
         return normalized.joined(separator: " ")
     }
 
+    // MARK: - cmux hermes (Hermes Agent)
+
+    private func resolveHermesExecutable(searchPath: String?) -> String? {
+        resolveExecutableInSearchPath("hermes", searchPath: searchPath)
+    }
+
+    private func createHermesShimDirectory() throws -> URL {
+        let tmuxScript = """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        case "${1:-}" in
+          -V|-v) echo "tmux 3.4"; exit 0 ;;
+        esac
+        exec "${CMUX_HERMES_CMUX_BIN:-cmux}" __tmux-compat "$@"
+        """
+        return try createTmuxCompatShimDirectory(
+            directoryName: "hermes-bin",
+            tmuxShimScript: tmuxScript
+        )
+    }
+
+    private func configureHermesEnvironment(
+        processEnvironment: [String: String],
+        shimDirectory: URL,
+        executablePath: String,
+        socketPath: String,
+        explicitPassword: String?,
+        focusedContext: TmuxCompatFocusedContext?
+    ) {
+        configureTmuxCompatEnvironment(
+            processEnvironment: processEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            focusedContext: focusedContext,
+            tmuxPathPrefix: "cmux-hermes",
+            cmuxBinEnvVar: "CMUX_HERMES_CMUX_BIN",
+            termOverrideEnvVar: "CMUX_HERMES_TERM"
+        )
+    }
+
+    private func runHermes(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        let processEnvironment = ProcessInfo.processInfo.environment
+        var launcherEnvironment = processEnvironment
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launcherEnvironment["CMUX_SOCKET"] = socketPath
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
+        }
+
+        let hermesExecutablePath = resolveHermesExecutable(searchPath: launcherEnvironment["PATH"])
+        if hermesExecutablePath == nil {
+            let checkProcess = Process()
+            checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+            checkProcess.arguments = ["hermes"]
+            checkProcess.standardOutput = Pipe()
+            checkProcess.standardError = Pipe()
+            try? checkProcess.run()
+            checkProcess.waitUntilExit()
+            if checkProcess.terminationStatus != 0 {
+                throw CLIError(message: "hermes is not installed. Install it first:\n  pip install hermes-agent\n\nThen run: cmux hermes")
+            }
+        }
+
+        let shimDirectory = try createHermesShimDirectory()
+        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let focusedContext = tmuxCompatFocusedContext(
+            processEnvironment: launcherEnvironment,
+            explicitPassword: explicitPassword
+        )
+        configureHermesEnvironment(
+            processEnvironment: launcherEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            focusedContext: focusedContext
+        )
+
+        let launchPath = hermesExecutablePath ?? "hermes"
+        exportAgentLaunchCommandEnvironment(
+            launcher: "hermes",
+            executablePath: executablePath,
+            arguments: [executablePath, "hermes"] + commandArgs,
+            workingDirectory: launcherEnvironment["PWD"]
+        )
+        var argv = ([launchPath] + commandArgs).map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+        }
+        argv.append(nil)
+
+        if hermesExecutablePath != nil {
+            execv(launchPath, &argv)
+        } else {
+            execvp("hermes", &argv)
+        }
+        let code = errno
+        throw CLIError(message: "Failed to launch hermes: \(String(cString: strerror(code)))\n\nIs hermes-agent installed? Install with:\n  pip install hermes-agent")
+    }
+
     // MARK: - Codex hooks
 
     /// The hooks.json content that cmux installs into ~/.codex/.
@@ -15675,6 +15815,7 @@ export default CMUXSessionRestore;
           omo [opencode-args...]
           omx [omx-args...]
           omc [omc-args...]
+          hermes [hermes-args...]
           codex <install-hooks|uninstall-hooks>
           opencode <install-hooks|uninstall-hooks>
           ping
