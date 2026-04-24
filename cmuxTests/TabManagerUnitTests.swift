@@ -393,6 +393,47 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testPullRequestMapDropsStaleMergedHeadPullRequestForLongLivedBaseBranch() throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let pullRequests = [
+            TabManager.GitHubPullRequestProbeItem(
+                number: 2400,
+                state: "MERGED",
+                url: "https://github.com/manaflow-ai/cmux/pull/2400",
+                updatedAt: "2026-03-06T12:00:00Z",
+                mergedAt: "2026-03-06T12:00:00Z",
+                headRefName: "develop",
+                baseRefName: "main"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 2501,
+                state: "MERGED",
+                url: "https://github.com/manaflow-ai/cmux/pull/2501",
+                updatedAt: "2026-04-19T12:00:00Z",
+                mergedAt: "2026-04-19T12:00:00Z",
+                headRefName: "feature/recent-one",
+                baseRefName: "develop"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 2502,
+                state: "OPEN",
+                url: "https://github.com/manaflow-ai/cmux/pull/2502",
+                updatedAt: "2026-04-20T12:00:00Z",
+                headRefName: "feature/recent-two",
+                baseRefName: "develop"
+            ),
+        ]
+
+        let pullRequestsByBranch = TabManager.pullRequestMapByNormalizedBranchForTesting(
+            from: pullRequests,
+            now: now
+        )
+
+        XCTAssertNil(pullRequestsByBranch["develop"])
+        XCTAssertEqual(pullRequestsByBranch["feature/recent-one"]?.number, 2501)
+        XCTAssertEqual(pullRequestsByBranch["feature/recent-two"]?.number, 2502)
+    }
+
     func testShouldSkipWorkspacePullRequestLookupOnlyForExactMainAndMaster() {
         XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "main"))
         XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "master"))
@@ -402,6 +443,42 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "mainline"))
         XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "feature/main"))
         XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "release/master-fix"))
+    }
+
+    func testWorkspacePullRequestRefreshAllowsRepoCacheForTimerAndPeriodicReasons() {
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "periodicPoll"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "periodicPoll.followUp"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll.followUp"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer.followUp"))
+
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange"))
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange.followUp"))
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "commandHint:merge"))
+    }
+
+    func testWorkspacePullRequestShouldRefreshHonorsForcedRefreshForTerminalStates() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let recentTerminalRefresh = now.addingTimeInterval(-60)
+
+        XCTAssertTrue(
+            TabManager.shouldRefreshWorkspacePullRequest(
+                now: now,
+                nextPollAt: .distantPast,
+                lastTerminalStateRefreshAt: recentTerminalRefresh,
+                currentPullRequestStatus: .merged
+            )
+        )
+        XCTAssertFalse(
+            TabManager.shouldRefreshWorkspacePullRequest(
+                now: now,
+                nextPollAt: now.addingTimeInterval(60),
+                lastTerminalStateRefreshAt: recentTerminalRefresh,
+                currentPullRequestStatus: .closed
+            )
+        )
     }
 
     func testTrackedWorkspaceGitMetadataPollCandidatesIncludeMainAndMasterPanels() throws {
@@ -460,6 +537,76 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testTrackedWorkspaceGitMetadataPollCandidatesExcludeDirectoriesWithoutResolvedGitMetadata() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-nonrepo-candidate-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: directoryURL.path)
+
+        XCTAssertTrue(
+            waitForCondition {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty &&
+                    manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id)
+                    .isEmpty &&
+                    workspace.panelGitBranches[panelId] == nil
+            }
+        )
+    }
+
+    func testInheritedBackgroundWorkspaceFetchesGitBranchWithoutSelection() throws {
+        let fileManager = FileManager.default
+        let repoURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-inherited-background-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try runGit(["init", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "README.md"], in: repoURL)
+        try runGit(["commit", "-m", "Initial commit"], in: repoURL)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+        workspace.currentDirectory = repoURL.path
+
+        let backgroundWorkspace = manager.addWorkspace(select: false)
+        guard let backgroundPanelId = backgroundWorkspace.focusedPanelId else {
+            XCTFail("Expected background workspace with focused panel")
+            return
+        }
+
+        XCTAssertNotEqual(manager.selectedTabId, backgroundWorkspace.id)
+        XCTAssertTrue(
+            waitForCondition {
+                backgroundWorkspace.panelGitBranches[backgroundPanelId]?.branch == "main"
+            }
+        )
+        XCTAssertEqual(backgroundWorkspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
+    }
+
     func testPeriodicWorkspaceGitMetadataRefreshUpdatesMainWorkspaceAfterCheckoutToFeatureBranch() throws {
         let fileManager = FileManager.default
         let repoURL = fileManager.temporaryDirectory.appendingPathComponent("cmux-git-main-refresh-\(UUID().uuidString)")
@@ -484,8 +631,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             return
         }
 
-        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        manager.updateSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId, branch: "main", isDirty: false)
 
         XCTAssertEqual(
             manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
@@ -502,6 +649,90 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             }
         )
         XCTAssertEqual(workspace.gitBranch?.branch, "feature/sidebar-live-refresh")
+    }
+
+    func testPeriodicWorkspaceGitMetadataRefreshRestoresClearedBranchForStaleTerminal() throws {
+        let fileManager = FileManager.default
+        let repoURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-stale-branch-refresh-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try runGit(["init", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "README.md"], in: repoURL)
+        try runGit(["commit", "-m", "Initial commit"], in: repoURL)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        manager.updateSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId, branch: "main", isDirty: false)
+        manager.clearSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId)
+
+        XCTAssertNil(workspace.panelGitBranches[panelId])
+
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+            }
+        )
+        XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
+    }
+
+    func testRemoteSplitSkipsInitialGitMetadataProbe() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+
+        guard let splitPanel = workspace.newTerminalSplit(from: panelId, orientation: .horizontal, focus: false) else {
+            XCTFail("Expected remote split terminal panel to be created")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(splitPanel.id))
+        XCTAssertEqual(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id), Set<UUID>())
     }
 
     func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
@@ -556,8 +787,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             return
         }
 
-        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        manager.updateSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId, branch: "feature/sidebar-pr", isDirty: false)
         workspace.updatePanelPullRequest(
             panelId: panelId,
             number: 1052,
@@ -693,6 +924,72 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         XCTAssertEqual(prompts.first?.message, expectedMessage)
         XCTAssertEqual(prompts.first?.acceptCmdD, false)
         XCTAssertEqual(manager.tabs.map(\.title), ["Alpha", "Beta", "Gamma"])
+    }
+}
+
+@MainActor
+final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
+    func testCloseCurrentTabSpamWithConfirmationEnabledPromptsOnceAndClosesOneWorkspace() {
+        let manager = TabManager()
+        while manager.tabs.count < 6 {
+            _ = manager.addWorkspace()
+        }
+
+        for workspace in manager.tabs {
+            guard let panelId = workspace.focusedPanelId,
+                  let terminalPanel = workspace.terminalPanel(for: panelId) else {
+                XCTFail("Expected each workspace to have a focused terminal panel")
+                return
+            }
+            terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        }
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return true
+        }
+
+        for _ in 0..<5 {
+            manager.closeCurrentTabWithConfirmation()
+        }
+
+        XCTAssertEqual(prompts.count, 1, "Expected close-tab spam to surface only one confirmation prompt")
+        XCTAssertEqual(
+            prompts.first?.title,
+            String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?")
+        )
+        XCTAssertEqual(prompts.first?.acceptCmdD, false)
+        XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
+    }
+
+    func testCloseCurrentTabSpamWithConfirmationDisabledClosesEveryRequestedWorkspace() {
+        let manager = TabManager()
+        while manager.tabs.count < 6 {
+            _ = manager.addWorkspace()
+        }
+
+        for workspace in manager.tabs {
+            guard let panelId = workspace.focusedPanelId,
+                  let terminalPanel = workspace.terminalPanel(for: panelId) else {
+                XCTFail("Expected each workspace to have a focused terminal panel")
+                return
+            }
+            terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        }
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return true
+        }
+
+        for _ in 0..<5 {
+            manager.closeCurrentTabWithConfirmation()
+        }
+
+        XCTAssertEqual(promptCount, 0, "Expected warning-disabled close-tab spam to bypass confirmation entirely")
+        XCTAssertEqual(manager.tabs.count, 1, "Expected warning-disabled close-tab spam to close all requested workspaces")
     }
 }
 

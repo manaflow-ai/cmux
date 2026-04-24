@@ -1,3 +1,0 @@
-#!/bin/bash
-# Delegate out to the provided `bootstrap` file
-exec "$LAMBDA_TASK_ROOT/bootstrap" "$@"

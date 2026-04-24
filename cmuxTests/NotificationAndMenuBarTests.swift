@@ -23,6 +23,7 @@ final class AppIconSettingsTests: XCTestCase {
         var stopObservationCallCount = 0
 
         let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
             imageForMode: { mode in
                 XCTAssertEqual(mode, .dark)
                 return expectedIcon
@@ -55,6 +56,7 @@ final class AppIconSettingsTests: XCTestCase {
         var stopObservationCallCount = 0
 
         let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
             imageForMode: { mode in
                 XCTFail("Automatic mode should not request a manual icon image: \(mode.rawValue)")
                 return nil
@@ -77,6 +79,42 @@ final class AppIconSettingsTests: XCTestCase {
 
         XCTAssertEqual(dockTileNotificationCount, 1)
         XCTAssertEqual(startObservationCallCount, 1)
+        XCTAssertEqual(stopObservationCallCount, 0)
+    }
+
+    func testApplyDarkBeforeLaunchDoesNotTouchRuntimeIconState() {
+        var imageRequestCount = 0
+        var runtimeIconSetCount = 0
+        var dockTileNotificationCount = 0
+        var startObservationCallCount = 0
+        var stopObservationCallCount = 0
+
+        let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { false },
+            imageForMode: { _ in
+                imageRequestCount += 1
+                return NSImage(size: NSSize(width: 16, height: 16))
+            },
+            setApplicationIconImage: { _ in
+                runtimeIconSetCount += 1
+            },
+            startAppearanceObservation: {
+                startObservationCallCount += 1
+            },
+            stopAppearanceObservation: {
+                stopObservationCallCount += 1
+            },
+            notifyDockTilePlugin: {
+                dockTileNotificationCount += 1
+            }
+        )
+
+        AppIconSettings.applyIcon(.dark, environment: environment)
+
+        XCTAssertEqual(imageRequestCount, 0)
+        XCTAssertEqual(runtimeIconSetCount, 0)
+        XCTAssertEqual(dockTileNotificationCount, 0)
+        XCTAssertEqual(startObservationCallCount, 0)
         XCTAssertEqual(stopObservationCallCount, 0)
     }
 }
@@ -816,11 +854,44 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.markRead(forTabId: tab, surfaceId: surfaceUnread)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertFalse(store.hasUnreadNotification(forTabId: tab, surfaceId: surfaceUnread))
-        XCTAssertNil(store.latestNotification(forTabId: tab))
+        XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, unreadNotification.id)
 
         store.clearNotifications(forTabId: tab)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertNil(store.latestNotification(forTabId: tab))
+    }
+
+    func testClearLatestNotificationRemovesOnlyCurrentSidebarPreviewSource() {
+        let tab = UUID()
+        let latestSurface = UUID()
+        let previousSurface = UUID()
+        let latestNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: latestSurface,
+            title: "Latest",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: true
+        )
+        let previousNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: previousSurface,
+            title: "Previous",
+            subtitle: "",
+            body: "",
+            createdAt: Date().addingTimeInterval(-1),
+            isRead: true
+        )
+
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([latestNotification, previousNotification])
+        XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, latestNotification.id)
+
+        store.clearLatestNotification(forTabId: tab)
+        XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, previousNotification.id)
     }
 }
 

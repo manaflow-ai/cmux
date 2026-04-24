@@ -224,6 +224,7 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 | Shortcut | Action |
 |----------|--------|
 | ⌘ ⇧ N | New window |
+| ⌘ ⇧ O | Reopen previous session |
 | ⌘ , | Settings |
 | ⌘ ⇧ , | Reload configuration |
 | ⌘ Q | Quit |
@@ -236,15 +237,21 @@ cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the 
 
 Report nightly bugs on [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) or in [#nightly-bugs on Discord](https://discord.gg/xsgFEVrWCZ).
 
-## Session restore (current behavior)
+## Session restore
 
-On relaunch, cmux currently restores app layout and metadata only:
+Quitting cmux saves the current session. On relaunch, cmux restores:
 - Window/workspace/pane layout
 - Working directories
 - Terminal scrollback (best effort)
 - Browser URL and navigation history
+- Saved Claude Code and Codex sessions, when cmux has a resume token for the panel
 
-cmux does **not** restore live process state inside terminal apps. For example, active Claude Code/tmux/vim sessions are not resumed after restart yet.
+If you need to reapply the last saved snapshot manually, use:
+- `File > Reopen Previous Session`
+- `⌘ ⇧ O`
+- `cmux restore-session`
+
+cmux does **not** restore arbitrary live terminal process state. tmux, vim, shells, and other tools without a cmux resume flow still reopen as normal terminals rather than resuming in-process state.
 
 ## Star History
 

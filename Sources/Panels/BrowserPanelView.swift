@@ -2,6 +2,115 @@ import Bonsplit
 import SwiftUI
 import WebKit
 import AppKit
+import ObjectiveC
+
+private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
+let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
+
+private func browserPanelViewObjectID(_ object: AnyObject?) -> String {
+    guard let object else { return "nil" }
+    return String(describing: Unmanaged.passUnretained(object).toOpaque())
+}
+
+private func browserPanelViewRectDescription(_ rect: NSRect) -> String {
+    String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
+}
+
+private extension NSObject {
+    @discardableResult
+    func browserPanelCallVoidIfAvailable(_ rawSelector: String) -> Bool {
+        let selector = NSSelectorFromString(rawSelector)
+        guard responds(to: selector) else { return false }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
+        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
+        fn(self, selector)
+        return true
+    }
+}
+
+private extension WKWebView {
+    private var cmuxBrowserPanelNeedsRenderingStateReattach: Bool {
+        get {
+            (objc_getAssociatedObject(self, &cmuxBrowserPanelNeedsRenderingStateReattachKey) as? NSNumber)?
+                .boolValue ?? false
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &cmuxBrowserPanelNeedsRenderingStateReattachKey,
+                NSNumber(value: newValue),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
+    var cmuxBrowserPanelRequiresRenderingStateReattach: Bool {
+        cmuxBrowserPanelNeedsRenderingStateReattach
+    }
+
+    private func cmuxBrowserPanelApplyRenderingStateRefresh(
+        reason: String,
+        force: Bool
+    ) {
+        guard force || cmuxBrowserPanelNeedsRenderingStateReattach else { return }
+        guard window != nil else { return }
+        cmuxBrowserPanelNeedsRenderingStateReattach = false
+
+        let firedSelectors = [
+            "viewDidUnhide",
+            "_enterInWindow",
+            "_endDeferringViewInWindowChangesSync",
+        ].filter {
+            browserPanelCallVoidIfAvailable($0)
+        }
+
+        if let scrollView = enclosingScrollView {
+            scrollView.needsLayout = true
+            scrollView.needsDisplay = true
+            scrollView.setNeedsDisplay(scrollView.bounds)
+            scrollView.contentView.needsLayout = true
+            scrollView.contentView.needsDisplay = true
+        }
+
+        needsLayout = true
+        needsDisplay = true
+        setNeedsDisplay(bounds)
+
+#if DEBUG
+        if !firedSelectors.isEmpty {
+            cmuxDebugLog(
+                "\(force ? "browser.localHost.webview.forceRefresh" : "browser.localHost.webview.reattach") " +
+                "web=\(browserPanelViewObjectID(self)) " +
+                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ",")) " +
+                "frame=\(browserPanelViewRectDescription(frame))"
+            )
+        }
+#endif
+    }
+
+    func cmuxBrowserPanelNotifyHidden(reason: String) {
+        cmuxBrowserPanelNeedsRenderingStateReattach = true
+        let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
+            browserPanelCallVoidIfAvailable($0)
+        }
+#if DEBUG
+        if !firedSelectors.isEmpty {
+            cmuxDebugLog(
+                "browser.localHost.webview.hidden web=\(browserPanelViewObjectID(self)) " +
+                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ","))"
+            )
+        }
+#endif
+    }
+
+    func cmuxBrowserPanelReattachRenderingState(reason: String) {
+        cmuxBrowserPanelApplyRenderingStateRefresh(reason: reason, force: false)
+    }
+
+    func cmuxBrowserPanelForceRenderingStateRefresh(reason: String) {
+        cmuxBrowserPanelApplyRenderingStateRefresh(reason: reason, force: true)
+    }
+}
 
 enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
     case wrenchAndScrewdriver = "wrench.and.screwdriver"
@@ -510,7 +619,7 @@ struct BrowserPanelView: View {
             return webView === panel?.webView
         }) { _ in
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.clickIntent panel=\(panel.id.uuidString.prefix(5)) " +
                 "isFocused=\(isFocused ? 1 : 0) " +
                 "addressFocused=\(addressBarFocused ? 1 : 0)"
@@ -586,7 +695,10 @@ struct BrowserPanelView: View {
             if isWebViewBlank() {
                 refreshEmptyStateImportBrowsers()
             }
-            panel.resetReactGrabState()
+            panel.resetReactGrabState(
+                preserveRoundTrip: true,
+                reason: "panel.currentURL.changed"
+            )
         }
         .onChange(of: browserThemeModeRaw) { _ in
             let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
@@ -610,6 +722,13 @@ struct BrowserPanelView: View {
         }
         .onChange(of: isVisibleInUI) { visibleInUI in
             if visibleInUI {
+                panel.cancelPendingDeveloperToolsVisibilityLossCheck()
+                return
+            }
+            if panel.shouldUseLocalInlineDeveloperToolsHosting() {
+                // Workspace switches keep the attached inspector alive off-screen.
+                // Treating that hide as a manual X-close can clear the restore intent
+                // before the original local-inline host becomes visible again.
                 panel.cancelPendingDeveloperToolsVisibilityLossCheck()
                 return
             }
@@ -637,6 +756,7 @@ struct BrowserPanelView: View {
                 // `isVisibleInUI` never flips to false. Check for an attached-inspector
                 // X-close when focus leaves as well so the persisted intent stays in sync.
                 DispatchQueue.main.async {
+                    guard isVisibleInUI else { return }
                     panel.scheduleDeveloperToolsVisibilityLossCheck()
                 }
             }
@@ -755,7 +875,7 @@ struct BrowserPanelView: View {
         return HStack(spacing: 0) {
             Button(action: {
                 #if DEBUG
-                dlog("browser.back panel=\(panel.id.uuidString.prefix(5))")
+                cmuxDebugLog("browser.back panel=\(panel.id.uuidString.prefix(5))")
                 #endif
                 panel.goBack()
             }) {
@@ -771,7 +891,7 @@ struct BrowserPanelView: View {
 
             Button(action: {
                 #if DEBUG
-                dlog("browser.forward panel=\(panel.id.uuidString.prefix(5))")
+                cmuxDebugLog("browser.forward panel=\(panel.id.uuidString.prefix(5))")
                 #endif
                 panel.goForward()
             }) {
@@ -788,12 +908,12 @@ struct BrowserPanelView: View {
             Button(action: {
                 if panel.isLoading {
                     #if DEBUG
-                    dlog("browser.stop panel=\(panel.id.uuidString.prefix(5))")
+                    cmuxDebugLog("browser.stop panel=\(panel.id.uuidString.prefix(5))")
                     #endif
                     panel.stopLoading()
                 } else {
                     #if DEBUG
-                    dlog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
+                    cmuxDebugLog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
                     #endif
                     panel.reload()
                 }
@@ -822,6 +942,7 @@ struct BrowserPanelView: View {
 
     private var reactGrabButton: some View {
         Button(action: {
+            panel.clearReactGrabRoundTrip(reason: "toolbarButton.manualStart")
             Task { await panel.toggleOrInjectReactGrab() }
         }) {
             Image(systemName: "cursorarrow.click.2")
@@ -1127,7 +1248,6 @@ struct BrowserPanelView: View {
     private var webView: some View {
         let useLocalInlineDeveloperToolsHosting =
             panel.shouldUseLocalInlineDeveloperToolsHosting() &&
-            isVisibleInUI &&
             isCurrentPaneOwner
 
         return Group {
@@ -1243,7 +1363,7 @@ struct BrowserPanelView: View {
         let next = isPanelFocused && !panel.shouldSuppressWebViewFocus()
         if cmuxWebView.allowsFirstResponderAcquisition != next {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.policy.resync panel=\(panel.id.uuidString.prefix(5)) " +
                 "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
                 "new=\(next ? 1 : 0) reason=\(reason) " +
@@ -1338,7 +1458,7 @@ struct BrowserPanelView: View {
         if !detail.isEmpty {
             line += " \(detail)"
         }
-        dlog(line)
+        cmuxDebugLog(line)
     }
 #endif
 
@@ -1682,7 +1802,7 @@ struct BrowserPanelView: View {
 
     private func openDevTools() {
         #if DEBUG
-        dlog("browser.toggleDevTools panel=\(panel.id.uuidString.prefix(5))")
+        cmuxDebugLog("browser.toggleDevTools panel=\(panel.id.uuidString.prefix(5))")
         #endif
         if !panel.toggleDeveloperTools() {
             NSSound.beep()
@@ -2122,7 +2242,7 @@ struct BrowserPanelView: View {
                       !panel.webView.isHiddenOrHasHiddenAncestor else { return }
                 guard shouldApplyAddressBarExitFallback(in: window) else {
 #if DEBUG
-                    dlog(
+                    cmuxDebugLog(
                         "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
                         "result=skip_not_focused"
                     )
@@ -2137,7 +2257,7 @@ struct BrowserPanelView: View {
                     panel.noteWebViewFocused()
                 }
 #if DEBUG
-                dlog(
+                cmuxDebugLog(
                     "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
                     "focusedWebView=\(focusedWebView ? 1 : 0)"
                 )
@@ -2145,7 +2265,7 @@ struct BrowserPanelView: View {
                 panel.restoreAddressBarPageFocusIfNeeded { restored in
                     guard shouldApplyAddressBarExitFallback(in: window) else {
 #if DEBUG
-                        dlog(
+                        cmuxDebugLog(
                             "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
                             "result=skip_stale_restore restored=\(restored ? 1 : 0)"
                         )
@@ -2159,7 +2279,7 @@ struct BrowserPanelView: View {
                         let fallbackFocusedWebView = window.makeFirstResponder(panel.webView)
                         hasWebViewResponder = fallbackFocusedWebView
 #if DEBUG
-                        dlog(
+                        cmuxDebugLog(
                             "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
                             "fallbackFocusedWebView=\(fallbackFocusedWebView ? 1 : 0) " +
                             "restored=\(restored ? 1 : 0)"
@@ -3212,7 +3332,7 @@ private final class OmnibarNativeTextField: NSTextField {
     override func mouseDown(with event: NSEvent) {
         #if DEBUG
         let frType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
+        cmuxDebugLog(
             "browser.omnibarClick win=\(window?.windowNumber ?? -1) " +
             "fr=\(frType) hasEditor=\(currentEditor() == nil ? 0 : 1)"
         )
@@ -3226,7 +3346,7 @@ private final class OmnibarNativeTextField: NSTextField {
             let result = window?.makeFirstResponder(self) ?? false
 #if DEBUG
             let frAfter = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            dlog(
+            cmuxDebugLog(
                 "browser.omnibarClick.makeFirstResponder result=\(result ? 1 : 0) " +
                 "win=\(window?.windowNumber ?? -1) fr=\(frAfter)"
             )
@@ -3407,7 +3527,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             if !detail.isEmpty {
                 line += " \(detail)"
             }
-            dlog(line)
+            cmuxDebugLog(line)
         }
 #endif
 
@@ -3834,6 +3954,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> OmnibarNativeTextField {
         let field = OmnibarNativeTextField(frame: .zero)
+        field.identifier = browserOmnibarTextFieldIdentifier
         field.font = .systemFont(ofSize: 12)
         field.placeholderString = placeholder
         field.delegate = context.coordinator
@@ -4150,7 +4271,21 @@ private struct OmnibarSuggestionsView: View {
             ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
             Button {
                 #if DEBUG
-                dlog("browser.suggestionClick index=\(idx) text=\"\(item.listText)\"")
+                let suggestionKind: String = {
+                    switch item.kind {
+                    case .search:
+                        return "search"
+                    case .navigate:
+                        return "navigate"
+                    case .history:
+                        return "history"
+                    case .switchToTab:
+                        return "switchToTab"
+                    case .remote:
+                        return "remote"
+                    }
+                }()
+                cmuxDebugLog("browser.suggestionClick index=\(idx) kind=\(suggestionKind) textBytes=\(item.listText.utf8.count)")
                 #endif
                 onCommit(item)
             } label: {
@@ -4442,7 +4577,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             let recordedWidthDesc = recordedHostedInspectorSideDockWidth.map {
                 String(format: "%.1f", $0)
             } ?? "nil"
-            dlog(
+            cmuxDebugLog(
                 "browser.panel.hostedInspector stage=\(reason).dockControls " +
                 "host=\(Self.debugObjectID(self)) allowSideDock=\(sideDockAllowed ? 1 : 0) " +
                 "recordedWidth=\(recordedWidthDesc) bounds=\(Self.debugRect(bounds))"
@@ -4564,7 +4699,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 guard let window, let contentView = window.contentView else { return .zero }
                 return contentView.convert(bounds, from: self)
             }()
-            dlog(
+            cmuxDebugLog(
                 "browser.panel.host stage=\(stage) event=\(String(describing: event?.type)) " +
                 "point=\(String(format: "%.1f,%.1f", point.x, point.y)) pass=\(passThrough ? 1 : 0) " +
                 "hostFrameInContent=\(String(format: "%.1f,%.1f %.1fx%.1f", hostRectInContent.origin.x, hostRectInContent.origin.y, hostRectInContent.width, hostRectInContent.height)) " +
@@ -4588,7 +4723,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         ) {
             let pointDesc = point.map { String(format: "%.1f,%.1f", $0.x, $0.y) } ?? "nil"
             let preferredWidthDesc = preferredHostedInspectorWidth.map { String(format: "%.1f", $0) } ?? "nil"
-            dlog(
+            cmuxDebugLog(
                 "browser.panel.hostedInspector stage=\(stage) point=\(pointDesc) " +
                 "host=\(Self.debugObjectID(self)) container=\(Self.debugObjectID(hit.containerView)) " +
                 "page=\(Self.debugObjectID(hit.pageView)) inspector=\(Self.debugObjectID(hit.inspectorView)) " +
@@ -4609,7 +4744,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     } ?? "nil"
                     lastLoggedHostedInspectorFrames = nil
                     hasLoggedMissingHostedInspectorCandidate = true
-                    dlog(
+                    cmuxDebugLog(
                         "browser.panel.hostedInspector stage=\(reason).candidateMissing " +
                         "host=\(Self.debugObjectID(self)) preferredWidth=\(preferredWidthDesc)"
                     )
@@ -4704,6 +4839,9 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         func setLocalInlineSlotHidden(_ hidden: Bool) {
             localInlineSlotView?.isHidden = hidden
+            if hidden {
+                notifyHostedWebKitHidden(reason: "slotHidden")
+            }
         }
 
         func clearLocalInlineCallbacks() {
@@ -4711,9 +4849,102 @@ struct WebViewRepresentable: NSViewRepresentable {
             localInlineSlotView?.onHostedInspectorLayout = nil
         }
 
+        private func appendHostedWebKitSubviews(
+            in root: NSView,
+            to result: inout [WKWebView],
+            seen: inout Set<ObjectIdentifier>
+        ) {
+            if let webView = root as? WKWebView {
+                let id = ObjectIdentifier(webView)
+                if seen.insert(id).inserted {
+                    result.append(webView)
+                }
+            }
+            for subview in root.subviews {
+                appendHostedWebKitSubviews(in: subview, to: &result, seen: &seen)
+            }
+        }
+
+        private var hostedWebKitSubviews: [WKWebView] {
+            var result: [WKWebView] = []
+            var seen = Set<ObjectIdentifier>()
+
+            func append(_ webView: WKWebView?) {
+                guard let webView else { return }
+                let id = ObjectIdentifier(webView)
+                guard seen.insert(id).inserted else { return }
+                result.append(webView)
+            }
+
+            append(hostedWebView)
+            append(hostedInspectorFrontendWebView)
+            appendHostedWebKitSubviews(in: self, to: &result, seen: &seen)
+            return result
+        }
+
+        private func notifyHostedWebKitHidden(reason: String) {
+            for webView in hostedWebKitSubviews {
+                webView.cmuxBrowserPanelNotifyHidden(reason: reason)
+            }
+        }
+
+        func refreshHostedWebKitPresentation(
+            reason: String,
+            forceLifecycleRefresh: Bool = false
+        ) {
+            guard let localInlineSlotView else { return }
+            guard !localInlineSlotView.isHidden else { return }
+            let hostedWebKitSubviews = hostedWebKitSubviews
+            guard !hostedWebKitSubviews.isEmpty else { return }
+
+            localInlineSlotView.needsLayout = true
+            localInlineSlotView.needsDisplay = true
+            localInlineSlotView.setNeedsDisplay(localInlineSlotView.bounds)
+
+            needsLayout = true
+            needsDisplay = true
+            setNeedsDisplay(bounds)
+
+            for webView in hostedWebKitSubviews {
+                if let scrollView = webView.enclosingScrollView {
+                    scrollView.needsLayout = true
+                    scrollView.needsDisplay = true
+                    scrollView.setNeedsDisplay(scrollView.bounds)
+                    scrollView.contentView.needsLayout = true
+                    scrollView.contentView.needsDisplay = true
+                }
+                webView.needsLayout = true
+                webView.needsDisplay = true
+                webView.setNeedsDisplay(webView.bounds)
+            }
+
+            localInlineSlotView.layoutSubtreeIfNeeded()
+            layoutSubtreeIfNeeded()
+
+            for webView in hostedWebKitSubviews {
+                if let scrollView = webView.enclosingScrollView {
+                    scrollView.layoutSubtreeIfNeeded()
+                    scrollView.contentView.layoutSubtreeIfNeeded()
+                    scrollView.displayIfNeeded()
+                }
+                webView.layoutSubtreeIfNeeded()
+                if forceLifecycleRefresh {
+                    webView.cmuxBrowserPanelForceRenderingStateRefresh(reason: reason)
+                } else {
+                    webView.cmuxBrowserPanelReattachRenderingState(reason: reason)
+                }
+                webView.displayIfNeeded()
+            }
+
+            localInlineSlotView.displayIfNeeded()
+            displayIfNeeded()
+            window?.displayIfNeeded()
+        }
+
         func prepareForWindowPortalHosting() {
             hostedInspectorDockConfigurationSyncWorkItem?.cancel()
             hostedInspectorDockConfigurationSyncWorkItem = nil
+            notifyHostedWebKitHidden(reason: "prepareForWindowPortalHosting")
             deactivateHostedInspectorSideDockIfNeeded(reparentTo: localInlineSlotView)
             hostedInspectorFrontendWebView = nil
         }
@@ -4776,8 +5007,16 @@ struct WebViewRepresentable: NSViewRepresentable {
                 if current.isDescendant(of: primaryWebView) {
                     continue
                 }
+                if current.isHidden || current.alphaValue <= 0 {
+                    continue
+                }
                 if String(describing: type(of: current)).contains("WK") {
-                    return true
+                    let width = max(current.frame.width, current.bounds.width)
+                    let height = max(current.frame.height, current.bounds.height)
+                    if width > 1, height > 1 {
+                        return true
+                    }
+                    continue
                 }
                 stack.append(contentsOf: current.subviews)
             }
@@ -4928,7 +5167,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             adaptiveBottomDockRequestCooldownDeadline = now.addingTimeInterval(Self.adaptiveBottomDockRequestCooldown)
             updateHostedInspectorDockControlAvailabilityIfNeeded(reason: reason)
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.panel.hostedInspector stage=\(reason).adaptiveBottomDock " +
                 "host=\(Self.debugObjectID(self)) bounds=\(Self.debugRect(bounds))"
             )
@@ -5025,10 +5264,15 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
+                notifyHostedWebKitHidden(reason: "viewDidMoveToWindow")
                 clearActiveDividerCursor(restoreArrow: false)
             } else {
                 scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToWindow")
                 scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToWindow")
+                refreshHostedWebKitPresentation(
+                    reason: "viewDidMoveToWindow",
+                    forceLifecycleRefresh: hostedInspectorFrontendWebView != nil
+                )
             }
             window?.invalidateCursorRects(for: self)
             onDidMoveToWindow?()
@@ -5545,7 +5789,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     let preferredWidthDesc = preferredHostedInspectorWidth.map {
                         String(format: "%.1f", $0)
                     } ?? "nil"
-                    dlog(
+                    cmuxDebugLog(
                         "browser.panel.hostedInspector stage=\(reason).captureMissingCandidate " +
                         "host=\(Self.debugObjectID(self)) preferredWidth=\(preferredWidthDesc)"
                     )
@@ -5651,7 +5895,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             let isLiveDrag = reason == "drag"
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.panel.hostedInspector stage=\(reason).reapply " +
                 "host=\(Self.debugObjectID(self)) preferredWidth=\(String(format: "%.1f", preferredWidth)) " +
                 "liveDrag=\(isLiveDrag ? 1 : 0) " +
@@ -5719,7 +5963,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         if let details, !details.isEmpty {
             line += " \(details)"
         }
-        dlog(line)
+        cmuxDebugLog(line)
     }
 
     private static func objectID(_ object: AnyObject?) -> String {
@@ -5829,52 +6073,101 @@ struct WebViewRepresentable: NSViewRepresentable {
         return last ?? webView.superview
     }
 
+    private static func directTransferChild(of container: NSView, containing descendant: NSView) -> NSView? {
+        var current: NSView? = descendant
+        var directChild: NSView?
+        while let view = current, view !== container {
+            directChild = view
+            current = view.superview
+        }
+        guard current === container else { return nil }
+        return directChild
+    }
+
+    private static func relatedWebKitTransferSubviews(
+        from sourceSuperview: NSView,
+        primaryWebView: WKWebView
+    ) -> [NSView] {
+        var relatedSubviews: [NSView] = []
+        var seen = Set<ObjectIdentifier>()
+
+        func append(_ candidate: NSView?) {
+            guard let candidate, candidate !== sourceSuperview else { return }
+            let id = ObjectIdentifier(candidate)
+            guard seen.insert(id).inserted else { return }
+            relatedSubviews.append(candidate)
+        }
+
+        append(directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView)
+
+        if let inspectorFrontend = primaryWebView.cmuxInspectorFrontendWebView() {
+            append(directTransferChild(of: sourceSuperview, containing: inspectorFrontend) ?? inspectorFrontend)
+        }
+
+        for view in sourceSuperview.subviews {
+            if view === primaryWebView { continue }
+            let className = String(describing: type(of: view))
+            guard className.contains("WK") else { continue }
+            if className.contains("WKInspector") &&
+                (view.isHidden || view.alphaValue <= 0 || view.frame.width <= 1 || view.frame.height <= 1) {
+                continue
+            }
+            append(view)
+        }
+
+        return relatedSubviews
+    }
+
     private static func moveWebKitRelatedSubviewsIntoHostIfNeeded(
         from sourceSuperview: NSView,
         to container: WindowBrowserSlotView,
         primaryWebView: WKWebView,
         reason: String
     ) {
-        guard sourceSuperview !== container else { return }
-        let relatedSubviews = sourceSuperview.subviews.filter { view in
-            if view === primaryWebView { return true }
-            let className = String(describing: type(of: view))
-            guard className.contains("WK") else { return false }
-            if className.contains("WKInspector") {
-                return !view.isHidden && view.alphaValue > 0 && view.frame.width > 1 && view.frame.height > 1
-            }
-            return true
-        }
+        let relatedSubviews = relatedWebKitTransferSubviews(
+            from: sourceSuperview,
+            primaryWebView: primaryWebView
+        )
         guard !relatedSubviews.isEmpty else { return }
         let preserveSlotLocalFrames = sourceSuperview is WindowBrowserSlotView
         let sourceSlotBoundsSize = sourceSuperview.bounds.size
+        var movedSubviewCount = 0
+        var reusedSourceLocalFrames = false
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.localHost.reparent.batch reason=\(reason) source=\(Self.objectID(sourceSuperview)) " +
             "container=\(Self.objectID(container)) count=\(relatedSubviews.count) " +
             "sourceType=\(String(describing: type(of: sourceSuperview))) targetType=\(String(describing: type(of: container)))"
         )
 #endif
         for view in relatedSubviews {
+            if view === container || view.isDescendant(of: container) {
+                continue
+            }
             let className = String(describing: type(of: view))
             let targetFrame: NSRect
-            if preserveSlotLocalFrames {
+            let currentSuperview = view.superview
+            if preserveSlotLocalFrames && currentSuperview === sourceSuperview {
                 targetFrame = view.frame
+                reusedSourceLocalFrames = true
             } else {
-                let frameInWindow = sourceSuperview.convert(view.frame, to: nil)
+                let frameInWindow = currentSuperview?.convert(view.frame, to: nil)
+                    ?? sourceSuperview.convert(view.frame, to: nil)
                 targetFrame = container.convert(frameInWindow, from: nil)
             }
             view.removeFromSuperview()
             container.addSubview(view, positioned: .above, relativeTo: nil)
             view.frame = targetFrame
+            movedSubviewCount += 1
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.localHost.reparent.batch.item reason=\(reason) class=\(className) " +
                 "view=\(Self.objectID(view))"
             )
 #endif
         }
-        if preserveSlotLocalFrames, sourceSlotBoundsSize != container.bounds.size {
+        guard movedSubviewCount > 0 else { return }
+        if reusedSourceLocalFrames, sourceSlotBoundsSize != container.bounds.size {
             container.resizeSubviews(withOldSize: sourceSlotBoundsSize)
             container.needsLayout = true
             container.layoutSubtreeIfNeeded()
@@ -5929,9 +6222,10 @@ struct WebViewRepresentable: NSViewRepresentable {
             hostId: ObjectIdentifier(host),
             reason: "localInlineHosting"
         ) {
-            BrowserWindowPortalRegistry.hide(
+            BrowserWindowPortalRegistry.discard(
                 webView: webView,
-                source: "viewStateChanged.localInlineHosting"
+                source: "viewStateChanged.localInlineHosting",
+                preserveCurrentSuperview: true
             )
         }
 
@@ -5947,7 +6241,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             coordinator.lastPortalHostId = nil
             coordinator.lastSynchronizedHostGeometryRevision = 0
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.localHost.reparent.skip web=\(Self.objectID(webView)) " +
                 "reason=offWindowReplacementHost super=\(Self.objectID(webView.superview)) " +
                 "host=\(Self.objectID(host)) slot=\(Self.objectID(slotView))"
@@ -5965,7 +6259,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
 #if DEBUG
         if shouldPreserveExternalFullscreenHost {
-            dlog(
+            cmuxDebugLog(
                 "browser.localHost.reparent.skip web=\(Self.objectID(webView)) " +
                 "reason=fullscreenExternalHost host=\(Self.objectID(host)) " +
                 "slot=\(Self.objectID(slotView)) state=\(String(describing: webView.fullscreenState))"
@@ -6009,21 +6303,78 @@ struct WebViewRepresentable: NSViewRepresentable {
             webView,
             in: host.currentHostedWebViewContainer(preferredSlotView: slotView)
         )
+        // Local-inline hosting takes ownership of the live WKWebView hierarchy.
+        // Drop any stale portal entry once local-inline hosting owns the live
+        // WKWebView hierarchy so deferred portal recovery cannot mutate the
+        // browser after workspace switches.
+        BrowserWindowPortalRegistry.discard(
+            webView: webView,
+            source: "viewStateChanged.localInlineHosting",
+            preserveCurrentSuperview: true
+        )
         coordinator.lastPortalHostId = nil
         coordinator.lastSynchronizedHostGeometryRevision = 0
-        if didAttachWebViewToLocalHost {
+        if host.window != nil && !shouldPreserveExternalFullscreenHost {
+            let wasDeveloperToolsVisible = panel.isDeveloperToolsVisible()
             panel.noteDeveloperToolsHostAttached()
             panel.restoreDeveloperToolsAfterAttachIfNeeded()
+            if let sourceSuperview = Self.localInlineTransferRoot(for: webView),
+               didAttachWebViewToLocalHost || sourceSuperview === slotView {
+                Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(
+                    from: sourceSuperview,
+                    to: slotView,
+                    primaryWebView: webView,
+                    reason: didAttachWebViewToLocalHost
+                        ? "localInline.reconcile.immediate"
+                        : "localInline.reconcile.existingHost"
+                )
+            }
+            host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
+            let didRevealDeveloperToolsAfterAttach =
+                !wasDeveloperToolsVisible && panel.isDeveloperToolsVisible()
             webView.needsLayout = true
             webView.layoutSubtreeIfNeeded()
             slotView.layoutSubtreeIfNeeded()
             host.layoutSubtreeIfNeeded()
-            host.normalizeHostedInspectorLayoutIfNeeded(reason: "localInline.update.immediate")
-            host.scheduleHostedInspectorDividerReapply(reason: "localInline.update.sync")
+            host.refreshHostedWebKitPresentation(
+                reason: didAttachWebViewToLocalHost
+                    ? "localInline.update.immediate"
+                    : "localInline.update.existingHost",
+                forceLifecycleRefresh: didRevealDeveloperToolsAfterAttach
+            )
+            host.normalizeHostedInspectorLayoutIfNeeded(
+                reason: didAttachWebViewToLocalHost
+                    ? "localInline.update.immediate"
+                    : "localInline.update.existingHost"
+            )
+            host.scheduleHostedInspectorDividerReapply(
+                reason: didAttachWebViewToLocalHost
+                    ? "localInline.update.sync"
+                    : "localInline.update.existingHost"
+            )
             DispatchQueue.main.async { [weak host, weak webView] in
                 guard let host, let webView else { return }
+                if let sourceSuperview = Self.localInlineTransferRoot(for: webView),
+                   sourceSuperview === slotView {
+                    Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(
+                        from: sourceSuperview,
+                        to: slotView,
+                        primaryWebView: webView,
+                        reason: "localInline.reconcile.async"
+                    )
+                }
                 host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
-                host.scheduleHostedInspectorDockConfigurationSync(reason: "localInline.update.async")
+                host.refreshHostedWebKitPresentation(
+                    reason: didAttachWebViewToLocalHost
+                        ? "localInline.update.async"
+                        : "localInline.update.existingHost.async",
+                    forceLifecycleRefresh: didRevealDeveloperToolsAfterAttach
+                )
+                host.scheduleHostedInspectorDockConfigurationSync(
+                    reason: didAttachWebViewToLocalHost
+                        ? "localInline.update.async"
+                        : "localInline.update.existingHost.async"
+                )
             }
         } else if !shouldPreserveExternalFullscreenHost {
             panel.consumeAttachedDeveloperToolsManualCloseIfNeeded()
@@ -6047,6 +6398,20 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.prepareForWindowPortalHosting()
         host.setLocalInlineSlotHidden(true)
         host.releaseHostedWebViewConstraints()
+        if panel.shouldUseLocalInlineDeveloperToolsHosting() {
+            let hostId = ObjectIdentifier(host)
+            if panel.releasePortalHostIfOwned(
+                hostId: hostId,
+                reason: "windowPortalSuppressedForLocalInlineHosting"
+            ) {
+                BrowserWindowPortalRegistry.discard(
+                    webView: webView,
+                    source: "viewStateChanged.windowPortalSuppressedForLocalInlineHosting",
+                    preserveCurrentSuperview: true
+                )
+            }
+            return false
+        }
         let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
             for: webView,
             relativeTo: host.window
@@ -6095,7 +6460,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
 #if DEBUG
         if !isCurrentPaneOwner && (shouldAttachWebView || host.window != nil) {
-            dlog(
+            cmuxDebugLog(
                 "browser.portal.owner.skip panel=\(panel.id.uuidString.prefix(5)) " +
                 "viewPane=\(paneId.id.uuidString.prefix(5)) " +
                 "currentPane=\(paneDropContext?.paneId.id.uuidString.prefix(5) ?? "nil") " +
@@ -6306,7 +6671,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         // Focus handling. Avoid fighting the address bar when it is focused.
         guard let window = nsView.window else {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
                 "action=skip reason=no_window shouldFocus=\(shouldFocusWebView ? 1 : 0) " +
                 "panelFocused=\(isPanelFocused ? 1 : 0)"
@@ -6320,7 +6685,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         if shouldFocusWebView {
             if panel.shouldSuppressWebViewFocus() {
 #if DEBUG
-                dlog(
+                cmuxDebugLog(
                     "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
                     "action=skip reason=suppressed panelFocused=\(isPanelFocused ? 1 : 0)"
                 )
@@ -6329,7 +6694,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             if responderChainContains(window.firstResponder, target: webView) {
 #if DEBUG
-                dlog(
+                cmuxDebugLog(
                     "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
                     "action=skip reason=already_first_responder_chain"
                 )
@@ -6341,7 +6706,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 panel.noteWebViewFocused()
             }
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
                 "action=focus result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
             )
@@ -6352,7 +6717,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             // clearing first responder here can undo programmatic webview focus (socket tests).
             let result = window.makeFirstResponder(nil)
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
                 "action=resign result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
             )
@@ -6369,7 +6734,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let next = isPanelFocused && !panel.shouldSuppressWebViewFocus()
         if cmuxWebView.allowsFirstResponderAcquisition != next {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.policy panel=\(panel.id.uuidString.prefix(5)) " +
                 "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
                 "new=\(next ? 1 : 0) isPanelFocused=\(isPanelFocused ? 1 : 0) " +

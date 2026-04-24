@@ -12,8 +12,9 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Fork rebased onto upstream `main` at `3509ccf78` (`v1.3.1-457-g3509ccf78`) on March 30, 2026.
-Current cmux fork head: `0b231db94` (`v1.3.1-472-g0b231db94`).
+Fork main has advanced beyond the March 30, 2026 rebase onto upstream `main`
+at `3509ccf78` (`v1.3.1-457-g3509ccf78`).
+Current cmux pinned fork head: `3b684a085` (`tip-1717-g3b684a085`).
 
 ### 1) macOS display link restart on display changes
 
@@ -110,7 +111,17 @@ tend to conflict together during rebases.
   - Allows the host app to provide the terminal background via `CALayer.backgroundColor` for instant coverage during view resizes, avoiding alpha double-stacking.
   - Replays the layer-background restore on top of the refreshed Ghostty base so cmux keeps the resize-coverage fix after the upstream sync.
 
-The fork branch HEAD is now the section 7 layer-background restore commit.
+### 8) TerminalStream kitty graphics APC handling
+
+- Commit: `a8e92c9c5` (terminal: add APC handler to stream_terminal)
+- Files:
+  - `src/terminal/stream_terminal.zig`
+- Summary:
+  - Wires `.apc_start`, `.apc_put`, and `.apc_end` through the shared APC parser in `TerminalStream`.
+  - Restores kitty graphics execution and APC OK/error replies for the non-termio stream path used by cmux/libghostty integrations.
+
+Fork main now carries the section 8 APC handling fix plus later upstream merges;
+the current cmux pin is the head listed above.
 
 ## Upstreamed fork changes
 
@@ -123,6 +134,12 @@ The fork branch HEAD is now the section 7 layer-background restore commit.
 
 - Were local in the fork as `8ade43ce5`, `0cf559581`, `312c7b23a`, and `404a3f175`.
 - Dropped during the March 30, 2026 rebase because newer Ghostty prompt-marking changes on the refreshed base superseded these fork-only zsh redraw patches, so cmux no longer carries them separately.
+
+### initial focus seeding and DECSET 1004 startup behavior
+
+- Was local in the fork as `c19c82bfd`.
+- Dropped from the current pinned fork head when cmux removed the corresponding
+  app-side initial focus seed and went back to post-create focus sync.
 
 ## Merge conflict notes
 
@@ -152,5 +169,19 @@ These files change frequently upstream; be careful when rebasing the fork:
   - The `macos-background-from-layer` check sits next to the glass-style check in `updateFrame`.
     If upstream refactors the bg_color uniform update or the glass conditional, re-check that both
     paths still zero out `bg_color[3]` correctly.
+
+- `src/Surface.zig`, `src/apprt/embedded.zig`, `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
+  - The initial `focused` plumbing has to stay aligned across the C config, embedded runtime surface,
+    and macOS wrapper. If upstream refactors surface creation or post-create focus sync, re-check that
+    background panes can start unfocused without synthesizing a focus-loss transition during creation.
+
+- `src/termio/stream_handler.zig`
+  - Keep DECSET 1004 enablement side-effect free. xterm-compatible focus reporting should only emit
+    `CSI I` / `CSI O` on actual focus transitions, not immediately when the mode is enabled.
+
+- `src/terminal/stream_terminal.zig`
+  - Keep the APC handler wired into `.apc_start`, `.apc_put`, `.apc_end`, and preserve the
+    `apcEnd()` response path so kitty graphics still reach `Terminal.kittyGraphics()` and reply via
+    `write_pty`.
 
 If you resolve a conflict, update this doc with what changed.

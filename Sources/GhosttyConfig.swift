@@ -13,9 +13,11 @@ struct GhosttyConfig {
 
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
+    var surfaceTabBarFontSize: CGFloat = 11
     var theme: String?
     var workingDirectory: String?
-    var scrollbackLimit: Int = 10000
+    // Ghostty measures scrollback-limit in bytes, not lines.
+    var scrollbackLimit: Int = 10_000_000
     var unfocusedSplitOpacity: Double = 0.7
     var unfocusedSplitFill: NSColor?
     var splitDividerColor: NSColor?
@@ -242,12 +244,16 @@ struct GhosttyConfig {
                     if let size = Double(value) {
                         fontSize = CGFloat(size)
                     }
+                case "surface-tab-bar-font-size":
+                    if let size = Double(value) {
+                        surfaceTabBarFontSize = CGFloat(size)
+                    }
                 case "theme":
                     theme = value
                 case "working-directory":
                     workingDirectory = value
                 case "scrollback-limit":
-                    if let limit = Int(value) {
+                    if let limit = Self.parseIntegerLiteral(value) {
                         scrollbackLimit = limit
                     }
                 case "background":
@@ -309,6 +315,16 @@ struct GhosttyConfig {
                 }
             }
         }
+    }
+
+    private static func parseIntegerLiteral(_ value: String) -> Int? {
+        // Strip digit-group separators (for example 10_000_000).
+        // Hex and float literals are intentionally unsupported here.
+        let normalized = value.replacingOccurrences(of: "_", with: "")
+        guard let parsed = Int(normalized), parsed >= 0 else {
+            return nil
+        }
+        return parsed
     }
 
     mutating func loadTheme(_ name: String) {
@@ -527,7 +543,8 @@ struct GhosttyConfig {
         guard fileManager.fileExists(atPath: path) else { return nil }
 
         if let attributes = try? fileManager.attributesOfItem(atPath: path) {
-            if let type = attributes[.type] as? FileAttributeType, type != .typeRegular {
+            if let type = attributes[.type] as? FileAttributeType,
+               type != .typeRegular && type != .typeSymbolicLink {
                 return nil
             }
             if let size = attributes[.size] as? NSNumber, size.intValue == 0 {

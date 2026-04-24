@@ -97,7 +97,7 @@ ensure_node_options_restore_module() {
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path
-    temp_path="$(mktemp "$guard_dir/restore-node-options.XXXXXX.cjs")" || return 1
+    temp_path="$(mktemp "$guard_dir/restore-node-options.cjs.XXXXXX")" || return 1
     cat >"$temp_path" <<'EOF'
 const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
 if (hadOriginalNodeOptions) {
@@ -162,6 +162,43 @@ merge_node_options() {
     printf ' %s' "${filtered[@]}"
 }
 
+normalize_node_options_for_restore() {
+    local existing="${1:-}"
+    local -a tokens=()
+    local -a normalized=()
+    local token
+    local index=0
+
+    read -r -a tokens <<<"$existing"
+    while (( index < ${#tokens[@]} )); do
+        token="${tokens[$index]}"
+        if [[ "$token" == "--max-old-space-size" && $((index + 1)) -lt ${#tokens[@]} ]]; then
+            normalized+=("--max-old-space-size=${tokens[$((index + 1))]}")
+            index=$((index + 2))
+            continue
+        fi
+        normalized+=("$token")
+        index=$((index + 1))
+    done
+
+    if (( ${#normalized[@]} == 0 )); then
+        return 0
+    fi
+    printf '%s' "${normalized[0]}"
+    if (( ${#normalized[@]} > 1 )); then
+        printf ' %s' "${normalized[@]:1}"
+    fi
+}
+
+encode_launch_argv() {
+    {
+        printf '%s\0' "$REAL_CLAUDE"
+        if (( $# > 0 )); then
+            printf '%s\0' "$@"
+        fi
+    } | base64 | tr -d '\n'
+}
+
 # Pass through subcommands that don't support session/hook flags.
 case "${1:-}" in
     mcp|config|api-key|rc|remote-control) exec "$REAL_CLAUDE" "$@" ;;
@@ -187,10 +224,14 @@ done
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
 export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+export CMUX_AGENT_LAUNCH_KIND="claude"
+export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
+export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
+export CMUX_AGENT_LAUNCH_CWD="$PWD"
 if GUARD_PATH="$(ensure_node_options_restore_module)"; then
     if [[ ${NODE_OPTIONS+x} ]]; then
         export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
-        export CMUX_ORIGINAL_NODE_OPTIONS="$NODE_OPTIONS"
+        export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
     else
         export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
         unset CMUX_ORIGINAL_NODE_OPTIONS

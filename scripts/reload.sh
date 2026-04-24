@@ -128,6 +128,8 @@ Usage: ./scripts/reload.sh --tag <name> [options]
 Options:
   --tag <name>           Required. Short tag for parallel builds (e.g., feature-xyz-lol).
                          Sets app name, bundle id, and derived data path unless overridden.
+                         After a successful build, terminates any running app with this tag
+                         so macOS launches the freshly-built binary on cmd-click or --launch.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
   --name <app name>      Override app display/bundle name.
@@ -279,6 +281,8 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+"$PWD/scripts/ensure-ghosttykit.sh"
+
 if should_skip_ghostty_cli_helper_zig_build; then
   if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
     echo "Auto-enabling CMUX_SKIP_ZIG_BUILD=1 for Ghostty CLI helper (${AUTO_SKIP_ZIG_BUILD_REASON})"
@@ -324,8 +328,47 @@ fi
 XCODEBUILD_ARGS+=(build)
 
 XCODE_LOG="/tmp/cmux-xcodebuild-${TAG_SLUG}.log"
+XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
+# Xcode 26's SWBBuildService is a per-user singleton. Concurrent xcodebuild
+# invocations (even with separate -derivedDataPath) share that daemon and can
+# crash it, SIGTERMing in-flight builds. Serialize via a per-user lock so
+# parallel reload.sh runs queue instead of trampling each other.
 set +e
-xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$XCODE_LOG" | grep -E '(warning:|error:|fatal:|BUILD FAILED|BUILD SUCCEEDED|\*\* BUILD)'
+python3 -c '
+import fcntl
+import os
+import sys
+
+lock_path = sys.argv[1]
+command = sys.argv[2:]
+
+try:
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+except OSError as exc:
+    raise SystemExit(f"error: open lock: {exc}")
+
+try:
+    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+    fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
+except OSError as exc:
+    raise SystemExit(f"error: fcntl lock fd: {exc}")
+
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print(f"==> Another xcodebuild is running; waiting for {lock_path}...", file=sys.stderr, flush=True)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except OSError as exc:
+        raise SystemExit(f"error: flock: {exc}")
+except OSError as exc:
+    raise SystemExit(f"error: flock: {exc}")
+
+try:
+    os.execvp(command[0], command)
+except OSError as exc:
+    raise SystemExit(f"error: exec: {exc}")
+' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$XCODE_LOG" | grep -E '(warning:|error:|fatal:|BUILD FAILED|BUILD SUCCEEDED|\*\* BUILD|^==> )'
 XCODE_PIPESTATUS=("${PIPESTATUS[@]}")
 set -e
 XCODE_EXIT="${XCODE_PIPESTATUS[0]}"
@@ -428,7 +471,6 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
         rm -f "$CMUX_SOCKET"
       fi
     fi
-    /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$TAG_APP_PATH" >/dev/null 2>&1 || true
   fi
   APP_PATH="$TAG_APP_PATH"
 fi
@@ -473,23 +515,38 @@ if [[ -x "$GHOSTTY_HELPER_SRC" ]]; then
   cp "$GHOSTTY_HELPER_SRC" "$BIN_DIR/ghostty"
   chmod +x "$BIN_DIR/ghostty"
 fi
+if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
+  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
+    echo "warning: codesign failed for $APP_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
+  else
+    echo "error: codesign failed for $APP_PATH" >&2
+    exit 1
+  fi
+fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 if [[ -x "$CLI_PATH" ]]; then
   echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
 fi
 
-if [[ "$LAUNCH" -eq 1 ]]; then
-  # Ensure any running instance is fully terminated, regardless of DerivedData path.
+# Tag mode: always terminate the existing same-tag instance after a successful build,
+# even without --launch. A stale tagged app pinned to this bundle id would otherwise
+# keep running against freshly-overwritten resources, and macOS would foreground it
+# instead of launching the newly built binary when the user cmd-clicks the .app.
+if [[ -n "$TAG" ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
+  pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+  sleep 0.3
+fi
+
+if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
+    /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
+    sleep 0.3
     pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-  else
-    # Tag mode: only kill the tagged instance; allow side-by-side with the main app.
-    pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+    sleep 0.3
   fi
-  sleep 0.3
 
   # Avoid inheriting cmux/ghostty environment variables from the terminal that
   # runs this script (often inside another cmux instance), which can cause

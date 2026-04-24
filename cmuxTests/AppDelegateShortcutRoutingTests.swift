@@ -8,6 +8,28 @@ import XCTest
 
 private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 private final class FakeWKInspectorContainerView: NSView {}
+private final class FocusableTestView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+}
+private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
+    var afterMenuMissCallCount = 0
+    var pasteCallCount = 0
+    var pasteAsPlainTextCallCount = 0
+    var performAfterMenuMissResult = true
+
+    override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
+        afterMenuMissCallCount += 1
+        return performAfterMenuMissResult
+    }
+
+    override func paste(_ sender: Any?) {
+        pasteCallCount += 1
+    }
+
+    override func pasteAsPlainText(_ sender: Any?) {
+        pasteAsPlainTextCallCount += 1
+    }
+}
 
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
@@ -1576,6 +1598,164 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testMinimalModeTitlebarPaddingOnlyCancelsHostingSafeArea() {
+        XCTAssertEqual(
+            ContentView.effectiveTitlebarPadding(
+                isMinimalMode: false,
+                isFullScreen: false,
+                titlebarPadding: 32,
+                hostingSafeAreaTop: 0
+            ),
+            32,
+            accuracy: 0.5,
+            "Standard mode should keep reserving titlebar space above terminal content"
+        )
+
+        XCTAssertEqual(
+            ContentView.effectiveTitlebarPadding(
+                isMinimalMode: true,
+                isFullScreen: true,
+                titlebarPadding: 32,
+                hostingSafeAreaTop: 32
+            ),
+            0,
+            accuracy: 0.5,
+            "Fullscreen minimal mode should not offset for a titlebar"
+        )
+
+        XCTAssertEqual(
+            ContentView.effectiveTitlebarPadding(
+                isMinimalMode: true,
+                isFullScreen: false,
+                titlebarPadding: 32,
+                hostingSafeAreaTop: 0
+            ),
+            0,
+            accuracy: 0.5,
+            "Manually hosted minimal windows already have zero safe area, so the Bonsplit strip must not be pulled offscreen"
+        )
+
+        XCTAssertEqual(
+            ContentView.effectiveTitlebarPadding(
+                isMinimalMode: true,
+                isFullScreen: false,
+                titlebarPadding: 32,
+                hostingSafeAreaTop: 28
+            ),
+            -28,
+            accuracy: 0.5,
+            "SwiftUI WindowGroup windows still need their native titlebar safe area cancelled"
+        )
+    }
+
+    func testMinimalModeCollapsedSidebarResyncsTrafficLightInsetAfterNewWorkspaceCreation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+        }
+
+        let snapshot = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: false, selection: .tabs, width: nil)
+        )
+        let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected tab manager for created window")
+            return
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: windowId), false)
+
+        guard let sourceWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        // Recreate the regression shape: the window chrome state says minimal +
+        // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
+        sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
+
+        guard let newWorkspaceId = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
+            XCTFail("Expected workspace creation to route to the test window")
+            return
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        guard let newWorkspace = manager.tabs.first(where: { $0.id == newWorkspaceId }) else {
+            XCTFail("Expected new workspace in test window")
+            return
+        }
+
+        XCTAssertEqual(
+            newWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            80,
+            accuracy: 0.5,
+            "New minimal-mode workspaces should reserve traffic-light space immediately even when the source workspace inset is stale"
+        )
+    }
+
+    func testMinimalModeCollapsedSidebarSeedsTrafficLightInsetOnNewWindowCreation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+        }
+
+        // Simulate the new-window flow: createMainWindow with a snapshot that forces
+        // sidebar collapsed. The initial workspace is created inside TabManager.init,
+        // before ContentView.onAppear can run syncTrafficLightInset — so the seed in
+        // createMainWindow is what protects the first render.
+        let snapshot = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: false, selection: .tabs, width: nil)
+        )
+        let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected tab manager for created window")
+            return
+        }
+
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: windowId), false)
+
+        guard let initialWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace in fresh window")
+            return
+        }
+
+        // No RunLoop spin before reading the inset — the seed must be applied by the
+        // time createMainWindow returns, not lazily after onAppear runs.
+        XCTAssertEqual(
+            initialWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            80,
+            accuracy: 0.5,
+            "New minimal-mode windows with collapsed sidebar should reserve traffic-light space on the initial workspace before first render"
+        )
+    }
+
     func testAttachUpdateAccessoryRemovesTitlebarAccessoryWhenMinimalModeEnabled() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -2592,6 +2772,45 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 keyCode: 44 // kVK_ANSI_Slash
             ) else {
                 XCTFail("Failed to construct Cmd+Shift+/ event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testReactGrabShortcutIsConsumedWhenNoBrowserRouteExists() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        withTemporaryShortcut(action: .toggleReactGrab) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.command, .shift],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "G",
+                charactersIgnoringModifiers: "g",
+                isARepeat: false,
+                keyCode: 5
+            ) else {
+                XCTFail("Failed to construct Cmd+Shift+G event")
                 return
             }
 
@@ -4133,6 +4352,283 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, surfaceCountBefore + 1, "Cmd+T keyCode fallback should create a new surface")
     }
 
+    func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before repair test"
+        )
+
+        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertFalse(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to lose first responder before repaired typing"
+        )
+        XCTAssertTrue(window.firstResponder == nil || window.firstResponder is NSWindow, "Expected a broken key-routing responder")
+
+#if DEBUG
+        var forwardedKeyDownCount = 0
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 0 else { return }
+            forwardedKeyDownCount += 1
+        }
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+        }
+#endif
+
+        guard let keyDown = makeKeyDownEvent(
+            key: "a",
+            modifiers: [],
+            keyCode: 0,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct typing event")
+            return
+        }
+
+        window.sendEvent(keyDown)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Typing should repair first responder back to the focused terminal surface"
+        )
+        XCTAssertTrue(window.firstResponder === terminalView, "Typing repair should restore the Ghostty surface view as first responder")
+#if DEBUG
+        // forwardedKeyDownCount is only observable through the DEBUG-only
+        // GhosttyNSView.debugGhosttySurfaceKeyEventObserver seam; the first-
+        // responder assertions above act as the Release-build proxy.
+        XCTAssertGreaterThan(forwardedKeyDownCount, 0, "Typing repair should forward the keyDown into Ghostty")
+#endif
+    }
+
+    func testWindowPerformKeyEquivalentDefersTerminalPasteMenuMissToGhosttyBindingResolution() {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let emptyMenu = NSMenu(title: "Test")
+        emptyMenu.addItem(withTitle: "Placeholder", action: nil, keyEquivalent: "")
+        NSApp.mainMenu = emptyMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "v",
+            modifiers: [.command],
+            keyCode: 9,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+V event")
+            return
+        }
+
+        XCTAssertTrue(
+            probeWindow.performKeyEquivalent(with: event),
+            "Cmd+V menu miss should still route through Ghostty binding resolution"
+        )
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 1, "Ghostty binding resolution should run after the menu miss")
+        XCTAssertEqual(probeView.pasteCallCount, 0, "Window routing must not force paste before Ghostty inspects bindings")
+        XCTAssertEqual(
+            probeView.pasteAsPlainTextCallCount,
+            0,
+            "Window routing must not force plain-text paste before Ghostty inspects bindings"
+        )
+    }
+
+    func testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(strayView)
+        defer { strayView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before repair test"
+        )
+
+        XCTAssertTrue(window.makeFirstResponder(strayView), "Expected test to install a visible wrong first responder")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertFalse(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to lose first responder before repaired typing"
+        )
+        XCTAssertTrue(window.firstResponder === strayView, "Expected a visible same-window responder drift")
+
+#if DEBUG
+        var forwardedKeyDownCount = 0
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 0 else { return }
+            forwardedKeyDownCount += 1
+        }
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+        }
+#endif
+
+        guard let keyDown = makeKeyDownEvent(
+            key: "a",
+            modifiers: [],
+            keyCode: 0,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct typing event")
+            return
+        }
+
+        window.sendEvent(keyDown)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Typing should repair first responder back to the focused terminal surface"
+        )
+        XCTAssertTrue(window.firstResponder === terminalView, "Typing repair should restore the Ghostty surface view as first responder")
+#if DEBUG
+        XCTAssertGreaterThan(forwardedKeyDownCount, 0, "Typing repair should forward the keyDown into Ghostty")
+#endif
+    }
+
+    func testWindowSendEventRepairsFocusedTerminalSearchTypingAfterResponderDrift() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let searchState = TerminalSurface.SearchState(needle: "")
+        terminalPanel.surface.searchState = searchState
+        terminalPanel.hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let searchField = findEditableTextField(in: terminalPanel.hostedView) else {
+            XCTFail("Expected mounted terminal search field")
+            return
+        }
+
+        XCTAssertTrue(
+            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
+            "Expected terminal search field to own first responder before drift"
+        )
+
+        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertFalse(
+            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
+            "Expected terminal search field to lose first responder before repaired typing"
+        )
+
+        guard let keyDown = makeKeyDownEvent(
+            key: "a",
+            modifiers: [],
+            keyCode: 0,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct typing event")
+            return
+        }
+
+        window.sendEvent(keyDown)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
+            "Typing should repair focus back to the terminal search field"
+        )
+        XCTAssertEqual(searchField.stringValue, "a", "Typing repair should preserve the first key in the search field")
+    }
+
     private func makeKeyDownEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags,
@@ -4264,6 +4760,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             stack.append(contentsOf: current.subviews)
         }
         return nil
+    }
+
+    private func findEditableTextField(in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.isEditable {
+            return field
+        }
+        for subview in view.subviews {
+            if let field = findEditableTextField(in: subview) {
+                return field
+            }
+        }
+        return nil
+    }
+
+    private func firstResponderOwnsTextField(_ firstResponder: NSResponder?, textField: NSTextField) -> Bool {
+        if firstResponder === textField {
+            return true
+        }
+        if let editor = firstResponder as? NSTextView,
+           editor.isFieldEditor,
+           editor.delegate as? NSTextField === textField {
+            return true
+        }
+        return false
     }
 
     private func mainWindowIds() -> Set<UUID> {

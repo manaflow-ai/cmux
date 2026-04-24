@@ -26,6 +26,14 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
     }
 
+    private func makeHTMLDocument(containing text: String) -> String {
+        let escaped = text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        return "<html><body><pre>\(escaped)</pre></body></html>"
+    }
+
     func testHTMLOnlyPasteboardExtractsPlainText() {
         let pasteboard = NSPasteboard(name: .init("cmux-test-html-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -49,6 +57,49 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
     }
 
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/2818 —
+    /// Qt-based apps (Telegram Desktop, etc.) register the legacy
+    /// `com.apple.traditional-mac-plain-text` type (Mac OS Roman encoding,
+    /// no CJK/Cyrillic/Arabic support) *before* UTF-8. Iterating the
+    /// pasteboard types in order used to return the lossy legacy value,
+    /// mangling every non-Latin character into "?". The helper must
+    /// prefer UTF-8 whenever it is also present on the pasteboard.
+    func testPrefersUTF8PlainTextOverLegacyMacRomanType() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-utf8-priority-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let koreanText = "삼성전자 거래량 미충족"
+        let legacyType = NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
+        let utf8Type = NSPasteboard.PasteboardType("public.utf8-plain-text")
+
+        // Order matters: declare legacy FIRST to mirror Qt's behaviour.
+        pasteboard.declareTypes([legacyType, utf8Type], owner: nil)
+        pasteboard.setString("?? ??? ???", forType: legacyType)
+        pasteboard.setString(koreanText, forType: utf8Type)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            koreanText
+        )
+    }
+
+    /// Fallback-loop coverage: when *only* a legacy / unknown plain-text
+    /// type is present and no UTF-8 variant exists, the helper should still
+    /// return whatever string the pasteboard does expose (best-effort).
+    func testFallsBackWhenOnlyNonPreferredPlainTextTypePresent() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-only-legacy-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let legacyType = NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
+        pasteboard.declareTypes([legacyType], owner: nil)
+        pasteboard.setString("plain ascii", forType: legacyType)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "plain ascii"
+        )
+    }
+
     func testEmptyPlainTextFallsBackToRichTextPayload() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-empty-plain-rich-fallback-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -67,6 +118,65 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
     }
 
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/2940.
+    /// Some apps place the same large clipboard payload onto `.string`, `.html`,
+    /// and `.rtf`. cmux should hand the plain text to the terminal quickly
+    /// instead of first rendering the rich-text variants on the paste path.
+    func testLargePlainTextPasteStaysFastWhenRichTextTypesAreAlsoPresent() throws {
+        final class MockPTY {
+            private(set) var receivedText = ""
+
+            func write(_ text: String) {
+                receivedText += text
+            }
+        }
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-large-fast-paste-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let text = String(
+            repeating: "abcdefghijklmnopqrstuvwxyz0123456789\n",
+            count: 65_536
+        )
+        let rtfData = try NSAttributedString(string: text).data(
+            from: NSRange(location: 0, length: text.utf16.count),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        pasteboard.setString(text, forType: .string)
+        pasteboard.setString(makeHTMLDocument(containing: text), forType: .html)
+        pasteboard.setData(rtfData, forType: .rtf)
+
+        let mockPTY = MockPTY()
+        let startedAt = ProcessInfo.processInfo.systemUptime
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .local
+        )
+        TerminalImageTransferPlanner.executeForTesting(
+            plan: plan,
+            uploadWorkspaceRemote: { _, _, _ in
+                XCTFail("large text paste should not trigger remote upload")
+            },
+            uploadDetectedSSH: { _, _, _, _ in
+                XCTFail("large text paste should not trigger SSH upload")
+            },
+            insertText: { mockPTY.write($0) },
+            onFailure: { error in
+                XCTFail("unexpected paste failure: \(error)")
+            }
+        )
+
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        XCTAssertEqual(mockPTY.receivedText, text)
+        XCTAssertLessThan(
+            elapsed,
+            0.5,
+            "large plain-text pastes should not spend hundreds of milliseconds decoding HTML/RTF before writing to the PTY"
+        )
+    }
+
     func testXHTMLTypeFallsBackToRenderedHTMLText() {
         let pasteboard = NSPasteboard(name: .init("cmux-test-xhtml-html-fallback-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -77,6 +187,31 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
 
         XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
+    }
+
+    func testPublicURLPastePreservesOriginalURLText() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-public-url-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let rawURL = "https://example.com?a=1&b=2"
+        let nsURL = try XCTUnwrap(NSURL(string: rawURL))
+        XCTAssertTrue(pasteboard.writeObjects([nsURL]))
+        XCTAssertTrue(pasteboard.types?.contains(.URL) == true)
+        XCTAssertFalse(pasteboard.types?.contains(.fileURL) == true)
+
+        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), rawURL)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .local
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected URL text insertion, got \(plan)")
+        }
+
+        XCTAssertEqual(text, rawURL)
     }
 
     func testImageClipboardWithPlainTextFallbackStillFallsBackToImagePath() throws {
@@ -210,6 +345,38 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     func testAttachmentOnlyRTFDClipboardFallsBackToImagePath() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-attachment-\(UUID().uuidString)"))
         pasteboard.clearContents()
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.orange.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        let attributed = NSAttributedString(attachment: attachment)
+        let data = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        )
+        pasteboard.setData(data, forType: .rtfd)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
+    }
+
+    func testAttachmentOnlyRTFDClipboardWithPlainTextFallbackStillFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-attachment-string-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "https://example.com/keyboard.tiff",
+            forType: .string
+        )
 
         let image = NSImage(size: NSSize(width: 1, height: 1))
         image.lockFocus()
@@ -428,6 +595,24 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 
         XCTAssertEqual(plan, .insertText("hello from clipboard"))
         XCTAssertEqual(targetResolutionCount, 0)
+    }
+
+    func testPastePlanFallsBackToAlternatePlainTextWhenImageTypeIsUnusable() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-raycast-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "hello from Raycast",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
+        pasteboard.setData(Data("not a real tiff".utf8), forType: .tiff)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .local
+        )
+
+        XCTAssertEqual(plan, .insertText("hello from Raycast"))
     }
 
     func testLazyPastePlanResolvesTargetForFileURLPaste() throws {
@@ -1276,6 +1461,20 @@ final class GhosttyResponderResolutionTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
+    private final class DelegateTrackingTextView: NSTextView {
+        private(set) var delegateReadCount = 0
+
+        override var delegate: NSTextViewDelegate? {
+            get {
+                delegateReadCount += 1
+                return super.delegate
+            }
+            set {
+                super.delegate = newValue
+            }
+        }
+    }
+
     func testResolvesGhosttyViewFromDescendantResponder() {
         let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
@@ -1292,6 +1491,17 @@ final class GhosttyResponderResolutionTests: XCTestCase {
     func testReturnsNilForUnrelatedResponder() {
         let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         XCTAssertNil(cmuxOwningGhosttyView(for: view))
+    }
+
+    func testDoesNotReadTextViewDelegateForGhosttyResponderResolution() {
+        let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+
+        XCTAssertNil(cmuxOwningGhosttyView(for: textView))
+        XCTAssertEqual(
+            textView.delegateReadCount,
+            0,
+            "Ghostty responder resolution must avoid NSTextView.delegate because AppKit exposes it as unsafe-unretained"
+        )
     }
 }
 
@@ -1801,6 +2011,59 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         throw XCTSkip("Debug-only regression test")
 #endif
     }
+
+    func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(
+            surface.surface,
+            "Expected runtime surface before measuring visibility-restore redraws"
+        )
+
+        hostedView.setActive(false)
+        hostedView.setVisibleInUI(false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        surface.resetDebugForceRefreshCount()
+        hostedView.setVisibleInUI(true)
+
+        let drained = expectation(description: "visible toggle drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            1,
+            "Restoring panel visibility should force a redraw even when focus recovery is inactive"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 
@@ -2209,7 +2472,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
-    func testPreferredScrollerStyleChangeRecalculatesTerminalSurfaceWidth() {
+    func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -2289,32 +2552,17 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        XCTAssertEqual(scrollView.scrollerStyle, .legacy)
-        assertPendingSurfaceWidth(
-            legacyContentWidth,
-            "Preferred scroller style changes should recalculate the terminal grid width immediately"
-        )
-
-        scrollView.scrollerStyle = .overlay
-        scrollView.layoutSubtreeIfNeeded()
-        let overlayContentWidth = scrollView.contentSize.width
-        XCTAssertGreaterThan(
-            overlayContentWidth,
-            legacyContentWidth,
-            "Overlay scrollbars should restore the full terminal content width"
-        )
-        assertPendingSurfaceWidth(
-            legacyContentWidth,
-            "Changing the scroll view style alone should leave the terminal grid stale until the scroller-style observer runs"
-        )
-
-        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
+        let restoredContentWidth = scrollView.contentSize.width
         XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        XCTAssertEqual(
+            restoredContentWidth,
+            initialContentWidth,
+            accuracy: 0.5,
+            "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior so terminal content is not occluded by a persistent gutter"
+        )
         assertPendingSurfaceWidth(
-            overlayContentWidth,
-            "Preferred scroller style changes should also restore the wider terminal grid when overlay scrollbars return"
+            restoredContentWidth,
+            "Preferred scroller style changes should restore the wider terminal grid when overlay scrollbars return"
         )
     }
 
@@ -3714,6 +3962,103 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
+final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
+    func testTrimsTrailingPeriodAfterMarkdownFile() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "~/ClaudeCode/feature-spec-template.md."
+            ),
+            "~/ClaudeCode/feature-spec-template.md"
+        )
+    }
+
+    func testTrimsTrailingCommaInList() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/first.txt,"
+            ),
+            "/tmp/fixtures/first.txt"
+        )
+    }
+
+    func testTrimsTrailingCloseParenWhenNoBalancedOpenParen() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/notes.txt)"
+            ),
+            "/tmp/fixtures/notes.txt"
+        )
+    }
+
+    func testPreservesBalancedParensInMiddleOfPath() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/report (draft)/notes.txt"
+            ),
+            "/tmp/fixtures/report (draft)/notes.txt"
+        )
+    }
+
+    func testStripsMultipleTrailingPunctuationCharacters() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/report (draft).md).,!?\""
+            ),
+            "/tmp/fixtures/report (draft).md"
+        )
+    }
+
+    func testTrimsTrailingClosingQuote() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/notes.txt\""
+            ),
+            "/tmp/fixtures/notes.txt"
+        )
+    }
+
+    func testResolveQuicklookFallsBackToStrippedPathWhenLiteralPathIsMissing() {
+        let strippedPath = "/tmp/cmux-cmdclick-path.md"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                "\(strippedPath).",
+                cwd: "/tmp",
+                existingPaths: [strippedPath]
+            ),
+            strippedPath
+        )
+    }
+
+    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithDot() {
+        let literalPath = "/tmp/cmux-cmdclick-literal-dot.md."
+        let strippedPath = "/tmp/cmux-cmdclick-literal-dot.md"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                literalPath,
+                cwd: "/tmp",
+                existingPaths: [literalPath, strippedPath]
+            ),
+            literalPath
+        )
+    }
+
+    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithParen() {
+        let literalPath = "/tmp/cmux-cmdclick-literal-paren)"
+        let strippedPath = "/tmp/cmux-cmdclick-literal-paren"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                literalPath,
+                cwd: "/tmp",
+                existingPaths: [literalPath, strippedPath]
+            ),
+            literalPath
+        )
+    }
+}
+
 
 final class TerminalControllerSocketTextChunkTests: XCTestCase {
     func testSocketTextChunksReturnsSingleChunkForPlainText() {
@@ -3794,6 +4139,144 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
                 interactiveGeometryResizeActive: true
             ),
             "Interactive resize should use the immediate portal sync path"
+        )
+    }
+}
+
+final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
+    func testLeftShiftPressReturnsPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x38,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testLeftShiftReleaseReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x38,
+                modifierFlagsRawValue: 0
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testLeftShiftWithoutLeftSideDeviceMaskReturnsReleaseWhenRightShiftHeld() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x38,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightShiftRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3C,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightShiftWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3C,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightShiftWithoutRightSideDeviceMaskReturnsReleaseWhenLeftShiftHeld() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3C,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightControlRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3E,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue | UInt(NX_DEVICERCTLKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightControlWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3E,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightOptionRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3D,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightOptionWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3D,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightCommandRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x36,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICERCMDKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testCapsLockUsesLogicalModifierState() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x39,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.capsLock.rawValue
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x39,
+                modifierFlagsRawValue: 0
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testNonModifierKeyReturnsNil() {
+        XCTAssertNil(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x00,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
+            )
         )
     }
 }
@@ -4000,5 +4483,79 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
         )
+    }
+}
+
+// MARK: - TerminalSurface.normalizedInitialInput
+//
+// Guards the contract introduced when merging #2545 (auto-restore commands) with main
+// (restorable-agent resume). Both callers funnel into `TerminalSurface.init(initialInput:)`
+// but use different newline conventions; the normalizer unifies them without losing the
+// injection-prevention goal.
+
+final class TerminalSurfaceNormalizedInitialInputTests: XCTestCase {
+    func testBareCommandPassesThrough() {
+        XCTAssertEqual(TerminalSurface.normalizedInitialInput("opencode"), "opencode")
+    }
+
+    func testSingleTrailingNewlineIsStripped() {
+        // Matches `RestorableAgentSession.resumeStartupInput()` which always returns "<cmd>\n".
+        XCTAssertEqual(TerminalSurface.normalizedInitialInput("claude --resume abc\n"), "claude --resume abc")
+    }
+
+    func testEmbeddedNewlineIsRejected() {
+        // Defense-in-depth: block multi-line injection even though
+        // `SessionRestoreCommandSettings.validatedRestoreCommand` is the primary gate.
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("ls\nrm -rf /"))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("ls\nrm -rf /\n"))
+    }
+
+    func testCarriageReturnIsRejected() {
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("ls\r"))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("ls\r\n"))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("foo\rbar"))
+    }
+
+    func testEmptyInputsReturnNil() {
+        XCTAssertNil(TerminalSurface.normalizedInitialInput(nil))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput(""))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("\n"))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("   "))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("   \n"))
+    }
+
+    func testSurroundingWhitespaceIsTrimmed() {
+        XCTAssertEqual(TerminalSurface.normalizedInitialInput("  opencode  "), "opencode")
+        XCTAssertEqual(TerminalSurface.normalizedInitialInput("  opencode  \n"), "opencode")
+    }
+
+    func testOnlyOneTrailingNewlineIsStripped() {
+        // Two trailing \n means at least one is internal -> reject.
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("opencode\n\n"))
+    }
+
+    func testAgentResumeCommandShapeIsAccepted() {
+        // Shape produced by `RestorableAgentSession.resumeStartupInput()` for Claude/Codex resume.
+        let resumeLike = "cd '/home/user/proj' && claude --resume 'abc-123'\n"
+        XCTAssertEqual(
+            TerminalSurface.normalizedInitialInput(resumeLike),
+            "cd '/home/user/proj' && claude --resume 'abc-123'"
+        )
+    }
+
+    func testScriptLauncherShapeIsAccepted() {
+        // Shape produced by `resumeStartupInput()` fallback when the inline command exceeds
+        // `maxInlineStartupInputBytes`.
+        let scriptLike = "/bin/zsh '/tmp/cmux-agent-resume/launch-xyz.sh'\n"
+        XCTAssertEqual(
+            TerminalSurface.normalizedInitialInput(scriptLike),
+            "/bin/zsh '/tmp/cmux-agent-resume/launch-xyz.sh'"
+        )
+    }
+
+    func testBareSessionRestoreCommandShapeIsAccepted() {
+        // Shape produced by `SessionRestoreCommandSettings.validatedRestoreCommand()`:
+        // bare command, no trailing newline. `createSurface` appends the \n.
+        XCTAssertEqual(TerminalSurface.normalizedInitialInput("npm run dev"), "npm run dev")
     }
 }

@@ -359,7 +359,7 @@ struct TitlebarControlsView: View {
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
-                dlog("titlebar.toggleSidebar")
+                cmuxDebugLog("titlebar.toggleSidebar")
                 #endif
                 onToggleSidebar()
             }) {
@@ -371,7 +371,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
-                dlog("titlebar.notifications")
+                cmuxDebugLog("titlebar.notifications")
                 #endif
                 onToggleNotifications()
             }) {
@@ -398,7 +398,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
-                dlog("titlebar.newTab")
+                cmuxDebugLog("titlebar.newTab")
                 #endif
                 onNewTab()
             }) {
@@ -407,6 +407,7 @@ struct TitlebarControlsView: View {
             .accessibilityIdentifier("titlebarControl.newTab")
             .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
+
         }
 
         let paddedContent = content.padding(config.groupPadding)
@@ -508,7 +509,7 @@ struct TitlebarControlsView: View {
                     .offset(x: item.leftEdge, y: yOffset)
             }
         }
-        .animation(.easeInOut(duration: 0.14), value: shouldShowTitlebarShortcutHints)
+        .animation(.easeOut(duration: 0.12), value: shouldShowTitlebarShortcutHints)
         .transition(.opacity)
         .allowsHitTesting(false)
     }
@@ -517,16 +518,8 @@ struct TitlebarControlsView: View {
         shortcut: StoredShortcut,
         config: TitlebarControlsStyleConfig
     ) -> some View {
-        Text(shortcut.displayString)
-            .font(.system(size: max(8, config.iconSize - 5), weight: .semibold, design: .rounded))
-            .monospacedDigit()
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .foregroundColor(.primary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+        ShortcutHintPill(shortcut: shortcut, fontSize: max(8, config.iconSize - 5))
             .frame(minHeight: titlebarShortcutHintHeight(for: config))
-            .background(ShortcutHintPillBackground())
     }
 
     @ViewBuilder
@@ -565,7 +558,9 @@ struct HiddenTitlebarSidebarControlsView: View {
                     anchorView: viewModel.notificationsAnchorView
                 )
             },
-            onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() },
+            onNewTab: {
+                AppDelegate.shared?.performNewWorkspaceAction(debugSource: "titlebar.hiddenNewWorkspace")
+            },
             visibilityMode: .onHover
         )
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
@@ -579,7 +574,16 @@ enum TitlebarControlsVisibilityMode {
 
 @MainActor
 private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
-    @Published private(set) var isModifierPressed = false
+    @Published private(set) var isModifierPressed = false {
+        didSet {
+            guard oldValue != isModifierPressed else { return }
+            NotificationCenter.default.post(
+                name: .titlebarShortcutHintsVisibilityChanged,
+                object: nil,
+                userInfo: ["visible": isModifierPressed]
+            )
+        }
+    }
 
     private weak var hostWindow: NSWindow?
     private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
@@ -789,8 +793,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         self.notificationStore = notificationStore
         let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
         let toggleNotifications: () -> Void = { _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
-        let newTab = { _ = AppDelegate.shared?.tabManager?.addTab() }
-
+        let newTab = { _ = AppDelegate.shared?.performNewWorkspaceAction(debugSource: "titlebar.accessoryNewWorkspace") }
         hostingView = NonDraggableHostingView(
             rootView: TitlebarControlsView(
                 notificationStore: notificationStore,
@@ -1272,6 +1275,7 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func reattachIfPresentationModeChanged() {
+
         let currentMode = WorkspacePresentationModeSettings.mode()
         guard currentMode != lastKnownPresentationMode else { return }
         lastKnownPresentationMode = currentMode
@@ -1349,10 +1353,7 @@ final class UpdateTitlebarAccessoryController {
 
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
 
-        // Don't remove accessories in minimal mode. TitlebarControlsAccessoryViewController
-        // hides itself and zeros its frame via its own UserDefaults observer. Keeping it
-        // attached avoids fragile remove/re-add cycles on mode toggle.
-
+        // Don't re-attach controls if already attached.
         guard !attachedWindows.contains(window) else { return }
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
@@ -1378,7 +1379,8 @@ final class UpdateTitlebarAccessoryController {
 
     private func removeAccessoryIfPresent(from window: NSWindow) {
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
-            window.titlebarAccessoryViewControllers[index].view.identifier == controlsIdentifier
+            let id = window.titlebarAccessoryViewControllers[index].view.identifier
+            return id == controlsIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 
