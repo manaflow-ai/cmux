@@ -2884,19 +2884,42 @@ struct ContentView: View {
                         }
                     }
                 )) {
-                    sidebarContent
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .background(
-                            GeometryReader { geo in
-                                Color.clear.onChange(of: geo.size.width) { newWidth in
-                                    if abs(newWidth - sidebarWidth) > 1 {
-                                        sidebarWidth = newWidth
-                                        sidebarState.persistedWidth = newWidth
-                                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Sidebar-internal toggle (Apple HIG: when the sidebar
+                        // is shown the toggle sits inside the sidebar column,
+                        // matching Mail/Notes). When the sidebar is hidden,
+                        // the conditional ToolbarItem below provides the
+                        // toggle on the leading edge of the toolbar instead.
+                        HStack(spacing: 0) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    _ = sidebarState.toggle()
+                                }
+                            } label: {
+                                Image(systemName: "sidebar.left")
+                            }
+                            .buttonStyle(.borderless)
+                            .padding(.leading, 12)
+                            .padding(.vertical, 6)
+                            .accessibilityIdentifier("sidebar.toggleSidebar")
+                            .accessibilityLabel(String(localized: "toolbar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"))
+                            .help(String(localized: "toolbar.sidebar.tooltip", defaultValue: "Toggle Sidebar"))
+                            Spacer(minLength: 0)
+                        }
+                        sidebarContent
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.onChange(of: geo.size.width) { newWidth in
+                                if abs(newWidth - sidebarWidth) > 1 {
+                                    sidebarWidth = newWidth
+                                    sidebarState.persistedWidth = newWidth
                                 }
                             }
-                        )
-                        .navigationSplitViewColumnWidth(min: 120, ideal: sidebarWidth, max: 400)
+                        }
+                    )
+                    .navigationSplitViewColumnWidth(min: 120, ideal: sidebarWidth, max: 400)
                 } detail: {
                     terminalContentWithRightSidebarPanel
                         .padding(8)
@@ -2905,23 +2928,23 @@ struct ContentView: View {
                 .background(SplitViewDividerHider())
                 .background(SystemSidebarToggleStripper().frame(width: 0, height: 0))
                 .toolbar {
-                    // Custom leading-edge sidebar toggle. NavigationSplitView's
-                    // own auto-injected toggle is unreliable on macOS 26 — it
-                    // gets shoved into the toolbar overflow popover when the
-                    // sidebar is collapsed instead of staying on the leading
-                    // edge. SystemSidebarToggleStripper above removes any
-                    // system duplicate so this is the single source of truth.
-                    ToolbarItem(placement: .navigation) {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                _ = sidebarState.toggle()
+                    // Toolbar fallback: only show the sidebar toggle in the
+                    // toolbar when the sidebar is hidden. When it's shown, the
+                    // sidebar-internal toggle above is the single visible
+                    // control (HIG: Mail/Notes pattern).
+                    if !sidebarState.isVisible {
+                        ToolbarItem(placement: .navigation) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    _ = sidebarState.toggle()
+                                }
+                            } label: {
+                                Image(systemName: "sidebar.left")
                             }
-                        } label: {
-                            Image(systemName: "sidebar.left")
+                            .accessibilityIdentifier("toolbar.toggleSidebar")
+                            .accessibilityLabel(String(localized: "toolbar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"))
+                            .help(String(localized: "toolbar.sidebar.tooltip", defaultValue: "Toggle Sidebar"))
                         }
-                        .accessibilityIdentifier("toolbar.toggleSidebar")
-                        .accessibilityLabel(String(localized: "toolbar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"))
-                        .help(String(localized: "toolbar.sidebar.tooltip", defaultValue: "Toggle Sidebar"))
                     }
 
                     ToolbarItemGroup(placement: .primaryAction) {
