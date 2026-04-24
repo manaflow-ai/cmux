@@ -1496,6 +1496,23 @@ final class WindowTerminalPortal: NSObject {
                 hostedView.bounds = expectedBounds
                 geometryChanged = true
             }
+            // On macOS 26, round the terminal's leading corners when a sidebar
+            // is visible to its left, matching the NavigationSplitView glass shape.
+            // Applied inside the CATransaction to prevent animation flicker.
+            if #available(macOS 26.0, *) {
+                // Detect sidebar presence via x-offset. The sidebar has a minimum
+                // width of 120pt, so any x > 20 reliably indicates a sidebar is
+                // to our left. This AppKit view cannot access SwiftUI SidebarState
+                // directly; the frame-based heuristic is the simplest reliable path.
+                let hasSidebarToLeft = targetFrame.origin.x > 20
+                let desiredRadius: CGFloat = hasSidebarToLeft ? 16 : 0
+                if hostedView.layer?.cornerRadius != desiredRadius {
+                    hostedView.layer?.cornerRadius = desiredRadius
+                    hostedView.layer?.maskedCorners = hasSidebarToLeft
+                        ? [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+                        : []
+                }
+            }
             CATransaction.commit()
             if geometryChanged {
                 hostedView.reconcileGeometryNow()
