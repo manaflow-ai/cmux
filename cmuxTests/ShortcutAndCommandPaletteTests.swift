@@ -864,6 +864,26 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         }
     }
 
+    func testControlOnlyShortcutHintRequiresControlModifier() {
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
+
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control, .shift], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control, .option], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [], defaults: defaults))
+        }
+    }
+
+    func testControlOnlyShortcutHintRespectsControlVisibilitySetting() {
+        withDefaultsSuite { defaults in
+            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
+
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control], defaults: defaults))
+        }
+    }
+
     func testCommandHintCanBeDisabledIndependently() {
         withDefaultsSuite { defaults in
             defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
@@ -1030,6 +1050,15 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         body(defaults)
         defaults.removePersistentDomain(forName: suiteName)
+    }
+}
+
+
+final class RightSidebarModeShortcutHintTests: XCTestCase {
+    func testModeShortcutActionsMatchModeSwitchingActions() {
+        XCTAssertEqual(RightSidebarMode.files.shortcutAction, .switchRightSidebarToFiles)
+        XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
+        XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
     }
 }
 

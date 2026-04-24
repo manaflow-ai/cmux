@@ -9180,7 +9180,7 @@ struct VerticalTabsSidebar: View {
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    @StateObject private var modifierKeyMonitor = SidebarShortcutHintModifierMonitor()
+    @StateObject private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor()
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
@@ -9464,6 +9464,16 @@ enum ShortcutHintModifierPolicy {
         default:
             return false
         }
+    }
+
+    static func shouldShowControlHints(
+        for modifierFlags: NSEvent.ModifierFlags,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard normalized == [.control] else { return false }
+        return ShortcutHintDebugSettings.showHintsOnControlHoldEnabled(defaults: defaults)
     }
 
     static func isCurrentWindow(
@@ -10170,10 +10180,29 @@ private struct SidebarExternalDropDelegate: DropDelegate {
     }
 }
 
+enum ShortcutHintModifierActivation {
+    case commandOrControl
+    case controlOnly
+
+    func shouldShowHints(
+        for modifierFlags: NSEvent.ModifierFlags,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        switch self {
+        case .commandOrControl:
+            return ShortcutHintModifierPolicy.shouldShowHints(for: modifierFlags, defaults: defaults)
+        case .controlOnly:
+            return ShortcutHintModifierPolicy.shouldShowControlHints(for: modifierFlags, defaults: defaults)
+        }
+    }
+}
+
 @MainActor
-private final class SidebarShortcutHintModifierMonitor: ObservableObject {
+final class WindowScopedShortcutHintModifierMonitor: ObservableObject {
     @Published private(set) var isModifierPressed = false
 
+    private let activation: ShortcutHintModifierActivation
+    private let allowsHintsForWindow: (NSWindow) -> Bool
     private weak var hostWindow: NSWindow?
     private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
     private var hostWindowDidResignKeyObserver: NSObjectProtocol?
@@ -10181,6 +10210,14 @@ private final class SidebarShortcutHintModifierMonitor: ObservableObject {
     private var keyDownMonitor: Any?
     private var appResignObserver: NSObjectProtocol?
     private var pendingShowWorkItem: DispatchWorkItem?
+
+    init(
+        activation: ShortcutHintModifierActivation = .commandOrControl,
+        allowsHintsForWindow: @escaping (NSWindow) -> Bool = { _ in true }
+    ) {
+        self.activation = activation
+        self.allowsHintsForWindow = allowsHintsForWindow
+    }
 
     func setHostWindow(_ window: NSWindow?) {
         guard hostWindow !== window else { return }
@@ -10275,13 +10312,10 @@ private final class SidebarShortcutHintModifierMonitor: ObservableObject {
     }
 
     private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
-        guard ShortcutHintModifierPolicy.shouldShowHints(
-            for: modifierFlags,
-            hostWindowNumber: hostWindow?.windowNumber,
-            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
-            eventWindowNumber: eventWindow?.windowNumber,
-            keyWindowNumber: NSApp.keyWindow?.windowNumber
-        ) else {
+        guard let hostWindow,
+              isCurrentWindow(eventWindow: eventWindow),
+              allowsHintsForWindow(hostWindow),
+              activation.shouldShowHints(for: modifierFlags) else {
             cancelPendingHintShow(resetVisible: true)
             return
         }
@@ -10296,13 +10330,12 @@ private final class SidebarShortcutHintModifierMonitor: ObservableObject {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingShowWorkItem = nil
-            guard ShortcutHintModifierPolicy.shouldShowHints(
-                for: NSEvent.modifierFlags,
-                hostWindowNumber: self.hostWindow?.windowNumber,
-                hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
-                eventWindowNumber: nil,
-                keyWindowNumber: NSApp.keyWindow?.windowNumber
-            ) else { return }
+            guard let hostWindow = self.hostWindow,
+                  self.isCurrentWindow(eventWindow: nil),
+                  self.allowsHintsForWindow(hostWindow),
+                  self.activation.shouldShowHints(for: NSEvent.modifierFlags) else {
+                return
+            }
             self.isModifierPressed = true
         }
 
@@ -10313,7 +10346,7 @@ private final class SidebarShortcutHintModifierMonitor: ObservableObject {
     private func cancelPendingHintShow(resetVisible: Bool) {
         pendingShowWorkItem?.cancel()
         pendingShowWorkItem = nil
-        if resetVisible {
+        if resetVisible, isModifierPressed {
             isModifierPressed = false
         }
     }

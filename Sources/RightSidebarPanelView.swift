@@ -32,6 +32,14 @@ enum RightSidebarMode: String, CaseIterable {
         case .feed: return "dot.radiowaves.left.and.right"
         }
     }
+
+    var shortcutAction: KeyboardShortcutSettings.Action {
+        switch self {
+        case .files: return .switchRightSidebarToFiles
+        case .sessions: return .switchRightSidebarToSessions
+        case .feed: return .switchRightSidebarToFeed
+        }
+    }
 }
 
 extension RightSidebarMode {
@@ -124,6 +132,14 @@ struct RightSidebarPanelView: View {
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let onResumeSession: ((SessionEntry) -> Void)?
 
+    @StateObject private var shortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .controlOnly) { window in
+        guard let responder = window.firstResponder else { return false }
+        return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
+    }
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
+    private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
     // new items.
@@ -143,16 +159,32 @@ struct RightSidebarPanelView: View {
             RightSidebarKeyboardFocusBridge()
             .frame(width: 1, height: 1)
         )
+        .background(
+            WindowAccessor { window in
+                shortcutHintMonitor.setHostWindow(window)
+            }
+            .frame(width: 0, height: 0)
+        )
         .accessibilityIdentifier("RightSidebar")
+        .onAppear {
+            shortcutHintMonitor.start()
+        }
+        .onDisappear {
+            shortcutHintMonitor.stop()
+        }
     }
 
     private var modeBar: some View {
-        HStack(spacing: 4) {
+        let _ = keyboardShortcutSettingsObserver.revision
+        let showsShortcutHints = alwaysShowShortcutHints || shortcutHintMonitor.isModifierPressed
+        return HStack(spacing: 4) {
             ForEach(RightSidebarMode.allCases, id: \.rawValue) { mode in
                 ModeBarButton(
                     mode: mode,
                     isSelected: fileExplorerState.mode == mode,
-                    badgeCount: mode == .feed ? feedPendingCount : 0
+                    badgeCount: mode == .feed ? feedPendingCount : 0,
+                    shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
+                    showsShortcutHint: showsShortcutHints
                 ) {
                     if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                         mode: mode,
@@ -299,6 +331,8 @@ private struct ModeBarButton: View {
     let mode: RightSidebarMode
     let isSelected: Bool
     var badgeCount: Int = 0
+    let shortcutHint: StoredShortcut
+    let showsShortcutHint: Bool
     let action: () -> Void
 
     @State private var isHovered: Bool = false
@@ -323,11 +357,20 @@ private struct ModeBarButton: View {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(backgroundColor)
             )
+            .overlay(alignment: .topTrailing) {
+                if showsShortcutHint {
+                    ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
+                        .offset(x: 5, y: -9)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        .accessibilityIdentifier("rightSidebarModeShortcutHint.\(mode.rawValue)")
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .help(helpText)
+        .animation(.easeOut(duration: 0.12), value: showsShortcutHint)
     }
 
     private var helpText: String {
