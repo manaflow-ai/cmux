@@ -2898,7 +2898,7 @@ struct ContentView: View {
                         )
                         .navigationSplitViewColumnWidth(min: 120, ideal: sidebarWidth, max: 400)
                 } detail: {
-                    terminalContentWithSidebarDropOverlay
+                    terminalContentWithRightSidebarPanel
                         .padding(8)
                 }
                 .navigationSplitViewStyle(.automatic)
@@ -2981,6 +2981,14 @@ struct ContentView: View {
                                 onDismiss: { isNotificationsPopoverPresented = false }
                             )
                         }
+                        .onChange(of: isNotificationsPopoverPresented) { shown in
+                            // Mirror SwiftUI popover state into AppDelegate so
+                            // dismiss/isShown queries from outside SwiftUI
+                            // (menu commands, scripting) see the real state on
+                            // macOS 26 where the popover is no longer hosted by
+                            // the legacy titlebar accessory controller.
+                            AppDelegate.shared?.setMacOS26NotificationPopoverShown(shown, windowId: windowId)
+                        }
                         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.toggleNotificationsPopoverNotification)) { note in
                             // Only toggle when the broadcast targets this
                             // ContentView's window. If no windowId is in the
@@ -2991,6 +2999,11 @@ struct ContentView: View {
                                 return
                             }
                             isNotificationsPopoverPresented.toggle()
+                        }
+                        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.dismissNotificationsPopoverNotification)) { _ in
+                            if isNotificationsPopoverPresented {
+                                isNotificationsPopoverPresented = false
+                            }
                         }
 
                         Button {
@@ -14824,22 +14837,24 @@ private final class SplitViewDividerHiderView: NSView {
     }
 
     private func hideDividers() {
-        guard let window else { return }
-        patchSplitViews(in: window.contentView)
+        // Walk up to the nearest NSSplitView ancestor and patch only that one.
+        // Recursing through window.contentView would also mutate any unrelated
+        // NSSplitView elsewhere in the hierarchy (e.g. embedded split-based
+        // controls), which can quietly regress unrelated UI.
+        var ancestor: NSView? = self.superview
+        while let view = ancestor, !(view is NSSplitView) {
+            ancestor = view.superview
+        }
+        guard let splitView = ancestor as? NSSplitView else { return }
+        patchSplitView(splitView)
     }
 
-    private func patchSplitViews(in view: NSView?) {
-        guard let view else { return }
-        if let splitView = view as? NSSplitView {
-            splitView.dividerStyle = .thin
-            // Clear the divider color via ObjC messaging (private API).
-            let selector = NSSelectorFromString("setDividerColor:")
-            if splitView.responds(to: selector) {
-                splitView.perform(selector, with: NSColor.clear)
-            }
-        }
-        for subview in view.subviews {
-            patchSplitViews(in: subview)
+    private func patchSplitView(_ splitView: NSSplitView) {
+        splitView.dividerStyle = .thin
+        // Clear the divider color via ObjC messaging (private API).
+        let selector = NSSelectorFromString("setDividerColor:")
+        if splitView.responds(to: selector) {
+            splitView.perform(selector, with: NSColor.clear)
         }
     }
 }

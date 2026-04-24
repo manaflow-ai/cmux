@@ -9595,13 +9595,15 @@ final class GhosttySurfaceScrollView: NSView {
         // Only leading corners are rounded (when sidebar is visible), so
         // right/bottom edges use no inset to maximize terminal real estate.
         let scrollFrame: CGRect
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *), bounds.width > 16, bounds.height > 16 {
+            // Clamp width/height to avoid zero/negative dimensions during transient
+            // tiny host bounds (e.g. animated splits, divider drag start).
             let inset: CGFloat = 6
             scrollFrame = CGRect(
                 x: bounds.origin.x + inset,
                 y: bounds.origin.y,
-                width: bounds.width - inset,
-                height: bounds.height - inset
+                width: max(0, bounds.width - inset),
+                height: max(0, bounds.height - inset)
             )
         } else {
             scrollFrame = bounds

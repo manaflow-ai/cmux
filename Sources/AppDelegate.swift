@@ -8637,21 +8637,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Notification posted on macOS 26 to toggle the SwiftUI notifications popover.
     static let toggleNotificationsPopoverNotification = Notification.Name("cmux.toggleNotificationsPopover")
 
+    /// Per-window notifications popover visibility for the macOS 26 SwiftUI path.
+    /// Keyed by `mainWindowContexts.windowId` so dismiss/isShown can answer
+    /// without crossing into the legacy titlebar accessory controller, which
+    /// the 26-only popover never touches.
+    private var macOS26NotificationPopoverShown: Set<UUID> = []
+
+    static let setNotificationsPopoverShownNotification = Notification.Name("cmux.setNotificationsPopoverShown")
+    static let dismissNotificationsPopoverNotification = Notification.Name("cmux.dismissNotificationsPopover")
+
+    /// Called by the macOS 26 SwiftUI host to report popover visibility changes.
+    func setMacOS26NotificationPopoverShown(_ shown: Bool, windowId: UUID) {
+        if shown {
+            macOS26NotificationPopoverShown.insert(windowId)
+        } else {
+            macOS26NotificationPopoverShown.remove(windowId)
+        }
+    }
+
     func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
         if #available(macOS 26.0, *) {
             // Scope the broadcast to the owning window so a single bell-button
             // tap or menu command only toggles the popover in the intended
-            // window — not in every cmux window at once.
+            // window — not in every cmux window at once. If we can't resolve a
+            // target window (e.g. menu invocation while no cmux window is key),
+            // drop the toggle rather than broadcast to every observer.
             let targetWindow = anchorView?.window ?? NSApp.keyWindow
-            let targetWindowId = targetWindow.flatMap { mainWindowContexts[ObjectIdentifier($0)]?.windowId }
-            var userInfo: [AnyHashable: Any] = [:]
-            if let targetWindowId {
-                userInfo["windowId"] = targetWindowId
-            }
+            guard let targetWindow,
+                  let targetWindowId = mainWindowContexts[ObjectIdentifier(targetWindow)]?.windowId
+            else { return }
             NotificationCenter.default.post(
                 name: Self.toggleNotificationsPopoverNotification,
                 object: targetWindow,
-                userInfo: userInfo.isEmpty ? nil : userInfo
+                userInfo: ["windowId": targetWindowId]
             )
             return
         }
@@ -8660,11 +8678,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func dismissNotificationsPopoverIfShown() -> Bool {
-        titlebarAccessoryController.dismissNotificationsPopoverIfShown()
+        if #available(macOS 26.0, *) {
+            // On macOS 26 the popover lives in SwiftUI per window; broadcast a
+            // dismiss to every host so each one closes its own popover if open.
+            // Returns true if any window had a popover up.
+            let wasShown = !macOS26NotificationPopoverShown.isEmpty
+            if wasShown {
+                NotificationCenter.default.post(name: Self.dismissNotificationsPopoverNotification, object: nil)
+            }
+            // Also dismiss the legacy popover for any pre-26 windows that may
+            // coexist (multi-window scenarios across OS versions).
+            let legacyDismissed = titlebarAccessoryController.dismissNotificationsPopoverIfShown()
+            return wasShown || legacyDismissed
+        }
+        return titlebarAccessoryController.dismissNotificationsPopoverIfShown()
     }
 
     func isNotificationsPopoverShown() -> Bool {
-        titlebarAccessoryController.isNotificationsPopoverShown()
+        if #available(macOS 26.0, *) {
+            if !macOS26NotificationPopoverShown.isEmpty { return true }
+        }
+        return titlebarAccessoryController.isNotificationsPopoverShown()
     }
 
     func jumpToLatestUnread() {

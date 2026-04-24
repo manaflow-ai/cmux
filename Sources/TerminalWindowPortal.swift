@@ -888,6 +888,22 @@ final class WindowTerminalPortal: NSObject {
             abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 
+    /// Walks up from the hosted view to the enclosing NSSplitView and asks
+    /// whether its sidebar (subview at index 0) is collapsed. Returns nil if
+    /// no NSSplitView ancestor is found, in which case the caller should fall
+    /// back to a frame heuristic.
+    private static func isNavigationSidebarVisible(near view: NSView) -> Bool? {
+        var ancestor: NSView? = view.superview
+        while let candidate = ancestor {
+            if let splitView = candidate as? NSSplitView,
+               splitView.subviews.count >= 1 {
+                return !splitView.isSubviewCollapsed(splitView.subviews[0])
+            }
+            ancestor = candidate.superview
+        }
+        return nil
+    }
+
     private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
         guard rect.origin.x.isFinite,
               rect.origin.y.isFinite,
@@ -1500,11 +1516,14 @@ final class WindowTerminalPortal: NSObject {
             // is visible to its left, matching the NavigationSplitView glass shape.
             // Applied inside the CATransaction to prevent animation flicker.
             if #available(macOS 26.0, *) {
-                // Detect sidebar presence via x-offset. The sidebar has a minimum
-                // width of 120pt, so any x > 20 reliably indicates a sidebar is
-                // to our left. This AppKit view cannot access SwiftUI SidebarState
-                // directly; the frame-based heuristic is the simplest reliable path.
-                let hasSidebarToLeft = targetFrame.origin.x > 20
+                // Ask NavigationSplitView's NSSplitView whether the sidebar
+                // subview is collapsed. This reflects the actual visibility
+                // state and survives mid-animation frames where the detail
+                // column still has a non-zero leading inset but the sidebar
+                // is logically hidden — a case the prior `origin.x > 20`
+                // frame heuristic would mis-classify.
+                let hasSidebarToLeft = Self.isNavigationSidebarVisible(near: hostedView)
+                    ?? (targetFrame.origin.x > 20)
                 let desiredRadius: CGFloat = hasSidebarToLeft ? 16 : 0
                 if hostedView.layer?.cornerRadius != desiredRadius {
                     hostedView.layer?.cornerRadius = desiredRadius
