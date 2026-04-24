@@ -12584,6 +12584,7 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: currentEvent)
         }
         var pointerInitiatedWebFocus = false
+        var pointerInitiatedTerminalFocus = false
 
         if AppDelegate.shared?.shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
             window: self,
@@ -12596,6 +12597,29 @@ private extension NSWindow {
             )
 #endif
             return false
+        }
+
+        if let request = AppDelegate.shared?.terminalKeyboardFocusRequest(for: responder),
+           Self.cmuxShouldAllowPointerInitiatedTerminalFocus(
+               window: self,
+               request: request,
+               event: currentEvent
+           ) {
+            pointerInitiatedTerminalFocus = true
+            AppDelegate.shared?.noteTerminalKeyboardFocusIntent(
+                workspaceId: request.workspaceId,
+                panelId: request.panelId,
+                in: self
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "focus.guard allowPointerTerminalFirstResponder " +
+                "window=\(ObjectIdentifier(self)) " +
+                "workspace=\(request.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(request.panelId.uuidString.prefix(5)) " +
+                "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
+            )
+#endif
         }
 
         if let responder,
@@ -12680,6 +12704,8 @@ private extension NSWindow {
             } else if let fieldEditor = self.firstResponder as? NSTextView, fieldEditor.isFieldEditor {
                 Self.cmuxTrackFieldEditor(fieldEditor, owningWebView: responderWebView)
             }
+            AppDelegate.shared?.syncKeyboardFocusAfterFirstResponderChange(in: self)
+        } else if pointerInitiatedTerminalFocus {
             AppDelegate.shared?.syncKeyboardFocusAfterFirstResponderChange(in: self)
         }
         return result
@@ -13245,14 +13271,19 @@ private extension NSWindow {
         }
     }
 
-    private static func cmuxPointerHitWebView(in window: NSWindow, event: NSEvent) -> CmuxWebView? {
-        guard cmuxIsPointerDownEvent(event) else { return nil }
+    private static func cmuxPointerEventTargetsWindow(_ event: NSEvent, _ window: NSWindow) -> Bool {
         if event.windowNumber != 0, event.windowNumber != window.windowNumber {
-            return nil
+            return false
         }
         if let eventWindow = event.window, eventWindow !== window {
-            return nil
+            return false
         }
+        return true
+    }
+
+    private static func cmuxPointerHitWebView(in window: NSWindow, event: NSEvent) -> CmuxWebView? {
+        guard cmuxIsPointerDownEvent(event) else { return nil }
+        guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
         if let portalWebView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
             event.locationInWindow,
             in: window
@@ -13263,6 +13294,27 @@ private extension NSWindow {
             return nil
         }
         return cmuxOwningWebView(for: hitView)
+    }
+
+    private static func cmuxPointerHitGhosttyView(in window: NSWindow, event: NSEvent) -> GhosttyNSView? {
+        guard cmuxIsPointerDownEvent(event) else { return nil }
+        guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
+        guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
+            return nil
+        }
+        return cmuxOwningGhosttyView(for: hitView)
+    }
+
+    private static func cmuxShouldAllowPointerInitiatedTerminalFocus(
+        window: NSWindow,
+        request: AppDelegate.TerminalKeyboardFocusRequest,
+        event: NSEvent?
+    ) -> Bool {
+        guard let event,
+              let hitGhosttyView = cmuxPointerHitGhosttyView(in: window, event: event) else {
+            return false
+        }
+        return hitGhosttyView === request.ghosttyView
     }
 
     private static func cmuxShouldAllowPointerInitiatedWebViewFocus(
