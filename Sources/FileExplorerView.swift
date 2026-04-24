@@ -46,6 +46,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var lastRootNodeCount: Int = -1
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
+        private var isUpdatingOutlineProgrammatically = false
 
         init(store: FileExplorerStore, state: FileExplorerState) {
             self.store = store
@@ -57,10 +58,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
             ) { [weak self] _ in
                 guard let self, let outlineView = self.outlineView else { return }
                 let style = FileExplorerStyle.current
-                outlineView.indentationPerLevel = style.indentation
-                outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
-                outlineView.reloadData()
-                self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
+                self.withProgrammaticOutlineUpdate {
+                    outlineView.indentationPerLevel = style.indentation
+                    outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
+                    outlineView.reloadData()
+                    self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
+                    self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+                }
             }
         }
 
@@ -85,13 +89,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
             containerView?.updateVisibility(hasContent: !store.rootPath.isEmpty, isLoading: store.isRootLoading)
 
             let newCount = store.rootNodes.count
-            if newCount != lastRootNodeCount {
-                lastRootNodeCount = newCount
-                let expandedPaths = store.expandedPaths
-                outlineView.reloadData()
-                restoreExpansionState(expandedPaths, in: outlineView)
-            } else {
-                refreshLoadedNodes(in: outlineView)
+            withProgrammaticOutlineUpdate {
+                if newCount != lastRootNodeCount {
+                    lastRootNodeCount = newCount
+                    let expandedPaths = store.expandedPaths
+                    outlineView.reloadData()
+                    restoreExpansionState(expandedPaths, in: outlineView)
+                } else {
+                    refreshLoadedNodes(in: outlineView)
+                }
+                applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
             }
         }
 
@@ -191,6 +198,20 @@ struct FileExplorerPanelView: NSViewRepresentable {
             return true
         }
 
+        func outlineViewSelectionDidChange(_ notification: Notification) {
+            guard !isUpdatingOutlineProgrammatically,
+                  let outlineView = notification.object as? NSOutlineView else {
+                return
+            }
+            guard outlineView.selectedRow >= 0,
+                  outlineView.selectedRow < outlineView.numberOfRows,
+                  let node = outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode else {
+                store.select(node: nil)
+                return
+            }
+            store.select(node: node)
+        }
+
         func outlineViewItemDidExpand(_ notification: Notification) {
             guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
             if !store.isExpanded(node) {
@@ -211,6 +232,205 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             FileExplorerStyle.current.rowHeight
+        }
+
+        // MARK: - Path-Owned Navigation
+
+        func ensureSelection(in outlineView: NSOutlineView, fallbackToFirstVisible: Bool, scroll: Bool) {
+            withProgrammaticOutlineUpdate {
+                applyStoredSelection(in: outlineView, fallbackToFirstVisible: fallbackToFirstVisible, scroll: scroll)
+            }
+        }
+
+        func moveSelection(in outlineView: NSOutlineView, by delta: Int) {
+            guard outlineView.numberOfRows > 0 else {
+                store.select(node: nil)
+                return
+            }
+            let currentRow = resolvedSelectionRow(in: outlineView) ?? (delta >= 0 ? -1 : outlineView.numberOfRows)
+            let targetRow = min(max(currentRow + delta, 0), outlineView.numberOfRows - 1)
+            selectRow(targetRow, in: outlineView, scroll: true)
+        }
+
+        func performDisclosureAction(
+            _ action: RightSidebarKeyboardNavigation.DisclosureAction,
+            in outlineView: NSOutlineView
+        ) {
+            switch action {
+            case .collapse:
+                collapseSelectedItemOrMoveToParent(in: outlineView)
+            case .expand:
+                expandSelectedItemOrMoveToChild(in: outlineView)
+            }
+        }
+
+        func selectBestQuickSearchMatch(in outlineView: NSOutlineView, query: String) {
+            let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedQuery.isEmpty, outlineView.numberOfRows > 0 else { return }
+            let lowerQuery = trimmedQuery.lowercased()
+            for row in 0..<outlineView.numberOfRows {
+                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
+                if node.name.lowercased().contains(lowerQuery) {
+                    selectRow(row, in: outlineView, scroll: true)
+                    return
+                }
+            }
+        }
+
+        private func expandSelectedItemOrMoveToChild(in outlineView: NSOutlineView) {
+            guard let row = resolvedSelectionRow(in: outlineView),
+                  let node = outlineView.item(atRow: row) as? FileExplorerNode,
+                  node.isDirectory else {
+                return
+            }
+
+            selectRow(row, in: outlineView, scroll: true)
+
+            if !store.isExpanded(node) {
+                outlineView.expandItem(node)
+                applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: true)
+                return
+            }
+
+            guard node.children != nil else {
+                store.requestDescendIntoFirstChild(of: node)
+                return
+            }
+
+            if !outlineView.isItemExpanded(node) {
+                outlineView.expandItem(node)
+            }
+            selectFirstChild(of: node, in: outlineView)
+        }
+
+        private func collapseSelectedItemOrMoveToParent(in outlineView: NSOutlineView) {
+            guard let row = resolvedSelectionRow(in: outlineView),
+                  let node = outlineView.item(atRow: row) as? FileExplorerNode else {
+                return
+            }
+
+            if node.isDirectory, outlineView.isItemExpanded(node) || store.isExpanded(node) {
+                if outlineView.isItemExpanded(node) {
+                    outlineView.collapseItem(node)
+                } else {
+                    store.collapse(node: node)
+                }
+                selectRow(row, in: outlineView, scroll: true)
+                return
+            }
+
+            selectParent(of: node, in: outlineView)
+        }
+
+        private func selectFirstChild(of node: FileExplorerNode, in outlineView: NSOutlineView) {
+            let parentRow = outlineView.row(forItem: node)
+            let childRow = parentRow + 1
+            guard parentRow >= 0,
+                  childRow < outlineView.numberOfRows,
+                  let child = outlineView.item(atRow: childRow) as? FileExplorerNode,
+                  (outlineView.parent(forItem: child) as? FileExplorerNode) === node else {
+                return
+            }
+            selectRow(childRow, in: outlineView, scroll: true)
+        }
+
+        private func selectParent(of node: FileExplorerNode, in outlineView: NSOutlineView) {
+            guard let parentNode = outlineView.parent(forItem: node) as? FileExplorerNode else {
+                return
+            }
+            let parentRow = outlineView.row(forItem: parentNode)
+            guard parentRow >= 0 else { return }
+            selectRow(parentRow, in: outlineView, scroll: true)
+        }
+
+        private func applyStoredSelection(
+            in outlineView: NSOutlineView,
+            fallbackToFirstVisible: Bool,
+            scroll: Bool
+        ) {
+            if let selectedPath = store.selectedPath,
+               let resolution = selectionResolution(for: selectedPath, in: outlineView) {
+                selectRow(
+                    resolution.row,
+                    in: outlineView,
+                    scroll: scroll,
+                    updateStore: resolution.isExact
+                )
+                return
+            }
+            guard fallbackToFirstVisible, outlineView.numberOfRows > 0 else { return }
+            selectRow(0, in: outlineView, scroll: scroll)
+        }
+
+        private func resolvedSelectionRow(in outlineView: NSOutlineView) -> Int? {
+            if let selectedPath = store.selectedPath,
+               let resolution = selectionResolution(for: selectedPath, in: outlineView) {
+                return resolution.row
+            }
+            guard outlineView.selectedRow >= 0,
+                  outlineView.selectedRow < outlineView.numberOfRows,
+                  let node = outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode else {
+                return nil
+            }
+            store.select(node: node)
+            return outlineView.selectedRow
+        }
+
+        private struct SelectionResolution {
+            let row: Int
+            let isExact: Bool
+        }
+
+        private func selectionResolution(for path: String, in outlineView: NSOutlineView) -> SelectionResolution? {
+            var bestAncestor: (row: Int, pathLength: Int)?
+            for row in 0..<outlineView.numberOfRows {
+                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
+                if node.path == path {
+                    return SelectionResolution(row: row, isExact: true)
+                }
+                if Self.path(node.path, isAncestorOf: path) {
+                    let length = node.path.count
+                    if bestAncestor == nil || length > bestAncestor!.pathLength {
+                        bestAncestor = (row, length)
+                    }
+                }
+            }
+            guard let bestAncestor else { return nil }
+            return SelectionResolution(row: bestAncestor.row, isExact: false)
+        }
+
+        private func selectRow(
+            _ row: Int,
+            in outlineView: NSOutlineView,
+            scroll: Bool,
+            updateStore: Bool = true
+        ) {
+            guard row >= 0, row < outlineView.numberOfRows else { return }
+            let node = outlineView.item(atRow: row) as? FileExplorerNode
+            withProgrammaticOutlineUpdate {
+                if updateStore {
+                    store.select(node: node)
+                }
+                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                if scroll {
+                    outlineView.scrollRowToVisible(row)
+                }
+            }
+        }
+
+        private func withProgrammaticOutlineUpdate(_ body: () -> Void) {
+            let wasUpdating = isUpdatingOutlineProgrammatically
+            isUpdatingOutlineProgrammatically = true
+            defer { isUpdatingOutlineProgrammatically = wasUpdating }
+            body()
+        }
+
+        private static func path(_ ancestor: String, isAncestorOf descendant: String) -> Bool {
+            guard ancestor != descendant else { return false }
+            if ancestor == "/" {
+                return descendant.hasPrefix("/")
+            }
+            return descendant.hasPrefix(ancestor + "/")
         }
 
         // MARK: - Drag-to-Terminal
@@ -463,10 +683,8 @@ final class FileExplorerContainerView: NSView {
 #endif
             return false
         }
-        if outlineView.numberOfRows > 0, outlineView.selectedRow < 0 {
-            outlineView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-            outlineView.scrollRowToVisible(0)
-        }
+        (outlineView.dataSource as? FileExplorerPanelView.Coordinator)?
+            .ensureSelection(in: outlineView, fallbackToFirstVisible: true, scroll: true)
         let result = window.makeFirstResponder(outlineView)
 #if DEBUG
         dlog(
@@ -721,13 +939,13 @@ final class FileExplorerNSOutlineView: NSOutlineView {
 
         if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
             endQuickSearch()
-            moveSelection(by: delta)
+            fileExplorerCoordinator?.moveSelection(in: self, by: delta)
             return
         }
 
         if let action = RightSidebarKeyboardNavigation.disclosureAction(for: event) {
             endQuickSearch()
-            performDisclosureAction(action)
+            fileExplorerCoordinator?.performDisclosureAction(action, in: self)
             return
         }
 
@@ -748,12 +966,12 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         }
         if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
             endQuickSearch()
-            moveSelection(by: delta)
+            fileExplorerCoordinator?.moveSelection(in: self, by: delta)
             return true
         }
         if let action = RightSidebarKeyboardNavigation.disclosureAction(for: event) {
             endQuickSearch()
-            performDisclosureAction(action)
+            fileExplorerCoordinator?.performDisclosureAction(action, in: self)
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -815,85 +1033,8 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         }
     }
 
-    private func moveSelection(by delta: Int) {
-        guard numberOfRows > 0 else { return }
-        let currentRow = selectedRow >= 0 ? selectedRow : (delta >= 0 ? -1 : numberOfRows)
-        let targetRow = min(max(currentRow + delta, 0), numberOfRows - 1)
-        guard targetRow >= 0, targetRow < numberOfRows else { return }
-        selectRowIndexes(IndexSet(integer: targetRow), byExtendingSelection: false)
-        scrollRowToVisible(targetRow)
-    }
-
-    private func performDisclosureAction(_ action: RightSidebarKeyboardNavigation.DisclosureAction) {
-        switch action {
-        case .collapse:
-            collapseSelectedItemOrMoveToParent()
-        case .expand:
-            expandSelectedItemOrMoveToChild()
-        }
-    }
-
-    private func expandSelectedItemOrMoveToChild() {
-        guard selectedRow >= 0,
-              selectedRow < numberOfRows,
-              let node = item(atRow: selectedRow) as? FileExplorerNode,
-              node.isDirectory else {
-            return
-        }
-
-        if !isItemExpanded(node) {
-            expandItem(node)
-            let row = row(forItem: node)
-            if row >= 0 {
-                scrollRowToVisible(row)
-            }
-            return
-        }
-
-        selectFirstChild(of: node)
-    }
-
-    private func collapseSelectedItemOrMoveToParent() {
-        guard selectedRow >= 0,
-              selectedRow < numberOfRows,
-              let node = item(atRow: selectedRow) as? FileExplorerNode else {
-            return
-        }
-
-        if node.isDirectory, isItemExpanded(node) {
-            collapseItem(node)
-            let row = row(forItem: node)
-            if row >= 0 {
-                selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                scrollRowToVisible(row)
-            }
-            return
-        }
-
-        selectParent(of: node)
-    }
-
-    private func selectFirstChild(of node: FileExplorerNode) {
-        let parentRow = row(forItem: node)
-        let childRow = parentRow + 1
-        guard parentRow >= 0,
-              childRow < numberOfRows,
-              let child = item(atRow: childRow) as? FileExplorerNode,
-              (parent(forItem: child) as? FileExplorerNode) === node else {
-            return
-        }
-        selectRowIndexes(IndexSet(integer: childRow), byExtendingSelection: false)
-        scrollRowToVisible(childRow)
-    }
-
-    private func selectParent(of node: FileExplorerNode) {
-        guard let parentNode = parent(forItem: node) as? FileExplorerNode else {
-            return
-        }
-        let parentRow = row(forItem: parentNode)
-        guard parentRow >= 0 else { return }
-        selectRowIndexes(IndexSet(integer: parentRow), byExtendingSelection: false)
-        scrollRowToVisible(parentRow)
+    private var fileExplorerCoordinator: FileExplorerPanelView.Coordinator? {
+        dataSource as? FileExplorerPanelView.Coordinator
     }
 
     private func beginQuickSearch() {
@@ -922,7 +1063,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             if !quickSearchQuery.isEmpty {
                 quickSearchQuery.removeLast()
                 onQuickSearchChanged?(quickSearchQuery)
-                selectBestQuickSearchMatch()
+                fileExplorerCoordinator?.selectBestQuickSearchMatch(in: self, query: quickSearchQuery)
             }
             return true
         }
@@ -934,22 +1075,8 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         }
         quickSearchQuery += text
         onQuickSearchChanged?(quickSearchQuery)
-        selectBestQuickSearchMatch()
+        fileExplorerCoordinator?.selectBestQuickSearchMatch(in: self, query: quickSearchQuery)
         return true
-    }
-
-    private func selectBestQuickSearchMatch() {
-        let query = quickSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty, numberOfRows > 0 else { return }
-        let lowerQuery = query.lowercased()
-        for row in 0..<numberOfRows {
-            guard let node = item(atRow: row) as? FileExplorerNode else { continue }
-            if node.name.lowercased().contains(lowerQuery) {
-                selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                scrollRowToVisible(row)
-                return
-            }
-        }
     }
 }
 
