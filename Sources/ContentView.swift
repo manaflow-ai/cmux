@@ -12154,10 +12154,10 @@ private struct TabItemView: View, Equatable {
                                 x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
                                 y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
                             )
-                            .transition(.opacity)
+                            .shortcutHintTransition()
                     }
                 }
-                .animation(.easeOut(duration: 0.12), value: showsModifierShortcutHints || alwaysShowShortcutHints)
+                .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
                 .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
             }
 

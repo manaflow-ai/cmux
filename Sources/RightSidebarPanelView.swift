@@ -215,20 +215,22 @@ struct RightSidebarPanelView: View {
     private var focusShortcutHintOverlay: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let showsFocusShortcutHint = focusShortcutHintMonitor.isModifierPressed
-        if showsFocusShortcutHint {
-            ShortcutHintPill(
-                shortcut: KeyboardShortcutSettings.shortcut(for: .focusRightSidebar),
-                fontSize: 9,
-                emphasis: 1.05
-            )
-                .padding(.leading, 6)
-                .padding(.top, 5)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                .accessibilityIdentifier("rightSidebarFocusShortcutHint")
-                .allowsHitTesting(false)
-                .zIndex(10)
-                .animation(.easeOut(duration: 0.12), value: showsFocusShortcutHint)
+        Group {
+            if showsFocusShortcutHint {
+                ShortcutHintPill(
+                    shortcut: KeyboardShortcutSettings.shortcut(for: .focusRightSidebar),
+                    fontSize: 9,
+                    emphasis: 1.05
+                )
+                    .padding(.leading, 6)
+                    .padding(.top, 5)
+                    .shortcutHintTransition()
+                    .accessibilityIdentifier("rightSidebarFocusShortcutHint")
+                    .allowsHitTesting(false)
+                    .zIndex(10)
+            }
         }
+        .shortcutHintVisibilityAnimation(value: showsFocusShortcutHint)
     }
 
     @ViewBuilder
@@ -389,7 +391,7 @@ private struct ModeBarButton: View {
                 if showsShortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
                         .offset(x: 5)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        .shortcutHintTransition()
                         .accessibilityIdentifier("rightSidebarModeShortcutHint.\(mode.rawValue)")
                 }
             }
@@ -398,7 +400,7 @@ private struct ModeBarButton: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .help(helpText)
-        .animation(.easeOut(duration: 0.12), value: showsShortcutHint)
+        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
     }
 
     private var helpText: String {

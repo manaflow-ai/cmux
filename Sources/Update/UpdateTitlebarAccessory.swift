@@ -507,10 +507,10 @@ struct TitlebarControlsView: View {
                     .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
                     .frame(width: item.width, alignment: .leading)
                     .offset(x: item.leftEdge, y: yOffset)
+                    .shortcutHintTransition()
             }
         }
-        .animation(.easeOut(duration: 0.12), value: shouldShowTitlebarShortcutHints)
-        .transition(.opacity)
+        .shortcutHintVisibilityAnimation(value: shouldShowTitlebarShortcutHints)
         .allowsHitTesting(false)
     }
 
