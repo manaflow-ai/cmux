@@ -1191,6 +1191,44 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     }
 }
 
+final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
+    @MainActor
+    func testHiddenRightSidebarClearsFocusIntentWhenNoTerminalCanRestore() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+        controller.noteRightSidebarInteraction(mode: .feed)
+        XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertFalse(controller.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded())
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
+    func testHiddenRightSidebarDoesNotRestoreWhenTerminalAlreadyOwnsFocus() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        controller.noteTerminalInteraction(workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertFalse(controller.shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: nil))
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+}
+
 
 final class ShortcutHintDebugSettingsTests: XCTestCase {
     func testClampKeepsValuesWithinSupportedRange() {

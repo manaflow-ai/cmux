@@ -144,6 +144,28 @@ final class MainWindowFocusController {
         return false
     }
 
+    func shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: NSResponder?) -> Bool {
+        if case .rightSidebar = intent {
+            return true
+        }
+        guard let currentResponder else { return false }
+        return ownsRightSidebarFocus(currentResponder)
+    }
+
+    @discardableResult
+    func restoreTerminalFocusAfterRightSidebarHiddenIfNeeded() -> Bool {
+        guard shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: window?.firstResponder) else {
+            return false
+        }
+        if focusTerminal() {
+            return true
+        }
+        pendingRightSidebarFirstItemFocusMode = nil
+        intent = nil
+        publishFeedFocusSnapshot()
+        return false
+    }
+
     @discardableResult
     func restoreTargetAfterWindowBecameKey() -> Bool {
         guard case .rightSidebar(let mode) = intent else {

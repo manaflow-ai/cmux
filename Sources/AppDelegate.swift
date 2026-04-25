@@ -5031,6 +5031,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return mainWindowContexts.values.first
     }
 
+    private func preferredRegisteredMainWindowContext(preferredWindow: NSWindow? = nil) -> MainWindowContext? {
+        if let preferredWindow,
+           let context = contextForMainWindow(preferredWindow) {
+            return context
+        }
+        if let context = contextForMainWindow(NSApp.keyWindow) {
+            return context
+        }
+        if let context = contextForMainWindow(NSApp.mainWindow) {
+            return context
+        }
+        if let activeManager = tabManager,
+           let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+            return activeContext
+        }
+        return mainWindowContexts.values.first
+    }
+
     private func activateMainWindowContextForShortcutEvent(_ event: NSEvent) {
         let preferredWindow = mainWindowForShortcutEvent(event)
 #if DEBUG
@@ -5082,6 +5100,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         return false
+    }
+
+    @discardableResult
+    func toggleRightSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
+            if let fileExplorerState {
+                fileExplorerState.toggle()
+                return true
+            }
+            return false
+        }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if let window {
+            setActiveMainWindow(window)
+        }
+
+        guard let state = context.fileExplorerState ?? fileExplorerState else {
+            return false
+        }
+        let wasVisible = state.isVisible
+        state.toggle()
+        if wasVisible && !state.isVisible {
+            _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
+        }
+        return true
+    }
+
+    @discardableResult
+    func restoreTerminalFocusAfterRightSidebarHidden(in window: NSWindow?) -> Bool {
+        let context = preferredRegisteredMainWindowContext(preferredWindow: window)
+        return context?.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded() ?? false
     }
 
     func keyboardFocusCoordinator(for window: NSWindow?) -> MainWindowFocusController? {
@@ -5154,23 +5204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focusFirstItem: Bool = true,
         preferredWindow: NSWindow? = nil
     ) -> Bool {
-        let context: MainWindowContext? = {
-            if let preferredWindow,
-               let context = contextForMainWindow(preferredWindow) {
-                return context
-            }
-            if let context = contextForMainWindow(NSApp.keyWindow) {
-                return context
-            }
-            if let context = contextForMainWindow(NSApp.mainWindow) {
-                return context
-            }
-            if let activeManager = tabManager,
-               let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
-                return activeContext
-            }
-            return mainWindowContexts.values.first
-        }()
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
 
         guard let context else {
 #if DEBUG
@@ -9973,10 +10007,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleFileExplorer) {
-            // Dispatch async to escape AppKit's performKeyEquivalent animation context.
-            // Without this, NSAnimationContext implicitly animates the layout change.
-            DispatchQueue.main.async { [weak self] in
-                self?.fileExplorerState?.toggle()
+            // Escape AppKit's performKeyEquivalent animation context. Without
+            // deferring the toggle, NSAnimationContext implicitly animates the
+            // layout change.
+            let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            Task { @MainActor [weak self, weak preferredWindow] in
+                _ = self?.toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
             }
             return true
         }
