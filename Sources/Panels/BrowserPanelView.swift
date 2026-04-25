@@ -5544,17 +5544,23 @@ struct WebViewRepresentable: NSViewRepresentable {
             if hostedInspectorHit != nil {
                 return false
             }
-            // Pass through a narrow leading-edge band so the shared sidebar divider
-            // handle can receive hover/click even when WKWebView is attached here.
-            // Keeping this deterministic avoids flicker from dynamic left-edge scans.
-            guard point.x >= 0, point.x <= SidebarResizeInteraction.contentSideHitWidth else {
+            // Pass through narrow content-edge bands so shared sidebar divider
+            // handles receive hover/click even when WKWebView is attached here.
+            let isLeadingContentEdge = point.x >= 0 &&
+                point.x <= SidebarResizeInteraction.contentSideHitWidth
+            let isTrailingContentEdge = point.x >= bounds.maxX - SidebarResizeInteraction.contentSideHitWidth &&
+                point.x <= bounds.maxX
+            guard isLeadingContentEdge || isTrailingContentEdge else {
                 return false
             }
             guard let window, let contentView = window.contentView else {
                 return false
             }
             let hostRectInContent = contentView.convert(bounds, from: self)
-            return hostRectInContent.minX > 1
+            if isLeadingContentEdge {
+                return hostRectInContent.minX > 1
+            }
+            return contentView.bounds.maxX - hostRectInContent.maxX > 24
         }
 
         private func updateDividerCursor(

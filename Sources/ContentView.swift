@@ -2027,7 +2027,7 @@ struct ContentView: View {
     private static let commandPaletteVisiblePreviewCandidateLimit = 192
     private static let minimumSidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
-    private static let minimumRightSidebarWidth: CGFloat = 150
+    private static let minimumRightSidebarWidth: CGFloat = 276
     private static let maximumRightSidebarWidth: CGFloat = 1200
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
@@ -2080,14 +2080,6 @@ struct ContentView: View {
                 }
             )
         }
-    }
-
-    private var sidebarResizerSidebarHitWidth: CGFloat {
-        SidebarResizeInteraction.sidebarSideHitWidth
-    }
-
-    private var sidebarResizerContentHitWidth: CGFloat {
-        SidebarResizeInteraction.contentSideHitWidth
     }
 
     private func maxSidebarWidth(availableWidth: CGFloat? = nil) -> CGFloat {
@@ -2202,13 +2194,18 @@ struct ContentView: View {
 
     private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        let minX = sidebarWidth - sidebarResizerSidebarHitWidth
-        let maxX = sidebarWidth + sidebarResizerContentHitWidth
-        return point.x >= minX && point.x <= maxX
+        if sidebarState.isVisible,
+           SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
+            return true
+        }
+
+        let rightDividerX = contentBounds.maxX - rightSidebarWidth
+        return rightSidebarVisible &&
+            SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightDividerX).contains(point.x)
     }
 
-    private func updateSidebarResizerBandState(using event: NSEvent? = nil) {
-        guard sidebarState.isVisible,
+    private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
+        guard sidebarState.isVisible || rightSidebarVisible,
               let window = observedWindow,
               let contentView = window.contentView else {
             isResizerBandActive = false
@@ -2373,11 +2370,16 @@ struct ContentView: View {
             .modifier(SidebarResizerAccessibilityModifier(accessibilityIdentifier: accessibilityIdentifier))
     }
 
-    private var sidebarResizerOverlay: some View {
+    private func placedSidebarResizerOverlay(
+        handle: SidebarResizerHandle,
+        edge: SidebarResizeInteraction.Edge,
+        accessibilityIdentifier: String,
+        dividerX: @escaping (CGFloat) -> CGFloat
+    ) -> some View {
         GeometryReader { proxy in
             let totalWidth = max(0, proxy.size.width)
-            let dividerX = min(max(sidebarWidth, 0), totalWidth)
-            let leadingWidth = max(0, dividerX - sidebarResizerSidebarHitWidth)
+            let resolvedDividerX = min(max(dividerX(totalWidth), 0), totalWidth)
+            let leadingWidth = max(0, edge.handleX(dividerX: resolvedDividerX))
 
             HStack(spacing: 0) {
                 Color.clear
@@ -2385,10 +2387,10 @@ struct ContentView: View {
                     .allowsHitTesting(false)
 
                 sidebarResizerHandleOverlay(
-                    .divider,
+                    handle,
                     width: SidebarResizeInteraction.totalHitWidth,
                     availableWidth: totalWidth,
-                    accessibilityIdentifier: "SidebarResizer"
+                    accessibilityIdentifier: accessibilityIdentifier
                 )
 
                 Color.clear
@@ -2396,13 +2398,25 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             }
             .frame(width: totalWidth, height: proxy.size.height, alignment: .leading)
-            .onAppear {
-                clampSidebarWidthIfNeeded(availableWidth: totalWidth)
-            }
-            .onChange(of: totalWidth) {
-                clampSidebarWidthIfNeeded(availableWidth: totalWidth)
-            }
         }
+    }
+
+    private var sidebarResizerOverlay: some View {
+        placedSidebarResizerOverlay(
+            handle: .divider,
+            edge: .leading,
+            accessibilityIdentifier: "SidebarResizer",
+            dividerX: { totalWidth in min(max(sidebarWidth, 0), totalWidth) }
+        )
+    }
+
+    private var rightSidebarResizerOverlay: some View {
+        placedSidebarResizerOverlay(
+            handle: .explorerDivider,
+            edge: .trailing,
+            accessibilityIdentifier: "RightSidebarResizer",
+            dividerX: { totalWidth in totalWidth - rightSidebarWidth }
+        )
     }
 
     private var sidebarView: some View {
@@ -2592,11 +2606,6 @@ struct ContentView: View {
         .clipped()
         .allowsHitTesting(rightSidebarVisible)
         .accessibilityHidden(!rightSidebarVisible)
-        .overlay(alignment: .leading) {
-            if rightSidebarVisible {
-                fileExplorerResizerHandle
-            }
-        }
         .transaction { $0.animation = nil }
         .onAppear {
             let sanitized = normalizedRightSidebarWidth(fileExplorerState.width)
@@ -2619,14 +2628,6 @@ struct ContentView: View {
                 fileExplorerWidth = sanitized
             }
         }
-    }
-
-    private var fileExplorerResizerHandle: some View {
-        sidebarResizerHandleOverlay(
-            .explorerDivider,
-            width: SidebarResizeInteraction.totalHitWidth,
-            availableWidth: observedWindow?.contentView?.bounds.width ?? 1920
-        )
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
@@ -2964,6 +2965,12 @@ struct ContentView: View {
                 .overlay(alignment: .leading) {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay
+                            .zIndex(1000)
+                    }
+                }
+                .overlay(alignment: .leading) {
+                    if rightSidebarVisible {
+                        rightSidebarResizerOverlay
                             .zIndex(1000)
                     }
                 }
