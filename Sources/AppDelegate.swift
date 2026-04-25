@@ -638,6 +638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
     private var ghosttyConfigObserver: NSObjectProtocol?
+    private var globalFontSizeObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
@@ -1010,6 +1011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installMainWindowKeyObserver()
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
+        installGlobalFontSizeObserver()
         installWindowResponderSwizzles()
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
@@ -9036,6 +9038,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             self?.refreshGhosttyGotoSplitShortcuts()
+        }
+    }
+
+    private func installGlobalFontSizeObserver() {
+        guard globalFontSizeObserver == nil else { return }
+        globalFontSizeObserver = NotificationCenter.default.addObserver(
+            forName: GlobalFontMagnification.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // Push the new magnification into the live Ghostty config so existing
+            // terminals reflow. Called for UI-driven and cmux.json-driven
+            // changes — the reload is idempotent so double-reloads are fine.
+            GhosttyConfig.invalidateLoadCache()
+            GhosttyApp.shared.reloadConfiguration(
+                source: "globalFontMagnificationDidChange",
+                reloadSettingsFromFile: false
+            )
         }
     }
 

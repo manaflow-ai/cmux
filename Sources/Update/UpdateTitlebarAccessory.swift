@@ -380,7 +380,7 @@ struct TitlebarControlsView: View {
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: max(8, config.badgeSize - 5), weight: .semibold))
+                            .cmuxFont(size: max(8, config.badgeSize - 5), weight: .semibold)
                             .foregroundColor(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
                             .background(
@@ -525,7 +525,7 @@ struct TitlebarControlsView: View {
     @ViewBuilder
     private func iconLabel(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
         let icon = Image(systemName: systemName)
-            .font(.system(size: config.iconSize, weight: .semibold))
+            .cmuxFont(size: config.iconSize, weight: .semibold)
             .frame(width: config.buttonSize, height: config.buttonSize)
 
         if config.buttonBackground {
@@ -1034,7 +1034,7 @@ private struct NotificationsPopoverView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(String(localized: "notifications.title", defaultValue: "Notifications"))
-                    .font(.headline)
+                    .cmuxFont(.headline)
                 Spacer()
                 Button(action: jumpToLatestUnread) {
                     HStack(spacing: 6) {
@@ -1067,12 +1067,12 @@ private struct NotificationsPopoverView: View {
             if notificationStore.notifications.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "bell.slash")
-                        .font(.system(size: 28))
+                        .cmuxFont(size: 28)
                         .foregroundColor(.secondary)
                     Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
-                        .font(.headline)
+                        .cmuxFont(.headline)
                     Text(String(localized: "notifications.empty.subtitle", defaultValue: "Desktop notifications will appear here."))
-                        .font(.subheadline)
+                        .cmuxFont(.subheadline)
                         .foregroundColor(.secondary)
                 }
                 .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
@@ -1152,24 +1152,24 @@ private struct NotificationPopoverRow: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text(notification.title)
-                                .font(.headline)
+                                .cmuxFont(.headline)
                                 .foregroundColor(.primary)
                             Spacer()
                             Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundColor(.secondary)
                         }
 
                         if !notification.body.isEmpty {
                             Text(notification.body)
-                                .font(.subheadline)
+                                .cmuxFont(.subheadline)
                                 .foregroundColor(.secondary)
                                 .lineLimit(3)
                         }
 
                         if let tabTitle {
                             Text(tabTitle)
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }

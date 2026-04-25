@@ -34,7 +34,7 @@ struct ShortcutHintPill: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: fontSize, weight: .semibold, design: .rounded))
+            .cmuxFont(size: fontSize, weight: .semibold, design: .rounded)
             .monospacedDigit()
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)

@@ -257,8 +257,18 @@ struct GhosttyConfig {
 
         config.resolveSidebarBackground(preferredColorScheme: preferredColorScheme)
         config.applySidebarAppearanceToUserDefaults()
+        config.applyGlobalMagnificationIfNeeded()
 
         return config
+    }
+
+    /// Multiply the parsed terminal and tab-bar font sizes by the global
+    /// magnification so both scale in lockstep with SwiftUI chrome.
+    mutating func applyGlobalMagnificationIfNeeded() {
+        guard !GlobalFontMagnification.isDefault else { return }
+        let scale = GlobalFontMagnification.scale
+        fontSize = max(1, fontSize * scale)
+        surfaceTabBarFontSize = max(1, surfaceTabBarFontSize * scale)
     }
 
     mutating func applyCmuxDefaultAppearance(
@@ -757,5 +767,86 @@ extension NSColor {
             brightness: min(b * (1 - amount), 1),
             alpha: a
         )
+    }
+}
+
+/// App-wide magnification for cmux's chrome and terminals.
+///
+/// Stored as an integer percent (100 = default, 150 = 1.5x, 200 = 2x, ...).
+/// Every SwiftUI `.font(...)` call site is expected to go through the
+/// `cmuxFont(size:)` / `cmuxFont(_:)` view modifiers, which multiply the
+/// design-time size by `scale` and read via `@AppStorage` so they re-render
+/// when the user changes the value in Settings.
+///
+/// Ghostty's terminal font size is scaled by the same factor (`fontSize`
+/// in the parsed `GhosttyConfig` is multiplied on load, and the resulting
+/// value is injected into Ghostty's live config). Per-pane runtime zoom
+/// (cmd+=/-/0 while a terminal pane is focused, or the browser's own zoom)
+/// still acts on top of whatever magnification resolved to.
+enum GlobalFontMagnification {
+    static let percentKey = "globalFontMagnificationPercent"
+
+    static let defaultPercent: Int = 100
+    static let minimumPercent: Int = 50
+    /// Capped at 200% so cmux's fixed-size chrome (titlebar height, command
+    /// palette rows, badge frames, browser panel button hit areas) doesn't
+    /// clip or overflow. Users who need larger magnification should reach for
+    /// macOS Accessibility → Zoom for system-wide scaling instead.
+    static let maximumPercent: Int = 200
+    static let stepPercent: Int = 10
+
+    static let didChangeNotification = Notification.Name("cmux.globalFontMagnification.didChange")
+
+    /// Raw percent stored in UserDefaults. If the key is unset, treat as 100%.
+    /// Accepts any numeric storage (Int / Double NSNumber) and string-encoded
+    /// integers so values written by `defaults write -float`/`-string` from a
+    /// terminal still resolve cleanly instead of falling back to default.
+    static var storedPercent: Int {
+        let raw = UserDefaults.standard.object(forKey: percentKey)
+        let resolved: Int
+        if let number = raw as? NSNumber {
+            resolved = number.intValue
+        } else if let string = raw as? String, let parsed = Int(string) {
+            resolved = parsed
+        } else {
+            resolved = defaultPercent
+        }
+        return clamp(resolved)
+    }
+
+    /// Multiplier (1.0 for 100%, 1.5 for 150%, ...). Always returns a finite
+    /// positive number so multiplying hardcoded sizes is always safe.
+    static var scale: CGFloat {
+        CGFloat(storedPercent) / CGFloat(defaultPercent)
+    }
+
+    /// `true` when the user has left magnification at the default 100%.
+    static var isDefault: Bool { storedPercent == defaultPercent }
+
+    /// Scale a design-time point size by the current magnification. Clamped
+    /// to at least 1pt to avoid zero-size fonts.
+    static func scaled(_ base: CGFloat) -> CGFloat {
+        max(1, base * scale)
+    }
+
+    static func clamp(_ percent: Int) -> Int {
+        Swift.max(minimumPercent, Swift.min(maximumPercent, percent))
+    }
+
+    static func setPercent(_ percent: Int) {
+        UserDefaults.standard.set(clamp(percent), forKey: percentKey)
+        // AppDelegate's `installGlobalFontSizeObserver` owns cache + reload.
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+    }
+
+    /// Restores the default magnification. Writes `defaultPercent` explicitly
+    /// (rather than `removeObject`) so storage stays symmetric with the UI
+    /// reset path — both leave the key present at 100. Callers in the file
+    /// store rely on stored-value equality to decide whether to fire change
+    /// notifications, and the asymmetry would silently skip reloads after a
+    /// UI-driven reset.
+    static func resetToDefault() {
+        UserDefaults.standard.set(defaultPercent, forKey: percentKey)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }

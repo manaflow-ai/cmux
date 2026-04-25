@@ -722,7 +722,7 @@ struct EmptyPanelView: View {
 
         var body: some View {
             Text(text)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .cmuxFont(size: 11, weight: .semibold, design: .rounded)
                 .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -790,11 +790,11 @@ struct EmptyPanelView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "terminal.fill")
-                .font(.system(size: 48))
+                .cmuxFont(size: 48)
                 .foregroundStyle(.tertiary)
 
             Text("Empty Panel")
-                .font(.headline)
+                .cmuxFont(.headline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {

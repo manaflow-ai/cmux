@@ -117,6 +117,13 @@
           "type": "boolean",
           "default": false,
           "description": "Search every surface in the command palette switcher instead of only the active workspace."
+        },
+        "globalFontMagnification": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 200,
+          "default": 100,
+          "description": "Global font magnification percent applied to every cmux font — terminals, tab bar, sidebar, workspace titles, all SwiftUI chrome. 100 = design size (no change); 150 = 1.5x; 200 = 2x. Capped at 200 so cmux's fixed-size chrome doesn't clip; for larger zoom use macOS Accessibility → Zoom. Per-pane zoom (⌘= / ⌘- / ⌘0) still overrides this value for the focused pane."
         }
       }
     },

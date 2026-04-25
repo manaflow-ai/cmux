@@ -70,7 +70,7 @@ struct SessionIndexView: View {
 
             Toggle(isOn: $store.scopeToCurrentDirectory) {
                 Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundColor(.secondary)
             }
             .toggleStyle(.checkbox)
@@ -81,7 +81,7 @@ struct SessionIndexView: View {
                 store.reload()
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10, weight: .medium))
+                    .cmuxFont(size: 10, weight: .medium)
             }
             .buttonStyle(.borderless)
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload sessions"))
@@ -96,7 +96,7 @@ struct SessionIndexView: View {
         VStack(spacing: 6) {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.loading", defaultValue: "Scanning sessions…"))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -105,11 +105,11 @@ struct SessionIndexView: View {
     private var emptyView: some View {
         VStack(spacing: 4) {
             Text(String(localized: "sessionIndex.empty.title", defaultValue: "No sessions found"))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
             Text(String(localized: "sessionIndex.empty.subtitle",
                                    defaultValue: "Sessions from Claude Code, Codex, and OpenCode will appear here."))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
@@ -207,9 +207,9 @@ private struct GroupingButton: View {
         Button(action: action) {
             HStack(spacing: 3) {
                 Image(systemName: mode.symbolName)
-                    .font(.system(size: 10, weight: .medium))
+                    .cmuxFont(size: 10, weight: .medium)
                 Text(mode.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
             }
             .foregroundColor(isSelected ? .primary : .secondary)
             .padding(.horizontal, 6)
@@ -294,7 +294,7 @@ private struct IndexSectionView: View, Equatable {
             if !isCollapsed {
                 if section.entries.isEmpty {
                     Text(String(localized: "sessionIndex.section.noChats", defaultValue: "No chats"))
-                        .font(.system(size: 12))
+                        .cmuxFont(size: 12)
                         .foregroundColor(.secondary.opacity(0.6))
                         .padding(.leading, 32)
                         .padding(.vertical, 4)
@@ -318,7 +318,7 @@ private struct IndexSectionView: View, Equatable {
             isPopoverOpen = true
         } label: {
             Text(String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
-                .font(.system(size: 12, weight: .medium))
+                .cmuxFont(size: 12, weight: .medium)
                 .foregroundColor(.secondary.opacity(0.7))
                 .padding(.leading, 32)
                 .padding(.vertical, 4)
@@ -343,12 +343,12 @@ private struct IndexSectionView: View, Equatable {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .font(.system(size: 13, weight: .regular))
+                    .cmuxFont(size: 13, weight: .regular)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .cmuxFont(size: 9, weight: .semibold)
                     .foregroundColor(.secondary.opacity(0.6))
                     .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 Spacer(minLength: 0)
@@ -366,7 +366,7 @@ private struct IndexSectionView: View, Equatable {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .font(.system(size: 13))
+                    .cmuxFont(size: 13)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -385,7 +385,7 @@ private struct IndexSectionView: View, Equatable {
                 .frame(width: 14, height: 14)
         case .folder:
             Image(systemName: "folder")
-                .font(.system(size: 12, weight: .regular))
+                .cmuxFont(size: 12, weight: .regular)
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         }
@@ -483,13 +483,13 @@ private struct SessionRow: View, Equatable {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 12, height: 12)
             Text(entry.displayTitle)
-                .font(.system(size: 13))
+                .cmuxFont(size: 13)
                 .foregroundColor(.primary.opacity(0.92))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
             Text(relativeTime(entry.modified))
-                .font(.system(size: 12).monospacedDigit())
+                .cmuxFont(size: 12, monospacedDigit: true)
                 .foregroundColor(.secondary.opacity(0.65))
                 .fixedSize()
         }
@@ -512,7 +512,7 @@ private struct SessionRow: View, Equatable {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 12, height: 12)
                 Text(entry.displayTitle)
-                    .font(.system(size: 12, weight: .medium))
+                    .cmuxFont(size: 12, weight: .medium)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -646,7 +646,7 @@ private struct SectionPopoverView: View {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -658,7 +658,7 @@ private struct SectionPopoverView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
@@ -666,14 +666,14 @@ private struct SectionPopoverView: View {
                     text: $query
                 )
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .focused($searchFocused)
                 if !query.isEmpty {
                     Button {
                         query = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
@@ -695,10 +695,10 @@ private struct SectionPopoverView: View {
                     ForEach(errorMessages, id: \.self) { msg in
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10))
+                                .cmuxFont(size: 10)
                                 .foregroundColor(.orange)
                             Text(msg)
-                                .font(.system(size: 11))
+                                .cmuxFont(size: 11)
                                 .foregroundColor(.primary.opacity(0.85))
                         }
                     }
@@ -715,7 +715,7 @@ private struct SectionPopoverView: View {
                     } else if loaded.isEmpty {
                         Text(String(localized: "sessionIndex.popover.noMatches",
                                     defaultValue: "No matches"))
-                            .font(.system(size: 12))
+                            .cmuxFont(size: 12)
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
@@ -738,7 +738,7 @@ private struct SectionPopoverView: View {
                         } else {
                             Text(String(localized: "sessionIndex.popover.endOfList",
                                         defaultValue: "You've reached the end"))
-                                .font(.system(size: 11))
+                                .cmuxFont(size: 11)
                                 .foregroundColor(.secondary.opacity(0.5))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.vertical, 8)
@@ -860,7 +860,7 @@ private struct SectionPopoverView: View {
         HStack(spacing: 6) {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(.secondary)
             Spacer(minLength: 0)
         }
@@ -950,7 +950,7 @@ private struct SectionPopoverView: View {
                 .frame(width: 14, height: 14)
         case .folder:
             Image(systemName: "folder")
-                .font(.system(size: 12, weight: .regular))
+                .cmuxFont(size: 12, weight: .regular)
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         }
@@ -988,7 +988,7 @@ private struct PopoverRow: View, Equatable {
         TimelineView(RelativeTimestampSchedule(modified: entry.modified)) { context in
             Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: context.date))
         }
-        .font(.system(size: 11).monospacedDigit())
+        .cmuxFont(size: 11, monospacedDigit: true)
         .foregroundColor(.secondary.opacity(0.7))
         .fixedSize()
     }
@@ -1005,7 +1005,7 @@ private struct PopoverRow: View, Equatable {
             // always constrain a Text that has hard line breaks in the
             // source string.
             Text(Self.flatten(entry.displayTitle))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(.primary.opacity(0.92))
                 .lineLimit(1)
                 .truncationMode(.tail)

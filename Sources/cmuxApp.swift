@@ -1391,7 +1391,7 @@ private struct SettingsAboutTitlebarDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Settings/About Titlebar Debug")
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 editor(for: .settings)
                 editor(for: .about)
@@ -1429,7 +1429,7 @@ private struct SettingsAboutTitlebarDebugView: View {
                 Toggle("Enable Debug Overrides", isOn: overridesEnabled)
 
                 Text("When disabled, cmux uses normal default titlebar behavior for this window.")
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundColor(.secondary)
 
                 Divider()
@@ -1460,7 +1460,7 @@ private struct SettingsAboutTitlebarDebugView: View {
                     Divider()
 
                     Text("Style Mask")
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundColor(.secondary)
 
                     Toggle("Titled", isOn: binding(for: kind, keyPath: \.titled))
@@ -1649,7 +1649,7 @@ private struct DebugWindowControlsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Debug Window Controls")
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 GroupBox("Open") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -1754,7 +1754,7 @@ private struct DebugWindowControlsView: View {
                             Text("Leading extra")
                             Slider(value: $titlebarLeadingExtra, in: 0...40)
                             Text(String(format: "%.0f", titlebarLeadingExtra))
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .monospacedDigit()
                                 .frame(width: 30, alignment: .trailing)
                         }
@@ -1795,7 +1795,7 @@ private struct DebugWindowControlsView: View {
                             Text("Preview")
                             Spacer()
                             Image(systemName: selectedDevToolsIconOption.rawValue)
-                                .font(.system(size: 12, weight: .medium))
+                                .cmuxFont(size: 12, weight: .medium)
                                 .foregroundStyle(selectedDevToolsColorOption.color)
                         }
 
@@ -1817,7 +1817,7 @@ private struct DebugWindowControlsView: View {
                             DebugWindowConfigSnapshot.copyCombinedToPasteboard()
                         }
                         Text("Copies sidebar, background, menu bar, and browser devtools settings as one payload.")
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1835,7 +1835,7 @@ private struct DebugWindowControlsView: View {
     private func hintOffsetSection(_ title: String, x: Binding<Double>, y: Binding<Double>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundColor(.secondary)
             sliderRow("X", value: x)
             sliderRow("Y", value: y)
@@ -1847,7 +1847,7 @@ private struct DebugWindowControlsView: View {
             Text(label)
             Slider(value: value, in: ShortcutHintDebugSettings.offsetRange)
             Text(String(format: "%.1f", ShortcutHintDebugSettings.clamped(value.wrappedValue)))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .monospacedDigit()
                 .frame(width: 44, alignment: .trailing)
         }
@@ -1991,7 +1991,7 @@ private struct BrowserProfilePopoverDebugView: View {
                         defaultValue: "Browser Profile Popover"
                     )
                 )
-                .font(.headline)
+                .cmuxFont(.headline)
 
                 Text(
                     String(
@@ -1999,7 +1999,7 @@ private struct BrowserProfilePopoverDebugView: View {
                         defaultValue: "Tune the profile popover padding live while comparing it against the browser toolbar menu."
                     )
                 )
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
 
                 GroupBox(
@@ -2057,7 +2057,7 @@ private struct BrowserProfilePopoverDebugView: View {
                         defaultValue: "Changes apply live to the browser profile popover."
                     )
                 )
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
 
                 Spacer(minLength: 0)
@@ -2071,16 +2071,16 @@ private struct BrowserProfilePopoverDebugView: View {
     private var profilePopoverPreview: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "browser.profile.menu.title", defaultValue: "Profiles"))
-                .font(.system(size: 12, weight: .semibold))
+                .cmuxFont(size: 12, weight: .semibold)
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .cmuxFont(size: 10, weight: .semibold)
                         .frame(width: 12, alignment: .center)
                     Text(String(localized: "browser.profile.default", defaultValue: "Default"))
-                        .font(.system(size: 12))
+                        .cmuxFont(size: 12)
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 8)
@@ -2094,10 +2094,10 @@ private struct BrowserProfilePopoverDebugView: View {
             Divider()
 
             Text(String(localized: "browser.profile.new", defaultValue: "New Profile..."))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
 
             Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
         }
         .padding(.horizontal, BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(horizontalPaddingRaw))
         .padding(.vertical, BrowserProfilePopoverDebugSettings.resolvedVerticalPadding(verticalPaddingRaw))
@@ -2117,7 +2117,7 @@ private struct BrowserProfilePopoverDebugView: View {
             Text(label)
             Slider(value: value, in: range, step: 1)
             Text(String(format: "%.0f", value.wrappedValue))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .monospacedDigit()
                 .frame(width: 32, alignment: .trailing)
         }
@@ -2167,10 +2167,10 @@ private struct BrowserImportHintDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Browser Import Hint")
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 Text("Try lighter blank-tab import surfaces and dismissal states without touching the permanent Browser settings home.")
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
 
                 GroupBox("Variant") {
@@ -2183,7 +2183,7 @@ private struct BrowserImportHintDebugView: View {
                         .pickerStyle(.menu)
 
                         Text(description(for: selectedVariant))
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -2196,10 +2196,10 @@ private struct BrowserImportHintDebugView: View {
                         Toggle("Pretend the user dismissed it", isOn: $isDismissed)
 
                         Text("Current blank-tab placement: \(placementTitle(presentation.blankTabPlacement))")
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.secondary)
                         Text("Settings status: \(settingsStatusTitle(presentation.settingsStatus))")
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .padding(.top, 2)
@@ -2232,7 +2232,7 @@ private struct BrowserImportHintDebugView: View {
                         Text("Toolbar chip: most subtle, best when the hint should stay out of the content area.")
                         Text("Settings only: no in-browser nudge, Browser settings becomes the only permanent home.")
                     }
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 2)
                 }
@@ -2371,7 +2371,7 @@ private struct AcknowledgmentsView: View {
     var body: some View {
         ScrollView {
             Text(content)
-                .font(.system(.body, design: .monospaced))
+                .cmuxFont(.body, design: .monospaced)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
@@ -2550,7 +2550,7 @@ private struct FileExplorerStyleDebugView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("File Explorer Style")
-                .font(.headline)
+                .cmuxFont(.headline)
 
             ForEach(FileExplorerStyle.allCases, id: \.rawValue) { style in
                 HStack(spacing: 8) {
@@ -2565,9 +2565,9 @@ private struct FileExplorerStyleDebugView: View {
                                 .frame(width: 16)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(style.label)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .cmuxFont(size: 13, weight: .medium)
                                 Text(styleDescription(style))
-                                    .font(.system(size: 11))
+                                    .cmuxFont(size: 11)
                                     .foregroundColor(.secondary)
                             }
                         }
@@ -2589,9 +2589,9 @@ private struct FileExplorerStyleDebugView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Current: \(currentStyle.label)")
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                 Text("Row: \(Int(currentStyle.rowHeight))pt, Indent: \(Int(currentStyle.indentation))pt, Icon: \(Int(currentStyle.iconSize))pt")
-                    .font(.system(size: 11, design: .monospaced))
+                    .cmuxFont(size: 11, design: .monospaced)
                     .foregroundColor(.secondary)
             }
         }
@@ -2711,12 +2711,11 @@ private struct AboutPanelView: View {
             VStack(alignment: .center, spacing: 32) {
                 VStack(alignment: .center, spacing: 8) {
                     Text(String(localized: "about.appName", defaultValue: "cmux"))
-                        .bold()
-                        .font(.title)
+                        .cmuxFont(.title, weight: .bold)
                     Text(String(localized: "about.description", defaultValue: "A Ghostty-based terminal with vertical tabs\nand a notification panel for macOS."))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .tint(.secondary)
                         .opacity(0.8)
                 }
@@ -2755,7 +2754,7 @@ private struct AboutPanelView: View {
 
                 if let copy = copyright, !copy.isEmpty {
                     Text(copy)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .textSelection(.enabled)
                         .tint(.secondary)
                         .opacity(0.8)
@@ -2828,7 +2827,7 @@ private struct SidebarDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Sidebar Appearance")
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 Toggle(String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), isOn: $matchTerminalBackground)
 
@@ -2868,7 +2867,7 @@ private struct SidebarDebugView: View {
                             Text("Strength")
                             Slider(value: $sidebarBlurOpacity, in: 0...1)
                             Text(String(format: "%.0f%%", sidebarBlurOpacity * 100))
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .frame(width: 44, alignment: .trailing)
                         }
                     }
@@ -2883,7 +2882,7 @@ private struct SidebarDebugView: View {
                             Text("Opacity")
                             Slider(value: $sidebarTintOpacity, in: 0...0.7)
                             Text(String(format: "%.0f%%", sidebarTintOpacity * 100))
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .frame(width: 44, alignment: .trailing)
                         }
                     }
@@ -2895,7 +2894,7 @@ private struct SidebarDebugView: View {
                         Text("Corner Radius")
                         Slider(value: $sidebarCornerRadius, in: 0...20)
                         Text(String(format: "%.0f", sidebarCornerRadius))
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .frame(width: 32, alignment: .trailing)
                     }
                     .padding(.top, 2)
@@ -2940,7 +2939,7 @@ private struct SidebarDebugView: View {
                             Button(String(localized: "sidebar.debug.resetSelectionColor", defaultValue: "Reset to Default")) {
                                 sidebarSelectionColorHex = nil
                             }
-                            .font(.caption)
+                            .cmuxFont(.caption)
                         }
                     }
                     .padding(.top, 2)
@@ -2950,7 +2949,7 @@ private struct SidebarDebugView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Render branch list vertically", isOn: $sidebarBranchVerticalLayout)
                         Text("When enabled, each branch appears on its own line in the sidebar.")
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                     }
                     .padding(.top, 2)
@@ -3007,7 +3006,7 @@ private struct SidebarDebugView: View {
     private func hintOffsetSection(_ title: String, x: Binding<Double>, y: Binding<Double>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundColor(.secondary)
             sliderRow("X", value: x)
             sliderRow("Y", value: y)
@@ -3019,7 +3018,7 @@ private struct SidebarDebugView: View {
             Text(label)
             Slider(value: value, in: ShortcutHintDebugSettings.offsetRange)
             Text(String(format: "%.1f", ShortcutHintDebugSettings.clamped(value.wrappedValue)))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .monospacedDigit()
                 .frame(width: 44, alignment: .trailing)
         }
@@ -3132,7 +3131,7 @@ private struct MenuBarExtraDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Menu Bar Extra Icon")
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 GroupBox("Preview Count") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -3143,7 +3142,7 @@ private struct MenuBarExtraDebugView: View {
                                 Text("Unread Count")
                                 Spacer()
                                 Text("\(previewCount)")
-                                    .font(.caption)
+                                    .cmuxFont(.caption)
                                     .monospacedDigit()
                             }
                         }
@@ -3202,7 +3201,7 @@ private struct MenuBarExtraDebugView: View {
                 }
 
                 Text("Tip: enable override count, then tune until the menu bar icon looks right.")
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundColor(.secondary)
 
                 Spacer(minLength: 0)
@@ -3236,7 +3235,7 @@ private struct MenuBarExtraDebugView: View {
             Text(label)
             Slider(value: value, in: range)
             Text(String(format: format, value.wrappedValue))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .monospacedDigit()
                 .frame(width: 58, alignment: .trailing)
         }
@@ -3296,7 +3295,7 @@ private struct SplitButtonLayoutDebugView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Button Backdrop Color")
-                .font(.headline)
+                .cmuxFont(.headline)
 
             ForEach(options, id: \.0) { id, label in
                 HStack {
@@ -3309,7 +3308,7 @@ private struct SplitButtonLayoutDebugView: View {
             }
 
             Text("Changes apply live.")
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundColor(.secondary)
         }
         .padding(16)
@@ -3363,7 +3362,7 @@ private struct BackgroundDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Window Background Glass")
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 GroupBox("Glass Effect") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -3391,7 +3390,7 @@ private struct BackgroundDebugView: View {
                             Slider(value: $bgGlassTintOpacity, in: 0...0.8)
                                 .disabled(!bgGlassEnabled)
                             Text(String(format: "%.0f%%", bgGlassTintOpacity * 100))
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .frame(width: 44, alignment: .trailing)
                         }
                     }
@@ -3413,7 +3412,7 @@ private struct BackgroundDebugView: View {
                 }
 
                 Text("Tint changes apply live. Enable/disable requires reload.")
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundColor(.secondary)
 
                 Spacer(minLength: 0)
@@ -3547,7 +3546,7 @@ private struct StartupAppearanceDebugView: View {
                         defaultValue: "Startup Appearance Debug"
                     )
                 )
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 GroupBox(
                     String(
@@ -3570,7 +3569,7 @@ private struct StartupAppearanceDebugView: View {
                         .pickerStyle(.menu)
 
                         Text(selectedProfile.detail)
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
 
@@ -3620,7 +3619,7 @@ private struct StartupAppearanceDebugView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         ScrollView {
                             Text(selectedConfigText)
-                                .font(.system(.caption, design: .monospaced))
+                                .cmuxFont(.caption, design: .monospaced)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .topLeading)
                                 .padding(8)
@@ -3673,7 +3672,7 @@ private struct StartupAppearanceDebugView: View {
                                 defaultValue: "Reloads the running app through Ghostty config update, matching startup theme resolution without editing config files."
                             )
                         )
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -3785,7 +3784,7 @@ private struct AboutPropertyRow: View {
                 textView
             }
         }
-        .font(.callout)
+        .cmuxFont(.callout)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity)
     }
@@ -3867,6 +3866,142 @@ enum AppearanceSettings {
             defaults.set(resolved.rawValue, forKey: appearanceModeKey)
         }
         return resolved
+    }
+}
+
+/// Observable wrapper around `GlobalFontMagnification` for AppKit-side chrome
+/// that can't use `@AppStorage` directly. Listens only to
+/// `GlobalFontMagnification.didChangeNotification` to avoid thrashing on
+/// unrelated UserDefaults mutations.
+///
+/// SwiftUI chrome should prefer the `cmuxFont` view modifiers below, which
+/// read via `@AppStorage` and are safe inside `LazyVStack`/`ForEach` rows.
+final class GlobalFontSizeObserver: ObservableObject {
+    static let shared = GlobalFontSizeObserver()
+
+    @Published private(set) var revision: UInt64 = 0
+
+    private var notificationObserver: NSObjectProtocol?
+
+    private init(notificationCenter: NotificationCenter = .default) {
+        notificationObserver = notificationCenter.addObserver(
+            forName: GlobalFontMagnification.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.revision &+= 1
+        }
+    }
+
+    deinit {
+        if let notificationObserver {
+            NotificationCenter.default.removeObserver(notificationObserver)
+        }
+    }
+
+    var scale: CGFloat { GlobalFontMagnification.scale }
+    var percent: Int { GlobalFontMagnification.storedPercent }
+}
+
+/// Design-time point sizes used by cmux when a call site passes a `Font.TextStyle`
+/// instead of a numeric size. These mirror Apple's macOS defaults closely enough
+/// that replacing `.font(.caption)` with `.cmuxFont(.caption)` doesn't visibly
+/// change anything at 100% magnification.
+enum CmuxTextStyleMetrics {
+    static func baseSize(for style: Font.TextStyle) -> CGFloat {
+        switch style {
+        case .largeTitle: return 26
+        case .title: return 22
+        case .title2: return 17
+        case .title3: return 15
+        case .headline: return 13
+        case .subheadline: return 11
+        case .body: return 13
+        case .callout: return 12
+        case .footnote: return 10
+        case .caption: return 10
+        case .caption2: return 9
+        @unknown default: return 13
+        }
+    }
+
+    static func baseWeight(for style: Font.TextStyle) -> Font.Weight {
+        switch style {
+        case .headline: return .semibold
+        default: return .regular
+        }
+    }
+}
+
+/// Multiplies a hardcoded design-time font size by the global magnification.
+///
+/// Uses `@AppStorage` (not the shared `GlobalFontSizeObserver`) so it is safe
+/// to apply inside `LazyVStack`/`ForEach` rows without tripping the
+/// "orthogonal @Published invalidates every row" spin-loop class of bugs
+/// (see CLAUDE.md snapshot-boundary rule).
+struct CmuxFontModifier: ViewModifier {
+    @AppStorage(GlobalFontMagnification.percentKey) private var percent: Int = GlobalFontMagnification.defaultPercent
+    let baseSize: CGFloat
+    let weight: Font.Weight
+    let design: Font.Design
+    var monospacedDigit: Bool = false
+
+    func body(content: Content) -> some View {
+        content.font(resolvedFont)
+    }
+
+    private var resolvedFont: Font {
+        var font = Font.system(size: scaledSize, weight: weight, design: design)
+        if monospacedDigit {
+            font = font.monospacedDigit()
+        }
+        return font
+    }
+
+    private var scaledSize: CGFloat {
+        let clamped = GlobalFontMagnification.clamp(percent)
+        return max(1, baseSize * CGFloat(clamped) / CGFloat(GlobalFontMagnification.defaultPercent))
+    }
+}
+
+extension View {
+    /// Apply a system font at `size` points, scaled by the global magnification.
+    /// Replacement for hardcoded `.font(.system(size: size, weight:, design:))`.
+    func cmuxFont(
+        size: CGFloat,
+        weight: Font.Weight = .regular,
+        design: Font.Design = .default,
+        monospacedDigit: Bool = false
+    ) -> some View {
+        modifier(
+            CmuxFontModifier(
+                baseSize: size,
+                weight: weight,
+                design: design,
+                monospacedDigit: monospacedDigit
+            )
+        )
+    }
+
+    /// Apply a Dynamic-Type-style system font, scaled by the global magnification.
+    /// Replacement for hardcoded `.font(.caption)`, `.font(.headline)`, etc.
+    /// Loses macOS accessibility dynamic-type scaling in favor of cmux's
+    /// global magnification; pass an explicit `weight:` to override the
+    /// built-in weight for the style (e.g. `.cmuxFont(.title3, weight: .semibold)`
+    /// replaces `.font(.title3.weight(.semibold))`) or an explicit `design:`
+    /// for `.font(.system(.body, design: .monospaced))`-style call sites.
+    func cmuxFont(
+        _ style: Font.TextStyle,
+        weight: Font.Weight? = nil,
+        design: Font.Design = .default
+    ) -> some View {
+        modifier(
+            CmuxFontModifier(
+                baseSize: CmuxTextStyleMetrics.baseSize(for: style),
+                weight: weight ?? CmuxTextStyleMetrics.baseWeight(for: style),
+                design: design
+            )
+        )
     }
 }
 
@@ -4598,6 +4733,7 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontMagnificationPercent: Int = GlobalFontMagnification.defaultPercent
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -4673,6 +4809,26 @@ struct SettingsView: View {
             localized: "settings.app.minimalMode.subtitleOff",
             defaultValue: "Use the standard workspace title bar and controls."
         )
+    }
+
+    private var globalFontMagnificationSubtitle: String {
+        if globalFontMagnificationPercent != GlobalFontMagnification.defaultPercent {
+            return String(
+                localized: "settings.app.globalFontMagnification.subtitleOn",
+                defaultValue: "Terminals, tabs, and chrome all render at this magnification. Per-pane zoom (⌘= / ⌘-) still overrides for the focused pane."
+            )
+        }
+        return String(
+            localized: "settings.app.globalFontMagnification.subtitleOff",
+            defaultValue: "Scale every font in cmux by the same percentage. 100% = design size."
+        )
+    }
+
+    private func applyGlobalFontMagnificationChange() {
+        guard !isResettingSettings else { return }
+        // AppDelegate's `installGlobalFontSizeObserver` owns cache invalidation
+        // and the Ghostty config reload — Settings just signals intent.
+        NotificationCenter.default.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
     }
 
     private var keepWorkspaceOpenOnLastSurfaceShortcut: Bool {
@@ -5283,6 +5439,19 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .json("app.globalFontMagnification"),
+                            String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"),
+                            subtitle: globalFontMagnificationSubtitle
+                        ) {
+                            GlobalFontMagnificationControl(
+                                percent: $globalFontMagnificationPercent,
+                                onApply: applyGlobalFontMagnificationChange
+                            )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("app.openMarkdownInCmuxViewer"),
                             String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
                             subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking .md/.markdown/.mkd/.mdx files opens the cmux markdown viewer panel instead of the preferred editor.")
@@ -5373,7 +5542,7 @@ struct SettingsView: View {
                         ) {
                             HStack(spacing: 6) {
                                 Text(notificationPermissionStatusText)
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .cmuxFont(size: 11, weight: .semibold)
                                     .foregroundStyle(notificationPermissionStatusColor)
                                     .frame(width: 98, alignment: .trailing)
 
@@ -5409,7 +5578,7 @@ struct SettingsView: View {
                                         previewNotificationSound()
                                     } label: {
                                         Image(systemName: "play.fill")
-                                            .font(.system(size: 9))
+                                            .cmuxFont(size: 9)
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
@@ -5419,7 +5588,7 @@ struct SettingsView: View {
                                 if notificationSound == NotificationSoundSettings.customFileValue {
                                     HStack(spacing: 6) {
                                         Text(notificationSoundCustomFileDisplayName)
-                                            .font(.system(size: 11))
+                                            .cmuxFont(size: 11)
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
                                             .truncationMode(.middle)
@@ -5447,7 +5616,7 @@ struct SettingsView: View {
                                     }
                                     if let notificationCustomSoundStatusMessage {
                                         Text(notificationCustomSoundStatusMessage)
-                                            .font(.system(size: 11))
+                                            .cmuxFont(size: 11)
                                             .foregroundStyle(notificationCustomSoundStatusIsError ? Color.red : Color.secondary)
                                             .lineLimit(2)
                                             .multilineTextAlignment(.trailing)
@@ -5751,7 +5920,7 @@ struct SettingsView: View {
                                 .frame(width: 38)
 
                                 Text(sidebarSelectionColorHex ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                                     .foregroundStyle(.secondary)
                                     .frame(width: 76, alignment: .trailing)
                             }
@@ -5782,7 +5951,7 @@ struct SettingsView: View {
                                 .frame(width: 38)
 
                                 Text(sidebarNotificationBadgeColorHex ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                                     .foregroundStyle(.secondary)
                                     .frame(width: 76, alignment: .trailing)
                             }
@@ -5829,7 +5998,7 @@ struct SettingsView: View {
                                         .frame(width: 38)
 
                                         Text(entry.hex)
-                                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                            .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                                             .foregroundStyle(.secondary)
                                             .frame(width: 76, alignment: .trailing)
 
@@ -5893,7 +6062,7 @@ struct SettingsView: View {
                                 .frame(width: 38)
 
                                 Text(sidebarTintHexLight ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                                     .foregroundStyle(.secondary)
                                     .frame(width: 76, alignment: .trailing)
                             }
@@ -5916,7 +6085,7 @@ struct SettingsView: View {
                                 .frame(width: 38)
 
                                 Text(sidebarTintHexDark ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                                     .foregroundStyle(.secondary)
                                     .frame(width: 76, alignment: .trailing)
                             }
@@ -5933,7 +6102,7 @@ struct SettingsView: View {
                                 Slider(value: $sidebarTintOpacity, in: 0...1)
                                     .frame(width: 140)
                                 Text(String(format: "%.0f%%", sidebarTintOpacity * 100))
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                                     .foregroundStyle(.secondary)
                                     .frame(width: 36, alignment: .trailing)
                             }
@@ -6005,7 +6174,7 @@ struct SettingsView: View {
                             }
                             if let message = socketPasswordStatusMessage {
                                 Text(message)
-                                    .font(.caption)
+                                    .cmuxFont(.caption)
                                     .foregroundStyle(socketPasswordStatusIsError ? Color.red : Color.secondary)
                                     .padding(.horizontal, 14)
                                     .padding(.bottom, 8)
@@ -6014,7 +6183,7 @@ struct SettingsView: View {
                         if selectedSocketControlMode == .allowAll {
                             SettingsCardDivider()
                             Text(String(localized: "settings.automation.openAccessWarning", defaultValue: "Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging."))
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundStyle(.red)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
@@ -6191,7 +6360,7 @@ struct SettingsView: View {
                                 }
 
                                 TextEditor(text: $browserHostWhitelist)
-                                    .font(.system(.body, design: .monospaced))
+                                    .cmuxFont(.body, design: .monospaced)
                                     .frame(minHeight: 60, maxHeight: 120)
                                     .scrollContentBackground(.hidden)
                                     .padding(6)
@@ -6217,7 +6386,7 @@ struct SettingsView: View {
                                 }
 
                                 TextEditor(text: $browserExternalOpenPatterns)
-                                    .font(.system(.body, design: .monospaced))
+                                    .cmuxFont(.body, design: .monospaced)
                                     .frame(minHeight: 60, maxHeight: 120)
                                     .scrollContentBackground(.hidden)
                                     .padding(6)
@@ -6236,14 +6405,14 @@ struct SettingsView: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text(String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"))
-                                .font(.system(size: 13, weight: .semibold))
+                                .cmuxFont(size: 13, weight: .semibold)
 
                             Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."))
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundStyle(.secondary)
 
                             TextEditor(text: $browserInsecureHTTPAllowlistDraft)
-                                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                                 .frame(minHeight: 86)
                                 .padding(6)
                                 .background(
@@ -6259,7 +6428,7 @@ struct SettingsView: View {
                             ViewThatFits(in: .horizontal) {
                                 HStack(alignment: .center, spacing: 10) {
                                     Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
-                                        .font(.caption)
+                                        .cmuxFont(.caption)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
 
@@ -6276,7 +6445,7 @@ struct SettingsView: View {
 
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
-                                        .font(.caption)
+                                        .cmuxFont(.caption)
                                         .foregroundStyle(.secondary)
 
                                     HStack {
@@ -6300,19 +6469,19 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(String(localized: "settings.browser.import", defaultValue: "Import Browser Data"))
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .cmuxFont(size: 13, weight: .semibold)
 
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
-                                        .font(.system(size: 12.5, weight: .semibold))
+                                        .cmuxFont(size: 12.5, weight: .semibold)
 
                                     Text(browserImportSubtitle)
-                                        .font(.caption)
+                                        .cmuxFont(.caption)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
 
                                     Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
-                                        .font(.system(size: 10.5))
+                                        .cmuxFont(size: 10.5)
                                         .foregroundStyle(.tertiary)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
@@ -6356,7 +6525,7 @@ struct SettingsView: View {
                             .accessibilityIdentifier("SettingsBrowserImportHintToggle")
 
                             Text(browserImportHintSettingsNote)
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -6375,7 +6544,7 @@ struct SettingsView: View {
                             TextField("", text: $reactGrabVersion)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 100)
-                                .font(.system(.body, design: .monospaced))
+                                .cmuxFont(.body, design: .monospaced)
                                 .accessibilityIdentifier("SettingsReactGrabVersionField")
                         }
 
@@ -6404,7 +6573,7 @@ struct SettingsView: View {
                         ) {
                             HStack(spacing: 8) {
                                 Link(String(localized: "settings.shortcuts.chords.docsButton", defaultValue: "Chord docs"), destination: shortcutChordsDocsURL)
-                                    .font(.caption)
+                                    .cmuxFont(.caption)
                                     .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
 
                                 Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
@@ -6456,7 +6625,7 @@ struct SettingsView: View {
                     .id(shortcutResetToken)
 
                     Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record a new shortcut."))
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundColor(.secondary)
                         .padding(.leading, 2)
                         .accessibilityIdentifier("ShortcutRecordingHint")
@@ -6532,7 +6701,7 @@ struct SettingsView: View {
 
                 HStack {
                     Text(String(localized: "settings.title", defaultValue: "Settings"))
-                        .font(.system(size: 16, weight: .semibold))
+                        .cmuxFont(size: 16, weight: .semibold)
                         .foregroundColor(.primary.opacity(0.92))
                     Spacer(minLength: 0)
                     HStack(spacing: 6) {
@@ -6727,6 +6896,12 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
+        let previousGlobalFontMagnificationPercent = globalFontMagnificationPercent
+        globalFontMagnificationPercent = GlobalFontMagnification.defaultPercent
+        if previousGlobalFontMagnificationPercent != globalFontMagnificationPercent {
+            // AppDelegate's `installGlobalFontSizeObserver` owns cache + reload.
+            NotificationCenter.default.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
+        }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
@@ -6843,7 +7018,7 @@ private struct SettingsSectionHeader: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 13, weight: .semibold))
+            .cmuxFont(size: 13, weight: .semibold)
             .foregroundColor(.secondary)
             .padding(.leading, 2)
             .padding(.bottom, -2)
@@ -6857,10 +7032,10 @@ private struct AuthSettingsRow: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(titleText)
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
                 if let subtitle = subtitleText {
                     Text(subtitle)
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                         .foregroundColor(.secondary)
                 }
             }
@@ -6959,7 +7134,7 @@ private struct SettingsHeaderActionButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 11.5, weight: .medium))
+                .cmuxFont(size: 11.5, weight: .medium)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 4)
@@ -6976,6 +7151,61 @@ private struct SettingsHeaderActionButton: View {
         .controlSize(.small)
         .help(helpText)
         .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
+private struct GlobalFontMagnificationControl: View {
+    @Binding var percent: Int
+    let onApply: () -> Void
+
+    private let minimum = GlobalFontMagnification.minimumPercent
+    private let maximum = GlobalFontMagnification.maximumPercent
+    private let step = GlobalFontMagnification.stepPercent
+
+    private var isAtDefault: Bool { percent == GlobalFontMagnification.defaultPercent }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(String(format: "%d%%", GlobalFontMagnification.clamp(percent)))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+                .frame(minWidth: 48, alignment: .trailing)
+
+            Stepper(
+                "",
+                value: Binding(
+                    get: { percent },
+                    set: { newValue in
+                        let clamped = GlobalFontMagnification.clamp(newValue)
+                        if clamped != percent {
+                            percent = clamped
+                            onApply()
+                        }
+                    }
+                ),
+                in: minimum...maximum,
+                step: step
+            )
+            .labelsHidden()
+            .accessibilityLabel(
+                String(
+                    localized: "settings.app.globalFontMagnification",
+                    defaultValue: "Global Font Magnification"
+                )
+            )
+            .accessibilityValue(Text("\(GlobalFontMagnification.clamp(percent))%"))
+            .accessibilityIdentifier("SettingsGlobalFontMagnificationStepper")
+
+            Button(String(localized: "settings.app.globalFontMagnification.reset", defaultValue: "Reset")) {
+                if !isAtDefault {
+                    percent = GlobalFontMagnification.defaultPercent
+                    onApply()
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isAtDefault)
+        }
     }
 }
 
@@ -7005,10 +7235,10 @@ private struct SettingsCardRow<Trailing: View>: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 3) {
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                 }
@@ -7143,7 +7373,7 @@ private struct SettingsCardNote: View {
 
     var body: some View {
         Text(text)
-            .font(.caption)
+            .cmuxFont(.caption)
             .foregroundColor(.secondary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -7193,7 +7423,7 @@ private struct ThemeWindowThumbnail: View {
                 VStack(spacing: 0) {
                     HStack {
                         Image(systemName: "applelogo")
-                            .font(.system(size: max(height * 0.08, 6)))
+                            .cmuxFont(size: max(height * 0.08, 6))
                             .foregroundColor(isDark ? .white : .black)
                             .opacity(0.8)
                         Spacer()
@@ -7276,7 +7506,7 @@ private struct ThemePickerRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Text(String(localized: "settings.app.theme", defaultValue: "Theme"))
-                .font(.system(size: 13, weight: .medium))
+                .cmuxFont(size: 13, weight: .medium)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
@@ -7319,7 +7549,7 @@ private struct ThemePickerRow: View {
                             .frame(width: thumbWidth, height: thumbHeight)
 
                             Text(mode.displayName)
-                                .font(.system(size: 10))
+                                .cmuxFont(size: 10)
                                 .fontWeight(isSelected ? .semibold : .regular)
                                 .foregroundColor(isSelected ? .primary : .secondary)
                         }
@@ -7373,9 +7603,9 @@ private struct AppIconPickerRow: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: "settings.app.appIcon", defaultValue: "App Icon"))
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
                 Text(String(localized: "settings.app.appIcon.subtitle", defaultValue: "Dock and app switcher"))
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -7414,7 +7644,7 @@ private struct AppIconPickerRow: View {
                             }
 
                             Text(mode.displayName)
-                                .font(.system(size: 10))
+                                .cmuxFont(size: 10)
                                 .foregroundColor(isSelected ? .primary : .secondary)
                         }
                         .padding(.vertical, 8)

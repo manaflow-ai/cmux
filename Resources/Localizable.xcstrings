@@ -49469,6 +49469,74 @@
         }
       }
     },
+    "settings.app.globalFontMagnification" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Global Font Magnification"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グローバルフォント倍率"
+          }
+        }
+      }
+    },
+    "settings.app.globalFontMagnification.subtitleOff" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scale every font in cmux by the same percentage. 100% = design size."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux のすべてのフォントを同じ割合でスケーリングします。100% = 設計サイズ。"
+          }
+        }
+      }
+    },
+    "settings.app.globalFontMagnification.subtitleOn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminals, tabs, and chrome all render at this magnification. Per-pane zoom (⌘= / ⌘-) still overrides for the focused pane."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナル、タブ、UI をこの倍率で描画します。ペインごとのズーム (⌘= / ⌘-) はフォーカス中のペインに対して引き続き優先されます。"
+          }
+        }
+      }
+    },
+    "settings.app.globalFontMagnification.reset" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リセット"
+          }
+        }
+      }
+    },
     "settings.app.newWorkspacePlacement": {
       "extractionState": "manual",
       "localizations": {
