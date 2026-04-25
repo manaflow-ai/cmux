@@ -648,17 +648,16 @@ final class CmuxWebView: WKWebView {
             return result
         }
 
-        // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
-        if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
+        // Match the window-level route: app-owned shortcuts get first chance here because
+        // WebKit focus can make main-menu Cmd+F consumption skip the SwiftUI command action.
+        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             handled = true
 #endif
             return true
         }
 
-        // Handle app-level shortcuts that are not menu-backed (for example split commands).
-        // Without this, WebKit can consume Cmd-based shortcuts before the app monitor sees them.
-        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+        if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
 #if DEBUG
             handled = true
 #endif
