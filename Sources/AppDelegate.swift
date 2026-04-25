@@ -5102,6 +5102,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         keyboardFocusCoordinator(for: window)?.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId) ?? true
     }
 
+    func syncBonsplitTabShortcutHintEligibility(in window: NSWindow?) {
+        keyboardFocusCoordinator(for: window)?.syncBonsplitTabShortcutHintEligibility()
+    }
+
     fileprivate struct TerminalKeyboardFocusRequest {
         let workspaceId: UUID
         let panelId: UUID

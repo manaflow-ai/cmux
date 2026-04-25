@@ -3069,6 +3069,7 @@ struct ContentView: View {
             tabManager.applyWindowBackgroundForSelectedTab()
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
+            AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
@@ -9180,7 +9181,7 @@ struct VerticalTabsSidebar: View {
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    @StateObject private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor()
+    @StateObject private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
@@ -9474,6 +9475,16 @@ enum ShortcutHintModifierPolicy {
             .subtracting([.numericPad, .function, .capsLock])
         guard normalized == [.control] else { return false }
         return ShortcutHintDebugSettings.showHintsOnControlHoldEnabled(defaults: defaults)
+    }
+
+    static func shouldShowCommandHints(
+        for modifierFlags: NSEvent.ModifierFlags,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard normalized == [.command] else { return false }
+        return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults)
     }
 
     static func isCurrentWindow(
@@ -10182,6 +10193,7 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 
 enum ShortcutHintModifierActivation {
     case commandOrControl
+    case commandOnly
     case controlOnly
 
     func shouldShowHints(
@@ -10191,6 +10203,8 @@ enum ShortcutHintModifierActivation {
         switch self {
         case .commandOrControl:
             return ShortcutHintModifierPolicy.shouldShowHints(for: modifierFlags, defaults: defaults)
+        case .commandOnly:
+            return ShortcutHintModifierPolicy.shouldShowCommandHints(for: modifierFlags, defaults: defaults)
         case .controlOnly:
             return ShortcutHintModifierPolicy.shouldShowControlHints(for: modifierFlags, defaults: defaults)
         }

@@ -884,6 +884,26 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         }
     }
 
+    func testCommandOnlyShortcutHintRequiresCommandModifier() {
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command, .shift], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command, .option], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [], defaults: defaults))
+        }
+    }
+
+    func testCommandOnlyShortcutHintRespectsCommandVisibilitySetting() {
+        withDefaultsSuite { defaults in
+            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command], defaults: defaults))
+        }
+    }
+
     func testCommandHintCanBeDisabledIndependently() {
         withDefaultsSuite { defaults in
             defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)

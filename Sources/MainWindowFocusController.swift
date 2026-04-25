@@ -30,7 +30,11 @@ final class MainWindowFocusController {
     private weak var sessionHost: SessionIndexKeyboardFocusView?
     private weak var feedHost: FeedKeyboardFocusView?
 
-    private(set) var intent: MainWindowKeyboardFocusIntent?
+    private(set) var intent: MainWindowKeyboardFocusIntent? {
+        didSet {
+            syncBonsplitTabShortcutHintEligibility()
+        }
+    }
     private var lastRightSidebarMode: RightSidebarMode?
     private var pendingRightSidebarFirstItemFocusMode: RightSidebarMode?
     private var feedSelectedItemId: UUID?
@@ -60,6 +64,7 @@ final class MainWindowFocusController {
         if lastRightSidebarMode == nil {
             lastRightSidebarMode = fileExplorerState?.mode
         }
+        syncBonsplitTabShortcutHintEligibility()
         publishFeedFocusSnapshot()
     }
 
@@ -104,6 +109,18 @@ final class MainWindowFocusController {
         case .rightSidebar:
             return false
         case .terminal, nil:
+            return true
+        }
+    }
+
+    func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
+        guard tabManager?.selectedTabId == workspaceId else { return false }
+        switch intent {
+        case .rightSidebar:
+            return false
+        case .terminal(let focusedWorkspaceId, _):
+            return focusedWorkspaceId == workspaceId
+        case nil:
             return true
         }
     }
@@ -317,6 +334,16 @@ final class MainWindowFocusController {
         guard force || snapshot != lastPublishedFeedFocusSnapshot else { return }
         lastPublishedFeedFocusSnapshot = snapshot
         feedHost?.applyFocusSnapshotFromController(snapshot)
+    }
+
+    func syncBonsplitTabShortcutHintEligibility() {
+        guard let tabManager else { return }
+        for workspace in tabManager.tabs {
+            let enabled = allowsBonsplitTabShortcutHints(workspaceId: workspace.id)
+            if workspace.bonsplitController.tabShortcutHintsEnabled != enabled {
+                workspace.bonsplitController.tabShortcutHintsEnabled = enabled
+            }
+        }
     }
 
     private func rightSidebarModeOwning(_ responder: NSResponder) -> RightSidebarMode? {

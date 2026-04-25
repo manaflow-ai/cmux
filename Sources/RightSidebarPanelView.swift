@@ -360,7 +360,7 @@ private struct ModeBarButton: View {
             .overlay(alignment: .topTrailing) {
                 if showsShortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
-                        .offset(x: 5, y: -9)
+                        .offset(x: 5, y: -5)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                         .accessibilityIdentifier("rightSidebarModeShortcutHint.\(mode.rawValue)")
                 }
