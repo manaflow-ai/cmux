@@ -1075,10 +1075,119 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 
 
 final class RightSidebarModeShortcutHintTests: XCTestCase {
+    private let touchedShortcutActions: [KeyboardShortcutSettings.Action] = [
+        .focusRightSidebar,
+        .switchRightSidebarToFiles,
+        .switchRightSidebarToSessions,
+        .switchRightSidebarToFeed,
+    ]
+    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+    private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
+    private var temporaryDirectoryURL: URL?
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        savedShortcutData = Dictionary(
+            uniqueKeysWithValues: touchedShortcutActions.map { action in
+                (action, UserDefaults.standard.data(forKey: action.defaultsKey))
+            }
+        )
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        temporaryDirectoryURL = directoryURL
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: directoryURL.appendingPathComponent("settings.json", isDirectory: false).path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        for action in touchedShortcutActions {
+            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+        }
+        KeyboardShortcutSettings.notifySettingsFileDidChange()
+    }
+
+    override func tearDownWithError() throws {
+        for action in touchedShortcutActions {
+            if case let .some(.some(data)) = savedShortcutData[action] {
+                UserDefaults.standard.set(data, forKey: action.defaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+            }
+        }
+        KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        KeyboardShortcutSettings.notifySettingsFileDidChange()
+        if let temporaryDirectoryURL {
+            try? FileManager.default.removeItem(at: temporaryDirectoryURL)
+        }
+        try super.tearDownWithError()
+    }
+
     func testModeShortcutActionsMatchModeSwitchingActions() {
         XCTAssertEqual(RightSidebarMode.files.shortcutAction, .switchRightSidebarToFiles)
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
+    }
+
+    func testModeShortcutUsesConfiguredBindings() {
+        let customFilesShortcut = StoredShortcut(
+            key: "4",
+            command: false,
+            shift: false,
+            option: false,
+            control: true
+        )
+        KeyboardShortcutSettings.setShortcut(customFilesShortcut, for: .switchRightSidebarToFiles)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
+            .files
+        )
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18))
+        )
+    }
+
+    func testFocusRightSidebarShortcutCanBeOverwrittenForHintRendering() {
+        let customShortcut = StoredShortcut(
+            key: "e",
+            command: true,
+            shift: true,
+            option: true,
+            control: false
+        )
+        KeyboardShortcutSettings.setShortcut(customShortcut, for: .focusRightSidebar)
+
+        let resolvedShortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
+        XCTAssertEqual(resolvedShortcut, customShortcut)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.focusRightSidebar.displayedShortcutString(for: resolvedShortcut),
+            customShortcut.displayString
+        )
+    }
+
+    private func makeKeyDownEvent(
+        key: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt16
+    ) -> NSEvent {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            fatalError("Failed to construct key event")
+        }
+        return event
     }
 }
 
