@@ -648,9 +648,7 @@ final class CmuxWebView: WKWebView {
             return result
         }
 
-        // Match the window-level route: app-owned shortcuts get first chance here because
-        // WebKit focus can make main-menu Cmd+F consumption skip the SwiftUI command action.
-        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalentBeforeMainMenu(event) == true {
 #if DEBUG
             handled = true
 #endif

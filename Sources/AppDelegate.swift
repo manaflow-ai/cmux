@@ -11282,6 +11282,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    /// WebKit can consume Cmd+F as a browser find key equivalent before SwiftUI
+    /// command actions run. Keep this pre-menu route narrow so normal menu-backed
+    /// browser shortcuts such as Cmd+N, Cmd+W, and Cmd+R still use AppKit.
+    @discardableResult
+    func handleBrowserSurfaceKeyEquivalentBeforeMainMenu(_ event: NSEvent) -> Bool {
+        if matchConfiguredShortcut(event: event, action: .find) {
+            return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
+        }
+        return false
+    }
+
     @discardableResult
     func requestRenameWorkspaceViaCommandPalette(preferredWindow: NSWindow? = nil) -> Bool {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
