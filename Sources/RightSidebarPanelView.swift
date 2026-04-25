@@ -159,6 +159,7 @@ struct RightSidebarPanelView: View {
 
             focusShortcutHintOverlay
         }
+        .shortcutHintVisibilityAnimation(value: focusShortcutHintMonitor.isModifierPressed)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             RightSidebarKeyboardFocusBridge()
@@ -215,7 +216,7 @@ struct RightSidebarPanelView: View {
     private var focusShortcutHintOverlay: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let showsFocusShortcutHint = focusShortcutHintMonitor.isModifierPressed
-        Group {
+        ZStack(alignment: .topLeading) {
             if showsFocusShortcutHint {
                 ShortcutHintPill(
                     shortcut: KeyboardShortcutSettings.shortcut(for: .focusRightSidebar),
@@ -226,10 +227,10 @@ struct RightSidebarPanelView: View {
                     .padding(.top, 5)
                     .shortcutHintTransition()
                     .accessibilityIdentifier("rightSidebarFocusShortcutHint")
-                    .allowsHitTesting(false)
                     .zIndex(10)
             }
         }
+        .allowsHitTesting(false)
         .shortcutHintVisibilityAnimation(value: showsFocusShortcutHint)
     }
 
