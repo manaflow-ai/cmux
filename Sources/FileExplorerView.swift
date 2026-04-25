@@ -856,6 +856,7 @@ final class FileExplorerContainerView: NSView {
         addSubview(searchBarView)
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.setAccessibilityIdentifier("FileExplorerSearchField")
         searchField.placeholderString = String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
         searchField.font = .systemFont(ofSize: 12, weight: .regular)
         searchField.focusRingType = .none
