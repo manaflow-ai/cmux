@@ -5201,21 +5201,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             setActiveMainWindow(window)
         }
-        let firstResponderIsRightSidebar =
-            window?.firstResponder.map { context.keyboardFocusCoordinator.ownsRightSidebarFocus($0) } == true
-        if requestedMode == nil,
-           let window,
-           firstResponderIsRightSidebar {
-            let result = context.keyboardFocusCoordinator.focusTerminal()
-#if DEBUG
-            let afterResponder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            dlog(
-                "rs.focus.app.toggleToTerminal result=\(result ? 1 : 0) " +
-                "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
-            )
-#endif
-            return true
-        }
         let result = context.keyboardFocusCoordinator.focusRightSidebar(
             mode: requestedMode,
             focusFirstItem: focusFirstItem

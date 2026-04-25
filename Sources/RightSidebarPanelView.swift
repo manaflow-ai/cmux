@@ -149,11 +149,15 @@ struct RightSidebarPanelView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            modeBar
-            Divider()
-            contentForMode
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ZStack(alignment: .topLeading) {
+            VStack(spacing: 0) {
+                modeBar
+                Divider()
+                contentForMode
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            focusShortcutHintOverlay
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -181,7 +185,6 @@ struct RightSidebarPanelView: View {
     private var modeBar: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let showsModeShortcutHints = alwaysShowShortcutHints || modeShortcutHintMonitor.isModifierPressed
-        let showsFocusShortcutHint = alwaysShowShortcutHints || focusShortcutHintMonitor.isModifierPressed
         return HStack(spacing: 4) {
             ForEach(RightSidebarMode.allCases, id: \.rawValue) { mode in
                 ModeBarButton(
@@ -201,21 +204,31 @@ struct RightSidebarPanelView: View {
                 }
             }
             Spacer(minLength: 0)
-            if showsFocusShortcutHint {
-                ShortcutHintPill(
-                    shortcut: KeyboardShortcutSettings.shortcut(for: .focusRightSidebar),
-                    fontSize: 9,
-                    emphasis: 1.05
-                )
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                    .accessibilityIdentifier("rightSidebarFocusShortcutHint")
-            }
         }
         .padding(.leading, 4)
         .padding(.trailing, 6)
         .padding(.vertical, 4)
         .frame(height: 31)
-        .animation(.easeOut(duration: 0.12), value: showsFocusShortcutHint)
+    }
+
+    @ViewBuilder
+    private var focusShortcutHintOverlay: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
+        let showsFocusShortcutHint = focusShortcutHintMonitor.isModifierPressed
+        if showsFocusShortcutHint {
+            ShortcutHintPill(
+                shortcut: KeyboardShortcutSettings.shortcut(for: .focusRightSidebar),
+                fontSize: 9,
+                emphasis: 1.05
+            )
+                .padding(.leading, 6)
+                .padding(.top, 5)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .accessibilityIdentifier("rightSidebarFocusShortcutHint")
+                .allowsHitTesting(false)
+                .zIndex(10)
+                .animation(.easeOut(duration: 0.12), value: showsFocusShortcutHint)
+        }
     }
 
     @ViewBuilder
