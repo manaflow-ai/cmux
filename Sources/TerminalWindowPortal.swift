@@ -1022,7 +1022,6 @@ final class WindowTerminalPortal: NSObject {
     /// Used when a workspace is permanently unmounted (vs. transient bonsplit dismantles).
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
-        guard entry.visibleInUI else { return }
         entry.visibleInUI = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry

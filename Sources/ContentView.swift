@@ -3558,17 +3558,22 @@ struct ContentView: View {
             isCycleHot: isCycleHot,
             maxMounted: maxMounted
         )
+        let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
+        hidePortalViewsForUnmountedWorkspaces(
+            removedIds,
+            tabs: currentTabs,
+            selectedId: effectiveSelectedId
+        )
 #if DEBUG
         if mountedWorkspaceIds != previousMountedIds {
             let added = mountedWorkspaceIds.filter { !previousMountedIds.contains($0) }
-            let removed = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
                     "ws.mount.reconcile id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) " +
                     "selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
                     "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds)) " +
-                    "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removed))"
+                    "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removedIds))"
                 )
             } else {
                 cmuxDebugLog(
@@ -3578,6 +3583,19 @@ struct ContentView: View {
             }
         }
 #endif
+    }
+
+    private func hidePortalViewsForUnmountedWorkspaces(
+        _ workspaceIds: [UUID],
+        tabs: [Workspace],
+        selectedId: UUID?
+    ) {
+        guard !workspaceIds.isEmpty else { return }
+        let unmountedIds = Set(workspaceIds)
+        for workspace in tabs where unmountedIds.contains(workspace.id) && workspace.id != selectedId {
+            workspace.hideAllTerminalPortalViews()
+            workspace.hideAllBrowserPortalViews()
+        }
     }
 
     private enum BackgroundWorkspacePrimeState {
@@ -8709,6 +8727,13 @@ struct ContentView: View {
         lastSidebarSelectionIndex = lastIndex
         tabManager.selectWorkspace(tabs[lastIndex])
         sidebarSelectionState.selection = .tabs
+#if DEBUG
+        UITestRecorder.record([
+            "sidebarSelectedWorkspaceCount": String(selectedIds.count),
+            "sidebarSelectedWorkspaceLastIndex": String(lastIndex),
+            "sidebarWorkspaceCount": String(tabs.count),
+        ])
+#endif
         didApplyUITestSidebarSelection = true
 #endif
     }
@@ -9154,6 +9179,8 @@ struct VerticalTabsSidebar: View {
     @State private var dropIndicator: SidebarDropIndicator?
     @State private var frozenTabItemPresentation: SidebarTabItemPresentationSnapshot?
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
+    @State private var laidOutWorkspaceRowIds: Set<UUID> = []
+    @State private var pendingSelectedWorkspaceScrollId: UUID?
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
 
@@ -9161,6 +9188,10 @@ struct VerticalTabsSidebar: View {
     private let trafficLightPadding: CGFloat = 28
     private let tabRowSpacing: CGFloat = 2
     private let hiddenTitlebarControlsLeadingInset: CGFloat = 72
+
+    private var workspaceScrollTopVisibilityInset: CGFloat {
+        trafficLightPadding + 8
+    }
 
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
@@ -9173,6 +9204,58 @@ struct VerticalTabsSidebar: View {
     private var workspaceNumberShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
+    }
+
+    private func requestSelectedWorkspaceScroll(_ proxy: ScrollViewProxy, workspaceIds: [UUID]) {
+        guard let selectedWorkspaceId = tabManager.selectedTabId,
+              workspaceIds.contains(selectedWorkspaceId) else {
+            pendingSelectedWorkspaceScrollId = nil
+            return
+        }
+
+        pendingSelectedWorkspaceScrollId = selectedWorkspaceId
+        flushPendingSelectedWorkspaceScroll(proxy)
+    }
+
+    private func flushPendingSelectedWorkspaceScroll(
+        _ proxy: ScrollViewProxy,
+        laidOutWorkspaceRowIds: Set<UUID>? = nil
+    ) {
+        guard let selectedWorkspaceId = pendingSelectedWorkspaceScrollId else { return }
+        let rowIds = laidOutWorkspaceRowIds ?? self.laidOutWorkspaceRowIds
+        guard rowIds.contains(selectedWorkspaceId) else { return }
+
+        // No anchor means SwiftUI scrolls the minimum needed to reveal the row.
+        proxy.scrollTo(selectedWorkspaceId)
+        pendingSelectedWorkspaceScrollId = nil
+    }
+
+    private func shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
+        from oldWorkspaceIds: [UUID],
+        to newWorkspaceIds: [UUID]
+    ) -> Bool {
+        guard let selectedWorkspaceId = tabManager.selectedTabId else {
+            return false
+        }
+        return !oldWorkspaceIds.contains(selectedWorkspaceId) && newWorkspaceIds.contains(selectedWorkspaceId)
+    }
+
+    private struct WorkspaceListRenderContext {
+        let tabs: [Workspace]
+        let workspaceCount: Int
+        let canCloseWorkspace: Bool
+        let workspaceNumberShortcut: StoredShortcut
+        let tabItemSettings: SidebarTabItemSettingsSnapshot
+        let tabIndexById: [UUID: Int]
+        let selectedContextTargetIds: [UUID]
+        let selectedRemoteContextMenuWorkspaceIds: [UUID]
+        let allSelectedRemoteContextMenuTargetsConnecting: Bool
+        let allSelectedRemoteContextMenuTargetsDisconnected: Bool
+        let workspaceTerminalScrollBarHiddenById: [UUID: Bool]
+
+        var workspaceIds: [UUID] {
+            tabs.map(\.id)
+        }
     }
 
     var body: some View {
@@ -9196,135 +9279,22 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+        let renderContext = WorkspaceListRenderContext(
+            tabs: tabs,
+            workspaceCount: workspaceCount,
+            canCloseWorkspace: canCloseWorkspace,
+            workspaceNumberShortcut: workspaceNumberShortcut,
+            tabItemSettings: tabItemSettings,
+            tabIndexById: tabIndexById,
+            selectedContextTargetIds: selectedContextTargetIds,
+            selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
+            allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
+            allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
+            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
+        )
 
         VStack(spacing: 0) {
-            GeometryReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // Space for traffic lights / fullscreen controls
-                        Spacer()
-                            .frame(height: trafficLightPadding)
-
-                        // Workspaces are bounded, so prefer a non-lazy stack here.
-                        // LazyVStack + drag-state invalidations can recurse through layout.
-                        VStack(spacing: tabRowSpacing) {
-                            ForEach(tabs, id: \.id) { tab in
-                                let index = tabIndexById[tab.id] ?? 0
-                                let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
-                                let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
-                                    ? selectedContextTargetIds
-                                    : [tab.id]
-                                let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
-                                    ? selectedRemoteContextMenuWorkspaceIds
-                                    : (tab.isRemoteWorkspace ? [tab.id] : [])
-                                let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
-                                    ? allSelectedRemoteContextMenuTargetsConnecting
-                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
-                                let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
-                                    ? allSelectedRemoteContextMenuTargetsDisconnected
-                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
-                                let allContextMenuWorkspacesHideTerminalScrollBar = !contextMenuWorkspaceIds.isEmpty &&
-                                    contextMenuWorkspaceIds.allSatisfy { workspaceId in
-                                        workspaceTerminalScrollBarHiddenById[workspaceId] == true
-                                    }
-                                let liveUnreadCount = notificationStore.unreadCount(forTabId: tab.id)
-                                let liveLatestNotificationText: String? = {
-                                    guard showsSidebarNotificationMessage,
-                                          let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                                        return nil
-                                    }
-                                    let text = notification.body.isEmpty ? notification.title : notification.body
-                                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    return trimmed.isEmpty ? nil : trimmed
-                                }()
-                                let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
-                                let livePresentation = SidebarTabItemPresentationSnapshot(
-                                    tabId: tab.id,
-                                    unreadCount: liveUnreadCount,
-                                    latestNotificationText: liveLatestNotificationText,
-                                    showsModifierShortcutHints: liveShowsModifierShortcutHints
-                                )
-                                let frozenPresentation = frozenTabItemPresentation?.tabId == tab.id
-                                    ? frozenTabItemPresentation
-                                    : nil
-                                TabItemView(
-                                    tabManager: tabManager,
-                                    notificationStore: notificationStore,
-                                    tab: tab,
-                                    index: index,
-                                    isActive: tabManager.selectedTabId == tab.id,
-                                    workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                                        at: index,
-                                        workspaceCount: workspaceCount
-                                    ),
-                                    workspaceShortcutModifierSymbol: workspaceNumberShortcut.numberedDigitHintPrefix,
-                                    canCloseWorkspace: canCloseWorkspace,
-                                    accessibilityWorkspaceCount: workspaceCount,
-                                    unreadCount: frozenPresentation?.unreadCount ?? liveUnreadCount,
-                                    latestNotificationText: frozenPresentation?.latestNotificationText ?? liveLatestNotificationText,
-                                    rowSpacing: tabRowSpacing,
-                                    setSelectionToTabs: { selection = .tabs },
-                                    selectedTabIds: $selectedTabIds,
-                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                                    showsModifierShortcutHints: frozenPresentation?.showsModifierShortcutHints ?? liveShowsModifierShortcutHints,
-                                    dragAutoScrollController: dragAutoScrollController,
-                                    draggedTabId: $draggedTabId,
-                                    dropIndicator: $dropIndicator,
-                                    contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-                                    remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
-                                    allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
-                                    allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
-                                    allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
-                                    settings: tabItemSettings,
-                                    livePresentation: livePresentation,
-                                    frozenPresentation: $frozenTabItemPresentation
-                                )
-                                .equatable()
-                            }
-                        }
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        SidebarEmptyArea(
-                            rowSpacing: tabRowSpacing,
-                            selection: $selection,
-                            selectedTabIds: $selectedTabIds,
-                            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                            dragAutoScrollController: dragAutoScrollController,
-                            draggedTabId: $draggedTabId,
-                            dropIndicator: $dropIndicator
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .frame(minHeight: proxy.size.height, alignment: .top)
-                }
-                .background(
-                    SidebarScrollViewResolver { scrollView in
-                        dragAutoScrollController.attach(scrollView: scrollView)
-                    }
-                    .frame(width: 0, height: 0)
-                )
-                .overlay(alignment: .top) {
-                    SidebarTopScrim(height: trafficLightPadding + 20)
-                        .allowsHitTesting(false)
-                }
-                .overlay(alignment: .top) {
-                    // Match native titlebar behavior in the sidebar top strip:
-                    // drag-to-move and double-click action (zoom/minimize).
-                    WindowDragHandleView()
-                        .frame(height: trafficLightPadding)
-                        .background(TitlebarDoubleClickMonitorView())
-                }
-                .overlay(alignment: .topLeading) {
-                    if isMinimalMode {
-                        HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
-                            .padding(.leading, hiddenTitlebarControlsLeadingInset)
-                            .padding(.top, 2)
-                    }
-                }
-                .background(Color.clear)
-                .modifier(ClearScrollBackground())
-            }
+            workspaceScrollArea(renderContext: renderContext)
             SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -9406,9 +9376,191 @@ struct VerticalTabsSidebar: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
+        GeometryReader { geometryProxy in
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    workspaceScrollContent(
+                        renderContext: renderContext,
+                        minHeight: geometryProxy.size.height
+                    )
+                }
+                .background(
+                    SidebarScrollViewResolver { scrollView in
+                        dragAutoScrollController.attach(scrollView: scrollView)
+                    }
+                    .frame(width: 0, height: 0)
+                )
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    Color.clear
+                        .frame(height: workspaceScrollTopVisibilityInset)
+                        .allowsHitTesting(false)
+                }
+                .overlay(alignment: .top) {
+                    SidebarTopScrim(height: trafficLightPadding + 20)
+                        .allowsHitTesting(false)
+                }
+                .overlay(alignment: .top) {
+                    // Match native titlebar behavior in the sidebar top strip:
+                    // drag-to-move and double-click action (zoom/minimize).
+                    WindowDragHandleView()
+                        .frame(height: trafficLightPadding)
+                        .background(TitlebarDoubleClickMonitorView())
+                }
+                .overlay(alignment: .topLeading) {
+                    if isMinimalMode {
+                        HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
+                            .padding(.leading, hiddenTitlebarControlsLeadingInset)
+                            .padding(.top, 2)
+                    }
+                }
+                .background(Color.clear)
+                .modifier(ClearScrollBackground())
+                .onAppear {
+                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
+                }
+                .onChange(of: tabManager.selectedTabId) { _, _ in
+                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
+                }
+                .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
+                    guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
+                        from: oldWorkspaceIds,
+                        to: newWorkspaceIds
+                    ) else { return }
+                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: newWorkspaceIds)
+                }
+                .onPreferenceChange(SidebarWorkspaceRowIdsPreferenceKey.self) { rowIds in
+                    laidOutWorkspaceRowIds = rowIds
+                    flushPendingSelectedWorkspaceScroll(scrollProxy, laidOutWorkspaceRowIds: rowIds)
+                }
+            }
+        }
+    }
+
+    private func workspaceScrollContent(
+        renderContext: WorkspaceListRenderContext,
+        minHeight: CGFloat
+    ) -> some View {
+        VStack(spacing: 0) {
+            workspaceRows(renderContext: renderContext)
+
+            SidebarEmptyArea(
+                rowSpacing: tabRowSpacing,
+                selection: $selection,
+                selectedTabIds: $selectedTabIds,
+                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                dragAutoScrollController: dragAutoScrollController,
+                draggedTabId: $draggedTabId,
+                dropIndicator: $dropIndicator
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(minHeight: minHeight, alignment: .top)
+    }
+
+    private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
+        // Workspaces are bounded, so prefer a non-lazy stack here.
+        // LazyVStack + drag-state invalidations can recurse through layout.
+        VStack(spacing: tabRowSpacing) {
+            ForEach(renderContext.tabs, id: \.id) { tab in
+                workspaceRow(tab, renderContext: renderContext)
+            }
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func workspaceRow(
+        _ tab: Workspace,
+        renderContext: WorkspaceListRenderContext
+    ) -> some View {
+        let index = renderContext.tabIndexById[tab.id] ?? 0
+        let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
+        let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
+            ? renderContext.selectedContextTargetIds
+            : [tab.id]
+        let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
+            ? renderContext.selectedRemoteContextMenuWorkspaceIds
+            : (tab.isRemoteWorkspace ? [tab.id] : [])
+        let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
+            ? renderContext.allSelectedRemoteContextMenuTargetsConnecting
+            : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
+        let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
+            ? renderContext.allSelectedRemoteContextMenuTargetsDisconnected
+            : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
+        let allContextMenuWorkspacesHideTerminalScrollBar = !contextMenuWorkspaceIds.isEmpty &&
+            contextMenuWorkspaceIds.allSatisfy { workspaceId in
+                renderContext.workspaceTerminalScrollBarHiddenById[workspaceId] == true
+            }
+        let liveUnreadCount = notificationStore.unreadCount(forTabId: tab.id)
+        let liveLatestNotificationText: String? = {
+            guard showsSidebarNotificationMessage,
+                  let notification = notificationStore.latestNotification(forTabId: tab.id) else {
+                return nil
+            }
+            let text = notification.body.isEmpty ? notification.title : notification.body
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
+        let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
+        let livePresentation = SidebarTabItemPresentationSnapshot(
+            tabId: tab.id,
+            unreadCount: liveUnreadCount,
+            latestNotificationText: liveLatestNotificationText,
+            showsModifierShortcutHints: liveShowsModifierShortcutHints
+        )
+        let frozenPresentation = frozenTabItemPresentation?.tabId == tab.id
+            ? frozenTabItemPresentation
+            : nil
+
+        return TabItemView(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            tab: tab,
+            index: index,
+            isActive: tabManager.selectedTabId == tab.id,
+            workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
+                at: index,
+                workspaceCount: renderContext.workspaceCount
+            ),
+            workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
+            canCloseWorkspace: renderContext.canCloseWorkspace,
+            accessibilityWorkspaceCount: renderContext.workspaceCount,
+            unreadCount: frozenPresentation?.unreadCount ?? liveUnreadCount,
+            latestNotificationText: frozenPresentation?.latestNotificationText ?? liveLatestNotificationText,
+            rowSpacing: tabRowSpacing,
+            setSelectionToTabs: { selection = .tabs },
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            showsModifierShortcutHints: frozenPresentation?.showsModifierShortcutHints ?? liveShowsModifierShortcutHints,
+            dragAutoScrollController: dragAutoScrollController,
+            draggedTabId: $draggedTabId,
+            dropIndicator: $dropIndicator,
+            contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+            remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
+            allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
+            allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+            allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
+            settings: renderContext.tabItemSettings,
+            livePresentation: livePresentation,
+            frozenPresentation: $frozenTabItemPresentation
+        )
+        .equatable()
+        .id(tab.id)
+        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
+    }
+
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+}
+
+private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
+    static let defaultValue: Set<UUID> = []
+
+    static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
+        value.formUnion(nextValue())
     }
 }
 
