@@ -10,6 +10,273 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
 }
 #endif
 
+struct FileSearchResult: Equatable {
+    let path: String
+    let relativePath: String
+    let lineNumber: Int
+    let columnNumber: Int
+    let preview: String
+}
+
+enum FileSearchRipgrepParser {
+    static func parseMatchLine(_ line: String, rootPath: String) -> FileSearchResult? {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "match",
+              let payload = object["data"] as? [String: Any],
+              let pathObject = payload["path"] as? [String: Any],
+              let path = pathObject["text"] as? String,
+              let linesObject = payload["lines"] as? [String: Any],
+              let lineText = linesObject["text"] as? String,
+              let lineNumber = payload["line_number"] as? Int else {
+            return nil
+        }
+
+        let submatches = payload["submatches"] as? [[String: Any]]
+        let firstStart = submatches?.first?["start"] as? Int
+        let columnNumber = (firstStart ?? 0) + 1
+        return FileSearchResult(
+            path: path,
+            relativePath: relativePath(for: path, rootPath: rootPath),
+            lineNumber: lineNumber,
+            columnNumber: columnNumber,
+            preview: lineText.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private static func relativePath(for path: String, rootPath: String) -> String {
+        guard !rootPath.isEmpty else { return path }
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        let standardizedRoot = URL(fileURLWithPath: rootPath).standardizedFileURL.path
+        guard standardizedPath.hasPrefix(standardizedRoot) else { return path }
+        var relative = String(standardizedPath.dropFirst(standardizedRoot.count))
+        if relative.hasPrefix("/") {
+            relative.removeFirst()
+        }
+        return relative.isEmpty ? (path as NSString).lastPathComponent : relative
+    }
+}
+
+private struct FileSearchSnapshot: Equatable {
+    enum Status: Equatable {
+        case idle
+        case unsupported
+        case searching
+        case noMatches
+        case matches
+        case limited(Int)
+        case failed(String)
+    }
+
+    var query: String
+    var results: [FileSearchResult]
+    var status: Status
+    var isSearching: Bool
+
+    static let empty = FileSearchSnapshot(query: "", results: [], status: .idle, isSearching: false)
+}
+
+@MainActor
+private final class FileSearchController {
+    private struct Request: Equatable {
+        let query: String
+        let rootPath: String
+        let isLocal: Bool
+    }
+
+    var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+
+    private let maxResults = 500
+    private var process: Process?
+    private var stdoutBuffer = Data()
+    private var stderrBuffer = Data()
+    private var generation = 0
+    private var request: Request?
+    private var results: [FileSearchResult] = []
+
+    func search(query rawQuery: String, rootPath: String, isLocal: Bool) {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextRequest = Request(query: query, rootPath: rootPath, isLocal: isLocal)
+        guard nextRequest != request else { return }
+        request = nextRequest
+
+        stopAndAdvanceGeneration()
+        results.removeAll()
+        stdoutBuffer.removeAll(keepingCapacity: true)
+        stderrBuffer.removeAll(keepingCapacity: true)
+
+        guard !query.isEmpty else {
+            emit(status: .idle, isSearching: false)
+            return
+        }
+        guard isLocal else {
+            emit(status: .unsupported, isSearching: false)
+            return
+        }
+        guard !rootPath.isEmpty else {
+            emit(status: .noMatches, isSearching: false)
+            return
+        }
+
+        generation += 1
+        let searchGeneration = generation
+        emit(status: .searching, isSearching: true)
+
+        let process = Process()
+        let executable = Self.ripgrepExecutable()
+        process.executableURL = executable.url
+        process.arguments = executable.prefixArguments + [
+            "--json",
+            "--line-number",
+            "--column",
+            "--smart-case",
+            "--fixed-strings",
+            "--hidden",
+            "--glob", "!.git/**",
+            "--glob", "!node_modules/**",
+            "--glob", "!dist/**",
+            "--glob", "!build/**",
+            "--glob", "!DerivedData/**",
+            "--max-columns", "300",
+            "--max-columns-preview",
+            "--color", "never",
+            "--",
+            query,
+            rootPath,
+        ]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            Task { @MainActor [weak self] in
+                self?.consumeStdout(data, generation: searchGeneration, rootPath: rootPath)
+            }
+        }
+        stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            Task { @MainActor [weak self] in
+                self?.consumeStderr(data, generation: searchGeneration)
+            }
+        }
+
+        process.terminationHandler = { [weak self] process in
+            Task { @MainActor [weak self] in
+                self?.finish(generation: searchGeneration, status: process.terminationStatus)
+            }
+        }
+
+        do {
+            try process.run()
+            self.process = process
+        } catch {
+            process.standardOutput = nil
+            process.standardError = nil
+            emit(status: .failed(error.localizedDescription), isSearching: false)
+        }
+    }
+
+    func cancel(clear: Bool) {
+        request = nil
+        stopAndAdvanceGeneration()
+        stdoutBuffer.removeAll(keepingCapacity: true)
+        stderrBuffer.removeAll(keepingCapacity: true)
+        if clear {
+            results.removeAll()
+            emit(status: .idle, isSearching: false)
+        }
+    }
+
+    private func consumeStdout(_ data: Data, generation searchGeneration: Int, rootPath: String) {
+        guard searchGeneration == generation else { return }
+        stdoutBuffer.append(data)
+        var didAppendResult = false
+
+        while let newlineIndex = stdoutBuffer.firstIndex(of: 10) {
+            let lineData = stdoutBuffer[..<newlineIndex]
+            stdoutBuffer.removeSubrange(...newlineIndex)
+            guard let line = String(data: lineData, encoding: .utf8),
+                  let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: rootPath) else {
+                continue
+            }
+            results.append(result)
+            didAppendResult = true
+            if results.count >= maxResults {
+                stopAndAdvanceGeneration()
+                emit(status: .limited(maxResults), isSearching: false)
+                return
+            }
+        }
+        if didAppendResult {
+            emit(status: .searching, isSearching: true)
+        }
+    }
+
+    private func consumeStderr(_ data: Data, generation searchGeneration: Int) {
+        guard searchGeneration == generation else { return }
+        stderrBuffer.append(data)
+        if stderrBuffer.count > 8_192 {
+            stderrBuffer.removeSubrange(0..<(stderrBuffer.count - 8_192))
+        }
+    }
+
+    private func finish(generation searchGeneration: Int, status: Int32) {
+        guard searchGeneration == generation else { return }
+        stopCurrentProcess()
+
+        if status == 0 || status == 1 {
+            emit(status: results.isEmpty ? .noMatches : .matches, isSearching: false)
+            return
+        }
+
+        let errorText = String(data: stderrBuffer, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = String(
+            format: String(localized: "fileExplorer.search.rgExited", defaultValue: "rg exited with status %d"),
+            Int(status)
+        )
+        emit(status: .failed(errorText?.isEmpty == false ? errorText! : fallback), isSearching: false)
+    }
+
+    private func emit(status: FileSearchSnapshot.Status, isSearching: Bool) {
+        onSnapshotChanged?(FileSearchSnapshot(
+            query: request?.query ?? "",
+            results: results,
+            status: status,
+            isSearching: isSearching
+        ))
+    }
+
+    private func stopAndAdvanceGeneration() {
+        generation += 1
+        stopCurrentProcess()
+    }
+
+    private func stopCurrentProcess() {
+        guard let process else { return }
+        self.process = nil
+        (process.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
+        (process.standardError as? Pipe)?.fileHandleForReading.readabilityHandler = nil
+        process.terminationHandler = nil
+        if process.isRunning {
+            process.terminate()
+        }
+    }
+
+    private static func ripgrepExecutable() -> (url: URL, prefixArguments: [String]) {
+        let fileManager = FileManager.default
+        for path in ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"] where fileManager.isExecutableFile(atPath: path) {
+            return (URL(fileURLWithPath: path), [])
+        }
+        return (URL(fileURLWithPath: "/usr/bin/env"), ["rg"])
+    }
+}
+
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
 /// The entire file explorer panel as one AppKit view hierarchy.
@@ -532,23 +799,77 @@ struct FileExplorerPanelView: NSViewRepresentable {
 /// Pure AppKit container holding the header bar and outline view.
 final class FileExplorerContainerView: NSView {
     private let headerView: FileExplorerHeaderView
+    private let searchBarView: NSView
+    private let searchField: FileExplorerSearchField
+    private let searchStatusLabel: NSTextField
     private let scrollView: NSScrollView
     private let outlineView: FileExplorerNSOutlineView
+    private let searchScrollView: NSScrollView
+    private let searchResultsView: FileExplorerSearchResultsTableView
     private let emptyLabel: NSTextField
     private let loadingIndicator: NSProgressIndicator
+    private let searchController: FileSearchController
+    private var searchBarHeightConstraint: NSLayoutConstraint!
+    private var searchSnapshot = FileSearchSnapshot.empty
+    private var currentRootPath = ""
+    private var currentProviderIsLocal = false
+    private var isSearchVisible = false
 
     init(coordinator: FileExplorerPanelView.Coordinator) {
         headerView = FileExplorerHeaderView()
+        searchBarView = NSView()
+        searchField = FileExplorerSearchField()
+        searchStatusLabel = NSTextField(labelWithString: "")
         scrollView = NSScrollView()
         outlineView = FileExplorerNSOutlineView()
+        searchScrollView = NSScrollView()
+        searchResultsView = FileExplorerSearchResultsTableView()
         emptyLabel = NSTextField(labelWithString: String(localized: "fileExplorer.empty", defaultValue: "No folder open"))
         loadingIndicator = NSProgressIndicator()
+        searchController = FileSearchController()
 
         super.init(frame: .zero)
 
         // Header
         headerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(headerView)
+
+        // Search bar
+        searchBarView.translatesAutoresizingMaskIntoConstraints = false
+        searchBarView.isHidden = true
+        addSubview(searchBarView)
+
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.placeholderString = String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
+        searchField.font = .systemFont(ofSize: 12, weight: .regular)
+        searchField.focusRingType = .none
+        searchField.delegate = self
+        searchField.onCancel = { [weak self] in
+            self?.closeSearchAndFocusOutline()
+        }
+        searchField.onMoveSelection = { [weak self] delta in
+            self?.moveSearchSelection(by: delta, focusResults: true)
+        }
+        searchField.onCommit = { [weak self] in
+            self?.openSelectedSearchResult()
+        }
+        searchField.onFocus = { [weak self] in
+            guard let self else { return }
+            self.isSearchVisible = true
+            if let window = self.window {
+                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .files, in: window)
+            }
+            self.updateSearchLayout()
+        }
+        searchBarView.addSubview(searchField)
+
+        searchStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        searchStatusLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        searchStatusLabel.textColor = .secondaryLabelColor
+        searchStatusLabel.lineBreakMode = .byTruncatingTail
+        searchStatusLabel.maximumNumberOfLines = 1
+        searchStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        searchBarView.addSubview(searchStatusLabel)
 
         // Empty state label
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -604,15 +925,79 @@ final class FileExplorerContainerView: NSView {
         scrollView.documentView = outlineView
         addSubview(scrollView)
 
+        // Streaming search results
+        searchResultsView.headerView = nil
+        searchResultsView.usesAlternatingRowBackgroundColors = false
+        searchResultsView.style = .plain
+        searchResultsView.selectionHighlightStyle = .regular
+        searchResultsView.backgroundColor = .clear
+        searchResultsView.rowHeight = 46
+        searchResultsView.intercellSpacing = NSSize(width: 0, height: 0)
+        searchResultsView.onCancel = { [weak self] in
+            self?.closeSearchAndFocusOutline()
+        }
+        searchResultsView.onMoveSelection = { [weak self] delta in
+            self?.moveSearchSelection(by: delta, focusResults: false)
+        }
+        searchResultsView.onCommit = { [weak self] in
+            self?.openSelectedSearchResult()
+        }
+        searchResultsView.onFocus = { [weak self] in
+            guard let self, let window = self.window else { return }
+            AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .files, in: window)
+        }
+        let searchColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("searchResult"))
+        searchColumn.isEditable = false
+        searchColumn.resizingMask = .autoresizingMask
+        searchResultsView.addTableColumn(searchColumn)
+        searchResultsView.dataSource = self
+        searchResultsView.delegate = self
+        searchResultsView.target = self
+        searchResultsView.doubleAction = #selector(openSelectedSearchResultFromTable(_:))
+
+        searchScrollView.translatesAutoresizingMaskIntoConstraints = false
+        searchScrollView.hasVerticalScroller = true
+        searchScrollView.hasHorizontalScroller = false
+        searchScrollView.autohidesScrollers = true
+        searchScrollView.borderType = .noBorder
+        searchScrollView.drawsBackground = false
+        searchScrollView.documentView = searchResultsView
+        searchScrollView.isHidden = true
+        addSubview(searchScrollView)
+
+        searchController.onSnapshotChanged = { [weak self] snapshot in
+            self?.applySearchSnapshot(snapshot)
+        }
+
+        searchBarHeightConstraint = searchBarView.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: topAnchor),
             headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: trailingAnchor),
 
-            scrollView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            searchBarView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            searchBarView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            searchBarView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            searchBarHeightConstraint,
+
+            searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: 8),
+            searchField.centerYAnchor.constraint(equalTo: searchBarView.centerYAnchor),
+            searchField.heightAnchor.constraint(equalToConstant: 24),
+
+            searchStatusLabel.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 8),
+            searchStatusLabel.trailingAnchor.constraint(equalTo: searchBarView.trailingAnchor, constant: -8),
+            searchStatusLabel.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
+            searchStatusLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 140),
+
+            scrollView.topAnchor.constraint(equalTo: searchBarView.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            searchScrollView.topAnchor.constraint(equalTo: searchBarView.bottomAnchor),
+            searchScrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            searchScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            searchScrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -624,6 +1009,13 @@ final class FileExplorerContainerView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            searchController.cancel(clear: false)
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     override func viewDidMoveToWindow() {
@@ -650,19 +1042,44 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updateHeader(store: FileExplorerStore) {
+        currentRootPath = store.rootPath
+        currentProviderIsLocal = store.provider is LocalFileExplorerProvider
         headerView.update(displayPath: store.displayRootPath)
+        refreshSearchIfNeeded()
     }
 
     func updateVisibility(hasContent: Bool, isLoading: Bool) {
-        scrollView.isHidden = !hasContent || isLoading
         headerView.isHidden = !hasContent
-        emptyLabel.isHidden = hasContent
+        updateSearchLayout(hasContent: hasContent, isLoading: isLoading)
+        emptyLabel.isHidden = hasContent || isSearchVisible
         loadingIndicator.isHidden = !isLoading
         if isLoading {
             loadingIndicator.startAnimation(nil)
         } else {
             loadingIndicator.stopAnimation(nil)
         }
+    }
+
+    @discardableResult
+    func focusSearchField() -> Bool {
+        guard let window else {
+#if DEBUG
+            dlog("file.focus.search.end result=0 reason=noWindow")
+#endif
+            return false
+        }
+        isSearchVisible = true
+        updateSearchLayout()
+        refreshSearchIfNeeded()
+        let result = window.makeFirstResponder(searchField)
+        searchField.selectText(nil)
+#if DEBUG
+        dlog(
+            "file.focus.search.end result=\(result ? 1 : 0) win=\(window.windowNumber) " +
+            "queryLen=\(searchField.stringValue.count) fr=\(fileExplorerDebugResponder(window.firstResponder))"
+        )
+#endif
+        return result
     }
 
     @discardableResult
@@ -683,6 +1100,14 @@ final class FileExplorerContainerView: NSView {
 #endif
             return false
         }
+        if isSearchVisible {
+            isSearchVisible = false
+            searchController.cancel(clear: true)
+            searchField.stringValue = ""
+            searchSnapshot = .empty
+            searchResultsView.reloadData()
+            updateSearchLayout()
+        }
         (outlineView.dataSource as? FileExplorerPanelView.Coordinator)?
             .ensureSelection(in: outlineView, fallbackToFirstVisible: true, scroll: true)
         let result = window.makeFirstResponder(outlineView)
@@ -697,7 +1122,313 @@ final class FileExplorerContainerView: NSView {
     }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
-        responder === outlineView
+        if responder === outlineView || responder === searchResultsView || responder === searchField {
+            return true
+        }
+        if let editor = searchField.currentEditor(), responder === editor {
+            return true
+        }
+        var view = responder as? NSView
+        while let candidate = view {
+            if candidate === searchBarView || candidate === searchScrollView || candidate === searchResultsView {
+                return true
+            }
+            view = candidate.superview
+        }
+        return false
+    }
+
+    private func refreshSearchIfNeeded() {
+        guard isSearchVisible else { return }
+        searchController.search(
+            query: searchField.stringValue,
+            rootPath: currentRootPath,
+            isLocal: currentProviderIsLocal
+        )
+    }
+
+    private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
+        let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
+        let effectiveIsLoading = isLoading ?? false
+        let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
+        searchBarView.isHidden = !showSearch
+        searchBarHeightConstraint.constant = showSearch ? 36 : 0
+        searchScrollView.isHidden = !showSearch
+        scrollView.isHidden = showSearch || !effectiveHasContent || effectiveIsLoading
+        needsLayout = true
+    }
+
+    private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {
+        let previousSelectedRow = searchResultsView.selectedRow
+        searchSnapshot = snapshot
+        searchStatusLabel.stringValue = statusText(for: snapshot)
+        searchResultsView.reloadData()
+
+        guard !snapshot.results.isEmpty else { return }
+        let selectedRow = previousSelectedRow >= 0
+            ? min(previousSelectedRow, snapshot.results.count - 1)
+            : 0
+        searchResultsView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+    }
+
+    private func statusText(for snapshot: FileSearchSnapshot) -> String {
+        switch snapshot.status {
+        case .idle:
+            return String(localized: "fileExplorer.search.empty", defaultValue: "Type to search")
+        case .unsupported:
+            return String(localized: "fileExplorer.search.unsupported", defaultValue: "Local folders only")
+        case .searching:
+            return String(
+                format: String(localized: "fileExplorer.search.searching", defaultValue: "%d matches, searching"),
+                snapshot.results.count
+            )
+        case .noMatches:
+            return String(localized: "fileExplorer.search.noMatches", defaultValue: "No matches")
+        case .matches:
+            return String(
+                format: String(localized: "fileExplorer.search.matches", defaultValue: "%d matches"),
+                snapshot.results.count
+            )
+        case .limited(let limit):
+            return String(
+                format: String(localized: "fileExplorer.search.limit", defaultValue: "First %d matches"),
+                limit
+            )
+        case .failed(let message):
+            return String(
+                format: String(localized: "fileExplorer.search.failed", defaultValue: "Search failed: %@"),
+                message
+            )
+        }
+    }
+
+    private func closeSearchAndFocusOutline() {
+        isSearchVisible = false
+        searchController.cancel(clear: true)
+        searchField.stringValue = ""
+        searchSnapshot = .empty
+        searchResultsView.reloadData()
+        updateSearchLayout()
+        _ = focusOutline()
+    }
+
+    private func moveSearchSelection(by delta: Int, focusResults: Bool) {
+        guard !searchSnapshot.results.isEmpty else { return }
+        let currentRow = searchResultsView.selectedRow >= 0
+            ? searchResultsView.selectedRow
+            : (delta >= 0 ? -1 : searchSnapshot.results.count)
+        let targetRow = min(max(currentRow + delta, 0), searchSnapshot.results.count - 1)
+        searchResultsView.selectRowIndexes(IndexSet(integer: targetRow), byExtendingSelection: false)
+        searchResultsView.scrollRowToVisible(targetRow)
+        if focusResults, let window {
+            _ = window.makeFirstResponder(searchResultsView)
+        }
+    }
+
+    fileprivate func openSelectedSearchResult() {
+        let row = searchResultsView.selectedRow
+        guard row >= 0, row < searchSnapshot.results.count else { return }
+        PreferredEditorSettings.open(URL(fileURLWithPath: searchSnapshot.results[row].path))
+    }
+
+    @objc private func openSelectedSearchResultFromTable(_ sender: NSTableView) {
+        openSelectedSearchResult()
+    }
+}
+
+extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
+    func controlTextDidChange(_ notification: Notification) {
+        guard notification.object as? NSTextField === searchField else { return }
+        refreshSearchIfNeeded()
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        searchSnapshot.results.count
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        46
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard row >= 0, row < searchSnapshot.results.count else { return nil }
+        let identifier = NSUserInterfaceItemIdentifier("FileSearchResultCell")
+        let cellView: FileExplorerSearchResultCellView
+        if let existing = tableView.makeView(withIdentifier: identifier, owner: nil) as? FileExplorerSearchResultCellView {
+            cellView = existing
+        } else {
+            cellView = FileExplorerSearchResultCellView(identifier: identifier)
+        }
+        cellView.configure(with: searchSnapshot.results[row])
+        return cellView
+    }
+}
+
+private final class FileExplorerSearchField: NSSearchField {
+    var onCancel: (() -> Void)?
+    var onMoveSelection: ((Int) -> Void)?
+    var onCommit: (() -> Void)?
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result {
+            onFocus?()
+        }
+        return result
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            onCancel?()
+            return
+        }
+        if let delta = searchFieldMoveDelta(for: event) {
+            onMoveSelection?(delta)
+            return
+        }
+        if event.keyCode == 36 || event.keyCode == 76 {
+            onCommit?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    private func searchFieldMoveDelta(for event: NSEvent) -> Int? {
+        guard event.type == .keyDown else { return nil }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let hasCommandOrOption = !flags.intersection([.command, .option]).isEmpty
+        if flags.contains(.control), !hasCommandOrOption {
+            switch event.keyCode {
+            case 45: return 1
+            case 35: return -1
+            default: return nil
+            }
+        }
+        guard flags.intersection([.command, .control, .option]).isEmpty else { return nil }
+        switch event.keyCode {
+        case 125: return 1
+        case 126: return -1
+        default: return nil
+        }
+    }
+}
+
+private final class FileExplorerSearchResultsTableView: NSTableView {
+    var onCancel: (() -> Void)?
+    var onMoveSelection: ((Int) -> Void)?
+    var onCommit: (() -> Void)?
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result {
+            onFocus?()
+            redrawVisibleRows()
+        }
+        return result
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        if result {
+            redrawVisibleRows()
+        }
+        return result
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if let mode = RightSidebarMode.modeShortcut(for: event) {
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: true,
+                preferredWindow: window
+            )
+            return
+        }
+        if event.keyCode == 53 {
+            onCancel?()
+            return
+        }
+        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
+            onMoveSelection?(delta)
+            return
+        }
+        if event.keyCode == 36 || event.keyCode == 76 {
+            onCommit?()
+            return
+        }
+        if RightSidebarKeyboardNavigation.isPlainPrintableText(event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
+            onMoveSelection?(delta)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    private func redrawVisibleRows() {
+        setNeedsDisplay(bounds)
+        let visibleRows = rows(in: visibleRect)
+        guard visibleRows.location != NSNotFound else { return }
+        let upperBound = min(visibleRows.location + visibleRows.length, numberOfRows)
+        guard visibleRows.location < upperBound else { return }
+        for row in visibleRows.location..<upperBound {
+            rowView(atRow: row, makeIfNecessary: false)?.needsDisplay = true
+        }
+    }
+}
+
+private final class FileExplorerSearchResultCellView: NSTableCellView {
+    private let pathLabel = NSTextField(labelWithString: "")
+    private let previewLabel = NSTextField(labelWithString: "")
+
+    init(identifier: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        self.identifier = identifier
+        setupViews()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupViews() {
+        pathLabel.translatesAutoresizingMaskIntoConstraints = false
+        pathLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        pathLabel.textColor = .labelColor
+        pathLabel.lineBreakMode = .byTruncatingMiddle
+        pathLabel.maximumNumberOfLines = 1
+
+        previewLabel.translatesAutoresizingMaskIntoConstraints = false
+        previewLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        previewLabel.textColor = .secondaryLabelColor
+        previewLabel.lineBreakMode = .byTruncatingTail
+        previewLabel.maximumNumberOfLines = 1
+
+        addSubview(pathLabel)
+        addSubview(previewLabel)
+
+        NSLayoutConstraint.activate([
+            pathLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            pathLabel.topAnchor.constraint(equalTo: topAnchor, constant: 5),
+
+            previewLabel.leadingAnchor.constraint(equalTo: pathLabel.leadingAnchor),
+            previewLabel.trailingAnchor.constraint(equalTo: pathLabel.trailingAnchor),
+            previewLabel.topAnchor.constraint(equalTo: pathLabel.bottomAnchor, constant: 2),
+        ])
+    }
+
+    func configure(with result: FileSearchResult) {
+        pathLabel.stringValue = "\(result.relativePath):\(result.lineNumber)"
+        previewLabel.stringValue = result.preview.isEmpty ? " " : result.preview
+        toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"
     }
 }
 

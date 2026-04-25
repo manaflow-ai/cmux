@@ -160,7 +160,7 @@ enum KeyboardShortcutSettings {
             case .browserZoomIn: return String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")
             case .browserZoomOut: return String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out")
             case .browserZoomReset: return String(localized: "menu.view.actualSize", defaultValue: "Actual Size")
-            case .find: return String(localized: "menu.find.find", defaultValue: "Find…")
+            case .find: return String(localized: "menu.find.find", defaultValue: "Search Files…")
             case .findNext: return String(localized: "menu.find.findNext", defaultValue: "Find Next")
             case .findPrevious: return String(localized: "menu.find.findPrevious", defaultValue: "Find Previous")
             case .hideFind: return String(localized: "menu.find.hideFindBar", defaultValue: "Hide Find Bar")

@@ -40489,115 +40489,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Find…"
+            "value": "Search Files…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検索…"
+            "value": "ファイルを検索…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "查找..."
+            "value": "搜索文件..."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "尋找..."
+            "value": "搜尋檔案..."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "찾기…"
+            "value": "파일 검색…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suchen …"
+            "value": "Dateien suchen …"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar…"
+            "value": "Buscar archivos…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher..."
+            "value": "Rechercher des fichiers..."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trova…"
+            "value": "Cerca file…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Søg…"
+            "value": "Søg i filer…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Znajdź…"
+            "value": "Szukaj plików…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Найти..."
+            "value": "Поиск файлов..."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pronađi…"
+            "value": "Pretraži datoteke…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "بحث…"
+            "value": "البحث في الملفات…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finn …"
+            "value": "Søk i filer …"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar…"
+            "value": "Buscar arquivos…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ค้นหา..."
+            "value": "ค้นหาไฟล์..."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bul…"
+            "value": "Dosyalarda ara…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Знайти…"
+            "value": "Пошук файлів…"
           }
         }
       }
@@ -72208,6 +72208,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "파일 탐색기를 사용할 수 없습니다"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type to search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力して検索"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First %d matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の%d件"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.matches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d件"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.noMatches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致なし"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを検索"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.rgExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rg exited with status %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rg がステータス %d で終了しました"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.searching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d matches, searching"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d件、検索中"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local folders only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルフォルダのみ"
           }
         }
       }

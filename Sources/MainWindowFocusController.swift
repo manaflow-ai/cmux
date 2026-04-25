@@ -48,6 +48,7 @@ final class MainWindowFocusController {
     }
     private var lastRightSidebarMode: RightSidebarMode?
     private var pendingRightSidebarFirstItemFocusMode: RightSidebarMode?
+    private var pendingFileSearchFocus = false
     private var feedSelectedItemId: UUID?
     private var lastPublishedFeedFocusSnapshot = FeedFocusSnapshot()
 
@@ -102,6 +103,7 @@ final class MainWindowFocusController {
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
         lastRightSidebarMode = mode
         pendingRightSidebarFirstItemFocusMode = nil
+        pendingFileSearchFocus = false
         intent = .rightSidebar(mode: mode)
         if mode != .feed {
             feedSelectedItemId = nil
@@ -111,6 +113,7 @@ final class MainWindowFocusController {
 
     func noteTerminalInteraction(workspaceId: UUID, panelId: UUID) {
         pendingRightSidebarFirstItemFocusMode = nil
+        pendingFileSearchFocus = false
         intent = .terminal(workspaceId: workspaceId, panelId: panelId)
         publishFeedFocusSnapshot()
     }
@@ -219,6 +222,9 @@ final class MainWindowFocusController {
             publishFeedFocusSnapshot()
             return true
         }
+        if pendingFileSearchFocus, mode == .files {
+            return focusFileSearch()
+        }
         return focusRightSidebar(
             mode: mode,
             focusFirstItem: pendingRightSidebarFirstItemFocusMode == mode
@@ -230,6 +236,7 @@ final class MainWindowFocusController {
         feedSelectedItemId = id
         lastRightSidebarMode = .feed
         pendingRightSidebarFirstItemFocusMode = nil
+        pendingFileSearchFocus = false
         intent = .rightSidebar(mode: .feed)
         publishFeedFocusSnapshot()
 
@@ -260,6 +267,8 @@ final class MainWindowFocusController {
         }
         if let mode = rightSidebarModeOwning(responder) {
             lastRightSidebarMode = mode
+            pendingRightSidebarFirstItemFocusMode = nil
+            pendingFileSearchFocus = false
             intent = .rightSidebar(mode: mode)
             if mode != .feed {
                 feedSelectedItemId = nil
@@ -276,6 +285,7 @@ final class MainWindowFocusController {
         let mode = requestedMode ?? lastRightSidebarMode ?? state.mode
         lastRightSidebarMode = mode
         pendingRightSidebarFirstItemFocusMode = focusFirstItem ? mode : nil
+        pendingFileSearchFocus = false
         intent = .rightSidebar(mode: mode)
         if mode != .feed {
             feedSelectedItemId = nil
@@ -307,6 +317,31 @@ final class MainWindowFocusController {
         }
         let fallbackResult = modeResult ? false : focusFallbackRightSidebarHost()
         let result = modeResult || fallbackResult || pendingRightSidebarFirstItemFocusMode == mode
+        publishFeedFocusSnapshot()
+        return result
+    }
+
+    @discardableResult
+    func focusFileSearch() -> Bool {
+        guard let state = fileExplorerState else { return false }
+        lastRightSidebarMode = .files
+        pendingRightSidebarFirstItemFocusMode = nil
+        pendingFileSearchFocus = true
+        feedSelectedItemId = nil
+        intent = .rightSidebar(mode: .files)
+        publishFeedFocusSnapshot()
+        yieldCurrentTerminalSurfaceFocus(reason: "fileSearchFocus")
+        state.setVisible(true)
+        if state.mode != .files {
+            state.mode = .files
+        }
+
+        let modeResult = fileExplorerHost?.focusSearchField() == true
+        if modeResult {
+            pendingFileSearchFocus = false
+        }
+        let fallbackResult = modeResult ? false : focusFallbackRightSidebarHost()
+        let result = modeResult || fallbackResult || pendingFileSearchFocus
         publishFeedFocusSnapshot()
         return result
     }
@@ -348,6 +383,7 @@ final class MainWindowFocusController {
         }()
         guard let terminalPanel else { return false }
         pendingRightSidebarFirstItemFocusMode = nil
+        pendingFileSearchFocus = false
         intent = .terminal(workspaceId: workspace.id, panelId: terminalPanel.id)
         publishFeedFocusSnapshot()
         workspace.focusPanel(terminalPanel.id)
@@ -372,6 +408,7 @@ final class MainWindowFocusController {
         }
 
         pendingRightSidebarFirstItemFocusMode = nil
+        pendingFileSearchFocus = false
         if clearUnavailableIntent, case .rightSidebar = intent {
             intent = nil
         }
@@ -400,15 +437,21 @@ final class MainWindowFocusController {
     }
 
     private func focusRegisteredRightSidebarEndpointIfNeeded(mode: RightSidebarMode) {
+        let shouldFocusEndpoint = pendingRightSidebarFirstItemFocusMode == mode ||
+            (pendingFileSearchFocus && mode == .files)
         guard case .rightSidebar(let targetMode) = intent,
               targetMode == mode,
-              pendingRightSidebarFirstItemFocusMode == mode else {
+              shouldFocusEndpoint else {
             return
         }
         let result: Bool
         switch mode {
         case .files:
-            result = fileExplorerHost?.focusOutline() == true
+            if pendingFileSearchFocus {
+                result = fileExplorerHost?.focusSearchField() == true
+            } else {
+                result = fileExplorerHost?.focusOutline() == true
+            }
         case .sessions:
             sessionHost?.focusFirstItemFromCoordinator()
             result = sessionHost?.focusHostFromCoordinator() == true
@@ -418,6 +461,7 @@ final class MainWindowFocusController {
         }
         if result {
             pendingRightSidebarFirstItemFocusMode = nil
+            pendingFileSearchFocus = false
         }
         publishFeedFocusSnapshot()
     }
