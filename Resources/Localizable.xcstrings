@@ -90729,6 +90729,23 @@
         }
       }
     },
+    "shortcut.switchRightSidebarToFind.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Find"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの検索を表示"
+          }
+        }
+      }
+    },
     "shortcut.switchRightSidebarToSessions.label": {
       "extractionState": "manual",
       "localizations": {
@@ -91192,6 +91209,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ファイル"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.find": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
           }
         }
       }

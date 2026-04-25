@@ -716,8 +716,9 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
               "shortcuts": {
                 "focusRightSidebar": "cmd+opt+shift+e",
                 "switchRightSidebarToFiles": "ctrl+4",
-                "switchRightSidebarToSessions": "ctrl+5",
-                "switchRightSidebarToFeed": "ctrl+6"
+                "switchRightSidebarToFind": "ctrl+5",
+                "switchRightSidebarToSessions": "ctrl+6",
+                "switchRightSidebarToFeed": "ctrl+7"
               }
             }
             """,
@@ -739,12 +740,16 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
         )
         XCTAssertEqual(
-            store.override(for: .switchRightSidebarToSessions),
+            store.override(for: .switchRightSidebarToFind),
             StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
         )
         XCTAssertEqual(
-            store.override(for: .switchRightSidebarToFeed),
+            store.override(for: .switchRightSidebarToSessions),
             StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
+        )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToFeed),
+            StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
         )
     }
 

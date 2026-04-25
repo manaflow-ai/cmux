@@ -1078,6 +1078,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     private let touchedShortcutActions: [KeyboardShortcutSettings.Action] = [
         .focusRightSidebar,
         .switchRightSidebarToFiles,
+        .switchRightSidebarToFind,
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
     ]
@@ -1127,6 +1128,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
 
     func testModeShortcutActionsMatchModeSwitchingActions() {
         XCTAssertEqual(RightSidebarMode.files.shortcutAction, .switchRightSidebarToFiles)
+        XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
     }

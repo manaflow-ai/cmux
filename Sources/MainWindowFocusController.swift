@@ -38,6 +38,7 @@ final class MainWindowFocusController {
     private weak var fileExplorerState: FileExplorerState?
     private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
     private weak var fileExplorerHost: FileExplorerContainerView?
+    private weak var fileSearchHost: FileExplorerContainerView?
     private weak var sessionHost: SessionIndexKeyboardFocusView?
     private weak var feedHost: FeedKeyboardFocusView?
 
@@ -85,8 +86,16 @@ final class MainWindowFocusController {
     }
 
     func registerFileExplorerHost(_ host: FileExplorerContainerView) {
-        fileExplorerHost = host
-        focusRegisteredRightSidebarEndpointIfNeeded(mode: .files)
+        let mode = host.representedRightSidebarMode()
+        switch mode {
+        case .files:
+            fileExplorerHost = host
+        case .find:
+            fileSearchHost = host
+        case .sessions, .feed:
+            break
+        }
+        focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
     }
 
     func registerSessionHost(_ host: SessionIndexKeyboardFocusView) {
@@ -146,7 +155,8 @@ final class MainWindowFocusController {
         if responder is FeedKeyboardFocusResponder {
             return true
         }
-        if fileExplorerHost?.ownsKeyboardFocus(responder) == true {
+        if fileExplorerHost?.ownsKeyboardFocus(responder) == true ||
+            fileSearchHost?.ownsKeyboardFocus(responder) == true {
             return true
         }
         if sessionHost?.ownsKeyboardFocus(responder) == true {
@@ -222,7 +232,7 @@ final class MainWindowFocusController {
             publishFeedFocusSnapshot()
             return true
         }
-        if pendingFileSearchFocus, mode == .files {
+        if pendingFileSearchFocus, mode == .find {
             return focusFileSearch()
         }
         return focusRightSidebar(
@@ -301,6 +311,8 @@ final class MainWindowFocusController {
         switch mode {
         case .files:
             modeResult = fileExplorerHost?.focusOutline() == true
+        case .find:
+            modeResult = fileSearchHost?.focusSearchField() == true
         case .sessions:
             if focusFirstItem {
                 sessionHost?.focusFirstItemFromCoordinator()
@@ -324,19 +336,19 @@ final class MainWindowFocusController {
     @discardableResult
     func focusFileSearch() -> Bool {
         guard let state = fileExplorerState else { return false }
-        lastRightSidebarMode = .files
+        lastRightSidebarMode = .find
         pendingRightSidebarFirstItemFocusMode = nil
         pendingFileSearchFocus = true
         feedSelectedItemId = nil
-        intent = .rightSidebar(mode: .files)
+        intent = .rightSidebar(mode: .find)
         publishFeedFocusSnapshot()
         yieldCurrentTerminalSurfaceFocus(reason: "fileSearchFocus")
         state.setVisible(true)
-        if state.mode != .files {
-            state.mode = .files
+        if state.mode != .find {
+            state.mode = .find
         }
 
-        let modeResult = fileExplorerHost?.focusSearchField() == true
+        let modeResult = fileSearchHost?.focusSearchField() == true
         if modeResult {
             pendingFileSearchFocus = false
         }
@@ -438,7 +450,7 @@ final class MainWindowFocusController {
 
     private func focusRegisteredRightSidebarEndpointIfNeeded(mode: RightSidebarMode) {
         let shouldFocusEndpoint = pendingRightSidebarFirstItemFocusMode == mode ||
-            (pendingFileSearchFocus && mode == .files)
+            (pendingFileSearchFocus && mode == .find)
         guard case .rightSidebar(let targetMode) = intent,
               targetMode == mode,
               shouldFocusEndpoint else {
@@ -447,11 +459,9 @@ final class MainWindowFocusController {
         let result: Bool
         switch mode {
         case .files:
-            if pendingFileSearchFocus {
-                result = fileExplorerHost?.focusSearchField() == true
-            } else {
-                result = fileExplorerHost?.focusOutline() == true
-            }
+            result = fileExplorerHost?.focusOutline() == true
+        case .find:
+            result = fileSearchHost?.focusSearchField() == true
         case .sessions:
             sessionHost?.focusFirstItemFromCoordinator()
             result = sessionHost?.focusHostFromCoordinator() == true
@@ -523,6 +533,9 @@ final class MainWindowFocusController {
         }
         if fileExplorerHost?.ownsKeyboardFocus(responder) == true {
             return .files
+        }
+        if fileSearchHost?.ownsKeyboardFocus(responder) == true {
+            return .find
         }
         if sessionHost?.ownsKeyboardFocus(responder) == true {
             return .sessions

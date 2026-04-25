@@ -14,12 +14,14 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
 enum RightSidebarMode: String, CaseIterable {
     case files
+    case find
     case sessions
     case feed
 
     var label: String {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
+        case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         }
@@ -28,6 +30,7 @@ enum RightSidebarMode: String, CaseIterable {
     var symbolName: String {
         switch self {
         case .files: return "folder"
+        case .find: return "magnifyingglass"
         case .sessions: return "bubble.left.and.text.bubble.right"
         case .feed: return "dot.radiowaves.left.and.right"
         }
@@ -36,6 +39,7 @@ enum RightSidebarMode: String, CaseIterable {
     var shortcutAction: KeyboardShortcutSettings.Action {
         switch self {
         case .files: return .switchRightSidebarToFiles
+        case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         }
@@ -47,6 +51,9 @@ extension RightSidebarMode {
         guard event.type == .keyDown else { return nil }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFiles).matches(event: event) {
             return .files
+        }
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFind).matches(event: event) {
+            return .find
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToSessions).matches(event: event) {
             return .sessions
@@ -238,7 +245,9 @@ struct RightSidebarPanelView: View {
     private var contentForMode: some View {
         switch fileExplorerState.mode {
         case .files:
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState)
+            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState, presentation: .files)
+        case .find:
+            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState, presentation: .find)
         case .sessions:
             SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
                 .onAppear {

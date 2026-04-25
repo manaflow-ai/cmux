@@ -279,18 +279,31 @@ private final class FileSearchController {
 
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
+enum FileExplorerPanelPresentation: Equatable {
+    case files
+    case find
+
+    var rightSidebarMode: RightSidebarMode {
+        switch self {
+        case .files: return .files
+        case .find: return .find
+        }
+    }
+}
+
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
+    var presentation: FileExplorerPanelPresentation = .files
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store, state: state)
     }
 
     func makeNSView(context: Context) -> FileExplorerContainerView {
-        let container = FileExplorerContainerView(coordinator: context.coordinator)
+        let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
         context.coordinator.containerView = container
         return container
     }
@@ -299,6 +312,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.store = store
         context.coordinator.state = state
         container.updateHeader(store: store)
+        container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
         container.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
@@ -814,8 +828,9 @@ final class FileExplorerContainerView: NSView {
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
     private var isSearchVisible = false
+    private var presentation: FileExplorerPanelPresentation
 
-    init(coordinator: FileExplorerPanelView.Coordinator) {
+    init(coordinator: FileExplorerPanelView.Coordinator, presentation: FileExplorerPanelPresentation) {
         headerView = FileExplorerHeaderView()
         searchBarView = NSView()
         searchField = FileExplorerSearchField()
@@ -827,6 +842,7 @@ final class FileExplorerContainerView: NSView {
         emptyLabel = NSTextField(labelWithString: String(localized: "fileExplorer.empty", defaultValue: "No folder open"))
         loadingIndicator = NSProgressIndicator()
         searchController = FileSearchController()
+        self.presentation = presentation
 
         super.init(frame: .zero)
 
@@ -857,7 +873,7 @@ final class FileExplorerContainerView: NSView {
             guard let self else { return }
             self.isSearchVisible = true
             if let window = self.window {
-                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .files, in: window)
+                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: self.representedRightSidebarMode(), in: window)
             }
             self.updateSearchLayout()
         }
@@ -944,7 +960,7 @@ final class FileExplorerContainerView: NSView {
         }
         searchResultsView.onFocus = { [weak self] in
             guard let self, let window = self.window else { return }
-            AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .files, in: window)
+            AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: self.representedRightSidebarMode(), in: window)
         }
         let searchColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("searchResult"))
         searchColumn.isEditable = false
@@ -1048,10 +1064,38 @@ final class FileExplorerContainerView: NSView {
         refreshSearchIfNeeded()
     }
 
+    func representedRightSidebarMode() -> RightSidebarMode {
+        presentation.rightSidebarMode
+    }
+
+    func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
+        guard presentation != nextPresentation else {
+            if presentation == .find {
+                isSearchVisible = true
+                updateSearchLayout()
+                refreshSearchIfNeeded()
+            }
+            return
+        }
+
+        presentation = nextPresentation
+        switch presentation {
+        case .files:
+            isSearchVisible = false
+            searchController.cancel(clear: false)
+        case .find:
+            isSearchVisible = true
+            refreshSearchIfNeeded()
+        }
+        updateSearchLayout()
+        registerWithKeyboardFocusCoordinatorIfNeeded()
+    }
+
     func updateVisibility(hasContent: Bool, isLoading: Bool) {
         headerView.isHidden = !hasContent
         updateSearchLayout(hasContent: hasContent, isLoading: isLoading)
-        emptyLabel.isHidden = hasContent || isSearchVisible
+        let searchCanShow = isSearchVisible && hasContent && !isLoading
+        emptyLabel.isHidden = hasContent || searchCanShow
         loadingIndicator.isHidden = !isLoading
         if isLoading {
             loadingIndicator.startAnimation(nil)
@@ -1062,9 +1106,12 @@ final class FileExplorerContainerView: NSView {
 
     @discardableResult
     func focusSearchField() -> Bool {
-        guard let window else {
+        guard let window, cmuxCanAcceptRightSidebarKeyboardFocus else {
 #if DEBUG
-            dlog("file.focus.search.end result=0 reason=noWindow")
+            dlog(
+                "file.focus.search.end result=0 reason=unavailable " +
+                "win=\(window?.windowNumber ?? -1) hidden=\(isHiddenOrHasHiddenAncestor ? 1 : 0)"
+            )
 #endif
             return false
         }
@@ -1094,9 +1141,12 @@ final class FileExplorerContainerView: NSView {
             "fr=\(fileExplorerDebugResponder(window?.firstResponder))"
         )
 #endif
-        guard let window else {
+        guard let window, cmuxCanAcceptRightSidebarKeyboardFocus else {
 #if DEBUG
-            dlog("file.focus.outline.end result=0 reason=noWindow")
+            dlog(
+                "file.focus.outline.end result=0 reason=unavailable " +
+                "win=\(window?.windowNumber ?? -1) hidden=\(isHiddenOrHasHiddenAncestor ? 1 : 0)"
+            )
 #endif
             return false
         }
@@ -1203,6 +1253,23 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func closeSearchAndFocusOutline() {
+        if presentation == .find {
+            let hadQuery = !searchField.stringValue.isEmpty
+            searchController.cancel(clear: true)
+            searchField.stringValue = ""
+            applySearchSnapshot(.empty)
+            updateSearchLayout()
+            if hadQuery {
+                _ = focusSearchField()
+                return
+            }
+            if AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() == true {
+                return
+            }
+            window?.makeFirstResponder(nil)
+            return
+        }
+
         isSearchVisible = false
         searchController.cancel(clear: true)
         searchField.stringValue = ""

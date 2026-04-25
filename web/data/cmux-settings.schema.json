@@ -526,6 +526,7 @@
               "jumpToUnread",
               "focusRightSidebar",
               "switchRightSidebarToFiles",
+              "switchRightSidebarToFind",
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",
               "triggerFlash",
