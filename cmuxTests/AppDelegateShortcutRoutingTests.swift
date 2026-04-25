@@ -2440,7 +2440,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedPaletteWindow?.windowNumber, window.windowNumber)
     }
 
-    func testCmdFFocusedBrowserKeepsWebContentFirstRouting() {
+    func testCmdFFocusedBrowserOpensRightSidebarFind() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -2471,15 +2471,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertFalse(
+        XCTAssertTrue(
             appDelegate.debugHandleCustomShortcut(event: event),
-            "Cmd+F should fall through so browser web content gets first chance"
+            "Cmd+F should open global file search even when browser web content is focused"
         )
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
         XCTAssertNil(manager.focusedBrowserPanel?.searchState)
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .find)
     }
 
     func testCmdPhysicalWWithDvorakCharactersDoesNotTriggerClosePanelShortcut() {
@@ -4148,9 +4149,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     // MARK: - Non-Latin keyboard layout shortcut tests
 
-    func testBrowserFirstFindShortcutRoutingRecognizesFindCommandFamily() {
+    func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
-            ("cmd-f", [.command], "f", 3),
             ("cmd-g", [.command], "g", 5),
             ("cmd-shift-g", [.command, .shift], "g", 5),
             ("cmd-shift-f", [.command, .shift], "f", 3),
@@ -4171,17 +4171,31 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testBrowserFirstFindShortcutRoutingExcludesGlobalFindCommand() {
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "f",
+            charactersIgnoringModifiers: "f",
+            keyCode: 3
+        )
+
+        XCTAssertFalse(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
+            "Cmd+F belongs to global file search, not browser-first routing"
+        )
+    }
+
     func testBrowserFirstFindShortcutRoutingFallsBackToKeyCodeForNonLatinInput() {
         let event = makeKeyEvent(
             modifierFlags: [.command],
             characters: "",
-            charactersIgnoringModifiers: "а", // Cyrillic a from a non-Latin input source
-            keyCode: 3 // kVK_ANSI_F
+            charactersIgnoringModifiers: "п", // Cyrillic p from a non-Latin input source
+            keyCode: 5 // kVK_ANSI_G
         )
 
         XCTAssertTrue(
             shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
-            "Expected browser-first routing to keep Cmd+F eligible under non-Latin input"
+            "Expected browser-first routing to keep Cmd+G eligible under non-Latin input"
         )
     }
 
@@ -4216,9 +4230,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let event = makeKeyEvent(
             modifierFlags: [.command],
-            characters: "f",
-            charactersIgnoringModifiers: "f",
-            keyCode: 3
+            characters: "g",
+            charactersIgnoringModifiers: "g",
+            keyCode: 5
         )
 
         XCTAssertFalse(
@@ -4671,18 +4685,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             appDelegate.allowsTerminalKeyboardFocus(
                 workspaceId: workspace.id,
                 panelId: terminalPanel.id,
                 in: window
             ),
-            "Cmd+F should release right sidebar ownership before opening terminal search"
+            "Cmd+F should keep keyboard ownership in the right sidebar Find section"
         )
-        XCTAssertNotNil(terminalPanel.searchState, "Cmd+F should create terminal search state from right sidebar focus")
-        XCTAssertTrue(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder() || window.firstResponder !== sidebarResponder,
-            "Cmd+F from right sidebar should move focus away from the right sidebar responder"
+        XCTAssertNil(terminalPanel.searchState, "Cmd+F should not create terminal search state")
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .find)
+        XCTAssertFalse(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Cmd+F from right sidebar should not refocus the terminal responder"
         )
     }
 

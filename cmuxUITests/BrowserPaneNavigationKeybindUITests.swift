@@ -866,7 +866,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testBrowserFindFieldKeepsFocusAfterNewWorkspaceRoundTrip() {
+    func testRightSidebarFindFieldKeepsFocusAfterNewWorkspaceRoundTrip() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
@@ -909,15 +909,15 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
         app.typeKey("f", modifierFlags: [.command])
 
-        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
-        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+        let findField = app.textFields["FileExplorerSearchField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected right sidebar file search after Cmd+F")
 
         app.typeText("seed")
         XCTAssertTrue(
             waitForCondition(timeout: 4.0) {
                 ((findField.value as? String) ?? "") == "seed"
             },
-            "Expected browser find field to capture initial typing. value=\(String(describing: findField.value))"
+            "Expected right sidebar file search to capture initial typing. value=\(String(describing: findField.value))"
         )
 
         openCommandPaletteForNewWorkspace(app, windowId: originalWorkspace.windowId)
@@ -926,13 +926,13 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected to return to the original workspace by identity"
         )
 
-        let restoredFindField = app.textFields["BrowserFindSearchTextField"].firstMatch
-        XCTAssertTrue(restoredFindField.waitForExistence(timeout: 6.0), "Expected browser find field after returning to workspace 1")
+        let restoredFindField = app.textFields["FileExplorerSearchField"].firstMatch
+        XCTAssertTrue(restoredFindField.waitForExistence(timeout: 6.0), "Expected right sidebar file search after returning to workspace 1")
         XCTAssertTrue(
             waitForCondition(timeout: 4.0) {
                 ((restoredFindField.value as? String) ?? "") == "seed"
             },
-            "Expected existing browser find query to persist after returning. value=\(String(describing: restoredFindField.value))"
+            "Expected existing file search query to persist after returning. value=\(String(describing: restoredFindField.value))"
         )
 
         app.typeText("x")
@@ -940,7 +940,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             waitForCondition(timeout: 4.0) {
                 ((restoredFindField.value as? String) ?? "") == "seedx"
             },
-            "Expected typing after returning from a new workspace to stay in the browser find field. " +
+            "Expected typing after returning from a new workspace to stay in right sidebar file search. " +
                 "findValue=\(String(describing: restoredFindField.value)) omnibarValue=\(String(describing: omnibar.value))"
         )
     }

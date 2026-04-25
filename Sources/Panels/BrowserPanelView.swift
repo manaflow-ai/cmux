@@ -550,7 +550,7 @@ struct BrowserPanelView: View {
     }
 
     var body: some View {
-        // Layering contract: browser Cmd+F UI is mounted in the portal-hosted AppKit
+        // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
             addressBar
@@ -559,7 +559,7 @@ struct BrowserPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
-            // Keep Cmd+F usable when the browser is still in the empty new-tab
+            // Keep browser find usable when the browser is still in the empty new-tab
             // state (no WKWebView mounted yet). WebView-backed cases are hosted
             // in AppKit by WindowBrowserPortal to avoid layering/clipping issues.
             if !panel.shouldRenderWebView, let searchState = panel.searchState {
