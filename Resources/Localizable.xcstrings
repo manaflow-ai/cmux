@@ -1090,6 +1090,465 @@
         }
       }
     },
+    "debug.menu.startupAppearanceDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup Appearance Debug…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動時の外観デバッグ…"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.appearance.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外観"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.appearanceLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外観:"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.configLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Config:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定:"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用済み"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reloads the running app through Ghostty config update, matching startup theme resolution without editing config files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定ファイルを編集せず、Ghostty 設定更新で実行中のアプリを再読み込みし、起動時のテーマ解決を再現します。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applyPreview.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを適用"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.copySelectedConfig.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Selected Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中の設定をコピー"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.mode.dark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Dark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダークを強制"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.mode.light": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Light"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトを強制"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.mode.stored": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stored App Setting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みのアプリ設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.preview.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.freshInstall.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No user theme or terminal colors, so cmux applies its managed default colors."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーのテーマやターミナル色がないため、cmux の管理されたデフォルト色を適用します。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.freshInstall.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fresh Install"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規インストール"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.realUserConfig.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loads your actual Ghostty and cmux config files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際の Ghostty と cmux の設定ファイルを読み込みます。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.realUserConfig.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Real User Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際のユーザー設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userExplicitColors.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulates a user with direct terminal color settings and no theme."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマなしでターミナル色を直接設定しているユーザーをシミュレートします。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userExplicitColors.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User Explicit Colors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー指定色"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userSingleTheme.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulates a user with one Ghostty theme applied in both appearances."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトとダークの両方に同じ Ghostty テーマを適用しているユーザーをシミュレートします。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userSingleTheme.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User Single Theme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー単一テーマ"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userThemePair.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulates a user with an explicit light/dark Ghostty theme."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトとダークの Ghostty テーマを明示的に設定しているユーザーをシミュレートします。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userThemePair.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User Light/Dark Theme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーのライト/ダークテーマ"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.realConfigFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loads real user config files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際のユーザー設定ファイルを読み込みます。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.restoreRealStartup.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Real Startup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際の起動設定に戻す"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.selectedConfig.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中の設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.startupConfig.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.window.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup Appearance Debug"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動時の外観デバッグ"
+          }
+        }
+      }
+    },
     "debug.windows.browserProfilePopover.title": {
       "extractionState": "manual",
       "localizations": {
