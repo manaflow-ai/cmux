@@ -541,24 +541,34 @@ struct cmuxApp: App {
             // Find
             CommandGroup(after: .textEditing) {
                 Menu(String(localized: "menu.find.title", defaultValue: "Find")) {
+                    let restoreFindTargetFocus = {
+                        _ = AppDelegate.shared?.restoreFocusedMainPanelFocusFromRightSidebar(
+                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                        )
+                    }
+
                     splitCommandButton(title: String(localized: "menu.find.find", defaultValue: "Find…"), shortcut: menuShortcut(for: .find)) {
 #if DEBUG
                         cmuxDebugLog("find.menu Cmd+F fired")
 #endif
+                        restoreFindTargetFocus()
                         activeTabManager.startSearch()
                     }
 
                     splitCommandButton(title: String(localized: "menu.find.findNext", defaultValue: "Find Next"), shortcut: menuShortcut(for: .findNext)) {
+                        restoreFindTargetFocus()
                         activeTabManager.findNext()
                     }
 
                     splitCommandButton(title: String(localized: "menu.find.findPrevious", defaultValue: "Find Previous"), shortcut: menuShortcut(for: .findPrevious)) {
+                        restoreFindTargetFocus()
                         activeTabManager.findPrevious()
                     }
 
                     Divider()
 
                     splitCommandButton(title: String(localized: "menu.find.hideFindBar", defaultValue: "Hide Find Bar"), shortcut: menuShortcut(for: .hideFind)) {
+                        restoreFindTargetFocus()
                         activeTabManager.hideFind()
                     }
                     .disabled(!(activeTabManager.isFindVisible))
@@ -566,6 +576,7 @@ struct cmuxApp: App {
                     Divider()
 
                     splitCommandButton(title: String(localized: "menu.find.useSelectionForFind", defaultValue: "Use Selection for Find"), shortcut: menuShortcut(for: .useSelectionForFind)) {
+                        restoreFindTargetFocus()
                         activeTabManager.searchSelection()
                     }
                     .disabled(!(activeTabManager.canUseSelectionForFind))

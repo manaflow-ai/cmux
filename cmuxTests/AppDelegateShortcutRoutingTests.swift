@@ -4612,6 +4612,80 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testFindShortcutFromRightSidebarReleasesTerminalFocusGuard() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
+        XCTAssertFalse(
+            appDelegate.allowsTerminalKeyboardFocus(
+                workspaceId: workspace.id,
+                panelId: terminalPanel.id,
+                in: window
+            ),
+            "Right sidebar ownership should block direct terminal focus before Cmd+F"
+        )
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            appDelegate.allowsTerminalKeyboardFocus(
+                workspaceId: workspace.id,
+                panelId: terminalPanel.id,
+                in: window
+            ),
+            "Cmd+F should release right sidebar ownership before opening terminal search"
+        )
+        XCTAssertNotNil(terminalPanel.searchState, "Cmd+F should create terminal search state from right sidebar focus")
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder() || window.firstResponder !== sidebarResponder,
+            "Cmd+F from right sidebar should move focus away from the right sidebar responder"
+        )
+    }
+
     func testWindowSendEventRepairsFocusedTerminalSearchTypingAfterResponderDrift() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

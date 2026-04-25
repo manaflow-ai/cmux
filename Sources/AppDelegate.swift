@@ -5134,6 +5134,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return context?.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded() ?? false
     }
 
+    @discardableResult
+    func restoreFocusedMainPanelFocusFromRightSidebar(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
+            return false
+        }
+        let window = context.window ?? windowForMainWindowId(context.windowId) ?? preferredWindow
+        if let window {
+            setActiveMainWindow(window)
+        }
+        return context.keyboardFocusCoordinator.restoreFocusedPanelFocusFromRightSidebarIfNeeded(
+            currentResponder: window?.firstResponder
+        )
+    }
+
+    @discardableResult
+    private func restoreFocusedMainPanelFocusForShortcut(event: NSEvent) -> Bool {
+        let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        return restoreFocusedMainPanelFocusFromRightSidebar(preferredWindow: preferredWindow)
+    }
+
     func keyboardFocusCoordinator(for window: NSWindow?) -> MainWindowFocusController? {
         guard let window else { return nil }
         return contextForMainWindow(window)?.keyboardFocusCoordinator
@@ -10502,6 +10522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
             }
+            restoreFocusedMainPanelFocusForShortcut(event: event)
             tabManager?.startSearch()
             return true
         }
@@ -10510,6 +10531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
             }
+            restoreFocusedMainPanelFocusForShortcut(event: event)
             tabManager?.findNext()
             return true
         }
@@ -10518,6 +10540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
             }
+            restoreFocusedMainPanelFocusForShortcut(event: event)
             tabManager?.findPrevious()
             return true
         }
@@ -10526,11 +10549,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
             }
+            restoreFocusedMainPanelFocusForShortcut(event: event)
             tabManager?.hideFind()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .useSelectionForFind) {
+            restoreFocusedMainPanelFocusForShortcut(event: event)
             tabManager?.searchSelection()
             return true
         }
