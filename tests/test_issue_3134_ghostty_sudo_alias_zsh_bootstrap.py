@@ -43,8 +43,10 @@ def main() -> int:
         for filename in (".zprofile", ".zshrc"):
             (orig / filename).write_text("", encoding="utf-8")
 
+        # Use the real Ghostty-style `sudo()` definition here: with
+        # `alias sudo='sudo '`, zsh can choke while parsing this exact form.
         (bundled / "ghostty-integration.zsh").write_text(
-            "function sudo() { :; }\n"
+            "sudo() { :; }\n"
             'print -r -- "loaded" >> "$CMUX_TEST_OUT"\n',
             encoding="utf-8",
         )
