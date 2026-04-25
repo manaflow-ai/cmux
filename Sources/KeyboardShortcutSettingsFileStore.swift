@@ -730,17 +730,15 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[SidebarPullRequestShellDebounceSettings.enabledKey] = .bool(value)
         } else if section.keys.contains("sidebarPullRequestShellDebounceEnabled") {
             logInvalid("automation.sidebarPullRequestShellDebounceEnabled", sourcePath: sourcePath)
-            return
         }
         if let value = jsonInt(section["sidebarPullRequestShellDebounceSeconds"]) {
-            guard value > 0 else {
+            if value > 0 {
+                snapshot.managedUserDefaults[SidebarPullRequestShellDebounceSettings.delaySecondsKey] = .int(value)
+            } else {
                 logInvalid("automation.sidebarPullRequestShellDebounceSeconds", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[SidebarPullRequestShellDebounceSettings.delaySecondsKey] = .int(value)
         } else if section.keys.contains("sidebarPullRequestShellDebounceSeconds") {
             logInvalid("automation.sidebarPullRequestShellDebounceSeconds", sourcePath: sourcePath)
-            return
         }
         if let value = jsonInt(section["portBase"]) {
             guard value > 0 else {

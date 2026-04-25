@@ -4880,6 +4880,11 @@ struct SettingsView: View {
         )
     }
 
+    private func normalizeSidebarPullRequestShellDebounceDelayIfNeeded() {
+        guard sidebarPullRequestShellDebounceDelaySeconds <= 0 else { return }
+        sidebarPullRequestShellDebounceDelaySeconds = SidebarPullRequestShellDebounceSettings.defaultDelaySeconds
+    }
+
     private func refreshNotificationCustomSoundStatus(showAlertOnFailure: Bool = false) {
         guard notificationSound == NotificationSoundSettings.customFileValue else {
             notificationCustomSoundStatusMessage = nil
@@ -6467,6 +6472,7 @@ struct SettingsView: View {
             refreshDetectedImportBrowsers()
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
+            normalizeSidebarPullRequestShellDebounceDelayIfNeeded()
         }
         .onChange(of: notificationSound) { _, _ in
             refreshNotificationCustomSoundStatus()
@@ -6474,9 +6480,8 @@ struct SettingsView: View {
         .onChange(of: notificationSoundCustomFilePath) { _, _ in
             refreshNotificationCustomSoundStatus()
         }
-        .onChange(of: sidebarPullRequestShellDebounceDelaySeconds) { _, newValue in
-            guard newValue <= 0 else { return }
-            sidebarPullRequestShellDebounceDelaySeconds = SidebarPullRequestShellDebounceSettings.defaultDelaySeconds
+        .onChange(of: sidebarPullRequestShellDebounceDelaySeconds) { _, _ in
+            normalizeSidebarPullRequestShellDebounceDelayIfNeeded()
         }
         .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.

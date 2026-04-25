@@ -992,7 +992,7 @@ class TabManager: ObservableObject {
     private var workspacePullRequestShellRefreshEntriesByTarget: [WorkspacePullRequestShellRefreshTarget: WorkspacePullRequestShellRefreshEntry] = [:]
     private var workspacePullRequestPollTimer: DispatchSourceTimer?
     private var workspacePullRequestRefreshTask: Task<Void, Never>?
-    private var workspacePullRequestFollowUpShouldBypassRepoCache = false
+    private var workspacePullRequestFollowUpBypassRepoCacheSlugs: Set<String> = []
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -1204,7 +1204,7 @@ class TabManager: ObservableObject {
 
     private func refreshTrackedWorkspacePullRequestsIfNeeded(
         reason: String,
-        allowCachedResultsOverride: Bool? = nil
+        bypassRepoCacheForSlugs: Set<String> = []
     ) {
         let now = Date()
         var candidates: [WorkspacePullRequestCandidate] = []
@@ -1273,15 +1273,15 @@ class TabManager: ObservableObject {
         }
 
         let cacheBySlug = workspacePullRequestRepoCacheBySlug
-        let allowCachedResults = allowCachedResultsOverride
-            ?? Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
+        let reasonAllowsCachedResults = Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
         workspacePullRequestRefreshTask = Task { [weak self] in
             let repoResults = await Self.fetchWorkspacePullRequestRepoResults(
                 repoDirectoriesBySlug: repoDirectoriesBySlug,
                 candidateBranchesByRepo: candidateBranchesByRepo,
                 cacheBySlug: cacheBySlug,
                 now: now,
-                allowCachedResults: allowCachedResults
+                reasonAllowsCachedResults: reasonAllowsCachedResults,
+                bypassRepoCacheForSlugs: bypassRepoCacheForSlugs
             )
             let results = Self.resolveWorkspacePullRequestRefreshResults(
                 candidates: candidates,
@@ -1406,16 +1406,18 @@ class TabManager: ObservableObject {
         let bypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
         removeWorkspacePullRequestShellRefreshProbeKey(key)
 
+        let fireAt = now.addingTimeInterval(
+            TimeInterval(SidebarPullRequestShellDebounceSettings.delaySeconds())
+        )
         if var existingEntry = workspacePullRequestShellRefreshEntriesByTarget[target] {
             existingEntry.probeKeys.insert(key)
+            existingEntry.fireAt = fireAt
             existingEntry.bypassRepoCache = existingEntry.bypassRepoCache || bypassRepoCache
             workspacePullRequestShellRefreshEntriesByTarget[target] = existingEntry
         } else {
             workspacePullRequestShellRefreshEntriesByTarget[target] = WorkspacePullRequestShellRefreshEntry(
                 probeKeys: [key],
-                fireAt: now.addingTimeInterval(
-                    TimeInterval(SidebarPullRequestShellDebounceSettings.delaySeconds())
-                ),
+                fireAt: fireAt,
                 bypassRepoCache: bypassRepoCache
             )
         }
@@ -1440,8 +1442,11 @@ class TabManager: ObservableObject {
         bypassRepoCache: Bool,
         triggerImmediateRefresh: Bool = true
     ) {
+        let bypassSlugs: Set<String> = bypassRepoCache
+            ? Set(workspacePullRequestShellRefreshTarget(for: key)?.repoSlugs ?? [])
+            : []
         if bypassRepoCache, workspacePullRequestRefreshTask != nil {
-            workspacePullRequestFollowUpShouldBypassRepoCache = true
+            workspacePullRequestFollowUpBypassRepoCacheSlugs.formUnion(bypassSlugs)
         }
         if case .inFlight = workspacePullRequestProbeStateByKey[key] {
             markWorkspacePullRequestProbeRerunPending(
@@ -1458,10 +1463,9 @@ class TabManager: ObservableObject {
         )
 #endif
         guard triggerImmediateRefresh else { return }
-        let allowCachedResultsOverride = bypassRepoCache ? false : nil
         refreshTrackedWorkspacePullRequestsIfNeeded(
             reason: reason,
-            allowCachedResultsOverride: allowCachedResultsOverride
+            bypassRepoCacheForSlugs: bypassSlugs
         )
     }
 
@@ -1511,11 +1515,11 @@ class TabManager: ObservableObject {
 
         defer {
             if needsFollowUpPass {
-                let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache
-                workspacePullRequestFollowUpShouldBypassRepoCache = false
+                let bypassSlugs = workspacePullRequestFollowUpBypassRepoCacheSlugs
+                workspacePullRequestFollowUpBypassRepoCacheSlugs.removeAll()
                 refreshTrackedWorkspacePullRequestsIfNeeded(
                     reason: "\(reason).followUp",
-                    allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
+                    bypassRepoCacheForSlugs: bypassSlugs
                 )
             }
         }
@@ -1534,8 +1538,10 @@ class TabManager: ObservableObject {
             }
 
             if rerunPending,
-               workspacePullRequestFollowUpShouldBypassRepoCache,
-               result.usedCachedRepoData {
+               !workspacePullRequestFollowUpBypassRepoCacheSlugs.isEmpty,
+               result.usedCachedRepoData,
+               let target = workspacePullRequestShellRefreshTarget(for: key),
+               target.repoSlugs.contains(where: workspacePullRequestFollowUpBypassRepoCacheSlugs.contains) {
                 continue
             }
 
@@ -1677,21 +1683,13 @@ class TabManager: ObservableObject {
             return false
         }
 
-        var validKeys = Set(workspacePullRequestNextPollAtByKey.keys)
-        validKeys.formUnion(workspacePullRequestProbeStateByKey.keys)
-        for workspace in tabs {
-            for panelId in Set(workspace.panelGitBranches.keys).union(workspace.panelPullRequests.keys) {
-                validKeys.insert(WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId))
-            }
-        }
-        pruneWorkspacePullRequestShellRefreshQueue(validKeys: validKeys)
-
         let dueTargets = workspacePullRequestShellRefreshEntriesByTarget
             .filter { $0.value.fireAt <= now }
             .map(\.key)
         guard !dueTargets.isEmpty else { return false }
 
         var scheduledAnyRefresh = false
+        var bypassRepoCacheForSlugs: Set<String> = []
         for target in dueTargets {
             guard let entry = workspacePullRequestShellRefreshEntriesByTarget.removeValue(forKey: target) else {
                 continue
@@ -1711,7 +1709,12 @@ class TabManager: ObservableObject {
                 )
             }
 
-            scheduledAnyRefresh = scheduledAnyRefresh || !scheduledKeys.isEmpty
+            if !scheduledKeys.isEmpty {
+                scheduledAnyRefresh = true
+                if entry.bypassRepoCache {
+                    bypassRepoCacheForSlugs.formUnion(target.repoSlugs)
+                }
+            }
 
 #if DEBUG
             dlog(
@@ -1724,7 +1727,7 @@ class TabManager: ObservableObject {
         guard scheduledAnyRefresh else { return false }
         refreshTrackedWorkspacePullRequestsIfNeeded(
             reason: Self.workspacePullRequestQueuedShellTriggerReason,
-            allowCachedResultsOverride: false
+            bypassRepoCacheForSlugs: bypassRepoCacheForSlugs
         )
         return true
     }
@@ -1733,10 +1736,7 @@ class TabManager: ObservableObject {
         var prunedEntries: [WorkspacePullRequestShellRefreshTarget: WorkspacePullRequestShellRefreshEntry] = [:]
 
         for (target, entry) in workspacePullRequestShellRefreshEntriesByTarget {
-            let matchingProbeKeys = entry.probeKeys.filter { key in
-                guard validKeys.contains(key) else { return false }
-                return workspacePullRequestShellRefreshTarget(for: key) == target
-            }
+            let matchingProbeKeys = entry.probeKeys.filter(validKeys.contains)
             guard !matchingProbeKeys.isEmpty else { continue }
 
             var nextEntry = entry
@@ -1788,7 +1788,7 @@ class TabManager: ObservableObject {
         workspacePullRequestTransientFailureCountByKey.removeAll()
         workspacePullRequestRepoCacheBySlug.removeAll()
         workspacePullRequestShellRefreshEntriesByTarget.removeAll()
-        workspacePullRequestFollowUpShouldBypassRepoCache = false
+        workspacePullRequestFollowUpBypassRepoCacheSlugs.removeAll()
     }
 
     private var activeWorkspaceGitProbeKeys: Set<WorkspaceGitProbeKey> {
@@ -1817,17 +1817,16 @@ class TabManager: ObservableObject {
         for key: WorkspaceGitProbeKey,
         bypassRepoCache: Bool
     ) {
+        let bypassSlugs: Set<String> = bypassRepoCache
+            ? Set(workspacePullRequestShellRefreshTarget(for: key)?.repoSlugs ?? [])
+            : []
         guard case .inFlight(let rerunPending) = workspacePullRequestProbeStateByKey[key],
               !rerunPending else {
-            if bypassRepoCache {
-                workspacePullRequestFollowUpShouldBypassRepoCache = true
-            }
+            workspacePullRequestFollowUpBypassRepoCacheSlugs.formUnion(bypassSlugs)
             return
         }
         workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: true)
-        if bypassRepoCache {
-            workspacePullRequestFollowUpShouldBypassRepoCache = true
-        }
+        workspacePullRequestFollowUpBypassRepoCacheSlugs.formUnion(bypassSlugs)
     }
 
     private func workspacePullRequestProbeRerunPending(for key: WorkspaceGitProbeKey) -> Bool {
@@ -2710,7 +2709,8 @@ class TabManager: ObservableObject {
         candidateBranchesByRepo: [String: Set<String>],
         cacheBySlug: [String: WorkspacePullRequestRepoCacheEntry],
         now: Date,
-        allowCachedResults: Bool
+        reasonAllowsCachedResults: Bool,
+        bypassRepoCacheForSlugs: Set<String>
     ) async -> [String: WorkspacePullRequestRepoFetchResult] {
         guard !repoDirectoriesBySlug.isEmpty else { return [:] }
 
@@ -2727,6 +2727,8 @@ class TabManager: ObservableObject {
         ) { group in
             for repoSlug in repoDirectoriesBySlug.keys {
                 group.addTask {
+                    let allowCachedResults = reasonAllowsCachedResults
+                        && !bypassRepoCacheForSlugs.contains(repoSlug)
                     let result = await Self.workspacePullRequestRepoFetchResult(
                         repoSlug: repoSlug,
                         candidateBranches: candidateBranchesByRepo[repoSlug] ?? [],
