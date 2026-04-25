@@ -18,8 +18,19 @@ enum MainWindowKeyboardFocusIntent: Equatable {
     case rightSidebar(mode: RightSidebarMode)
 }
 
+enum MainWindowFocusToggleDestination: Equatable {
+    case terminal
+    case rightSidebar
+}
+
 @MainActor
 final class MainWindowFocusController {
+    private enum EffectiveFocusOwner {
+        case terminal
+        case rightSidebar
+        case unknown
+    }
+
     let windowId: UUID
 
     private weak var window: NSWindow?
@@ -157,13 +168,7 @@ final class MainWindowFocusController {
         guard shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: window?.firstResponder) else {
             return false
         }
-        if focusTerminal() {
-            return true
-        }
-        pendingRightSidebarFirstItemFocusMode = nil
-        intent = nil
-        publishFeedFocusSnapshot()
-        return false
+        return focusTerminalOrReleaseRightSidebarFocus(clearUnavailableIntent: true)
     }
 
     @discardableResult
@@ -269,6 +274,28 @@ final class MainWindowFocusController {
     }
 
     @discardableResult
+    func toggleRightSidebarOrTerminalFocus(
+        mode requestedMode: RightSidebarMode? = nil,
+        focusFirstItem: Bool = true
+    ) -> Bool {
+        switch focusToggleDestination() {
+        case .terminal:
+            return focusTerminalOrReleaseRightSidebarFocus(clearUnavailableIntent: true)
+        case .rightSidebar:
+            return focusRightSidebar(mode: requestedMode, focusFirstItem: focusFirstItem)
+        }
+    }
+
+    func focusToggleDestination(currentResponder: NSResponder? = nil) -> MainWindowFocusToggleDestination {
+        switch effectiveFocusOwner(currentResponder: currentResponder) {
+        case .rightSidebar:
+            return .terminal
+        case .terminal, .unknown:
+            return .rightSidebar
+        }
+    }
+
+    @discardableResult
     func focusTerminal() -> Bool {
         guard let tabManager,
               let workspace = tabManager.selectedWorkspace else {
@@ -292,6 +319,46 @@ final class MainWindowFocusController {
             respectForeignFirstResponder: false
         )
         return terminalPanel.hostedView.isSurfaceViewFirstResponder()
+    }
+
+    private func focusTerminalOrReleaseRightSidebarFocus(clearUnavailableIntent: Bool) -> Bool {
+        let focused = focusTerminal()
+        if focused {
+            return true
+        }
+
+        if let window,
+           let responder = window.firstResponder,
+           ownsRightSidebarFocus(responder) {
+            window.makeFirstResponder(nil)
+        }
+
+        pendingRightSidebarFirstItemFocusMode = nil
+        if clearUnavailableIntent, case .rightSidebar = intent {
+            intent = nil
+        }
+        publishFeedFocusSnapshot()
+        return false
+    }
+
+    private func effectiveFocusOwner(currentResponder: NSResponder? = nil) -> EffectiveFocusOwner {
+        if let responder = currentResponder ?? window?.firstResponder {
+            if terminalFocusRequest(for: responder) != nil {
+                return .terminal
+            }
+            if rightSidebarModeOwning(responder) != nil {
+                return .rightSidebar
+            }
+        }
+
+        switch intent {
+        case .terminal:
+            return .terminal
+        case .rightSidebar:
+            return .rightSidebar
+        case nil:
+            return .unknown
+        }
     }
 
     private func focusRegisteredRightSidebarEndpointIfNeeded(mode: RightSidebarMode) {

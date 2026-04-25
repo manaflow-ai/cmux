@@ -5250,6 +5250,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return result
     }
 
+    @discardableResult
+    func toggleRightSidebarKeyboardFocusInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
+
+        guard let context else {
+#if DEBUG
+            dlog(
+                "rs.focus.toggle.abort reason=noContext preferred={\(debugWindowToken(preferredWindow))} " +
+                "\(debugShortcutRouteSnapshot())"
+            )
+#endif
+            return false
+        }
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+#if DEBUG
+        let beforeResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "rs.focus.toggle.begin preferred={\(debugWindowToken(preferredWindow))} " +
+            "context={\(debugContextToken(context))} targetWin={\(debugWindowToken(window))} " +
+            "fr=\(beforeResponder)"
+        )
+#endif
+        if let window {
+            if !window.isKeyWindow {
+                if !NSApp.isActive {
+                    NSRunningApplication.current.activate(options: [.activateAllWindows])
+                }
+                window.makeKeyAndOrderFront(nil)
+            }
+            setActiveMainWindow(window)
+        }
+        let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus()
+#if DEBUG
+        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "rs.focus.toggle.end result=\(result ? 1 : 0) " +
+            "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
+        )
+#endif
+        return result
+    }
+
     func sidebarVisibility(windowId: UUID) -> Bool? {
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
     }
@@ -10024,18 +10066,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ?? NSApp.keyWindow?.firstResponder
                 ?? NSApp.mainWindow?.firstResponder
             dlog(
-                "rs.focus.shortcut.begin event=\(NSWindow.keyDescription(event)) " +
+                "rs.focus.toggle.shortcut.begin event=\(NSWindow.keyDescription(event)) " +
                 "preferred={\(debugWindowToken(preferredWindow))} fr=\(beforeResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
                 "\(debugShortcutRouteSnapshot(event: event))"
             )
 #endif
-            let result = focusRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
+            let result = toggleRightSidebarKeyboardFocusInActiveMainWindow(preferredWindow: preferredWindow)
 #if DEBUG
             let afterResponder = preferredWindow?.firstResponder
                 ?? NSApp.keyWindow?.firstResponder
                 ?? NSApp.mainWindow?.firstResponder
             dlog(
-                "rs.focus.shortcut.end result=\(result ? 1 : 0) " +
+                "rs.focus.toggle.shortcut.end result=\(result ? 1 : 0) " +
                 "preferred={\(debugWindowToken(preferredWindow))} fr=\(afterResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
                 "\(debugShortcutRouteSnapshot(event: event))"
             )

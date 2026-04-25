@@ -1192,6 +1192,10 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
 }
 
 final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
+    private final class TestRightSidebarResponder: NSView, FeedKeyboardFocusResponder {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     @MainActor
     func testHiddenRightSidebarClearsFocusIntentWhenNoTerminalCanRestore() {
         let controller = MainWindowFocusController(
@@ -1225,6 +1229,42 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         controller.noteTerminalInteraction(workspaceId: workspaceId, panelId: panelId)
 
         XCTAssertFalse(controller.shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: nil))
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
+    func testFocusShortcutToggleUsesActualRightSidebarResponderOverStaleIntent() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let responder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        controller.noteTerminalInteraction(workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertEqual(controller.focusToggleDestination(currentResponder: responder), .terminal)
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
+    func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        controller.noteRightSidebarInteraction(mode: .feed)
+        XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertFalse(controller.toggleRightSidebarOrTerminalFocus())
         XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
     }
 }

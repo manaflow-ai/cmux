@@ -573,7 +573,7 @@ struct cmuxApp: App {
                 }
 
                 splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Focus Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
-                    if AppDelegate.shared?.focusRightSidebarInActiveMainWindow() != true {
+                    if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow() != true {
                         fileExplorerState.setVisible(true)
                         _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
