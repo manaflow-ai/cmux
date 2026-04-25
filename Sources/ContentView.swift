@@ -2135,14 +2135,28 @@ struct ContentView: View {
     }
 
     private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
-        availableWidth
-            ?? observedWindow?.contentView?.bounds.width
-            ?? observedWindow?.contentLayoutRect.width
-            ?? NSApp.keyWindow?.contentView?.bounds.width
-            ?? NSApp.keyWindow?.contentLayoutRect.width
-            ?? NSApp.keyWindow?.screen?.frame.width
-            ?? NSScreen.main?.frame.width
-            ?? 1920
+        if let availableWidth {
+            return availableWidth
+        }
+        if let width = observedWindow?.contentView?.bounds.width {
+            return width
+        }
+        if let width = observedWindow?.contentLayoutRect.width {
+            return width
+        }
+        if let width = NSApp.keyWindow?.contentView?.bounds.width {
+            return width
+        }
+        if let width = NSApp.keyWindow?.contentLayoutRect.width {
+            return width
+        }
+        if let width = NSApp.keyWindow?.screen?.frame.width {
+            return width
+        }
+        if let width = NSScreen.main?.frame.width {
+            return width
+        }
+        return 1920
     }
 
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
