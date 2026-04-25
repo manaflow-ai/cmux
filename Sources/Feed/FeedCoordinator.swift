@@ -14,6 +14,7 @@ import UserNotifications
 /// Hooks then receive the decision inline in the `feed.push` response.
 final class FeedCoordinator: @unchecked Sendable {
     static let shared = FeedCoordinator()
+    static let storeInstalledNotification = Notification.Name("cmux.feed.storeInstalled")
 
     // The store runs on the main actor. The coordinator is not isolated,
     // so it hops to main explicitly when touching the store.
@@ -42,6 +43,7 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func install(store: WorkstreamStore) {
         self.store = store
+        NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
         // kqueue-driven — no polling.

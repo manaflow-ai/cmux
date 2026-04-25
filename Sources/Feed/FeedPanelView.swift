@@ -128,29 +128,36 @@ struct FeedPanelView: View {
 /// access + optional chain breaks the implicit path in our case).
 ///
 /// Re-arms `withObservationTracking` after every change so the next
-/// mutation also fires. Also retries mounting the observation if the
-/// store isn't yet installed (launch-time ordering).
+/// mutation also fires. If the view is created before the store is
+/// installed, it waits for the coordinator's install notification.
 @MainActor
 final class FeedPanelViewModel: ObservableObject {
     @Published private(set) var items: [WorkstreamItem] = []
+    private var storeInstalledObserver: NSObjectProtocol?
 
     init() {
+        storeInstalledObserver = NotificationCenter.default.addObserver(
+            forName: FeedCoordinator.storeInstalledNotification,
+            object: FeedCoordinator.shared,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.arm()
+            }
+        }
         arm()
     }
 
-    private func arm() {
-        if FeedCoordinator.shared.store == nil {
-            // Store not yet installed. Retry shortly — install happens
-            // synchronously in applicationDidFinishLaunching but the
-            // view might be constructed slightly earlier in the same
-            // runloop tick on edge cases.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.arm()
-            }
-            return
+    deinit {
+        if let storeInstalledObserver {
+            NotificationCenter.default.removeObserver(storeInstalledObserver)
         }
+    }
+
+    private func arm() {
+        guard let store = FeedCoordinator.shared.store else { return }
         withObservationTracking {
-            items = FeedCoordinator.shared.store?.items ?? []
+            items = store.items
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.arm()
