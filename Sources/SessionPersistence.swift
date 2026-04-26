@@ -348,6 +348,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
+    var activeProfileName: String?
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

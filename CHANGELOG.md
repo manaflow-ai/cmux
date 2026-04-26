@@ -2,6 +2,13 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Added
+- **Profiles** — save and restore workspace layouts as named profiles (File > Profiles). Profiles auto-save on the 8-second timer and at app termination. Socket commands: v1 `profile_save`, `profile_load`, `profile_delete`, `profile_list`; v2 `profile.save`, `profile.load`, `profile.delete`, `profile.list` ([#1773](https://github.com/manaflow-ai/cmux/pull/1773))
+- Active profile name persists across restarts and shows in the sidebar and window title
+- Profile i18n keys for 18 languages
+
 ## [0.63.2] - 2026-04-06
 
 ### Added
@@ -78,6 +85,7 @@ All notable changes to cmux are documented here.
 - [@austinywang](https://github.com/austinywang)
 - [@lawrencecchen](https://github.com/lawrencecchen)
 - [@anusheel](https://github.com/anusheel)
+
 
 ## [0.63.1] - 2026-03-28
 

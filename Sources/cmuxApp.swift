@@ -12,6 +12,7 @@ struct cmuxApp: App {
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
     @StateObject private var fileExplorerState = FileExplorerState()
     @StateObject private var cmuxConfigStore = CmuxConfigStore()
+    @StateObject private var profileListCache = ProfileListCache.shared
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -514,6 +515,8 @@ struct cmuxApp: App {
                     }
                 }
 
+                profilesMenuContent(manager: activeTabManager)
+
                 splitCommandButton(title: String(localized: "menu.file.reopenClosedBrowserPanel", defaultValue: "Reopen Closed Browser Panel"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
                     _ = activeTabManager.reopenMostRecentlyClosedBrowserPanel()
                 }
@@ -882,6 +885,330 @@ struct cmuxApp: App {
     private func markSelectedWorkspaceUnread(in manager: TabManager) {
         guard let workspaceId = manager.selectedWorkspace?.id else { return }
         notificationStore.markUnread(forTabId: workspaceId)
+    }
+
+    // MARK: - Profiles Menu
+
+    @ViewBuilder
+    private func profilesMenuContent(manager: TabManager) -> some View {
+        // Use cached profile list to avoid blocking main thread on menu rebuild
+        let profiles = profileListCache.profiles
+
+        Menu(String(localized: "menu.file.profiles", defaultValue: "Profiles")) {
+            Button(String(localized: "menu.file.profiles.saveAs", defaultValue: "Save Current as Profile…")) {
+                // Resolve at click time so the action targets the currently active window.
+                showSaveProfileDialog(manager: activeTabManager)
+            }
+            .disabled(manager.tabs.isEmpty)
+
+            if !profiles.isEmpty {
+                Divider()
+
+                ForEach(profiles) { profile in
+                    let trimmedName = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let menuTitle = trimmedName.isEmpty
+                        ? String(localized: "menu.file.profiles.unnamed", defaultValue: "Unnamed Profile")
+                        : trimmedName
+                    let isValidName = !trimmedName.isEmpty
+                    Menu(menuTitle) {
+                        Button(String(localized: "menu.file.profiles.openNewWindow", defaultValue: "Open in New Window")) {
+                            loadProfile(profile, inNewWindow: true)
+                        }
+                        .disabled(!isValidName)
+
+                        Button(String(localized: "menu.file.profiles.loadHere", defaultValue: "Load in Current Window")) {
+                            loadProfile(profile, inNewWindow: false, manager: activeTabManager)
+                        }
+                        .disabled(!isValidName)
+
+                        Divider()
+
+                        Button(String(localized: "menu.file.profiles.rename", defaultValue: "Rename Profile…")) {
+                            showRenameProfileDialog(profile: profile, manager: activeTabManager)
+                        }
+                        .disabled(!isValidName)
+
+                        Button(String(localized: "menu.file.profiles.delete", defaultValue: "Delete Profile")) {
+                            confirmDeleteProfile(profile, manager: activeTabManager)
+                        }
+                    }
+                }
+            }
+
+            if !profiles.isEmpty {
+                Divider()
+
+                Button(String(localized: "menu.file.profiles.deleteAll", defaultValue: "Delete All Profiles…")) {
+                    confirmDeleteAllProfiles(manager: activeTabManager)
+                }
+            }
+        }
+    }
+
+    /// Transfers profile ownership: clears the name from all other windows, then sets it on the target.
+    private func activateProfile(_ name: String, on manager: TabManager) {
+        AppDelegate.shared?.clearActiveProfileNameInAllWindows(name)
+        manager.setActiveProfileName(name)
+    }
+
+    private func showSaveProfileDialog(manager: TabManager) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "profile.save.title", defaultValue: "Save Profile")
+        alert.informativeText = String(
+            localized: "profile.save.message",
+            defaultValue: "Enter a name for this profile. The current workspace layout will be saved."
+        )
+        alert.addButton(withTitle: String(localized: "profile.save.button", defaultValue: "Save"))
+        alert.addButton(withTitle: String(localized: "profile.cancel.button", defaultValue: "Cancel"))
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        textField.placeholderString = String(localized: "profile.save.placeholder", defaultValue: "e.g. Work, Personal")
+        alert.accessoryView = textField
+        alert.window.initialFirstResponder = textField
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let name = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+
+        // Check if a profile with this name already exists.
+        if let existingProfile = ProfileStore.load(name: name) {
+            let existingName = existingProfile.name
+            let confirm = NSAlert()
+            confirm.messageText = String(
+                localized: "profile.overwrite.title",
+                defaultValue: "Profile Already Exists"
+            )
+            confirm.informativeText = String(
+                localized: "profile.overwrite.message",
+                defaultValue: "A profile named \"\(existingName)\" already exists. Do you want to replace it?"
+            )
+            confirm.addButton(withTitle: String(localized: "profile.overwrite.replace", defaultValue: "Replace"))
+            confirm.addButton(withTitle: String(localized: "profile.cancel.button", defaultValue: "Cancel"))
+            confirm.alertStyle = .warning
+            guard confirm.runModal() == .alertFirstButtonReturn else { return }
+        }
+
+        if ProfileStore.saveCurrentSession(name: name, tabManager: manager) != nil {
+            activateProfile(name, on: manager)
+#if DEBUG
+            dlog("profile.save name=\(name) workspaces=\(manager.tabs.count)")
+#endif
+        } else {
+            let failure = NSAlert()
+            failure.messageText = String(
+                localized: "profile.save.failed.title",
+                defaultValue: "Couldn't Save Profile"
+            )
+            failure.informativeText = String(
+                localized: "profile.save.failed.message",
+                defaultValue: "The profile was not saved. You may have reached the profile limit or encountered a file-system error."
+            )
+            failure.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            failure.alertStyle = .warning
+            _ = failure.runModal()
+        }
+    }
+
+    private func showRenameProfileDialog(profile: Profile, manager: TabManager) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "profile.rename.title", defaultValue: "Rename Profile")
+        alert.informativeText = String(
+            localized: "profile.rename.message",
+            defaultValue: "Enter a new name for \"\(profile.name)\"."
+        )
+        alert.addButton(withTitle: String(localized: "profile.rename.button", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "profile.cancel.button", defaultValue: "Cancel"))
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        textField.stringValue = profile.name
+        alert.accessoryView = textField
+        alert.window.initialFirstResponder = textField
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let newName = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty else { return }
+        guard newName != profile.name else { return } // No change
+
+        // Check if a different profile with this name already exists.
+        if let existingProfile = ProfileStore.load(name: newName), existingProfile.id != profile.id {
+            let conflict = NSAlert()
+            conflict.messageText = String(
+                localized: "profile.rename.conflict.title",
+                defaultValue: "Name Already Exists"
+            )
+            conflict.informativeText = String(
+                localized: "profile.rename.conflict.message",
+                defaultValue: "A profile named \"\(existingProfile.name)\" already exists. Choose a different name."
+            )
+            conflict.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            conflict.alertStyle = .warning
+            _ = conflict.runModal()
+            return
+        }
+
+        guard let renamedProfile = ProfileStore.rename(oldName: profile.name, newName: newName) else {
+            let failure = NSAlert()
+            failure.messageText = String(
+                localized: "profile.rename.failed.title",
+                defaultValue: "Couldn't Rename Profile"
+            )
+            failure.informativeText = String(
+                localized: "profile.rename.failed.message",
+                defaultValue: "The profile could not be renamed. Please try again."
+            )
+            failure.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            failure.alertStyle = .warning
+            _ = failure.runModal()
+            return
+        }
+
+        // Update active profile name in any window that had the old name.
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.updateActiveProfileNameInAllWindows(from: profile.name, to: renamedProfile.name)
+        } else if manager.activeProfileName == profile.name {
+            manager.setActiveProfileName(renamedProfile.name)
+        }
+#if DEBUG
+        dlog("profile.rename old=\(profile.name) new=\(renamedProfile.name)")
+#endif
+    }
+
+    private func loadProfile(_ profile: Profile, inNewWindow: Bool, manager: TabManager? = nil) {
+        if inNewWindow {
+            // Open a new window and restore the profile into it.
+            let snapshot = SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: profile.snapshot,
+                sidebar: SessionSidebarSnapshot(
+                    isVisible: true,
+                    selection: .tabs,
+                    width: nil
+                )
+            )
+            if let appDelegate = AppDelegate.shared {
+                let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
+                // Set the active profile on the new window's TabManager.
+                if let newManager = appDelegate.tabManagerFor(windowId: windowId) {
+                    activateProfile(profile.name, on: newManager)
+                }
+            }
+        } else if let manager {
+            // Confirm before replacing current workspaces.
+            let alert = NSAlert()
+            alert.messageText = String(
+                localized: "profile.load.title",
+                defaultValue: "Load Profile"
+            )
+            alert.informativeText = String(
+                localized: "profile.load.message",
+                defaultValue: "Loading \"\(profile.name)\" will close all current workspaces in this window and replace them. Continue?"
+            )
+            alert.addButton(withTitle: String(localized: "profile.load.button", defaultValue: "Load Profile"))
+            alert.addButton(withTitle: String(localized: "profile.cancel.button", defaultValue: "Cancel"))
+            alert.alertStyle = .warning
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+            manager.restoreSessionSnapshot(profile.snapshot)
+            activateProfile(profile.name, on: manager)
+#if DEBUG
+            dlog("profile.load name=\(profile.name) inNewWindow=false workspaces=\(profile.snapshot.workspaces.count)")
+#endif
+        }
+    }
+
+    private func confirmDeleteProfile(_ profile: Profile, manager: TabManager) {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "profile.delete.title",
+            defaultValue: "Delete Profile"
+        )
+        alert.informativeText = String(
+            localized: "profile.delete.message",
+            defaultValue: "Are you sure you want to delete the profile \"\(profile.name)\"? This cannot be undone."
+        )
+        alert.addButton(withTitle: String(localized: "profile.delete.button", defaultValue: "Delete"))
+        alert.addButton(withTitle: String(localized: "profile.cancel.button", defaultValue: "Cancel"))
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        guard ProfileStore.delete(name: profile.name) else {
+            let errorAlert = NSAlert()
+            errorAlert.alertStyle = .warning
+            errorAlert.messageText = String(localized: "profile.delete.failed.title", defaultValue: "Delete Failed")
+            errorAlert.informativeText = String(
+                localized: "profile.delete.failed.message",
+                defaultValue: "Could not delete the profile \"\(profile.name)\"."
+            )
+            errorAlert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            errorAlert.runModal()
+            return
+        }
+
+        // Clear active profile name across all windows so autosave doesn't resurrect the deleted profile.
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.clearActiveProfileNameInAllWindows(profile.name)
+        } else if manager.activeProfileName == profile.name {
+            manager.setActiveProfileName(nil)
+        }
+#if DEBUG
+        dlog("profile.delete name=\(profile.name)")
+#endif
+    }
+
+    private func confirmDeleteAllProfiles(manager: TabManager) {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "profile.deleteAll.title",
+            defaultValue: "Delete All Profiles"
+        )
+        alert.informativeText = String(
+            localized: "profile.deleteAll.message",
+            defaultValue: "Are you sure you want to delete all saved profiles? This cannot be undone."
+        )
+        alert.addButton(withTitle: String(localized: "profile.deleteAll.button", defaultValue: "Delete All"))
+        alert.addButton(withTitle: String(localized: "profile.cancel.button", defaultValue: "Cancel"))
+        alert.alertStyle = .critical
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let profiles = ProfileStore.list()
+        var deletedCount = 0
+        var failedNames: [String] = []
+        for profile in profiles {
+            if ProfileStore.delete(name: profile.name) {
+                deletedCount += 1
+            } else {
+                failedNames.append(profile.name)
+            }
+        }
+
+        // Only clear and log if at least one profile was deleted.
+        if deletedCount > 0 {
+            // Clear active profile name across all windows so autosave doesn't resurrect deleted profiles.
+            // Use clearAllActiveProfileNames() to also clear stale names not found in ProfileStore.list().
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.clearAllActiveProfileNames()
+            } else {
+                manager.setActiveProfileName(nil)
+            }
+#if DEBUG
+            dlog("profile.deleteAll deleted=\(deletedCount) failed=\(failedNames.count)")
+#endif
+        }
+
+        if !failedNames.isEmpty {
+            let errorAlert = NSAlert()
+            errorAlert.alertStyle = .warning
+            errorAlert.messageText = String(localized: "profile.deleteAll.partial.title", defaultValue: "Some Profiles Could Not Be Deleted")
+            errorAlert.informativeText = String(
+                localized: "profile.deleteAll.partial.message",
+                defaultValue: "Failed to delete: \(failedNames.joined(separator: ", "))"
+            )
+            errorAlert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            errorAlert.runModal()
+        }
     }
 
     @ViewBuilder

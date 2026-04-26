@@ -896,6 +896,17 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
+    /// The name of the currently active profile, if workspaces were loaded from one.
+    /// Cleared when workspaces are manually added or removed.
+    @Published private(set) var activeProfileName: String?
+
+    func setActiveProfileName(_ name: String?) {
+        // Normalize: trim whitespace and collapse empty/whitespace-only to nil
+        let normalized = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        activeProfileName = (normalized?.isEmpty == true) ? nil : normalized
+        updateWindowTitleForSelectedTab()
+    }
+
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
@@ -5028,12 +5039,19 @@ class TabManager: ObservableObject {
 
     private func windowTitle(for tab: Workspace?) -> String {
         guard let tab else { return "cmux" }
+        let baseTitle: String
         let trimmedTitle = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
-            return trimmedTitle
+            baseTitle = trimmedTitle
+        } else {
+            let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            baseTitle = trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
         }
-        let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
+        if let profileName = activeProfileName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !profileName.isEmpty {
+            return String(localized: "window.title.withProfile", defaultValue: "\(profileName) — \(baseTitle)")
+        }
+        return baseTitle
     }
 
     func focusTab(_ tabId: UUID, surfaceId: UUID? = nil, suppressFlash: Bool = false) {
@@ -7147,6 +7165,7 @@ extension TabManager {
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(selectedTabId)
+        hasher.combine(activeProfileName)
         hasher.combine(tabs.count)
 
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
@@ -7289,7 +7308,8 @@ extension TabManager {
         }
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: workspaceSnapshots
+            workspaces: workspaceSnapshots,
+            activeProfileName: activeProfileName
         )
     }
 
@@ -7371,6 +7391,7 @@ extension TabManager {
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         selectedTabId = newSelectedId
+        setActiveProfileName(snapshot.activeProfileName)
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
         sidebarSelectedWorkspaceIds.formIntersection(existingIds)
