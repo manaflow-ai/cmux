@@ -1235,6 +1235,30 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testMainPanelInteractionKeepsFeedSelectionInactive() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let itemId = UUID()
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        XCTAssertTrue(controller.selectFeedItem(itemId, focusFeed: false))
+        XCTAssertEqual(controller.feedFocusSnapshot().selectedItemId, itemId)
+        XCTAssertTrue(controller.feedFocusSnapshot().isKeyboardActive)
+
+        controller.noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertEqual(controller.feedFocusSnapshot().selectedItemId, itemId)
+        XCTAssertFalse(controller.feedFocusSnapshot().isKeyboardActive)
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertEqual(controller.focusToggleDestination(), .rightSidebar)
+    }
+
+    @MainActor
     func testFocusShortcutToggleUsesActualRightSidebarResponderOverStaleIntent() {
         let controller = MainWindowFocusController(
             windowId: UUID(),

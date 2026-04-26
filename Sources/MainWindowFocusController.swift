@@ -14,7 +14,7 @@ struct FeedFocusSnapshot: Equatable {
 protocol FeedKeyboardFocusResponder: AnyObject {}
 
 enum MainWindowKeyboardFocusIntent: Equatable {
-    case terminal(workspaceId: UUID, panelId: UUID)
+    case mainPanel(workspaceId: UUID, panelId: UUID)
     case rightSidebar(mode: RightSidebarMode)
 }
 
@@ -32,7 +32,7 @@ enum MainWindowFindShortcutTarget: Equatable {
 @MainActor
 final class MainWindowFocusController {
     private enum EffectiveFocusOwner {
-        case terminal
+        case mainPanel
         case rightSidebar
         case unknown
     }
@@ -127,9 +127,13 @@ final class MainWindowFocusController {
     }
 
     func noteTerminalInteraction(workspaceId: UUID, panelId: UUID) {
+        noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    func noteMainPanelInteraction(workspaceId: UUID, panelId: UUID) {
         pendingRightSidebarFirstItemFocusMode = nil
         pendingFileSearchFocus = false
-        intent = .terminal(workspaceId: workspaceId, panelId: panelId)
+        intent = .mainPanel(workspaceId: workspaceId, panelId: panelId)
         publishFeedFocusSnapshot()
     }
 
@@ -137,7 +141,7 @@ final class MainWindowFocusController {
         switch intent {
         case .rightSidebar:
             return false
-        case .terminal, nil:
+        case .mainPanel, nil:
             return true
         }
     }
@@ -147,7 +151,7 @@ final class MainWindowFocusController {
         switch intent {
         case .rightSidebar:
             return false
-        case .terminal(let focusedWorkspaceId, _):
+        case .mainPanel(let focusedWorkspaceId, _):
             return focusedWorkspaceId == workspaceId
         case nil:
             return true
@@ -218,7 +222,7 @@ final class MainWindowFocusController {
             return focusTerminal()
         }
 
-        intent = nil
+        intent = .mainPanel(workspaceId: workspace.id, panelId: panelId)
         if let window,
            let responder,
            ownsRightSidebarFocus(responder) {
@@ -296,6 +300,10 @@ final class MainWindowFocusController {
                 feedSelectedItemId = nil
             }
             publishFeedFocusSnapshot()
+            return
+        }
+        if let mainPanel = selectedFocusedBrowserPanelRequest() {
+            noteMainPanelInteraction(workspaceId: mainPanel.workspaceId, panelId: mainPanel.panelId)
             return
         }
         publishFeedFocusSnapshot()
@@ -387,7 +395,7 @@ final class MainWindowFocusController {
         switch effectiveFocusOwner(currentResponder: currentResponder) {
         case .rightSidebar:
             return .terminal
-        case .terminal, .unknown:
+        case .mainPanel, .unknown:
             return .rightSidebar
         }
     }
@@ -432,7 +440,7 @@ final class MainWindowFocusController {
         guard let terminalPanel else { return false }
         pendingRightSidebarFirstItemFocusMode = nil
         pendingFileSearchFocus = false
-        intent = .terminal(workspaceId: workspace.id, panelId: terminalPanel.id)
+        intent = .mainPanel(workspaceId: workspace.id, panelId: terminalPanel.id)
         publishFeedFocusSnapshot()
         workspace.focusPanel(terminalPanel.id)
         terminalPanel.hostedView.ensureFocus(
@@ -448,13 +456,25 @@ final class MainWindowFocusController {
     }
 
     private func selectedFocusedPanelIsBrowser() -> Bool {
+        selectedFocusedBrowserPanelRequest() != nil
+    }
+
+    private struct FocusedPanelRequest {
+        let workspaceId: UUID
+        let panelId: UUID
+    }
+
+    private func selectedFocusedBrowserPanelRequest() -> FocusedPanelRequest? {
         guard let tabManager,
               let workspace = tabManager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
               let panel = workspace.panels[panelId] else {
-            return false
+            return nil
         }
-        return panel is BrowserPanel
+        guard panel is BrowserPanel else {
+            return nil
+        }
+        return FocusedPanelRequest(workspaceId: workspace.id, panelId: panelId)
     }
 
     private func focusTerminalOrReleaseRightSidebarFocus(clearUnavailableIntent: Bool) -> Bool {
@@ -481,7 +501,7 @@ final class MainWindowFocusController {
     private func effectiveFocusOwner(currentResponder: NSResponder? = nil) -> EffectiveFocusOwner {
         if let responder = currentResponder ?? window?.firstResponder {
             if terminalFocusRequest(for: responder) != nil {
-                return .terminal
+                return .mainPanel
             }
             if rightSidebarModeOwning(responder) != nil {
                 return .rightSidebar
@@ -489,8 +509,8 @@ final class MainWindowFocusController {
         }
 
         switch intent {
-        case .terminal:
-            return .terminal
+        case .mainPanel:
+            return .mainPanel
         case .rightSidebar:
             return .rightSidebar
         case nil:
