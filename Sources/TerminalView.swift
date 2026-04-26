@@ -43,6 +43,17 @@ class FocusableTerminalView: NSView {
     private var scrollMonitor: Any?
     private var lastScrollerValue: Double = 0
 
+    private static func fallbackScrollerWidth() -> CGFloat {
+        // SwiftTerm's macOS TerminalView currently creates a regular legacy
+        // NSScroller internally, even though cmux fades it like an overlay.
+        NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+    }
+
+    private func reservedScrollerWidth() -> CGFloat {
+        let measuredWidth = scroller?.frame.width ?? 0
+        return measuredWidth > 0 ? measuredWidth : Self.fallbackScrollerWidth()
+    }
+
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
@@ -61,17 +72,13 @@ class FocusableTerminalView: NSView {
 
     override func layout() {
         super.layout()
-        if let tv = terminalView, bounds.size.width > 0, bounds.size.height > 0 {
-            tv.setFrameSize(bounds.size)
-            setupScrollerTracking(in: tv)
-        }
+        updateTerminalFrame()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil, let tv = terminalView, bounds.size.width > 0 {
-            tv.setFrameSize(bounds.size)
-            setupScrollerTracking(in: tv)
+        if window != nil {
+            updateTerminalFrame()
             setupScrollMonitor()
         }
     }
@@ -81,6 +88,23 @@ class FocusableTerminalView: NSView {
         if newWindow == nil, let monitor = scrollMonitor {
             NSEvent.removeMonitor(monitor)
             scrollMonitor = nil
+        }
+    }
+
+    private func updateTerminalFrame() {
+        guard let tv = terminalView, bounds.size.width > 0, bounds.size.height > 0 else { return }
+        setupScrollerTracking(in: tv)
+
+        let reservedWidth = reservedScrollerWidth()
+        let terminalSize = NSSize(
+            width: max(0, bounds.size.width - reservedWidth),
+            height: bounds.size.height
+        )
+        if tv.frame.origin != .zero {
+            tv.setFrameOrigin(.zero)
+        }
+        if tv.frame.size != terminalSize {
+            tv.setFrameSize(terminalSize)
         }
     }
 
