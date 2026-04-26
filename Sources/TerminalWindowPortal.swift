@@ -151,6 +151,15 @@ final class WindowTerminalHostView: NSView {
                 return nil
             }
 
+            if let window,
+               cmuxRightSidebarExtensionHostContains(
+                   windowPoint: convert(point, to: nil),
+                   in: window
+               ) {
+                clearActiveDividerCursor(restoreArrow: true)
+                return nil
+            }
+
             // Compute divider hit once and reuse for both cursor update and pass-through.
             if let kind = splitDividerCursorKind(at: point) {
                 activeDividerCursorKind = kind

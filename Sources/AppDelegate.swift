@@ -4249,6 +4249,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if window.firstResponder is NSText {
             return
         }
+        if cmuxRightSidebarExtensionHostOwnsResponder(window.firstResponder, in: window) {
+            return
+        }
         guard let context = contextForMainWindow(window) ?? contextForMainTerminalWindow(window),
               let workspace = context.tabManager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,

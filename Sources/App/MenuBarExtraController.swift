@@ -241,7 +241,6 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         onQuitApp()
     }
 }
-
 private final class NotificationMenuItemPayload: NSObject {
     let notification: TerminalNotification
 

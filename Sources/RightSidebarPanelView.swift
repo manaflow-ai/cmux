@@ -5,11 +5,13 @@ import SwiftUI
 enum RightSidebarMode: String, CaseIterable {
     case files
     case sessions
+    case extensionDemo
 
     var label: String {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
+        case .extensionDemo: return String(localized: "rightSidebar.mode.extensionDemo", defaultValue: "ExtensionKit")
         }
     }
 
@@ -17,6 +19,7 @@ enum RightSidebarMode: String, CaseIterable {
         switch self {
         case .files: return "folder"
         case .sessions: return "bubble.left.and.text.bubble.right"
+        case .extensionDemo: return "puzzlepiece.extension"
         }
     }
 }
@@ -75,6 +78,8 @@ struct RightSidebarPanelView: View {
                 .onAppear {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
+        case .extensionDemo:
+            RightSidebarExtensionDemoPanelView()
         }
     }
 

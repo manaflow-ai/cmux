@@ -570,6 +570,62 @@ func cmuxFieldEditorOwnerView(_ editor: NSTextView) -> NSView? {
     return editor.superview
 }
 
+let cmuxRightSidebarExtensionHostContainerIdentifier =
+    NSUserInterfaceItemIdentifier("cmux.rightSidebar.extensionHost.container")
+
+func cmuxRightSidebarExtensionHostOwnsResponder(
+    _ responder: NSResponder?,
+    in window: NSWindow? = nil
+) -> Bool {
+    guard let responder else { return false }
+
+    let ownerView: NSView?
+    if let textView = responder as? NSTextView, textView.isFieldEditor {
+        ownerView = cmuxFieldEditorOwnerView(textView) ?? textView
+    } else {
+        ownerView = responder as? NSView
+    }
+
+    guard let ownerView else { return false }
+    if let window, ownerView.window !== window { return false }
+    return cmuxRightSidebarExtensionHostAncestor(for: ownerView) != nil
+}
+
+func cmuxRightSidebarExtensionHostContains(windowPoint: NSPoint, in window: NSWindow) -> Bool {
+    guard let contentView = window.contentView else { return false }
+    return cmuxRightSidebarExtensionHost(atWindowPoint: windowPoint, in: contentView) != nil
+}
+
+private func cmuxRightSidebarExtensionHostAncestor(for view: NSView) -> NSView? {
+    var current: NSView? = view
+    while let candidate = current {
+        if candidate.identifier == cmuxRightSidebarExtensionHostContainerIdentifier {
+            return candidate
+        }
+        current = candidate.superview
+    }
+    return nil
+}
+
+private func cmuxRightSidebarExtensionHost(atWindowPoint windowPoint: NSPoint, in view: NSView) -> NSView? {
+    guard !view.isHidden else { return nil }
+
+    let localPoint = view.convert(windowPoint, from: nil)
+    guard view.bounds.contains(localPoint) else { return nil }
+
+    if view.identifier == cmuxRightSidebarExtensionHostContainerIdentifier {
+        return view
+    }
+
+    for subview in view.subviews.reversed() {
+        if let host = cmuxRightSidebarExtensionHost(atWindowPoint: windowPoint, in: subview) {
+            return host
+        }
+    }
+
+    return nil
+}
+
 private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
     if let ghosttyView = view as? GhosttyNSView {
         return ghosttyView

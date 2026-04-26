@@ -519,6 +519,23 @@ final class WindowBrowserHostView: NSView {
 #endif
             return nil
         }
+        if let window,
+           cmuxRightSidebarExtensionHostContains(
+               windowPoint: convert(point, to: nil),
+               in: window
+           ) {
+#if DEBUG
+            debugLogPointerRouting(
+                stage: "hitTest.extensionSidebarPass",
+                point: point,
+                titlebarPassThrough: false,
+                sidebarPassThrough: false,
+                dividerHit: dividerHit,
+                hitView: nil
+            )
+#endif
+            return nil
+        }
         // Mirror terminal portal routing: while tab-reorder drags are active,
         // pass through to SwiftUI drop targets behind the portal host.
         // Browser hover routing also arrives as cursor/enter events and may not
