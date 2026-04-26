@@ -797,7 +797,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         runFindFocusPersistenceScenario(route: .cmdOptionArrows, useAutofocusRacePage: true)
     }
 
-    func testCmdFFocusesRightSidebarFindAfterCmdDCmdLNavigation() {
+    func testCmdFOpensBrowserFindAfterCmdDCmdLNavigation() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
@@ -835,21 +835,18 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
         app.typeKey("f", modifierFlags: [.command])
 
-        let findModeButton = app.buttons["RightSidebarModeButton.find"].firstMatch
-        XCTAssertTrue(findModeButton.waitForExistence(timeout: 6.0), "Expected right sidebar Find tab after Cmd+F")
-
-        let findField = app.textFields["FileExplorerSearchField"].firstMatch
-        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected file search field after Cmd+F")
+        let browserFindField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(browserFindField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
 
         let omnibarValueBeforeFindTyping = (omnibar.value as? String) ?? ""
         app.typeText("needle")
 
         XCTAssertTrue(
             waitForCondition(timeout: 4.0) {
-                ((findField.value as? String) ?? "") == "needle"
+                ((browserFindField.value as? String) ?? "") == "needle"
             },
-            "Expected Cmd+F to focus right-sidebar Find after Cmd+D, Cmd+L, and navigation. " +
-                "findValue=\(String(describing: findField.value)) omnibarValue=\(String(describing: omnibar.value))"
+            "Expected Cmd+F to focus browser find after Cmd+D, Cmd+L, and navigation. " +
+                "findValue=\(String(describing: browserFindField.value)) omnibarValue=\(String(describing: omnibar.value))"
         )
         let omnibarValueAfterFindTyping = (omnibar.value as? String) ?? ""
         XCTAssertFalse(
@@ -857,12 +854,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected typing after Cmd+F to stay out of the omnibar. " +
                 "omnibarValueBefore=\(omnibarValueBeforeFindTyping) " +
                 "omnibarValueAfter=\(String(describing: omnibar.value)) " +
-                "findValue=\(String(describing: findField.value))"
+                "findValue=\(String(describing: browserFindField.value))"
         )
 
         XCTAssertFalse(
-            app.textFields["BrowserFindSearchTextField"].firstMatch.exists,
-            "Expected global Cmd+F to use right-sidebar Find rather than browser find"
+            app.textFields["FileExplorerSearchField"].firstMatch.exists,
+            "Expected browser Cmd+F to use browser find rather than right-sidebar Find"
         )
     }
 

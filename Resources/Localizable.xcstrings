@@ -40489,115 +40489,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search Files…"
+            "value": "Find…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファイルを検索…"
+            "value": "検索…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "搜索文件..."
+            "value": "查找…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "搜尋檔案..."
+            "value": "尋找…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "파일 검색…"
+            "value": "찾기…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dateien suchen …"
+            "value": "Suchen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar archivos…"
+            "value": "Buscar…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher des fichiers..."
+            "value": "Rechercher…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerca file…"
+            "value": "Cerca…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Søg i filer…"
+            "value": "Find…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Szukaj plików…"
+            "value": "Znajdź…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поиск файлов..."
+            "value": "Найти…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pretraži datoteke…"
+            "value": "Pronađi…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "البحث في الملفات…"
+            "value": "بحث…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Søk i filer …"
+            "value": "Finn…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar arquivos…"
+            "value": "Buscar…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ค้นหาไฟล์..."
+            "value": "ค้นหา…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dosyalarda ara…"
+            "value": "Bul…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пошук файлів…"
+            "value": "Знайти…"
           }
         }
       }

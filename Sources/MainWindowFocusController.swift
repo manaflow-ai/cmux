@@ -23,6 +23,12 @@ enum MainWindowFocusToggleDestination: Equatable {
     case rightSidebar
 }
 
+enum MainWindowFindShortcutTarget: Equatable {
+    case mainPanelFind
+    case rightSidebarFileSearch
+    case none
+}
+
 @MainActor
 final class MainWindowFocusController {
     private enum EffectiveFocusOwner {
@@ -206,6 +212,7 @@ final class MainWindowFocusController {
         }
 
         pendingRightSidebarFirstItemFocusMode = nil
+        pendingFileSearchFocus = false
 
         if panel is TerminalPanel {
             return focusTerminal()
@@ -365,7 +372,7 @@ final class MainWindowFocusController {
     ) -> Bool {
         switch focusToggleDestination() {
         case .terminal:
-            return focusTerminalOrReleaseRightSidebarFocus(clearUnavailableIntent: true)
+            return restoreFocusedPanelFocusFromRightSidebarIfNeeded(currentResponder: window?.firstResponder)
         case .rightSidebar:
             return focusRightSidebar(mode: requestedMode, focusFirstItem: focusFirstItem)
         }
@@ -378,6 +385,30 @@ final class MainWindowFocusController {
         case .terminal, .unknown:
             return .rightSidebar
         }
+    }
+
+    func findShortcutTarget(currentResponder: NSResponder? = nil) -> MainWindowFindShortcutTarget {
+        let responder = currentResponder ?? window?.firstResponder
+        if let responder {
+            if let mode = rightSidebarModeOwning(responder) {
+                return findShortcutTarget(forRightSidebarMode: mode)
+            }
+            if terminalFocusRequest(for: responder) != nil {
+                return .mainPanelFind
+            }
+            if selectedFocusedPanelIsBrowser() {
+                return .mainPanelFind
+            }
+            if case .rightSidebar(let mode) = intent {
+                return findShortcutTarget(forRightSidebarMode: mode)
+            }
+            return .mainPanelFind
+        }
+
+        if case .rightSidebar(let mode) = intent {
+            return findShortcutTarget(forRightSidebarMode: mode)
+        }
+        return .mainPanelFind
     }
 
     @discardableResult
@@ -405,6 +436,20 @@ final class MainWindowFocusController {
             respectForeignFirstResponder: false
         )
         return terminalPanel.hostedView.isSurfaceViewFirstResponder()
+    }
+
+    private func findShortcutTarget(forRightSidebarMode mode: RightSidebarMode) -> MainWindowFindShortcutTarget {
+        mode == .files ? .rightSidebarFileSearch : .none
+    }
+
+    private func selectedFocusedPanelIsBrowser() -> Bool {
+        guard let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.panels[panelId] else {
+            return false
+        }
+        return panel is BrowserPanel
     }
 
     private func focusTerminalOrReleaseRightSidebarFocus(clearUnavailableIntent: Bool) -> Bool {

@@ -547,11 +547,11 @@ struct cmuxApp: App {
                         )
                     }
 
-                    splitCommandButton(title: String(localized: "menu.find.find", defaultValue: "Search Files…"), shortcut: menuShortcut(for: .find)) {
+                    splitCommandButton(title: String(localized: "menu.find.find", defaultValue: "Find…"), shortcut: menuShortcut(for: .find)) {
 #if DEBUG
                         cmuxDebugLog("find.menu Cmd+F fired")
 #endif
-                        _ = AppDelegate.shared?.focusFileSearchInActiveMainWindow(
+                        _ = AppDelegate.shared?.performFindShortcutInActiveMainWindow(
                             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
                         )
                     }

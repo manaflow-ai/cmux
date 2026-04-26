@@ -2440,7 +2440,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedPaletteWindow?.windowNumber, window.windowNumber)
     }
 
-    func testCmdFFocusedBrowserOpensRightSidebarFind() {
+    func testCmdFFocusedBrowserOpensBrowserFind() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -2459,6 +2459,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertNotNil(manager.focusedBrowserPanel)
         XCTAssertNil(manager.focusedBrowserPanel?.searchState)
+        let initialMode = appDelegate.fileExplorerState?.mode
 
         guard let event = makeKeyDownEvent(
             key: "f",
@@ -2473,14 +2474,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertTrue(
             appDelegate.debugHandleCustomShortcut(event: event),
-            "Cmd+F should open global file search even when browser web content is focused"
+            "Cmd+F should open browser find when browser web content is focused"
         )
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        XCTAssertNil(manager.focusedBrowserPanel?.searchState)
-        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .find)
+        XCTAssertNotNil(manager.focusedBrowserPanel?.searchState)
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, initialMode)
     }
 
     func testCmdPhysicalWWithDvorakCharactersDoesNotTriggerClosePanelShortcut() {
@@ -4181,7 +4182,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertFalse(
             shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
-            "Cmd+F belongs to global file search, not browser-first routing"
+            "Cmd+F belongs to cmux focus-aware find routing, not browser-first routing"
         )
     }
 
@@ -4626,7 +4627,93 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testFindShortcutFromRightSidebarReleasesTerminalFocusGuard() {
+    func testFindShortcutFromFileTreeOpensRightSidebarFind() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+
+        XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
+        appDelegate.fileExplorerState?.mode = .files
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .files, in: window)
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNil(terminalPanel.searchState, "Cmd+F from the file tree should not create terminal search state")
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .find)
+    }
+
+    func testFindShortcutFromTerminalOpensTerminalFind() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: terminalPanel.id, in: window)
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNotNil(terminalPanel.searchState, "Cmd+F from terminal focus should create terminal search state")
+    }
+
+    func testFindShortcutFromOtherRightSidebarModeDoesNotStealFocus() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -4657,6 +4744,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
+        appDelegate.fileExplorerState?.mode = .feed
         appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
         XCTAssertFalse(
             appDelegate.allowsTerminalKeyboardFocus(
@@ -4678,12 +4766,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertFalse(
             appDelegate.allowsTerminalKeyboardFocus(
@@ -4691,13 +4777,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 panelId: terminalPanel.id,
                 in: window
             ),
-            "Cmd+F should keep keyboard ownership in the right sidebar Find section"
+            "Cmd+F should keep keyboard ownership in the existing right sidebar section"
         )
         XCTAssertNil(terminalPanel.searchState, "Cmd+F should not create terminal search state")
-        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .find)
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .feed)
         XCTAssertFalse(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Cmd+F from right sidebar should not refocus the terminal responder"
+            "Cmd+F from a non-file right sidebar mode should not refocus the terminal responder"
         )
     }
 

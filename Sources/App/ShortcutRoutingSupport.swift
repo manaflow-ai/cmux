@@ -494,7 +494,8 @@ private func browserFindCommandEquivalent(for event: NSEvent) -> BrowserFindComm
 }
 
 /// For browser content, let the page try browser-local Find-family commands before cmux's menu fallback.
-/// Cmd+F is excluded because cmux owns it globally for right-sidebar file search.
+/// Cmd+F is excluded because cmux chooses terminal, browser, or right-sidebar
+/// find from the current focus owner.
 func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     _ event: NSEvent,
     responder: NSResponder? = nil,

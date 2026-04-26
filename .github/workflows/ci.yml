@@ -698,7 +698,7 @@ jobs:
             sleep 3
           done
 
-      - name: Run right-sidebar find focus UI regression
+      - name: Run browser find focus UI regression
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -707,7 +707,7 @@ jobs:
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance 180 \
-            -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFFocusesRightSidebarFindAfterCmdDCmdLNavigation \
+            -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFOpensBrowserFindAfterCmdDCmdLNavigation \
             test-without-building
 
       - name: Cleanup persistent virtual display
