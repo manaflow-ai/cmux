@@ -6924,7 +6924,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     static func bonsplitChromeHex(backgroundColor: NSColor, backgroundOpacity: Double) -> String {
-        let themedColor = GhosttyBackgroundTheme.color(
+        let themedColor = WindowAppearanceSnapshot.compositedTerminalColor(
             backgroundColor: backgroundColor,
             opacity: backgroundOpacity
         )
