@@ -2488,9 +2488,6 @@ struct ContentView: View {
         // and all associated transition animations.
         return HStack(spacing: 0) {
             terminalContentWithSidebarDropOverlay
-            if rightSidebarVisible {
-                Divider()
-            }
             rightSidebarPanelWithBackdrop
         }
     }
@@ -2534,6 +2531,11 @@ struct ContentView: View {
     private var rightSidebarPanelWithBackdrop: some View {
         sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar) {
             rightSidebarPanel
+        }
+        .overlay(alignment: .leading) {
+            if rightSidebarVisible {
+                WindowChromeBorder(orientation: .vertical)
+            }
         }
     }
 
@@ -2680,9 +2682,7 @@ struct ContentView: View {
         .background(TitlebarDoubleClickMonitorView())
         .background(WindowBackdropLayer(role: .titlebar, snapshot: windowAppearanceSnapshot))
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(height: 1)
+            WindowChromeBorder(orientation: .horizontal)
         }
     }
 
@@ -2900,9 +2900,6 @@ struct ContentView: View {
                             .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)
-                        if rightSidebarVisible {
-                            Divider()
-                        }
                         rightSidebarPanelWithBackdrop
                     }
                     if sidebarState.isVisible {
@@ -14894,31 +14891,8 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
     }
 }
 
-/// 1px trailing border on the sidebar, derived from the terminal chrome background
-/// using the same logic as bonsplit's TabBarColors.nsColorSeparator:
-/// dark bg → lighten RGB by 0.16 at 0.36 alpha; light bg → darken by 0.12 at 0.26 alpha.
-private struct SidebarTrailingBorder: View {
-    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
-    @State private var separatorColor: NSColor = chromeSeparatorColor()
-
-    var body: some View {
-        if matchTerminalBackground {
-            Rectangle()
-                .fill(Color(nsColor: separatorColor))
-                .frame(width: 1)
-                .ignoresSafeArea()
-                .onAppear {
-                    separatorColor = Self.chromeSeparatorColor()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-                    separatorColor = Self.chromeSeparatorColor()
-                }
-        }
-    }
-
-    /// Replicates bonsplit TabBarColors.nsColorSeparator derivation from chrome background.
-    private static func chromeSeparatorColor() -> NSColor {
-        let chrome = GhosttyBackgroundTheme.currentColor()
+enum WindowChromeSeparatorColor {
+    static func color(forChromeBackground chrome: NSColor) -> NSColor {
         let srgb = chrome.usingColorSpace(.sRGB) ?? chrome
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         srgb.getRed(&r, green: &g, blue: &b, alpha: &a)
@@ -14932,6 +14906,59 @@ private struct SidebarTrailingBorder: View {
             blue: min(1.0, max(0.0, b + amount)),
             alpha: alpha
         )
+    }
+
+    static func current() -> NSColor {
+        color(forChromeBackground: GhosttyBackgroundTheme.currentColor())
+    }
+}
+
+struct WindowChromeBorder: View {
+    enum Orientation {
+        case vertical
+        case horizontal
+    }
+
+    let orientation: Orientation
+    var ignoresSafeArea = true
+    @State private var separatorColor = WindowChromeSeparatorColor.current()
+
+    var body: some View {
+        if ignoresSafeArea {
+            border.ignoresSafeArea()
+        } else {
+            border
+        }
+    }
+
+    private var border: some View {
+        Rectangle()
+            .fill(Color(nsColor: separatorColor))
+            .frame(
+                maxWidth: orientation == .horizontal ? .infinity : nil,
+                maxHeight: orientation == .vertical ? .infinity : nil
+            )
+            .frame(
+                width: orientation == .vertical ? 1 : nil,
+                height: orientation == .horizontal ? 1 : nil
+            )
+            .onAppear {
+                separatorColor = WindowChromeSeparatorColor.current()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                separatorColor = WindowChromeSeparatorColor.current()
+            }
+    }
+}
+
+/// 1px trailing border on the sidebar, derived from the terminal chrome background.
+private struct SidebarTrailingBorder: View {
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
+
+    var body: some View {
+        if matchTerminalBackground {
+            WindowChromeBorder(orientation: .vertical)
+        }
     }
 }
 
