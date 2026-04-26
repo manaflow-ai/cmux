@@ -284,8 +284,13 @@ final class MainWindowFocusController {
         }
         if let mode = rightSidebarModeOwning(responder) {
             lastRightSidebarMode = mode
-            pendingRightSidebarFirstItemFocusMode = nil
-            pendingFileSearchFocus = false
+            let isFallbackSidebarHost = rightSidebarHost.map { responder === $0 } ?? false
+            if !isFallbackSidebarHost || pendingRightSidebarFirstItemFocusMode != mode {
+                pendingRightSidebarFirstItemFocusMode = nil
+            }
+            if !isFallbackSidebarHost || !pendingFileSearchFocus || mode != .find {
+                pendingFileSearchFocus = false
+            }
             intent = .rightSidebar(mode: mode)
             if mode != .feed {
                 feedSelectedItemId = nil
