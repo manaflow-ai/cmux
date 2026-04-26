@@ -819,7 +819,9 @@ final class FeedKeyboardFocusView: NSView {
 
     func focusHostFromCoordinator() -> Bool {
         guard let window else { return false }
+#if DEBUG
         let before = feedDebugResponderSummary(window.firstResponder)
+#endif
         let result = window.makeFirstResponder(self)
 #if DEBUG
         dlog(

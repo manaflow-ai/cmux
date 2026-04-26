@@ -1042,6 +1042,7 @@ struct cmuxApp: App {
         AppDelegate.shared?.toggleNotificationsPopover(animated: false)
     }
 
+#if DEBUG
     private func openAllDebugWindows() {
         BrowserImportHintDebugWindowController.shared.show()
         BrowserProfilePopoverDebugWindowController.shared.show()
@@ -1054,6 +1055,7 @@ struct cmuxApp: App {
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
     }
+#endif
 }
 
 private struct MainWindowBootstrapView: View {
@@ -1622,6 +1624,7 @@ private enum DebugWindowConfigSnapshot {
     }
 }
 
+#if DEBUG
 private final class DebugWindowControlsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = DebugWindowControlsWindowController()
 
@@ -1943,6 +1946,7 @@ private struct DebugWindowControlsView: View {
         pasteboard.setString(payload, forType: .string)
     }
 }
+#endif
 
 private final class BrowserImportHintDebugWindowController: NSWindowController, NSWindowDelegate {
     static let shared = BrowserImportHintDebugWindowController()
