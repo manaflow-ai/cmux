@@ -193,12 +193,12 @@ struct WindowAppearanceSnapshot {
             return terminalBackdropPolicy()
         case .titlebar, .browserSurface:
             if unifySurfaceBackdrops {
-                return .clear
+                return terminalBackdropPolicy()
             }
             return terminalBackdropPolicy()
         case .leftSidebar, .rightSidebar:
             if unifySurfaceBackdrops {
-                return .clear
+                return terminalBackdropPolicy()
             }
             return .sidebarMaterial(sidebarSettings.materialPolicy)
         }

@@ -2924,7 +2924,6 @@ struct ContentView: View {
 
         return AnyView(
             layout
-                .background(sharedSurfaceBackdrop)
                 .overlay(alignment: .leading) {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay
@@ -2932,16 +2931,6 @@ struct ContentView: View {
                     }
                 }
         )
-    }
-
-    @ViewBuilder
-    private var sharedSurfaceBackdrop: some View {
-        if windowAppearanceSnapshot.unifySurfaceBackdrops {
-            WindowBackdropLayer(role: .terminalCanvas, snapshot: windowAppearanceSnapshot)
-                .ignoresSafeArea()
-        } else {
-            Color.clear
-        }
     }
 
     var body: some View {
@@ -3429,7 +3418,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
-            tabManager.applyWindowBackgroundForSelectedTab()
+            tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")
             guard sidebarState.isVisible,
                   sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
             if let observedWindow {
@@ -9182,6 +9171,8 @@ struct VerticalTabsSidebar: View {
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+    @AppStorage("sidebarMatchTerminalBackground")
+    private var sidebarMatchTerminalBackground = false
 
     /// Space at top of sidebar for traffic light buttons
     private let trafficLightPadding: CGFloat = 28
@@ -9396,7 +9387,10 @@ struct VerticalTabsSidebar: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
-                    SidebarTopScrim(height: trafficLightPadding + 20)
+                    SidebarTopScrim(
+                        height: trafficLightPadding + 20,
+                        isSharingTerminalBackground: sidebarMatchTerminalBackground
+                    )
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
@@ -11612,22 +11606,28 @@ private struct SidebarDevFooter: View {
 
 private struct SidebarTopScrim: View {
     let height: CGFloat
+    let isSharingTerminalBackground: Bool
 
     var body: some View {
-        SidebarTopBlurEffect()
-            .frame(height: height)
-            .mask(
-                LinearGradient(
-                    colors: [
-                        Color.black.opacity(0.95),
-                        Color.black.opacity(0.75),
-                        Color.black.opacity(0.35),
-                        Color.clear
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+        if isSharingTerminalBackground {
+            Color.clear
+                .frame(height: height)
+        } else {
+            SidebarTopBlurEffect()
+                .frame(height: height)
+                .mask(
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.95),
+                            Color.black.opacity(0.75),
+                            Color.black.opacity(0.35),
+                            Color.clear
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
-            )
+        }
     }
 }
 

@@ -721,24 +721,40 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
         XCTAssertNil(colors.borderHex)
     }
+
+    func testResolvedChromeColorsKeepChromeBackdropWhenSharingWindowBackdrop() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(
+            from: backgroundColor,
+            sharesWindowBackdrop: true
+        )
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertNil(colors.borderHex)
+    }
 }
 
 final class WindowAppearanceSnapshotTests: XCTestCase {
-    func testUnifiedSurfaceBackdropsClearChildSurfaces() {
+    func testUnifiedSurfaceBackdropsUseTerminalBackdropForNonTerminalSurfaces() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: true)
 
         assertTerminalBackdrop(snapshot.policy(for: .terminalCanvas))
         assertTerminalBackdrop(snapshot.policy(for: .bonsplitChrome))
-        assertClear(snapshot.policy(for: .titlebar))
-        assertClear(snapshot.policy(for: .browserSurface))
-        assertClear(snapshot.policy(for: .leftSidebar))
-        assertClear(snapshot.policy(for: .rightSidebar))
+        assertTerminalBackdrop(snapshot.policy(for: .titlebar))
+        assertTerminalBackdrop(snapshot.policy(for: .browserSurface))
+        assertTerminalBackdrop(snapshot.policy(for: .leftSidebar))
+        assertTerminalBackdrop(snapshot.policy(for: .rightSidebar))
     }
 
     func testSeparateSurfaceBackdropsKeepSidebarMaterialSeparate() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: false)
 
         assertTerminalBackdrop(snapshot.policy(for: .terminalCanvas))
+        assertTerminalBackdrop(snapshot.policy(for: .bonsplitChrome))
         assertTerminalBackdrop(snapshot.policy(for: .titlebar))
 
         guard case let .sidebarMaterial(leftPolicy) = snapshot.policy(for: .leftSidebar) else {
@@ -797,16 +813,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(renderingMode, .hostLayerSolidColor, file: file, line: line)
     }
 
-    private func assertClear(
-        _ policy: WindowBackdropPolicy,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        guard case .clear = policy else {
-            XCTFail("expected clear backdrop", file: file, line: line)
-            return
-        }
-    }
 }
 
 final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
@@ -878,6 +884,22 @@ final class WorkspaceChromeColorTests: XCTestCase {
 
         let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
+    }
+
+    func testBonsplitChromeHexKeepsBackdropWhenSharingWindowBackdrop() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let hex = Workspace.bonsplitChromeHex(
+            backgroundColor: color,
+            backgroundOpacity: 0.5,
+            sharesWindowBackdrop: true
+        )
+        XCTAssertEqual(hex, "#1122337F")
     }
 }
 

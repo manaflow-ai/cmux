@@ -4817,6 +4817,19 @@ class TabManager: ObservableObject {
         terminalPanel.applyWindowBackgroundIfActive()
     }
 
+    func applyWindowBackdropModeForAllTabs(reason: String) {
+        let backgroundColor = GhosttyApp.shared.defaultBackgroundColor
+        let backgroundOpacity = GhosttyApp.shared.defaultBackgroundOpacity
+        for tab in tabs {
+            tab.applyGhosttyChrome(
+                backgroundColor: backgroundColor,
+                backgroundOpacity: backgroundOpacity,
+                reason: reason
+            )
+        }
+        applyWindowBackgroundForSelectedTab()
+    }
+
     private func focusSelectedTabPanel(previousTabId: UUID?) {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
