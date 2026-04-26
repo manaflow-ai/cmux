@@ -3,6 +3,7 @@ import AppKit
 import CoreText
 import WebKit
 import Darwin
+import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -705,6 +706,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 
         let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
         XCTAssertNil(colors.borderHex)
     }
 
@@ -716,7 +718,94 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 
         let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
         XCTAssertNil(colors.borderHex)
+    }
+}
+
+final class WindowAppearanceSnapshotTests: XCTestCase {
+    func testUnifiedSurfaceBackdropsClearChildSurfaces() {
+        let snapshot = makeSnapshot(unifySurfaceBackdrops: true)
+
+        assertTerminalBackdrop(snapshot.policy(for: .terminalCanvas))
+        assertTerminalBackdrop(snapshot.policy(for: .bonsplitChrome))
+        assertClear(snapshot.policy(for: .titlebar))
+        assertClear(snapshot.policy(for: .browserSurface))
+        assertClear(snapshot.policy(for: .leftSidebar))
+        assertClear(snapshot.policy(for: .rightSidebar))
+    }
+
+    func testSeparateSurfaceBackdropsKeepSidebarMaterialSeparate() {
+        let snapshot = makeSnapshot(unifySurfaceBackdrops: false)
+
+        assertTerminalBackdrop(snapshot.policy(for: .terminalCanvas))
+        assertTerminalBackdrop(snapshot.policy(for: .titlebar))
+
+        guard case let .sidebarMaterial(leftPolicy) = snapshot.policy(for: .leftSidebar) else {
+            XCTFail("left sidebar should keep its own material policy")
+            return
+        }
+        XCTAssertEqual(leftPolicy.material, .sidebar)
+        XCTAssertEqual(leftPolicy.blendingMode, .withinWindow)
+
+        guard case let .sidebarMaterial(rightPolicy) = snapshot.policy(for: .rightSidebar) else {
+            XCTFail("right sidebar should keep its own material policy")
+            return
+        }
+        XCTAssertEqual(rightPolicy.material, .sidebar)
+        XCTAssertEqual(rightPolicy.blendingMode, .withinWindow)
+    }
+
+    private func makeSnapshot(unifySurfaceBackdrops: Bool) -> WindowAppearanceSnapshot {
+        WindowAppearanceSnapshot(
+            terminalBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            terminalBackgroundOpacity: 0.6,
+            terminalRenderingMode: .hostLayerSolidColor,
+            unifySurfaceBackdrops: unifySurfaceBackdrops,
+            sidebarSettings: SidebarBackdropSettingsSnapshot(
+                materialRawValue: SidebarMaterialOption.sidebar.rawValue,
+                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                stateRawValue: SidebarStateOption.followWindow.rawValue,
+                tintHex: "#000000",
+                tintHexLight: nil,
+                tintHexDark: nil,
+                tintOpacity: 0.18,
+                cornerRadius: 0,
+                blurOpacity: 1,
+                colorScheme: .dark
+            ),
+            windowGlassSettings: WindowGlassSettingsSnapshot(
+                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                isEnabled: false,
+                tintHex: "#000000",
+                tintOpacity: 0.03
+            )
+        )
+    }
+
+    private func assertTerminalBackdrop(
+        _ policy: WindowBackdropPolicy,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard case let .ghosttyTerminalBackdrop(color, opacity, renderingMode) = policy else {
+            XCTFail("expected terminal backdrop", file: file, line: line)
+            return
+        }
+        XCTAssertEqual(color.hexString(), "#272822", file: file, line: line)
+        XCTAssertEqual(opacity, 0.6, accuracy: 0.0001, file: file, line: line)
+        XCTAssertEqual(renderingMode, .hostLayerSolidColor, file: file, line: line)
+    }
+
+    private func assertClear(
+        _ policy: WindowBackdropPolicy,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard case .clear = policy else {
+            XCTFail("expected clear backdrop", file: file, line: line)
+            return
+        }
     }
 }
 

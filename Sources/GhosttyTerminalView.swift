@@ -164,6 +164,10 @@ func cmuxShouldUseClearWindowBackground(for opacity: Double) -> Bool {
     cmuxShouldUseTransparentBackgroundWindow() || opacity < 0.999
 }
 
+func cmuxShouldUseSharedSurfaceBackdrop() -> Bool {
+    UserDefaults.standard.bool(forKey: "sidebarMatchTerminalBackground")
+}
+
 private func cmuxTransparentWindowBaseColor() -> NSColor {
     // A tiny non-zero alpha matches Ghostty's window compositing behavior on macOS and
     // avoids visual artifacts that can happen with a fully clear window background.
@@ -5829,7 +5833,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
-        let color = renderingMode.usesHostLayerFill ? effectiveBackgroundColor() : .clear
+        let color = renderingMode.usesHostLayerFill && !cmuxShouldUseSharedSurfaceBackdrop()
+            ? effectiveBackgroundColor()
+            : .clear
         if let layer {
             CATransaction.begin()
             CATransaction.setDisableActions(true)

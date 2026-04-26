@@ -2504,9 +2504,10 @@ struct ContentView: View {
     }
 
     private func sidebarBackdropLayer(width: CGFloat, role: WindowBackdropRole) -> some View {
-        SidebarBackdrop(role: role)
+        WindowBackdropLayer(role: role, snapshot: windowAppearanceSnapshot)
             .ignoresSafeArea()
             .frame(width: width)
+            .clipShape(RoundedRectangle(cornerRadius: windowAppearanceSnapshot.sidebarSettings.materialPolicy.cornerRadius, style: .continuous))
             .clipped()
             .allowsHitTesting(false)
     }
@@ -2923,6 +2924,7 @@ struct ContentView: View {
 
         return AnyView(
             layout
+                .background(sharedSurfaceBackdrop)
                 .overlay(alignment: .leading) {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay
@@ -2930,6 +2932,16 @@ struct ContentView: View {
                     }
                 }
         )
+    }
+
+    @ViewBuilder
+    private var sharedSurfaceBackdrop: some View {
+        if windowAppearanceSnapshot.unifySurfaceBackdrops {
+            WindowBackdropLayer(role: .terminalCanvas, snapshot: windowAppearanceSnapshot)
+                .ignoresSafeArea()
+        } else {
+            Color.clear
+        }
     }
 
     var body: some View {
@@ -3417,6 +3429,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
+            tabManager.applyWindowBackgroundForSelectedTab()
             guard sidebarState.isVisible,
                   sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
             if let observedWindow {
@@ -14937,10 +14950,7 @@ private struct WindowBackdropLayer: View {
             // Renderer-owned background images currently cannot be shared outside
             // the terminal Metal pass, so non-terminal roles use Ghostty's fallback
             // color/opacity until cmux grows a host image backdrop renderer.
-            TitlebarLayerBackground(
-                backgroundColor: color,
-                opacity: opacity
-            )
+            Color(nsColor: color.withAlphaComponent(opacity))
         case let .sidebarMaterial(materialPolicy):
             ZStack {
                 if let material = materialPolicy.material,
@@ -14964,58 +14974,6 @@ private struct WindowBackdropLayer: View {
         case .clear:
             Color.clear
         }
-    }
-}
-
-struct SidebarBackdrop: View {
-    let role: WindowBackdropRole
-    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
-    @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
-    @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
-    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
-    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
-    @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
-    @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
-    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
-    @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
-    @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
-    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var backgroundGeneration: UInt64 = 0
-
-    var body: some View {
-        _ = backgroundGeneration
-        let snapshot = WindowAppearanceSnapshot.current(
-            unifySurfaceBackdrops: matchTerminalBackground,
-            colorScheme: colorScheme,
-            sidebarMaterial: sidebarMaterial,
-            sidebarBlendMode: sidebarBlendMode,
-            sidebarState: sidebarState,
-            sidebarTintHex: sidebarTintHex,
-            sidebarTintHexLight: sidebarTintHexLight,
-            sidebarTintHexDark: sidebarTintHexDark,
-            sidebarTintOpacity: sidebarTintOpacity,
-            sidebarCornerRadius: sidebarCornerRadius,
-            sidebarBlurOpacity: sidebarBlurOpacity,
-            bgGlassEnabled: bgGlassEnabled,
-            bgGlassTintHex: bgGlassTintHex,
-            bgGlassTintOpacity: bgGlassTintOpacity
-        )
-
-        return AnyView(
-            WindowBackdropLayer(role: role, snapshot: snapshot)
-            .clipShape(RoundedRectangle(cornerRadius: snapshot.sidebarSettings.materialPolicy.cornerRadius, style: .continuous))
-            .onAppear(perform: refreshTerminalBackground)
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-                refreshTerminalBackground()
-            }
-        )
-    }
-
-    private func refreshTerminalBackground() {
-        backgroundGeneration &+= 1
     }
 }
 

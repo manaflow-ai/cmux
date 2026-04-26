@@ -163,23 +163,3 @@ enum WindowGlassEffect {
         objc_setAssociatedObject(window, &tintOverlayKey, nil, .OBJC_ASSOCIATION_RETAIN)
     }
 }
-
-/// CALayer-backed titlebar background. Uses layer-level opacity (not per-pixel alpha)
-/// to match how the terminal's Metal surface composites its background.
-struct TitlebarLayerBackground: NSViewRepresentable {
-    var backgroundColor: NSColor
-    var opacity: CGFloat
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
-        view.layer?.opacity = Float(opacity)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        nsView.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
-        nsView.layer?.opacity = Float(opacity)
-    }
-}

@@ -189,11 +189,16 @@ struct WindowAppearanceSnapshot {
 
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
         switch role {
-        case .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
+        case .terminalCanvas, .bonsplitChrome:
+            return terminalBackdropPolicy()
+        case .titlebar, .browserSurface:
+            if unifySurfaceBackdrops {
+                return .clear
+            }
             return terminalBackdropPolicy()
         case .leftSidebar, .rightSidebar:
             if unifySurfaceBackdrops {
-                return terminalBackdropPolicy()
+                return .clear
             }
             return .sidebarMaterial(sidebarSettings.materialPolicy)
         }
