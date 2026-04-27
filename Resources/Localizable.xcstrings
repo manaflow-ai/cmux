@@ -1294,6 +1294,74 @@
         }
       }
     },
+    "debug.tabBarBackdropLab.candidateEnd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End opacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端不透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate fade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補フェード"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateLead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lead opacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始不透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.maskTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mask tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブをマスク"
+          }
+        }
+      }
+    },
     "debug.tabBarBackdropLab.opacity": {
       "extractionState": "manual",
       "localizations": {
@@ -1532,6 +1600,176 @@
         }
       }
     },
+    "debug.tabBarBackdropLab.variant.candidate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidate.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translucent chrome with tab occlusion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを隠す半透明クロームです。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateLowContrast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low contrast"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低コントラスト"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateLowContrast.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lower-opacity solid region."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソリッド領域の不透明度を下げます。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateSoftEnd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soft end"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔らかい終端"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateSoftEnd.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same mask with lighter button fill."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じマスクでボタン背景を薄くします。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateTightEdge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tight edge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強めの端"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateTightEdge.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More coverage at the fade start."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェード開始部分の被覆を強めます。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateWideFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wide fade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "広いフェード"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateWideFade.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same model with a softer edge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じモデルで端をより柔らかくします。"
+          }
+        }
+      }
+    },
     "debug.tabBarBackdropLab.variant.controlBackground": {
       "extractionState": "manual",
       "localizations": {
@@ -1725,13 +1963,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Candidate default. Hides overflow tabs under the buttons."
+            "value": "Old candidate. Covers too hard."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "候補のデフォルトです。ボタンの下のあふれたタブを隠します。"
+            "value": "以前の候補です。被覆が強すぎます。"
           }
         }
       }
@@ -1766,6 +2004,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "透けて見える問題を表示します。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentNoFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No fade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェードなし"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentNoFade.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hard translucent edge for contrast."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較用の硬い半透明エッジです。"
           }
         }
       }

@@ -6947,6 +6947,17 @@ final class Workspace: Identifiable, ObservableObject {
         "#00000000"
     }
 
+    nonisolated static func bonsplitSplitButtonBackdropEffect() -> BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
+        .init(
+            style: .translucentChrome,
+            fadeWidth: 24,
+            contentFadeWidth: 24,
+            leadingOpacity: 0,
+            trailingOpacity: 1.0,
+            masksTabContent: true
+        )
+    }
+
     nonisolated static func resolvedChromeColors(
         from backgroundColor: NSColor,
         sharesWindowBackdrop: Bool = false
@@ -6968,6 +6979,7 @@ final class Workspace: Identifiable, ObservableObject {
         let sharesWindowBackdrop = usesSharedSurfaceBackdrop()
         return BonsplitConfiguration.Appearance(
             tabTitleFontSize: tabTitleFontSize,
+            splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
             chromeColors: .init(
