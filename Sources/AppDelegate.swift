@@ -10477,7 +10477,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Always consume the event when the digit matches to prevent Ghostty's
         // goto_tab fallback from creating a new window when the index is out of bounds.
         if let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
-            if let manager = tabManager,
+            let manager = contextForMainWindow(mainWindowForShortcutEvent(event))?.tabManager ?? tabManager
+            if let manager,
                let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
                 cmuxDebugLog(
@@ -10491,10 +10492,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Numeric shortcuts for surfaces within the focused pane (9 = last)
         if let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+            let manager = contextForMainWindow(mainWindowForShortcutEvent(event))?.tabManager ?? tabManager
             if digit == 9 {
-                tabManager?.selectLastSurface()
+                manager?.selectLastSurface()
             } else {
-                tabManager?.selectSurface(at: digit - 1)
+                manager?.selectSurface(at: digit - 1)
             }
             return true
         }
