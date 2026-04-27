@@ -4039,7 +4039,6 @@ struct ContentView: View {
 
         if enabled {
             rememberNativeTitlebarBackdropState(
-                in: window,
                 titlebarContainer: titlebarContainer,
                 titlebarView: titlebarView,
                 titlebarBackgroundView: titlebarBackgroundView,
@@ -4047,7 +4046,6 @@ struct ContentView: View {
             )
         } else {
             restoreNativeTitlebarBackdropState(
-                in: window,
                 titlebarContainer: titlebarContainer,
                 titlebarView: titlebarView,
                 titlebarBackgroundView: titlebarBackgroundView,
@@ -4067,76 +4065,91 @@ struct ContentView: View {
         window.titlebarAppearsTransparent = true
     }
 
-    private static var unifiedTitlebarAppliedKey: UInt8 = 0
-    private static var unifiedTitlebarColorKey: UInt8 = 0
-    private static var unifiedTitlebarContainerColorKey: UInt8 = 0
-    private static var unifiedTitlebarOpaqueKey: UInt8 = 0
-    private static var unifiedTitlebarContainerOpaqueKey: UInt8 = 0
-    private static var unifiedTitlebarBackgroundHiddenKey: UInt8 = 0
-    private static var unifiedTitlebarEffectHiddenKey: UInt8 = 0
+    private static var unifiedTitlebarLayerAppliedKey: UInt8 = 0
+    private static var unifiedTitlebarLayerColorKey: UInt8 = 0
+    private static var unifiedTitlebarLayerOpaqueKey: UInt8 = 0
+    private static var unifiedTitlebarHiddenAppliedKey: UInt8 = 0
+    private static var unifiedTitlebarHiddenKey: UInt8 = 0
 
     private func rememberNativeTitlebarBackdropState(
-        in window: NSWindow,
         titlebarContainer: NSView,
         titlebarView: NSView?,
         titlebarBackgroundView: NSView?,
         effectView: NSView?
     ) {
-        guard objc_getAssociatedObject(window, &Self.unifiedTitlebarAppliedKey) == nil else { return }
-
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarAppliedKey, NSNumber(value: true), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarColorKey, titlebarView?.layer?.backgroundColor ?? NSNull(), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarContainerColorKey, titlebarContainer.layer?.backgroundColor ?? NSNull(), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarOpaqueKey, titlebarView?.layer.map { NSNumber(value: $0.isOpaque) } ?? NSNull(), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarContainerOpaqueKey, titlebarContainer.layer.map { NSNumber(value: $0.isOpaque) } ?? NSNull(), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarBackgroundHiddenKey, NSNumber(value: titlebarBackgroundView?.isHidden ?? false), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarEffectHiddenKey, NSNumber(value: effectView?.isHidden ?? false), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        rememberNativeTitlebarLayerState(titlebarContainer)
+        if let titlebarView {
+            rememberNativeTitlebarLayerState(titlebarView)
+        }
+        if let titlebarBackgroundView {
+            rememberNativeTitlebarHiddenState(titlebarBackgroundView)
+        }
+        if let effectView {
+            rememberNativeTitlebarHiddenState(effectView)
+        }
     }
 
     private func restoreNativeTitlebarBackdropState(
-        in window: NSWindow,
         titlebarContainer: NSView,
         titlebarView: NSView?,
         titlebarBackgroundView: NSView?,
         effectView: NSView?
     ) {
-        guard objc_getAssociatedObject(window, &Self.unifiedTitlebarAppliedKey) != nil else { return }
+        restoreNativeTitlebarLayerState(titlebarContainer)
+        if let titlebarView {
+            restoreNativeTitlebarLayerState(titlebarView)
+        }
+        if let titlebarBackgroundView {
+            restoreNativeTitlebarHiddenState(titlebarBackgroundView)
+        }
+        if let effectView {
+            restoreNativeTitlebarHiddenState(effectView)
+        }
+    }
 
-        if let storedColor = objc_getAssociatedObject(window, &Self.unifiedTitlebarColorKey),
+    private func rememberNativeTitlebarLayerState(_ view: NSView) {
+        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey) == nil else { return }
+
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey, NSNumber(value: true), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerColorKey, view.layer?.backgroundColor ?? NSNull(), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerOpaqueKey, view.layer.map { NSNumber(value: $0.isOpaque) } ?? NSNull(), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func restoreNativeTitlebarLayerState(_ view: NSView) {
+        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey) != nil else { return }
+
+        if let storedColor = objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerColorKey),
            !(storedColor is NSNull) {
-            titlebarView?.layer?.backgroundColor = storedColor as! CGColor
+            view.layer?.backgroundColor = storedColor as! CGColor
         } else {
-            titlebarView?.layer?.backgroundColor = nil
+            view.layer?.backgroundColor = nil
         }
 
-        if let storedColor = objc_getAssociatedObject(window, &Self.unifiedTitlebarContainerColorKey),
-           !(storedColor is NSNull) {
-            titlebarContainer.layer?.backgroundColor = storedColor as! CGColor
-        } else {
-            titlebarContainer.layer?.backgroundColor = nil
+        if let isOpaque = objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerOpaqueKey) as? NSNumber {
+            view.layer?.isOpaque = isOpaque.boolValue
         }
 
-        if let isOpaque = objc_getAssociatedObject(window, &Self.unifiedTitlebarOpaqueKey) as? NSNumber {
-            titlebarView?.layer?.isOpaque = isOpaque.boolValue
-        }
-        if let isOpaque = objc_getAssociatedObject(window, &Self.unifiedTitlebarContainerOpaqueKey) as? NSNumber {
-            titlebarContainer.layer?.isOpaque = isOpaque.boolValue
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerColorKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerOpaqueKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func rememberNativeTitlebarHiddenState(_ view: NSView) {
+        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey) == nil else { return }
+
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey, NSNumber(value: true), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenKey, NSNumber(value: view.isHidden), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func restoreNativeTitlebarHiddenState(_ view: NSView) {
+        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey) != nil else { return }
+
+        if let hidden = objc_getAssociatedObject(view, &Self.unifiedTitlebarHiddenKey) as? NSNumber {
+            view.isHidden = hidden.boolValue
         }
 
-        if let hidden = objc_getAssociatedObject(window, &Self.unifiedTitlebarBackgroundHiddenKey) as? NSNumber {
-            titlebarBackgroundView?.isHidden = hidden.boolValue
-        }
-        if let hidden = objc_getAssociatedObject(window, &Self.unifiedTitlebarEffectHiddenKey) as? NSNumber {
-            effectView?.isHidden = hidden.boolValue
-        }
-
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarAppliedKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarColorKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarContainerColorKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarOpaqueKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarContainerOpaqueKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarBackgroundHiddenKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(window, &Self.unifiedTitlebarEffectHiddenKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
     private func nativeTitlebarContainer(in window: NSWindow) -> NSView? {
