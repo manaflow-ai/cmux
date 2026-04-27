@@ -7037,6 +7037,10 @@ struct CMUXCLI {
                     throw CLIError(message: "browser <surface> open does not support JavaScript URLs")
                 }
 
+                guard !url.lowercased().hasPrefix("data:") else {
+                    throw CLIError(message: "browser <surface> open requires a valid data URL")
+                }
+
                 let payload = try client.sendV2(method: "browser.navigate", params: ["surface_id": sid, "url": url])
                 output(payload, fallback: "OK")
                 return
@@ -7047,6 +7051,9 @@ struct CMUXCLI {
                 if url.lowercased().hasPrefix("javascript:") {
                     throw CLIError(message: "browser \(subcommand) does not support JavaScript URLs")
                 } 
+               if url.lowercased().hasPrefix("data:") {
+                    throw CLIError(message: "browser \(subcommand) requires a valid data URL")
+                }  
                 params["url"] = url
             }
             if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
@@ -7087,6 +7094,9 @@ struct CMUXCLI {
             }
             guard !url.lowercased().hasPrefix("javascript:") else {
                 throw CLIError(message: "browser \(subcommand) does not support JavaScript URLs")
+            }
+            guard !url.lowercased().hasPrefix("data:") else {
+                throw CLIError(message: "browser \(subcommand) requires a valid data URL")
             }
             var params: [String: Any] = ["surface_id": sid, "url": url]
             if snapshotAfter {
