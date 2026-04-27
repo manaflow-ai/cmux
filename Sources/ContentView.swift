@@ -15137,12 +15137,8 @@ struct WindowChromeBorder: View {
 
 /// 1px trailing border on the sidebar, derived from the terminal chrome background.
 private struct SidebarTrailingBorder: View {
-    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
-
     var body: some View {
-        if matchTerminalBackground {
-            WindowChromeBorder(orientation: .vertical)
-        }
+        WindowChromeBorder(orientation: .vertical)
     }
 }
 
