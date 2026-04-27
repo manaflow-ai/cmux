@@ -3651,16 +3651,7 @@ struct ContentView: View {
                     hostingSafeAreaTop = nextSafeAreaTop
                 }
             }
-            let titlebarBackdropLeftWidth = sidebarState.isVisible ? sidebarWidth : 0
-            let titlebarBackdropRightWidth = rightSidebarWidth
-            installNativeTitlebarBackdrop(
-                in: window,
-                height: nextPadding,
-                leftWidth: titlebarBackdropLeftWidth,
-                rightWidth: titlebarBackdropRightWidth,
-                color: currentThemeBackground,
-                enabled: shouldForceTransparentHosting
-            )
+            removeNativeTitlebarBackdrop(in: window)
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                 UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
@@ -3966,60 +3957,13 @@ struct ContentView: View {
         WindowGlassEffect.updateTint(to: window, color: tintColor)
     }
 
-    private func installNativeTitlebarBackdrop(
-        in window: NSWindow,
-        height: CGFloat,
-        leftWidth: CGFloat,
-        rightWidth: CGFloat,
-        color: NSColor,
-        enabled: Bool
-    ) {
+    private func removeNativeTitlebarBackdrop(in window: NSWindow) {
         guard let contentView = window.contentView,
               let themeFrame = contentView.superview else { return }
 
         let identifier = NSUserInterfaceItemIdentifier("cmux.nativeTitlebarBackdrop")
         let existing = themeFrame.subviews.first { $0.identifier == identifier } as? NativeTitlebarBackdropView
-        guard enabled else {
-            existing?.removeFromSuperview()
-            return
-        }
-
-        let backdrop = existing ?? NativeTitlebarBackdropView(frame: .zero)
-        backdrop.identifier = identifier
-        backdrop.wantsLayer = true
-        backdrop.layer?.backgroundColor = color.cgColor
-        backdrop.layer?.isOpaque = color.alphaComponent >= 0.999
-        backdrop.autoresizingMask = [.width, .minYMargin]
-
-        let resolvedHeight = max(0, height)
-        let resolvedLeftWidth = max(0, leftWidth)
-        let resolvedRightWidth = max(0, rightWidth)
-        let resolvedWidth = max(0, themeFrame.bounds.width - resolvedLeftWidth - resolvedRightWidth)
-        backdrop.frame = NSRect(
-            x: resolvedLeftWidth,
-            y: max(0, themeFrame.bounds.height - resolvedHeight),
-            width: resolvedWidth,
-            height: resolvedHeight
-        )
-
-        if backdrop.superview == nil {
-            if contentView.superview === themeFrame {
-                themeFrame.addSubview(backdrop, positioned: .below, relativeTo: contentView)
-                return
-            }
-
-            var titlebarChromeView: NSView? = window.standardWindowButton(.closeButton)
-            while let parent = titlebarChromeView?.superview, parent !== themeFrame {
-                titlebarChromeView = parent
-            }
-
-            if let titlebarChromeView,
-               titlebarChromeView.superview === themeFrame {
-                themeFrame.addSubview(backdrop, positioned: .below, relativeTo: titlebarChromeView)
-            } else {
-                themeFrame.addSubview(backdrop, positioned: .below, relativeTo: nil)
-            }
-        }
+        existing?.removeFromSuperview()
     }
 
     private func syncNativeTitlebarBackdrop(
@@ -4032,26 +3976,25 @@ struct ContentView: View {
             className: "NSTitlebarView",
             includeRoot: true
         )
-        let titlebarBackgroundView = firstNativeDescendant(
+        let titlebarBackgroundViews = nativeDescendants(
             in: titlebarContainer,
-            className: "NSTitlebarBackgroundView",
-            includeRoot: true
+            className: "NSTitlebarBackgroundView"
         )
-        let effectView = nativeDescendants(in: titlebarContainer, className: "NSVisualEffectView").first
+        let effectViews = nativeDescendants(in: titlebarContainer, className: "NSVisualEffectView")
 
         if enabled {
             rememberNativeTitlebarBackdropState(
                 titlebarContainer: titlebarContainer,
                 titlebarView: titlebarView,
-                titlebarBackgroundView: titlebarBackgroundView,
-                effectView: effectView
+                titlebarBackgroundViews: titlebarBackgroundViews,
+                effectViews: effectViews
             )
         } else {
             restoreNativeTitlebarBackdropState(
                 titlebarContainer: titlebarContainer,
                 titlebarView: titlebarView,
-                titlebarBackgroundView: titlebarBackgroundView,
-                effectView: effectView
+                titlebarBackgroundViews: titlebarBackgroundViews,
+                effectViews: effectViews
             )
             return
         }
@@ -4062,8 +4005,12 @@ struct ContentView: View {
         titlebarView?.wantsLayer = true
         titlebarView?.layer?.backgroundColor = nil
         titlebarView?.layer?.isOpaque = false
-        titlebarBackgroundView?.isHidden = true
-        effectView?.isHidden = true
+        for titlebarBackgroundView in titlebarBackgroundViews {
+            titlebarBackgroundView.isHidden = true
+        }
+        for effectView in effectViews {
+            effectView.isHidden = true
+        }
         window.titlebarAppearsTransparent = true
     }
 
@@ -4076,17 +4023,17 @@ struct ContentView: View {
     private func rememberNativeTitlebarBackdropState(
         titlebarContainer: NSView,
         titlebarView: NSView?,
-        titlebarBackgroundView: NSView?,
-        effectView: NSView?
+        titlebarBackgroundViews: [NSView],
+        effectViews: [NSView]
     ) {
         rememberNativeTitlebarLayerState(titlebarContainer)
         if let titlebarView {
             rememberNativeTitlebarLayerState(titlebarView)
         }
-        if let titlebarBackgroundView {
+        for titlebarBackgroundView in titlebarBackgroundViews {
             rememberNativeTitlebarHiddenState(titlebarBackgroundView)
         }
-        if let effectView {
+        for effectView in effectViews {
             rememberNativeTitlebarHiddenState(effectView)
         }
     }
@@ -4094,17 +4041,17 @@ struct ContentView: View {
     private func restoreNativeTitlebarBackdropState(
         titlebarContainer: NSView,
         titlebarView: NSView?,
-        titlebarBackgroundView: NSView?,
-        effectView: NSView?
+        titlebarBackgroundViews: [NSView],
+        effectViews: [NSView]
     ) {
         restoreNativeTitlebarLayerState(titlebarContainer)
         if let titlebarView {
             restoreNativeTitlebarLayerState(titlebarView)
         }
-        if let titlebarBackgroundView {
+        for titlebarBackgroundView in titlebarBackgroundViews {
             restoreNativeTitlebarHiddenState(titlebarBackgroundView)
         }
-        if let effectView {
+        for effectView in effectViews {
             restoreNativeTitlebarHiddenState(effectView)
         }
     }

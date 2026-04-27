@@ -762,12 +762,12 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 }
 
 final class WindowAppearanceSnapshotTests: XCTestCase {
-    func testUnifiedSurfaceBackdropsLetNativeTitlebarUseWindowBackdrop() {
+    func testUnifiedSurfaceBackdropsUseTerminalTitlebarBackdrop() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: true)
 
         assertTerminalBackdrop(snapshot.policy(for: .terminalCanvas))
         assertTerminalBackdrop(snapshot.policy(for: .bonsplitChrome))
-        assertClearBackdrop(snapshot.policy(for: .titlebar))
+        assertTerminalBackdrop(snapshot.policy(for: .titlebar))
         assertTerminalBackdrop(snapshot.policy(for: .browserSurface))
         assertTerminalBackdrop(snapshot.policy(for: .leftSidebar))
         assertTerminalBackdrop(snapshot.policy(for: .rightSidebar))
@@ -778,7 +778,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
         assertTerminalBackdrop(snapshot.policy(for: .terminalCanvas))
         assertTerminalBackdrop(snapshot.policy(for: .bonsplitChrome))
-        assertClearBackdrop(snapshot.policy(for: .titlebar))
+        assertTerminalBackdrop(snapshot.policy(for: .titlebar))
 
         guard case let .sidebarMaterial(leftPolicy) = snapshot.policy(for: .leftSidebar) else {
             XCTFail("left sidebar should keep its own material policy")
