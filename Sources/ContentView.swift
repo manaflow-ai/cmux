@@ -2480,7 +2480,7 @@ struct ContentView: View {
         return -max(0, min(titlebarPadding, hostingSafeAreaTop))
     }
 
-    private var terminalContent: some View {
+    private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
         let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId
@@ -2541,13 +2541,13 @@ struct ContentView: View {
         .overlay(alignment: .top) {
             if !isMinimalMode {
                 // Titlebar overlay is only over terminal content, not the sidebar.
-                customTitlebar
+                customTitlebar(appearance: appearance)
             }
         }
     }
 
-    private var terminalContentWithSidebarDropOverlay: some View {
-        terminalContent
+    private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {
+        terminalContent(appearance: appearance)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .layoutPriority(1)
             .overlay {
@@ -2555,13 +2555,13 @@ struct ContentView: View {
             }
     }
 
-    private var terminalContentWithRightSidebarPanel: some View {
+    private func terminalContentWithRightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
         // File explorer is always in the view tree. Visibility is controlled by
         // frame width (0 when hidden), avoiding SwiftUI view insertion/removal
         // and all associated transition animations.
         return HStack(spacing: 0) {
-            terminalContentWithSidebarDropOverlay
-            rightSidebarPanelWithBackdrop
+            terminalContentWithSidebarDropOverlay(appearance: appearance)
+            rightSidebarPanelWithBackdrop(appearance: appearance)
         }
     }
 
@@ -2573,11 +2573,15 @@ struct ContentView: View {
         rightSidebarVisible ? fileExplorerWidth : 0
     }
 
-    private func sidebarBackdropLayer(width: CGFloat, role: WindowBackdropRole) -> some View {
-        WindowBackdropLayer(role: role, snapshot: windowAppearanceSnapshot)
+    private func sidebarBackdropLayer(
+        width: CGFloat,
+        role: WindowBackdropRole,
+        appearance: WindowAppearanceSnapshot
+    ) -> some View {
+        WindowBackdropLayer(role: role, snapshot: appearance)
             .ignoresSafeArea()
             .frame(width: width)
-            .clipShape(RoundedRectangle(cornerRadius: windowAppearanceSnapshot.sidebarSettings.materialPolicy.cornerRadius, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: appearance.sidebarSettings.materialPolicy.cornerRadius, style: .continuous))
             .clipped()
             .allowsHitTesting(false)
     }
@@ -2586,23 +2590,24 @@ struct ContentView: View {
         width: CGFloat,
         alignment: Alignment,
         role: WindowBackdropRole,
+        appearance: WindowAppearanceSnapshot,
         @ViewBuilder content: () -> Content
     ) -> some View {
         ZStack(alignment: alignment) {
-            sidebarBackdropLayer(width: width, role: role)
+            sidebarBackdropLayer(width: width, role: role, appearance: appearance)
             content()
         }
         .frame(width: width)
     }
 
-    private var sidebarPanelWithBackdrop: some View {
-        sidebarPanelContainer(width: sidebarWidth, alignment: .leading, role: .leftSidebar) {
+    private func sidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
+        sidebarPanelContainer(width: sidebarWidth, alignment: .leading, role: .leftSidebar, appearance: appearance) {
             sidebarView
         }
     }
 
-    private var rightSidebarPanelWithBackdrop: some View {
-        sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar) {
+    private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
+        sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
             rightSidebarPanel
         }
         .overlay(alignment: .leading) {
@@ -2688,8 +2693,8 @@ struct ContentView: View {
         )
     }
 
-    private var fakeTitlebarTextColor: Color {
-        let ghosttyBackground = windowAppearanceSnapshot.terminalBackgroundColor
+    private func fakeTitlebarTextColor(appearance: WindowAppearanceSnapshot) -> Color {
+        let ghosttyBackground = appearance.terminalBackgroundColor
         return ghosttyBackground.isLightColor
             ? Color.black.opacity(0.78)
             : Color.white.opacity(0.82)
@@ -2715,7 +2720,7 @@ struct ContentView: View {
         )
     }
 
-    private var customTitlebar: some View {
+    private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
         ZStack {
             // Enable window dragging from the titlebar strip without making the entire content
             // view draggable (which breaks drag gestures like tab reordering).
@@ -2737,7 +2742,7 @@ struct ContentView: View {
 
                 Text(titlebarText)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(fakeTitlebarTextColor)
+                    .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
                     .lineLimit(1)
                     .allowsHitTesting(false)
 
@@ -2753,7 +2758,7 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
-        .background(WindowBackdropLayer(role: .titlebar, snapshot: windowAppearanceSnapshot))
+        .background(WindowBackdropLayer(role: .titlebar, snapshot: appearance))
         .overlay(alignment: .bottom) {
             WindowChromeBorder(orientation: .horizontal)
         }
@@ -2956,7 +2961,7 @@ struct ContentView: View {
         return dir.isEmpty ? nil : dir
     }
 
-    private var contentAndSidebarLayout: AnyView {
+    private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
         let layout: AnyView
         // When matching terminal background, use HStack so both sidebar and terminal
         // sit directly on the window background with no intermediate layers.
@@ -2969,14 +2974,14 @@ struct ContentView: View {
             layout = AnyView(
                 ZStack(alignment: .leading) {
                     HStack(spacing: 0) {
-                        terminalContentWithSidebarDropOverlay
+                        terminalContentWithSidebarDropOverlay(appearance: appearance)
                             .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)
-                        rightSidebarPanelWithBackdrop
+                        rightSidebarPanelWithBackdrop(appearance: appearance)
                     }
                     if sidebarState.isVisible {
-                        sidebarPanelWithBackdrop
+                        sidebarPanelWithBackdrop(appearance: appearance)
                     }
                 }
             )
@@ -2985,9 +2990,9 @@ struct ContentView: View {
             layout = AnyView(
                 HStack(spacing: 0) {
                     if sidebarState.isVisible {
-                        sidebarPanelWithBackdrop
+                        sidebarPanelWithBackdrop(appearance: appearance)
                     }
-                    terminalContentWithRightSidebarPanel
+                    terminalContentWithRightSidebarPanel(appearance: appearance)
                 }
             )
         }
@@ -3010,8 +3015,9 @@ struct ContentView: View {
     }
 
     var body: some View {
+        let appearance = windowAppearanceSnapshot
         var view = AnyView(
-            contentAndSidebarLayout
+            contentAndSidebarLayout(appearance: appearance)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .overlay(alignment: .topLeading) {
                     if isFullScreen && sidebarState.isVisible && !isMinimalMode {
@@ -3156,6 +3162,18 @@ struct ContentView: View {
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             scheduleTitlebarTextRefresh()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
+            let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString()
+            let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
+            let source = notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String
+            scheduleTitlebarThemeRefresh(
+                reason: "ghosttyDefaultBackgroundDidChange",
+                backgroundEventId: eventId,
+                backgroundSource: source,
+                notificationPayloadHex: payloadHex
+            )
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
@@ -3575,7 +3593,7 @@ struct ContentView: View {
             removeSidebarResizerPointerMonitor()
         })
 
-        view = AnyView(view.background(WindowAccessor { [appearance = windowAppearanceSnapshot] window in
+        view = AnyView(view.background(WindowAccessor { [appearance] window in
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.isRestorable = false
             window.titlebarAppearsTransparent = true
@@ -15146,6 +15164,8 @@ private struct WindowBackdropLayer: View {
             Color(nsColor: color.withAlphaComponent(opacity))
         case let .sidebarMaterial(materialPolicy):
             ZStack {
+                let usingNativeLiquidGlass = materialPolicy.preferLiquidGlass &&
+                    SidebarVisualEffectBackground.liquidGlassAvailable
                 if let material = materialPolicy.material,
                    !materialPolicy.usesWindowLevelGlass {
                     SidebarVisualEffectBackground(
@@ -15157,11 +15177,11 @@ private struct WindowBackdropLayer: View {
                         cornerRadius: materialPolicy.cornerRadius,
                         preferLiquidGlass: materialPolicy.preferLiquidGlass
                     )
-                    // Tint overlay for NSVisualEffectView fallback. Native
-                    // liquid glass receives its tint inside SidebarVisualEffectBackground.
-                    if !materialPolicy.preferLiquidGlass {
-                        Color(nsColor: materialPolicy.tintColor)
-                    }
+                }
+                // Tint overlay for tint-only materials and NSVisualEffectView
+                // fallback. Native liquid glass receives its tint in AppKit.
+                if !materialPolicy.usesWindowLevelGlass && !usingNativeLiquidGlass {
+                    Color(nsColor: materialPolicy.tintColor)
                 }
             }
         case .clear:

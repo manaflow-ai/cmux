@@ -164,10 +164,6 @@ func cmuxShouldUseClearWindowBackground(for opacity: Double) -> Bool {
     cmuxShouldUseTransparentBackgroundWindow() || opacity < 0.999
 }
 
-func cmuxShouldUseSharedSurfaceBackdrop() -> Bool {
-    UserDefaults.standard.bool(forKey: "sidebarMatchTerminalBackground")
-}
-
 private func cmuxTransparentWindowBaseColor() -> NSColor {
     // A tiny non-zero alpha matches Ghostty's window compositing behavior on macOS and
     // avoids visual artifacts that can happen with a fully clear window background.
@@ -1802,8 +1798,12 @@ class GhosttyApp {
 
         // Load default config (includes user config). If this fails hard (e.g. due to
         // invalid user config), ghostty_app_new may return nil; we fall back below.
-        loadDefaultConfigFilesWithLegacyFallback(primaryConfig)
-        updateDefaultBackground(from: primaryConfig, source: "initialize.primaryConfig")
+        let primaryRenderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(primaryConfig)
+        updateDefaultBackground(
+            from: primaryConfig,
+            source: "initialize.primaryConfig",
+            forceNotify: primaryRenderingModeChanged
+        )
 
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
@@ -1930,9 +1930,16 @@ class GhosttyApp {
                 prefix: "cmux-shell-integration-override",
                 logLabel: "shell integration override (fallback)"
             )
-            usesHostLayerBackground = true
+            let fallbackRenderingModeChanged = setUsesHostLayerBackground(
+                true,
+                source: "initialize.fallbackConfig"
+            )
             ghostty_config_finalize(fallbackConfig)
-            updateDefaultBackground(from: fallbackConfig, source: "initialize.fallbackConfig")
+            updateDefaultBackground(
+                from: fallbackConfig,
+                source: "initialize.fallbackConfig",
+                forceNotify: fallbackRenderingModeChanged
+            )
 
             guard let created = ghostty_app_new(&runtimeConfig, fallbackConfig) else {
                 #if DEBUG
@@ -2046,7 +2053,7 @@ class GhosttyApp {
         return !String(cString: backgroundImage).isEmpty
     }
 
-    private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
+    private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) -> Bool {
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
@@ -2071,7 +2078,10 @@ class GhosttyApp {
         #endif
         loadCJKFontFallbackIfNeeded(config)
         let useHostLayerBackground = !hasConfiguredBackgroundImage(config)
-        usesHostLayerBackground = useHostLayerBackground
+        let renderingModeChanged = setUsesHostLayerBackground(
+            useHostLayerBackground,
+            source: "loadDefaultConfigFilesWithLegacyFallback"
+        )
         if !useHostLayerBackground {
             // Background images need Ghostty's fullscreen background pass. Force
             // the layer-backed solid-color shortcut back off even if the user
@@ -2118,6 +2128,7 @@ class GhosttyApp {
         )
 
         ghostty_config_finalize(config)
+        return renderingModeChanged
     }
 
     /// When the user has not configured `font-codepoint-map` for CJK ranges
@@ -2911,12 +2922,13 @@ class GhosttyApp {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
             return
         }
-        loadDefaultConfigFilesWithLegacyFallback(newConfig)
+        let renderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(newConfig)
         ghostty_app_update_config(app, newConfig)
         updateDefaultBackground(
             from: newConfig,
             source: "reloadConfiguration(source=\(source))",
-            scope: .unscoped
+            scope: .unscoped,
+            forceNotify: renderingModeChanged
         )
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
@@ -2999,10 +3011,24 @@ class GhosttyApp {
         }
     }
 
+    @discardableResult
+    private func setUsesHostLayerBackground(_ newValue: Bool, source: String) -> Bool {
+        let previous = usesHostLayerBackground
+        usesHostLayerBackground = newValue
+        let hasChanged = previous != newValue
+        if hasChanged, backgroundLogEnabled {
+            logBackground(
+                "terminal rendering mode changed source=\(source) usesHostLayerBackground=\(newValue) previous=\(previous)"
+            )
+        }
+        return hasChanged
+    }
+
     private func updateDefaultBackground(
         from config: ghostty_config_t?,
         source: String,
-        scope: GhosttyDefaultBackgroundUpdateScope = .unscoped
+        scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
+        forceNotify: Bool = false
     ) {
         guard let config else { return }
 
@@ -3026,7 +3052,8 @@ class GhosttyApp {
             color: resolvedColor,
             opacity: opacity,
             source: source,
-            scope: scope
+            scope: scope,
+            forceNotify: forceNotify
         )
     }
 
@@ -3112,7 +3139,8 @@ class GhosttyApp {
         color: NSColor,
         opacity: Double,
         source: String,
-        scope: GhosttyDefaultBackgroundUpdateScope
+        scope: GhosttyDefaultBackgroundUpdateScope,
+        forceNotify: Bool = false
     ) {
         let previousScope = defaultBackgroundUpdateScope
         let previousScopeSource = defaultBackgroundScopeSource
@@ -3132,14 +3160,15 @@ class GhosttyApp {
         let previousOpacity = defaultBackgroundOpacity
         defaultBackgroundColor = color
         defaultBackgroundOpacity = opacity
-        let hasChanged = previousHex != defaultBackgroundColor.hexString() ||
+        let hasChanged = forceNotify ||
+            previousHex != defaultBackgroundColor.hexString() ||
             abs(previousOpacity - defaultBackgroundOpacity) > 0.0001
         if hasChanged {
             notifyDefaultBackgroundDidChange(source: source)
         }
         if backgroundLogEnabled {
             logBackground(
-                "default background updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousColor=\(previousHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) changed=\(hasChanged)"
+                "default background updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousColor=\(previousHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) changed=\(hasChanged) forced=\(forceNotify)"
             )
         }
     }
@@ -5833,7 +5862,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
-        let color = renderingMode.usesHostLayerFill && !cmuxShouldUseSharedSurfaceBackdrop()
+        let color = renderingMode.usesHostLayerFill
             ? effectiveBackgroundColor()
             : .clear
         if let layer {

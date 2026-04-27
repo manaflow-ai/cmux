@@ -29,9 +29,13 @@ export default function HandlerLayout({
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
         <Suspense>
-          <StackProvider app={stackServerApp}>
-            <StackTheme>{children}</StackTheme>
-          </StackProvider>
+          {stackServerApp ? (
+            <StackProvider app={stackServerApp}>
+              <StackTheme>{children}</StackTheme>
+            </StackProvider>
+          ) : (
+            children
+          )}
         </Suspense>
       </body>
     </html>
