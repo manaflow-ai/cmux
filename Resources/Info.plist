@@ -49,6 +49,8 @@
 	<string>A program running within cmux would like to use your camera.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program running within cmux would like to use AppleScript.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
