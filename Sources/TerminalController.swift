@@ -8180,10 +8180,10 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let urlStr = v2String(params, "url")
-        if let urlStr, resolveBrowserNavigableURL(urlStr) == nil {
-            return .err(code: "invalid_params", message: "URL has an unsupported scheme", data: nil)
+        let resolvedURL: URL? = urlStr.flatMap { resolveBrowserNavigableURL($0) }
+        if urlStr != nil, resolvedURL == nil {
+            return .err(code: "invalid_params", message: "URL is invalid or has an unsupported scheme", data: nil)
         }
-        let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
@@ -8239,11 +8239,11 @@ class TerminalController {
             var placementStrategy = "split_right"
             let createdPanel: BrowserPanel?
             if let targetPane = ws.preferredBrowserTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: true)
+                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: resolvedURL, focus: true)
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
             } else {
-                createdPanel = ws.newBrowserSplit(from: sourceSurfaceId, orientation: .horizontal, url: url)
+                createdPanel = ws.newBrowserSplit(from: sourceSurfaceId, orientation: .horizontal, url: resolvedURL)
             }
 
             guard let browserPanelId = createdPanel?.id else {
