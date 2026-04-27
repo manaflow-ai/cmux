@@ -8180,6 +8180,9 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let urlStr = v2String(params, "url")
+        if let urlStr, resolveBrowserNavigableURL(urlStr) == nil {
+            return .err(code: "invalid_params", message: "URL has an unsupported scheme", data: nil)
+        }
         let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
