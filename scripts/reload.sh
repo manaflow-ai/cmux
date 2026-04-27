@@ -11,6 +11,10 @@ DERIVED_SET=0
 TAG=""
 LAUNCH=0
 CMUX_DEBUG_LOG=""
+CMUX_DEV_PORT=""
+CMUX_DEV_PORT_END=""
+CMUX_DEV_PORT_RANGE=""
+CMUX_DEV_ORIGIN=""
 CLI_PATH=""
 LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
 LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
@@ -159,6 +163,64 @@ sanitize_path() {
   echo "$cleaned"
 }
 
+is_valid_port() {
+  local port="${1:-}"
+  [[ "$port" =~ ^[0-9]+$ ]] || return 1
+  local numeric=$((10#$port))
+  (( numeric >= 1 && numeric <= 65535 ))
+}
+
+is_positive_integer() {
+  local value="${1:-}"
+  [[ "$value" =~ ^[0-9]+$ ]] || return 1
+  local numeric=$((10#$value))
+  (( numeric > 0 ))
+}
+
+choose_cmux_dev_port() {
+  if is_valid_port "${CMUX_PORT:-}"; then
+    echo "$CMUX_PORT"
+    return 0
+  fi
+  if is_valid_port "${PORT:-}"; then
+    echo "$PORT"
+    return 0
+  fi
+  echo "3777"
+}
+
+choose_cmux_dev_port_range() {
+  if is_positive_integer "${CMUX_PORT_RANGE:-}"; then
+    echo "$CMUX_PORT_RANGE"
+    return 0
+  fi
+  echo "1"
+}
+
+choose_cmux_dev_port_end() {
+  local start="$1"
+  local range="$2"
+  if is_valid_port "${CMUX_PORT_END:-}"; then
+    echo "$CMUX_PORT_END"
+    return 0
+  fi
+  local start_num=$((10#$start))
+  local range_num=$((10#$range))
+  local end=$((start_num + range_num - 1))
+  if (( end > 65535 )); then
+    end="$start_num"
+  fi
+  echo "$end"
+}
+
+set_plist_env() {
+  local plist="$1"
+  local key="$2"
+  local value="$3"
+  /usr/libexec/PlistBuddy -c "Set :LSEnvironment:${key} \"${value}\"" "$plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:${key} string \"${value}\"" "$plist"
+}
+
 tagged_derived_data_path() {
   local slug="$1"
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
@@ -295,6 +357,11 @@ if [[ -n "$TAG" ]]; then
   fi
 fi
 
+CMUX_DEV_PORT="$(choose_cmux_dev_port)"
+CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
+CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
+CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
+
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
 # plistbuddy, etc.) to a single log file. On success we print only a one-line
 # summary plus the App/CLI paths. On failure we dump the log.
@@ -327,6 +394,11 @@ reload_finalize() {
     echo
     echo "App path:"
     echo "  $APP_PATH"
+  fi
+  if [[ -n "${CMUX_DEV_ORIGIN:-}" ]]; then
+    echo
+    echo "Dev web origin:"
+    echo "  $CMUX_DEV_ORIGIN"
   fi
   if [[ -x "${CLI_PATH:-}" ]]; then
     echo
@@ -501,20 +573,20 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       write_last_socket_path "$CMUX_SOCKET"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_PATH \"${CMUX_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_PATH string \"${CMUX_SOCKET}\"" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_DEBUG_LOG \"${CMUX_DEBUG_LOG}\"" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_DEBUG_LOG string \"${CMUX_DEBUG_LOG}\"" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_ENABLE 1" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_ENABLE string 1" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_MODE allowAll" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_MODE string allowAll" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD 1" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD string 1" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXTERM_REPO_ROOT \"${PWD}\"" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXTERM_REPO_ROOT string \"${PWD}\"" "$INFO_PLIST"
+      set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
+      set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET"
+      set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
+      set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
+      set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
+      set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
+      set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
+      set_plist_env "$INFO_PLIST" CMUX_PORT "$CMUX_DEV_PORT"
+      set_plist_env "$INFO_PLIST" CMUX_PORT_END "$CMUX_DEV_PORT_END"
+      set_plist_env "$INFO_PLIST" CMUX_PORT_RANGE "$CMUX_DEV_PORT_RANGE"
+      set_plist_env "$INFO_PLIST" PORT "$CMUX_DEV_PORT"
+      set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_DEV_ORIGIN"
+      set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_ORIGIN"
+      set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_ORIGIN"
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -568,6 +640,9 @@ if [[ -x "$GHOSTTY_HELPER_SRC" ]]; then
   mkdir -p "$BIN_DIR"
   cp "$GHOSTTY_HELPER_SRC" "$BIN_DIR/ghostty"
   chmod +x "$BIN_DIR/ghostty"
+fi
+if command -v xattr >/dev/null 2>&1; then
+  xattr -cr "$APP_PATH" || true
 fi
 if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
   if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
@@ -628,11 +703,27 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u XDG_DATA_DIRS
   )
 
+  TAG_LAUNCH_ENV=(
+    CMUX_TAG="${TAG_SLUG:-}"
+    CMUX_SOCKET_ENABLE=1
+    CMUX_SOCKET_MODE=allowAll
+    CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG"
+    CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1
+    CMUXTERM_REPO_ROOT="$PWD"
+    CMUX_PORT="$CMUX_DEV_PORT"
+    CMUX_PORT_END="$CMUX_DEV_PORT_END"
+    CMUX_PORT_RANGE="$CMUX_DEV_PORT_RANGE"
+    PORT="$CMUX_DEV_PORT"
+    CMUX_AUTH_WWW_ORIGIN="$CMUX_DEV_ORIGIN"
+    CMUX_API_BASE_URL="$CMUX_DEV_ORIGIN"
+    CMUX_VM_API_BASE_URL="$CMUX_DEV_ORIGIN"
+  )
+
   if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
     # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-    "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=allowAll CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 CMUXTERM_REPO_ROOT="$PWD" open -g "$APP_PATH"
+    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
   elif [[ -n "${TAG_SLUG:-}" ]]; then
-    "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=allowAll CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 CMUXTERM_REPO_ROOT="$PWD" open -g "$APP_PATH"
+    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -g "$APP_PATH"
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true

@@ -12051,6 +12051,7 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
 
 private struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
+    private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
 
     // Closures, Bindings, and object references are excluded from ==
     // because they're recreated every parent eval but don't affect rendering.
@@ -13320,7 +13321,7 @@ private struct TabItemView: View, Equatable {
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             title: tab.title,
-            customDescription: tab.customDescription,
+            customDescription: sidebarVisibleCustomDescription,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
@@ -13339,6 +13340,16 @@ private struct TabItemView: View, Equatable {
             listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : []
         )
     }
+
+    private var sidebarVisibleCustomDescription: String? {
+        guard let description = tab.customDescription else { return nil }
+        if tab.title.hasPrefix("vm:"),
+           description.trimmingCharacters(in: .whitespacesAndNewlines) == Self.legacyVMWebSocketDescription {
+            return nil
+        }
+        return description
+    }
+
     private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
         guard let app = AppDelegate.shared else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
