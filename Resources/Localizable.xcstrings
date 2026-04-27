@@ -1362,6 +1362,23 @@
         }
       }
     },
+    "debug.tabBarBackdropLab.candidateSoftness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate softness"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補の柔らかさ"
+          }
+        }
+      }
+    },
     "debug.tabBarBackdropLab.candidateLead": {
       "extractionState": "manual",
       "localizations": {

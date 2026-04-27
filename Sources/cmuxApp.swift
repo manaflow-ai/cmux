@@ -3437,12 +3437,7 @@ private struct TabBarBackdropLabView: View {
     @State private var opacity: Double
     @State private var sidebarWidth: Double = 74
     @State private var sampleWidth: Double = 460
-    @State private var candidateFadeWidth: Double = 136
-    @State private var candidateSolidWidth: Double = 2
-    @State private var candidateFadeRampStart: Double = 0.80
-    @State private var candidateLeadingOpacity: Double = 0
-    @State private var candidateTrailingOpacity: Double = 0.80
-    @State private var candidateMasksTabContent = true
+    @State private var candidateSoftness: Double = 0.80
 
     init() {
         let currentOpacity = Double(WindowAppearanceSnapshot.clampedOpacity(GhosttyApp.shared.defaultBackgroundOpacity))
@@ -3461,21 +3456,26 @@ private struct TabBarBackdropLabView: View {
         WindowChromeSeparatorColor.color(forChromeBackground: terminalColor)
     }
 
+    private var candidateBackdropEffect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
+        let softness = min(max(0, candidateSoftness), 1)
+        return .init(
+            style: .translucentChrome,
+            fadeWidth: 88 + (60 * CGFloat(softness)),
+            contentFadeWidth: 42,
+            solidWidth: 10 * CGFloat(1 - softness),
+            fadeRampStartFraction: 0.48 + (0.40 * CGFloat(softness)),
+            leadingOpacity: 0,
+            trailingOpacity: 1.0 - (0.25 * CGFloat(softness)),
+            masksTabContent: true
+        )
+    }
+
     private var variants: [TabBarBackdropLabVariant] {
         let chromeHex = surfaceColor.hexString(includeAlpha: true)
         let paneHex = "#00000000"
         let borderHex = separatorColor.hexString(includeAlpha: true)
         let opacityValue = CGFloat(opacity)
-        let candidate = BonsplitConfiguration.Appearance.SplitButtonBackdropEffect(
-            style: .translucentChrome,
-            fadeWidth: CGFloat(candidateFadeWidth),
-            contentFadeWidth: 42,
-            solidWidth: CGFloat(candidateSolidWidth),
-            fadeRampStartFraction: CGFloat(candidateFadeRampStart),
-            leadingOpacity: CGFloat(candidateLeadingOpacity),
-            trailingOpacity: CGFloat(candidateTrailingOpacity),
-            masksTabContent: candidateMasksTabContent
-        )
+        let candidate = candidateBackdropEffect
 
         return [
             variant(
@@ -3716,43 +3716,12 @@ private struct TabBarBackdropLabView: View {
                         width: 140
                     )
                     labSlider(
-                        title: String(localized: "debug.tabBarBackdropLab.candidateFade", defaultValue: "Candidate fade"),
-                        value: $candidateFadeWidth,
-                        range: 0...160,
-                        displayValue: "\(Int(candidateFadeWidth))",
-                        width: 120
+                        title: String(localized: "debug.tabBarBackdropLab.candidateSoftness", defaultValue: "Candidate softness"),
+                        value: $candidateSoftness,
+                        range: 0...1,
+                        displayValue: "\(Int(candidateSoftness * 100))%",
+                        width: 180
                     )
-                    labSlider(
-                        title: String(localized: "debug.tabBarBackdropLab.candidateSolid", defaultValue: "Solid width"),
-                        value: $candidateSolidWidth,
-                        range: 0...72,
-                        displayValue: "\(Int(candidateSolidWidth))",
-                        width: 120
-                    )
-                    labSlider(
-                        title: String(localized: "debug.tabBarBackdropLab.candidateRamp", defaultValue: "Ramp start"),
-                        value: $candidateFadeRampStart,
-                        range: 0...0.98,
-                        displayValue: "\(Int(candidateFadeRampStart * 100))%",
-                        width: 120
-                    )
-                    labSlider(
-                        title: String(localized: "debug.tabBarBackdropLab.candidateLead", defaultValue: "Lead opacity"),
-                        value: $candidateLeadingOpacity,
-                        range: 0...0.45,
-                        displayValue: "\(Int(candidateLeadingOpacity * 100))%",
-                        width: 120
-                    )
-                    labSlider(
-                        title: String(localized: "debug.tabBarBackdropLab.candidateEnd", defaultValue: "End opacity"),
-                        value: $candidateTrailingOpacity,
-                        range: 0.35...1.0,
-                        displayValue: "\(Int(candidateTrailingOpacity * 100))%",
-                        width: 120
-                    )
-                    Toggle(String(localized: "debug.tabBarBackdropLab.maskTabs", defaultValue: "Mask tabs"), isOn: $candidateMasksTabContent)
-                        .toggleStyle(.checkbox)
-                        .font(.caption)
                 }
             }
             .padding(12)
