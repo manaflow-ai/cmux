@@ -11349,7 +11349,7 @@ final class Workspace: Identifiable, ObservableObject {
         return shortcuts
     }
 
-    private func copyWorkspaceAndSurfaceIDsToPasteboard(surfaceId: UUID) {
+    private func copyIdentifiersToPasteboard(surfaceId: UUID) {
         let paneId = paneId(forPanelId: surfaceId)?.id
         let refs = TerminalController.shared.v2WorkspacePaneAndSurfaceRefs(
             workspaceId: id,
@@ -13609,7 +13609,7 @@ extension Workspace: BonsplitDelegate {
             setPanelCustomTitle(panelId: panelId, title: nil)
         case .copyIdentifiers:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
-            copyWorkspaceAndSurfaceIDsToPasteboard(surfaceId: panelId)
+            copyIdentifiersToPasteboard(surfaceId: panelId)
         case .closeToLeft:
             closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
         case .closeToRight:

@@ -90533,7 +90533,7 @@
         }
       }
     },
-    "terminalContextMenu.copyWorkspaceAndSurfaceIDs": {
+    "terminalContextMenu.copyIdentifiers": {
       "extractionState": "manual",
       "localizations": {
         "en": {

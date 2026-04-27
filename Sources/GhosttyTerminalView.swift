@@ -8674,7 +8674,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if terminalSurface != nil {
             menu.addItem(.separator())
             let identifiersItem = menu.addItem(
-                withTitle: String(localized: "terminalContextMenu.copyWorkspaceAndSurfaceIDs", defaultValue: "Copy IDs"),
+                withTitle: String(localized: "terminalContextMenu.copyIdentifiers", defaultValue: "Copy IDs"),
                 action: #selector(copyWorkspaceAndSurfaceIdentifiers(_:)),
                 keyEquivalent: ""
             )
