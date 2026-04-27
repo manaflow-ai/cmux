@@ -570,6 +570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
         weak var window: NSWindow?
+        var customWindowTitle: String?
 
         init(
             windowId: UUID,
@@ -2431,6 +2432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
         context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
+        context.customWindowTitle = snapshot.customWindowTitle
 
         if let restoredFrame = resolvedWindowFrame(from: snapshot), let window {
             window.setFrame(restoredFrame, display: true)
@@ -2942,6 +2944,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 hasher.combine(1)
             }
 
+            hasher.combine(context.customWindowTitle)
+
             if let window = context.window ?? windowForMainWindowId(context.windowId) {
                 Self.hashFrame(window.frame, into: &hasher)
             } else {
@@ -3265,7 +3269,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         isVisible: context.sidebarState.isVisible,
                         selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
                         width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
-                    )
+                    ),
+                    customWindowTitle: context.customWindowTitle
                 )
             }
 
@@ -3440,6 +3445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isVisible: Bool
         let workspaceCount: Int
         let selectedWorkspaceId: UUID?
+        let customWindowTitle: String?
     }
 
     struct WindowMoveTarget: Identifiable {
@@ -3474,9 +3480,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 isKeyWindow: window?.isKeyWindow ?? false,
                 isVisible: window?.isVisible ?? false,
                 workspaceCount: ctx.tabManager.tabs.count,
-                selectedWorkspaceId: ctx.tabManager.selectedTabId
+                selectedWorkspaceId: ctx.tabManager.selectedTabId,
+                customWindowTitle: ctx.customWindowTitle
             )
         }
+    }
+
+    func customWindowTitle(for windowId: UUID) -> String? {
+        mainWindowContexts.values.first(where: { $0.windowId == windowId })?.customWindowTitle
+    }
+
+    func setCustomWindowTitle(windowId: UUID, title: String?) {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else { return }
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        context.customWindowTitle = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        notifyMainWindowContextsDidChange()
     }
 
     func windowMoveTargets(referenceWindowId: UUID?) -> [WindowMoveTarget] {
@@ -4046,6 +4064,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func requestCommandPaletteRenameWindow(
+        preferredWindow: NSWindow? = nil,
+        source: String = "api.commandPaletteRenameWindow"
+    ) {
+        postCommandPaletteRequest(
+            name: .commandPaletteRenameWindowRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
     func requestCommandPaletteEditWorkspaceDescription(
         preferredWindow: NSWindow? = nil,
         source: String = "api.commandPaletteEditWorkspaceDescription"
@@ -4558,7 +4588,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func windowLabelsById(orderedSummaries: [MainWindowSummary], referenceWindowId: UUID?) -> [UUID: String] {
         var labels: [UUID: String] = [:]
         for (index, summary) in orderedSummaries.enumerated() {
-            if summary.windowId == referenceWindowId {
+            if let customTitle = summary.customWindowTitle {
+                labels[summary.windowId] = customTitle
+            } else if summary.windowId == referenceWindowId {
                 labels[summary.windowId] = String(localized: "menu.currentWindow", defaultValue: "Current Window")
             } else {
                 let number = index + 1
@@ -6314,6 +6346,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
+        if let customTitle = sessionWindowSnapshot?.customWindowTitle {
+            mainWindowContexts[ObjectIdentifier(window)]?.customWindowTitle = customTitle
+        }
         installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
             window.orderFront(nil)
@@ -9799,6 +9834,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
             clearConfiguredShortcutChordState()
@@ -10430,6 +10466,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .renameWorkspace) {
             return requestRenameWorkspaceViaCommandPalette(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+        }
+
+        if matchConfiguredShortcut(event: event, action: .renameWindow) {
+            return requestRenameWindowViaCommandPalette(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             )
         }
@@ -11506,6 +11548,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         requestCommandPaletteRenameWorkspace(
             preferredWindow: targetWindow,
             source: "shortcut.renameWorkspace"
+        )
+        return true
+    }
+
+    @discardableResult
+    func requestRenameWindowViaCommandPalette(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        requestCommandPaletteRenameWindow(
+            preferredWindow: targetWindow,
+            source: "shortcut.renameWindow"
         )
         return true
     }
