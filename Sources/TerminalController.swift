@@ -208,7 +208,6 @@ class TerminalController {
     /// - 6 browser panel dictionaries (frame selector, init scripts/styles, dialog queue, download events, unsupported network requests)
     /// - v2BrowserElementRefs entries whose surfaceId matches (stale refs can never be resolved after surface close)
     /// - v2RefByUUID[.surface] and v2UUIDByRef[.surface] entries for this surface (written on creation, never removed otherwise)
-    @MainActor
     func cleanupSurfaceState(surfaceId: UUID) {
         v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
         v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
