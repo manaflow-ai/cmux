@@ -32,6 +32,9 @@ final class CmuxSettingsFileStore {
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
+        "app.terminalRightClickBehavior",
+        "app.terminalRightClickLongPressContextMenuEnabled",
+        "app.terminalRightClickLongPressDuration",
         "app.preferredEditor",
         "app.openMarkdownInCmuxViewer",
         "app.reorderOnNotification",
@@ -411,6 +414,20 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["focusPaneOnFirstClick"]) {
             snapshot.managedUserDefaults[PaneFirstClickFocusSettings.enabledKey] = .bool(value)
+        }
+        if let raw = jsonString(section["terminalRightClickBehavior"]) {
+            if let behavior = TerminalRightClickSettings.Behavior(rawValue: raw) {
+                snapshot.managedUserDefaults[TerminalRightClickSettings.behaviorKey] = .string(behavior.rawValue)
+            } else {
+                logInvalid("app.terminalRightClickBehavior", sourcePath: sourcePath)
+            }
+        }
+        if let value = jsonBool(section["terminalRightClickLongPressContextMenuEnabled"]) {
+            snapshot.managedUserDefaults[TerminalRightClickSettings.longPressContextMenuEnabledKey] = .bool(value)
+        }
+        if let raw = jsonDouble(section["terminalRightClickLongPressDuration"]) {
+            let clamped = min(max(raw, 0.15), 1.00)
+            snapshot.managedUserDefaults[TerminalRightClickSettings.longPressDurationKey] = .double(clamped)
         }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
@@ -1219,6 +1236,9 @@ final class CmuxSettingsFileStore {
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
+                    "terminalRightClickBehavior": TerminalRightClickSettings.defaultBehavior.rawValue,
+                    "terminalRightClickLongPressContextMenuEnabled": TerminalRightClickSettings.defaultLongPressContextMenuEnabled,
+                    "terminalRightClickLongPressDuration": TerminalRightClickSettings.defaultLongPressDuration,
                     "preferredEditor": "",
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,

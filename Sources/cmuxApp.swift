@@ -4653,6 +4653,12 @@ struct SettingsView: View {
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+    @AppStorage(TerminalRightClickSettings.behaviorKey)
+    private var terminalRightClickBehavior = TerminalRightClickSettings.defaultBehavior.rawValue
+    @AppStorage(TerminalRightClickSettings.longPressContextMenuEnabledKey)
+    private var terminalRightClickLongPressContextMenuEnabled = TerminalRightClickSettings.defaultLongPressContextMenuEnabled
+    @AppStorage(TerminalRightClickSettings.longPressDurationKey)
+    private var terminalRightClickLongPressDuration = TerminalRightClickSettings.defaultLongPressDuration
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
@@ -4769,6 +4775,34 @@ struct SettingsView: View {
         )
     }
 
+    private var selectedTerminalRightClickBehavior: TerminalRightClickSettings.Behavior {
+        TerminalRightClickSettings.behavior(for: terminalRightClickBehavior)
+    }
+
+    private var terminalRightClickBehaviorSubtitle: String {
+        switch selectedTerminalRightClickBehavior {
+        case .contextMenu:
+            return String(
+                localized: "settings.app.terminalRightClickBehavior.subtitleContextMenu",
+                defaultValue: "Right click opens the terminal context menu."
+            )
+        case .pasteFromClipboard:
+            return String(
+                localized: "settings.app.terminalRightClickBehavior.subtitlePaste",
+                defaultValue: "Right click pastes from the clipboard inside the terminal."
+            )
+        }
+    }
+
+    private var terminalRightClickBehaviorSelection: Binding<String> {
+        Binding(
+            get: { selectedTerminalRightClickBehavior.rawValue },
+            set: { newValue in
+                terminalRightClickBehavior = TerminalRightClickSettings.behavior(for: newValue).rawValue
+            }
+        )
+    }
+
     private var showTerminalScrollBarBinding: Binding<Bool> {
         Binding(
             get: { showTerminalScrollBar },
@@ -4778,6 +4812,140 @@ struct SettingsView: View {
                 TerminalScrollBarSettings.notifyDidChange()
             }
         )
+    }
+
+    private var terminalLongRightClickContextMenuSubtitle: String {
+        if terminalRightClickLongPressContextMenuEnabled {
+            return String(
+                localized: "settings.app.terminalLongRightClickContextMenu.subtitleOn",
+                defaultValue: "Holding right click in a terminal opens the context menu."
+            )
+        }
+        return String(
+            localized: "settings.app.terminalLongRightClickContextMenu.subtitleOff",
+            defaultValue: "Holding right click keeps the paste behavior without opening a menu."
+        )
+    }
+
+    private var terminalLongRightClickDurationSubtitle: String {
+        String(
+            localized: "settings.app.terminalLongRightClickDuration.subtitle",
+            defaultValue: "How long to hold right click before the context menu opens."
+        )
+    }
+
+    private var terminalLongRightClickDurationSelection: Binding<Double> {
+        Binding(
+            get: { terminalRightClickLongPressDuration },
+            set: { newValue in
+                terminalRightClickLongPressDuration = min(max(newValue, 0.15), 1.00)
+            }
+        )
+    }
+
+    private var longRightClickDurationPresetValues: [Double] { [0.20, 0.30, 0.45] }
+
+    private var longRightClickDurationNeedsCustomPickerOption: Bool {
+        let v = terminalRightClickLongPressDuration
+        return !longRightClickDurationPresetValues.contains { abs($0 - v) < 0.000_1 }
+    }
+
+    private func longRightClickCustomDurationPickerLabel(for duration: Double) -> String {
+        let formatted = String(format: "%.2f", duration)
+        return String(
+            format: String(
+                localized: "settings.app.terminalLongRightClickDuration.optionCustomFormat",
+                defaultValue: "Custom (%@ s)"
+            ),
+            formatted
+        )
+    }
+
+    @ViewBuilder
+    private func terminalRightClickAppSettingsRows() -> some View {
+        SettingsCardDivider()
+
+        SettingsPickerRow(
+            configurationReview: .json("app.terminalRightClickBehavior"),
+            String(localized: "settings.app.terminalRightClickBehavior", defaultValue: "Terminal Right Click"),
+            subtitle: terminalRightClickBehaviorSubtitle,
+            controlWidth: pickerColumnWidth,
+            selection: terminalRightClickBehaviorSelection
+        ) {
+            Text(
+                String(
+                    localized: "settings.app.terminalRightClickBehavior.optionContextMenu",
+                    defaultValue: "Show Context Menu"
+                )
+            )
+            .tag(TerminalRightClickSettings.Behavior.contextMenu.rawValue)
+            Text(
+                String(
+                    localized: "settings.app.terminalRightClickBehavior.optionPaste",
+                    defaultValue: "Paste from Clipboard"
+                )
+            )
+            .tag(TerminalRightClickSettings.Behavior.pasteFromClipboard.rawValue)
+        }
+
+        if selectedTerminalRightClickBehavior == .pasteFromClipboard {
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("app.terminalRightClickLongPressContextMenuEnabled"),
+                String(localized: "settings.app.terminalLongRightClickContextMenu", defaultValue: "Long Right Click Opens Context Menu"),
+                subtitle: terminalLongRightClickContextMenuSubtitle
+            ) {
+                Toggle("", isOn: $terminalRightClickLongPressContextMenuEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalLongRightClickContextMenuToggle")
+                    .accessibilityLabel(
+                        String(
+                            localized: "settings.app.terminalLongRightClickContextMenu",
+                            defaultValue: "Long Right Click Opens Context Menu"
+                        )
+                    )
+            }
+
+            if terminalRightClickLongPressContextMenuEnabled {
+                SettingsCardDivider()
+
+                SettingsPickerRow(
+                    configurationReview: .json("app.terminalRightClickLongPressDuration"),
+                    String(localized: "settings.app.terminalLongRightClickDuration", defaultValue: "Long Right Click Delay"),
+                    subtitle: terminalLongRightClickDurationSubtitle,
+                    controlWidth: pickerColumnWidth,
+                    selection: terminalLongRightClickDurationSelection
+                ) {
+                    Text(
+                        String(
+                            localized: "settings.app.terminalLongRightClickDuration.optionFast",
+                            defaultValue: "Fast (0.20s)"
+                        )
+                    )
+                    .tag(0.20)
+                    Text(
+                        String(
+                            localized: "settings.app.terminalLongRightClickDuration.optionDefault",
+                            defaultValue: "Default (0.30s)"
+                        )
+                    )
+                    .tag(0.30)
+                    Text(
+                        String(
+                            localized: "settings.app.terminalLongRightClickDuration.optionSlow",
+                            defaultValue: "Slow (0.45s)"
+                        )
+                    )
+                    .tag(0.45)
+                    if longRightClickDurationNeedsCustomPickerOption {
+                        Text(longRightClickCustomDurationPickerLabel(for: terminalRightClickLongPressDuration))
+                            .tag(terminalRightClickLongPressDuration)
+                    }
+                }
+            }
+        }
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -5304,6 +5472,8 @@ struct SettingsView: View {
                                     String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click")
                                 )
                         }
+
+                        terminalRightClickAppSettingsRows()
 
                         SettingsCardDivider()
 
@@ -6779,6 +6949,9 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+        terminalRightClickBehavior = TerminalRightClickSettings.defaultBehavior.rawValue
+        terminalRightClickLongPressContextMenuEnabled = TerminalRightClickSettings.defaultLongPressContextMenuEnabled
+        terminalRightClickLongPressDuration = TerminalRightClickSettings.defaultLongPressDuration
         let previousShowTerminalScrollBar = showTerminalScrollBar
         showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
         if previousShowTerminalScrollBar != showTerminalScrollBar {

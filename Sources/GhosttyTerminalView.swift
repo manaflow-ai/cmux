@@ -4466,7 +4466,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
-#if DEBUG
+    #if DEBUG
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
     private static let sizeLogPath = "/tmp/cmux-ghostty-size.log"
 
@@ -5753,6 +5753,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
+    private var rightClickLongPressWorkItem: DispatchWorkItem?
+    private var didTriggerContextMenuOnLongRightClick = false
+    private var didRightMouseDrag = false
+    private var rightMouseDownLocation: NSPoint?
+    private var rightClickBehaviorForCurrentGesture: TerminalRightClickSettings.Behavior?
+    private static let rightClickDragCancelThreshold: CGFloat = 4
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -6790,12 +6796,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             desiredFocus = false
-            terminalSurface?.recordExternalFocusState(false)
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("resignFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
+            terminalSurface?.recordExternalFocusState(false)
             ghostty_surface_set_focus(surface, false)
         }
         return result
@@ -7052,7 +7058,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
         guard let surface = ensureSurfaceReadyForInput() else {
-            requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface")
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -8477,12 +8482,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func rightMouseDown(with event: NSEvent) {
         guard let surface = surface else { return }
+        let rightClickBehavior = TerminalRightClickSettings.behavior()
+        rightClickBehaviorForCurrentGesture = rightClickBehavior
         if !ghostty_surface_mouse_captured(surface) {
+            if rightClickBehavior == .pasteFromClipboard {
+                requestPointerFocusRecovery()
+                window?.makeFirstResponder(self)
+                didRightMouseDrag = false
+                rightMouseDownLocation = convert(event.locationInWindow, from: nil)
+                didTriggerContextMenuOnLongRightClick = false
+                armLongRightClickContextMenuIfNeeded(with: event)
+                return
+            }
             requestPointerFocusRecovery()
             super.rightMouseDown(with: event)
             return
         }
 
+        cancelLongRightClickContextMenu()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
@@ -8490,13 +8507,53 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
     }
 
-    override func rightMouseUp(with event: NSEvent) {
+    override func rightMouseDragged(with event: NSEvent) {
+        didRightMouseDrag = true
+        let point = convert(event.locationInWindow, from: nil)
+        if let down = rightMouseDownLocation {
+            let dx = point.x - down.x
+            let dy = point.y - down.y
+            let distance = hypot(dx, dy)
+            if distance > Self.rightClickDragCancelThreshold {
+                cancelLongRightClickContextMenu()
+            }
+        }
         guard let surface = surface else { return }
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        let rightClickBehavior = rightClickBehaviorForCurrentGesture ?? TerminalRightClickSettings.behavior()
+
+        if rightClickBehavior == .pasteFromClipboard,
+           surface.map { !ghostty_surface_mouse_captured($0) } ?? true {
+            let didTriggerContextMenu = didTriggerContextMenuOnLongRightClick
+            let didDrag = didRightMouseDrag
+            cancelLongRightClickContextMenu()
+            didTriggerContextMenuOnLongRightClick = false
+            didRightMouseDrag = false
+            rightMouseDownLocation = nil
+            rightClickBehaviorForCurrentGesture = nil
+            if let surface, !didTriggerContextMenu, !didDrag, !ghostty_surface_mouse_captured(surface) {
+                paste(nil)
+            }
+            return
+        }
+
+        guard let surface = surface else {
+            cancelLongRightClickContextMenu()
+            rightClickBehaviorForCurrentGesture = nil
+            return
+        }
+
         if !ghostty_surface_mouse_captured(surface) {
+            rightClickBehaviorForCurrentGesture = nil
             super.rightMouseUp(with: event)
             return
         }
 
+        cancelLongRightClickContextMenu()
+        rightClickBehaviorForCurrentGesture = nil
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
     }
 
@@ -8523,6 +8580,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        return buildContextMenu(for: event)
+    }
+
+    private func buildContextMenu(
+        for event: NSEvent,
+        modifierFlags: NSEvent.ModifierFlags? = nil
+    ) -> NSMenu? {
         guard let surface = surface else { return nil }
         if ghostty_surface_mouse_captured(surface) {
             return nil
@@ -8530,8 +8594,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        let mods = modsFromFlags(modifierFlags ?? event.modifierFlags)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mods)
 
         let menu = NSMenu()
         if onTriggerFlash != nil {
@@ -8581,18 +8646,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "rectangle.righthalf.inset.filled",
             accessibilityDescription: nil
         )
-        menu.addItem(.separator())
-        let resetTerminalItem = menu.addItem(
-            withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),
-            action: #selector(resetTerminal(_:)),
-            keyEquivalent: ""
-        )
-        resetTerminalItem.target = self
-        resetTerminalItem.image = NSImage(
-            systemSymbolName: "arrow.trianglehead.2.clockwise",
-            accessibilityDescription: nil
-        )
         return menu
+    }
+
+    private func armLongRightClickContextMenuIfNeeded(with event: NSEvent) {
+        cancelLongRightClickContextMenu()
+        guard TerminalRightClickSettings.longPressContextMenuEnabled() else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let currentFlags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard let menu = self.buildContextMenu(for: event, modifierFlags: currentFlags) else { return }
+            self.didTriggerContextMenuOnLongRightClick = true
+            let locationInView = self.convert(event.locationInWindow, from: nil)
+            menu.popUp(positioning: nil, at: locationInView, in: self)
+        }
+        rightClickLongPressWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + TerminalRightClickSettings.longPressDuration(),
+            execute: workItem
+        )
+    }
+
+    private func cancelLongRightClickContextMenu() {
+        rightClickLongPressWorkItem?.cancel()
+        rightClickLongPressWorkItem = nil
     }
 
     private func canSplitCurrentSurface() -> Bool {
@@ -8627,10 +8704,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @objc private func triggerFlash(_ sender: Any?) {
         onTriggerFlash?()
-    }
-
-    @objc private func resetTerminal(_ sender: Any?) {
-        _ = performBindingAction("reset")
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -8785,6 +8858,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
+        cancelLongRightClickContextMenu()
         terminalSurface = nil
     }
 
@@ -9291,6 +9365,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
     private(set) var searchFocusTarget: SearchFocusTarget = .searchField
 
+    private static func panelBackgroundFillColor(for terminalBackgroundColor: NSColor) -> NSColor {
+        // The Ghostty renderer already draws translucent terminal backgrounds. If we paint an
+        // additional translucent layer here, alpha stacks and appears effectively opaque.
+        terminalBackgroundColor.alphaComponent < 0.999 ? .clear : terminalBackgroundColor
+    }
 
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
@@ -9505,8 +9584,9 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.wantsLayer = true
         let initialTerminalBackground = GhosttyApp.shared.defaultBackgroundColor
             .withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
-        backgroundView.layer?.backgroundColor = initialTerminalBackground.cgColor
-        backgroundView.layer?.isOpaque = initialTerminalBackground.alphaComponent >= 1.0
+        let initialPanelFill = Self.panelBackgroundFillColor(for: initialTerminalBackground)
+        backgroundView.layer?.backgroundColor = initialPanelFill.cgColor
+        backgroundView.layer?.isOpaque = initialPanelFill.alphaComponent >= 1.0
         addSubview(backgroundView)
         addSubview(scrollView)
         synchronizeScrollbarAppearance()
@@ -10151,10 +10231,11 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setBackgroundColor(_ color: NSColor) {
         guard let layer = backgroundView.layer else { return }
+        let fillColor = Self.panelBackgroundFillColor(for: color)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.backgroundColor = color.cgColor
-        layer.isOpaque = color.alphaComponent >= 1.0
+        layer.backgroundColor = fillColor.cgColor
+        layer.isOpaque = fillColor.alphaComponent >= 1.0
         CATransaction.commit()
     }
 
@@ -11312,9 +11393,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func reassertTerminalSurfaceFocus(reason: String) {
         guard let terminalSurface = surfaceView.terminalSurface else { return }
-        if terminalSurface.surface == nil {
-            terminalSurface.requestBackgroundSurfaceStartIfNeeded()
-        }
 #if DEBUG
         cmuxDebugLog("focus.surface.reassert surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
 #endif

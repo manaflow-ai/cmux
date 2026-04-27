@@ -92,6 +92,40 @@ enum PaneFirstClickFocusSettings {
     }
 }
 
+enum TerminalRightClickSettings {
+    static let behaviorKey = "terminalRightClickBehavior"
+    static let longPressContextMenuEnabledKey = "terminalRightClickLongPressContextMenuEnabled"
+    static let longPressDurationKey = "terminalRightClickLongPressDuration"
+
+    enum Behavior: String, CaseIterable, Identifiable {
+        case contextMenu
+        case pasteFromClipboard
+
+        var id: String { rawValue }
+    }
+
+    static let defaultBehavior: Behavior = .contextMenu
+    static let defaultLongPressContextMenuEnabled = false
+    static let defaultLongPressDuration: TimeInterval = 0.30
+
+    static func behavior(for rawValue: String?) -> Behavior {
+        Behavior(rawValue: rawValue ?? "") ?? defaultBehavior
+    }
+
+    static func behavior(defaults: UserDefaults = .standard) -> Behavior {
+        behavior(for: defaults.string(forKey: behaviorKey))
+    }
+
+    static func longPressContextMenuEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: longPressContextMenuEnabledKey) as? Bool ?? defaultLongPressContextMenuEnabled
+    }
+
+    static func longPressDuration(defaults: UserDefaults = .standard) -> TimeInterval {
+        let raw = defaults.object(forKey: longPressDurationKey) as? Double ?? defaultLongPressDuration
+        return min(max(raw, 0.15), 1.00)
+    }
+}
+
 enum TerminalScrollBarSettings {
     static let showScrollBarKey = "terminal.showScrollBar"
     static let defaultShowScrollBar = true
