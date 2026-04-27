@@ -3437,7 +3437,7 @@ private struct TabBarBackdropLabView: View {
     @State private var opacity: Double
     @State private var sidebarWidth: Double = 74
     @State private var sampleWidth: Double = 460
-    @State private var candidateSoftness: Double = 0.80
+    @State private var candidateSoftness: Double = Double(Workspace.bonsplitSplitButtonBackdropSoftness)
 
     init() {
         let currentOpacity = Double(WindowAppearanceSnapshot.clampedOpacity(GhosttyApp.shared.defaultBackgroundOpacity))
@@ -3458,7 +3458,8 @@ private struct TabBarBackdropLabView: View {
 
     private var candidateBackdropEffect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
         let softness = CGFloat(min(max(0, candidateSoftness), 1))
-        let productionSoftness: CGFloat = 0.80
+        let productionSoftness = Workspace.bonsplitSplitButtonBackdropSoftness
+        let production = Workspace.bonsplitSplitButtonBackdropEffect()
         func interpolate(strong: CGFloat, production: CGFloat, soft: CGFloat) -> CGFloat {
             if softness <= productionSoftness {
                 let progress = softness / productionSoftness
@@ -3470,13 +3471,13 @@ private struct TabBarBackdropLabView: View {
 
         return .init(
             style: .translucentChrome,
-            fadeWidth: interpolate(strong: 20, production: 136, soft: 240),
-            contentFadeWidth: interpolate(strong: 0, production: 42, soft: 80),
-            solidWidth: interpolate(strong: 72, production: 2, soft: 0),
-            fadeRampStartFraction: interpolate(strong: 0, production: 0.80, soft: 0.98),
-            leadingOpacity: 0,
-            trailingOpacity: interpolate(strong: 1.0, production: 0.80, soft: 0.25),
-            contentOcclusionFraction: interpolate(strong: 0, production: 1, soft: 1),
+            fadeWidth: interpolate(strong: 20, production: production.fadeWidth, soft: 240),
+            contentFadeWidth: interpolate(strong: 0, production: production.contentFadeWidth, soft: 80),
+            solidWidth: interpolate(strong: 72, production: production.solidWidth, soft: 0),
+            fadeRampStartFraction: interpolate(strong: 0, production: production.fadeRampStartFraction, soft: 0.98),
+            leadingOpacity: production.leadingOpacity,
+            trailingOpacity: interpolate(strong: 1.0, production: production.trailingOpacity, soft: 0.25),
+            contentOcclusionFraction: interpolate(strong: 0, production: production.contentOcclusionFraction, soft: 1),
             masksTabContent: true
         )
     }
