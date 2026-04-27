@@ -10701,7 +10701,7 @@ private final class FeedbackComposerPassthroughLabel: NSTextField {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-private final class FeedbackComposerMessageScrollView: NSScrollView {
+final class FeedbackComposerMessageScrollView: NSScrollView {
     weak var focusTextView: NSTextView?
 
     override func mouseDown(with event: NSEvent) {
@@ -10712,7 +10712,7 @@ private final class FeedbackComposerMessageScrollView: NSScrollView {
     }
 }
 
-private final class FeedbackComposerMessageEditorView: NSView {
+final class FeedbackComposerMessageEditorView: NSView {
     private static let textInset = NSSize(width: 10, height: 10)
 
     let scrollView = FeedbackComposerMessageScrollView()

@@ -859,6 +859,28 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
+@MainActor
+final class FeedbackComposerMessageEditorViewTests: XCTestCase {
+    func testLongMessageCreatesScrollableDocumentContent() {
+        let editor = FeedbackComposerMessageEditorView(
+            frame: NSRect(x: 0, y: 0, width: 360, height: 120)
+        )
+        editor.placeholder = "Message"
+        editor.layoutSubtreeIfNeeded()
+
+        editor.textView.string = (0..<80)
+            .map { "feedback line \($0)" }
+            .joined(separator: "\n")
+        editor.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(editor.scrollView.hasVerticalScroller)
+        XCTAssertGreaterThan(
+            editor.textView.frame.height,
+            editor.scrollView.contentSize.height + 40
+        )
+    }
+}
+
 
 final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     func testCopyModeBypassAllowsOnlyCommandShortcuts() {
