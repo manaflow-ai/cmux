@@ -297,6 +297,7 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
 
 final class CommandPaletteAllSurfacesUITests: XCTestCase {
     private var socketPath = ""
+    private let debugDefaultsDomain = "com.cmuxterm.app.debug"
     private let hiddenSurfaceToken = "cmux-command-palette-hidden-surface"
     private let visibleSurfaceToken = "cmux-command-palette-visible-surface"
     private let noMatchWorkspaceQuery = "cmux-command-palette-no-match"
@@ -586,6 +587,91 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
+    func testMenuBarOnlyToggleKeepsSettingsWindowFocused() throws {
+        let app = XCUIApplication()
+        let diagnosticsPath = "/tmp/cmux-ui-test-menu-bar-only-focus-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        resetMenuBarOnlyDefault()
+        addTeardownBlock {
+            app.terminate()
+            self.resetMenuBarOnlyDefault()
+            try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        }
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-menuBarOnly", "false",
+            "-showMenuBarExtra", "true",
+        ]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        launchAndActivate(app)
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 8.0) {
+                app.windows.count >= 2
+            },
+            "Expected the main window and Settings window to be visible"
+        )
+
+        focusSettingsWindow(app: app)
+        let toggle = try requireMenuBarOnlyToggle(app: app)
+        if toggleIsOn(toggle) {
+            toggle.click()
+            XCTAssertTrue(
+                sidebarHelpPollUntil(timeout: 3.0) {
+                    toggle.exists && !toggleIsOn(toggle)
+                },
+                "Expected menu-bar-only mode to start from off for this test"
+            )
+        }
+
+        toggle.click()
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 3.0) {
+                toggle.exists && toggleIsOn(toggle)
+            },
+            "Expected the menu-bar-only setting to toggle on"
+        )
+
+        let diagnostics = waitForDiagnostics(
+            at: diagnosticsPath,
+            timeout: 3.0
+        ) { data in
+            data["keyWindowIdentifier"] == "cmux.settings" && data["settingsWindowIsKey"] == "1"
+        }
+
+        XCTAssertEqual(
+            diagnostics?["keyWindowIdentifier"],
+            "cmux.settings",
+            "Expected the Settings window to remain key after enabling menu-bar-only mode. diagnostics=\(diagnostics ?? [:])"
+        )
+        XCTAssertEqual(
+            diagnostics?["settingsWindowIsKey"],
+            "1",
+            "Expected the Settings window to report itself as key after enabling menu-bar-only mode. diagnostics=\(diagnostics ?? [:])"
+        )
+        XCTAssertTrue(
+            diagnosticsRemainStable(
+                at: diagnosticsPath,
+                duration: 0.8
+            ) { data in
+                data["keyWindowIdentifier"] == "cmux.settings" && data["settingsWindowIsKey"] == "1"
+            },
+            "Expected the Settings window to stay key after enabling menu-bar-only mode. diagnostics=\(loadDiagnostics(at: diagnosticsPath) ?? [:])"
+        )
+
+        toggle.click()
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 3.0) {
+                toggle.exists && !toggleIsOn(toggle)
+            },
+            "Expected the menu-bar-only setting to toggle back off"
+        )
+    }
+
     func testCommandPaletteCanEnableAndDisableMinimalMode() throws {
         let app = XCUIApplication()
         configureSocketControlledLaunch(app, showSettingsWindow: true)
@@ -855,6 +941,31 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         throw XCTSkip("Could not find the minimal mode toggle")
     }
 
+    private func requireMenuBarOnlyToggle(app: XCUIApplication) throws -> XCUIElement {
+        let scrollView = app.scrollViews.firstMatch
+        let candidates = [
+            app.switches["SettingsMenuBarOnlyToggle"],
+            app.checkBoxes["SettingsMenuBarOnlyToggle"],
+            app.buttons["SettingsMenuBarOnlyToggle"],
+            app.otherElements["SettingsMenuBarOnlyToggle"],
+            app.switches["Menu Bar Only"],
+            app.checkBoxes["Menu Bar Only"],
+            app.buttons["Menu Bar Only"],
+            app.otherElements["Menu Bar Only"],
+        ]
+
+        for _ in 0..<8 {
+            if let element = firstExistingElement(candidates: candidates, timeout: 0.4), element.isHittable {
+                return element
+            }
+            if scrollView.exists {
+                scrollView.swipeUp()
+            }
+        }
+
+        throw XCTSkip("Could not find the menu-bar-only toggle")
+    }
+
     private func toggleIsOn(_ element: XCUIElement) -> Bool {
         let value = String(describing: element.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return value == "1" || value == "true" || value == "on"
@@ -970,6 +1081,18 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     private func socketCommand(_ command: String) -> String? {
         ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command)
+    }
+
+    private func resetMenuBarOnlyDefault() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = ["write", debugDefaultsDomain, "menuBarOnly", "-bool", "false"]
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return
+        }
     }
 
     private func commandPaletteResultRows(from snapshot: [String: Any]) -> [[String: Any]] {

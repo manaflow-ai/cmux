@@ -10940,6 +10940,7 @@ private struct FeedbackComposerMessageEditor: NSViewRepresentable {
     func updateNSView(_ nsView: FeedbackComposerMessageEditorView, context: Context) {
         if nsView.textView.string != text {
             nsView.textView.string = text
+            nsView.refreshTextLayout()
         }
         nsView.placeholder = placeholder
         nsView.textView.setAccessibilityLabel(accessibilityLabel)
@@ -10965,7 +10966,7 @@ private final class FeedbackComposerPassthroughLabel: NSTextField {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-private final class FeedbackComposerMessageScrollView: NSScrollView {
+final class FeedbackComposerMessageScrollView: NSScrollView {
     weak var focusTextView: NSTextView?
 
     override func mouseDown(with event: NSEvent) {
@@ -10976,8 +10977,13 @@ private final class FeedbackComposerMessageScrollView: NSScrollView {
     }
 }
 
-private final class FeedbackComposerMessageEditorView: NSView {
+final class FeedbackComposerMessageEditorView: NSView {
+    private static let font = NSFont.systemFont(ofSize: 12)
     private static let textInset = NSSize(width: 10, height: 10)
+    private static let minimumDocumentHeight: CGFloat = {
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        return lineHeight + textInset.height * 2
+    }()
 
     let scrollView = FeedbackComposerMessageScrollView()
     let textView = NSTextView()
@@ -11003,7 +11009,10 @@ private final class FeedbackComposerMessageEditorView: NSView {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
         scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.hasHorizontalScroller = false
         scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
         scrollView.focusTextView = textView
 
         textView.translatesAutoresizingMaskIntoConstraints = false
@@ -11016,14 +11025,15 @@ private final class FeedbackComposerMessageEditorView: NSView {
         textView.autoresizingMask = [.width]
         textView.backgroundColor = .clear
         textView.drawsBackground = false
-        textView.font = .systemFont(ofSize: 12)
+        textView.font = Self.font
         textView.textColor = .labelColor
         textView.insertionPointColor = .labelColor
         textView.textContainerInset = Self.textInset
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
-        textView.minSize = .zero
+        textView.textContainer?.heightTracksTextView = false
+        textView.minSize = NSSize(width: 0, height: Self.minimumDocumentHeight)
         textView.maxSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
@@ -11033,7 +11043,7 @@ private final class FeedbackComposerMessageEditorView: NSView {
         addSubview(scrollView)
 
         placeholderField.translatesAutoresizingMaskIntoConstraints = false
-        placeholderField.font = .systemFont(ofSize: 12)
+        placeholderField.font = Self.font
         placeholderField.textColor = .secondaryLabelColor
         placeholderField.lineBreakMode = .byWordWrapping
         placeholderField.maximumNumberOfLines = 0
@@ -11084,11 +11094,48 @@ private final class FeedbackComposerMessageEditorView: NSView {
 
     @objc
     private func textDidChange(_ notification: Notification) {
-        updatePlaceholderVisibility()
+        refreshTextLayout(scrollSelection: true)
     }
 
     private func updatePlaceholderVisibility() {
         placeholderField.isHidden = textView.string.isEmpty == false
+    }
+
+    func refreshTextLayout(scrollSelection: Bool = false) {
+        updatePlaceholderVisibility()
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        syncTextViewFrameToContentSize()
+        if scrollSelection {
+            textView.scrollRangeToVisible(textView.selectedRange())
+        }
+    }
+
+    private func naturalDocumentHeight(for width: CGFloat) -> CGFloat {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else {
+            return Self.minimumDocumentHeight
+        }
+
+        let textWidth = max(width - Self.textInset.width * 2, 1)
+        textContainer.containerSize = NSSize(
+            width: textWidth,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let extraLineHeight: CGFloat
+        if layoutManager.extraLineFragmentTextContainer === textContainer {
+            extraLineHeight = ceil(layoutManager.extraLineFragmentRect.height)
+        } else {
+            extraLineHeight = 0
+        }
+        let lineHeight = ceil(Self.font.ascender - Self.font.descender + Self.font.leading)
+        let contentHeight = max(lineHeight, ceil(usedRect.height) + extraLineHeight)
+        return max(
+            Self.minimumDocumentHeight,
+            ceil(contentHeight + Self.textInset.height * 2)
+        )
     }
 
     private func syncTextViewFrameToContentSize() {
@@ -11096,14 +11143,10 @@ private final class FeedbackComposerMessageEditorView: NSView {
         guard contentSize.width > 0, contentSize.height > 0 else { return }
 
         textView.minSize = NSSize(width: 0, height: contentSize.height)
-        textView.textContainer?.containerSize = NSSize(
-            width: contentSize.width,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-
+        let naturalHeight = naturalDocumentHeight(for: contentSize.width)
         let targetSize = NSSize(
             width: contentSize.width,
-            height: max(textView.frame.height, contentSize.height)
+            height: max(naturalHeight, contentSize.height)
         )
         if textView.frame.size != targetSize {
             textView.frame = NSRect(origin: .zero, size: targetSize)
@@ -11125,6 +11168,8 @@ private enum SidebarHelpMenuAction {
 }
 
 private struct SidebarFeedbackComposerSheet: View {
+    private static let formMaxHeight: CGFloat = 560
+
     @AppStorage(FeedbackComposerSettings.storedEmailKey) private var email = ""
     @Environment(\.dismiss) private var dismiss
 
@@ -11154,7 +11199,12 @@ private struct SidebarFeedbackComposerSheet: View {
             if didSend {
                 successView
             } else {
-                formView
+                ScrollView {
+                    formView
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.trailing, 4)
+                }
+                .frame(maxHeight: Self.formMaxHeight)
             }
         }
         .padding(20)
@@ -12315,6 +12365,7 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
 
 private struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
+    private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
 
     // Closures, Bindings, and object references are excluded from ==
     // because they're recreated every parent eval but don't affect rendering.
@@ -13584,7 +13635,7 @@ private struct TabItemView: View, Equatable {
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             title: tab.title,
-            customDescription: tab.customDescription,
+            customDescription: sidebarVisibleCustomDescription,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
@@ -13603,6 +13654,16 @@ private struct TabItemView: View, Equatable {
             listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : []
         )
     }
+
+    private var sidebarVisibleCustomDescription: String? {
+        guard let description = tab.customDescription else { return nil }
+        if tab.title.hasPrefix("vm:"),
+           description.trimmingCharacters(in: .whitespacesAndNewlines) == Self.legacyVMWebSocketDescription {
+            return nil
+        }
+        return description
+    }
+
     private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
         guard let app = AppDelegate.shared else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }

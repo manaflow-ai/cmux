@@ -5320,6 +5320,7 @@ struct SettingsView: View {
     @AppStorage(NotificationPaneRingSettings.enabledKey) private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(NotificationPaneFlashSettings.enabledKey) private var notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
     @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
+    @AppStorage(MenuBarOnlySettings.menuBarOnlyKey) private var menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
@@ -5567,6 +5568,27 @@ struct SettingsView: View {
                 workspacePresentationMode = newValue
                     ? WorkspacePresentationModeSettings.Mode.minimal.rawValue
                     : WorkspacePresentationModeSettings.Mode.standard.rawValue
+                SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
+            }
+        )
+    }
+
+    private var menuBarOnlyBinding: Binding<Bool> {
+        Binding(
+            get: { menuBarOnly },
+            set: { newValue in
+                menuBarOnly = newValue
+                SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
+            }
+        )
+    }
+
+    private var showMenuBarExtraBinding: Binding<Bool> {
+        Binding(
+            get: { menuBarOnly || showMenuBarExtra },
+            set: { newValue in
+                guard !menuBarOnly else { return }
+                showMenuBarExtra = newValue
                 SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
             }
         )
@@ -6058,17 +6080,34 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .json("app.menuBarOnly"),
+                            String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"),
+                            subtitle: String(localized: "settings.app.menuBarOnly.subtitle", defaultValue: "Hide the Dock icon and Cmd+Tab entry. Use the menu bar item to show cmux.")
+                        ) {
+                            Toggle("", isOn: menuBarOnlyBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsMenuBarOnlyToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("notifications.showInMenuBar"),
                             String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"),
                             subtitle: String(localized: "settings.app.showInMenuBar.subtitle", defaultValue: "Keep cmux in the menu bar for unread notifications and quick actions.")
                         ) {
-                            Toggle("", isOn: $showMenuBarExtra)
+                            Toggle("", isOn: showMenuBarExtraBinding)
                                 .labelsHidden()
                                 .controlSize(.small)
                                 .accessibilityLabel(
                                     String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar")
                                 )
                         }
+                        .disabled(menuBarOnly)
 
                         SettingsCardDivider()
 
@@ -7444,6 +7483,7 @@ struct SettingsView: View {
         notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
         notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
         showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
+        menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces

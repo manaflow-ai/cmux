@@ -74,6 +74,60 @@ jobs:
       - name: Typecheck
         run: bun tsc --noEmit
 
+      - name: Web tests
+        run: bun test
+
+  web-db-migrations:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cmux_test
+          POSTGRES_PASSWORD: cmux
+          POSTGRES_USER: cmux
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmux -d cmux_test"
+          --health-interval 1s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: bunx drizzle-kit migrate --config drizzle.config.ts
+
+      - name: Re-apply migrations
+        env:
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: bunx drizzle-kit migrate --config drizzle.config.ts
+
+      - name: Database behavior tests
+        env:
+          CMUX_DB_TEST: "1"
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: |
+          bun test tests/db-schema.test.ts
+          bun test tests/drizzle-effect.test.ts
+          bun test tests/vm-db-read-model.test.ts
+
   tests:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 30

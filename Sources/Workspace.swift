@@ -1240,6 +1240,21 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
             + ["-o", "RequestTTY=no", configuration.destination, command]
     }
 
+    static func daemonSocketForwardArguments(
+        configuration: WorkspaceRemoteConfiguration,
+        localPort: Int,
+        remoteSocketPath: String
+    ) -> [String] {
+        ["-N", "-T", "-S", "none"]
+            + batchArguments(configuration: configuration)
+            + [
+                "-o", "ExitOnForwardFailure=yes",
+                "-o", "RequestTTY=no",
+                "-L", "127.0.0.1:\(localPort):\(remoteSocketPath)",
+                configuration.destination,
+            ]
+    }
+
     static func reverseRelayControlMasterArguments(
         configuration: WorkspaceRemoteConfiguration,
         controlCommand: String,
@@ -1344,6 +1359,8 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
 
 private final class WorkspaceRemoteDaemonRPCClient {
     private static let maxStdoutBufferBytes = 256 * 1024
+    private static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
+    private static let socketForwardStartupGracePeriod: TimeInterval = 0.75
     static let requiredProxyStreamCapability = "proxy.stream.push"
 
     enum StreamEvent {
@@ -1355,6 +1372,51 @@ private final class WorkspaceRemoteDaemonRPCClient {
     private struct StreamSubscription {
         let queue: DispatchQueue
         let handler: (StreamEvent) -> Void
+    }
+
+    private final class WebSocketDelegate: NSObject, URLSessionWebSocketDelegate {
+        private let openSemaphore = DispatchSemaphore(value: 0)
+        private let lock = NSLock()
+        private var opened = false
+        private var closed = false
+
+        func urlSession(
+            _ session: URLSession,
+            webSocketTask: URLSessionWebSocketTask,
+            didOpenWithProtocol protocol: String?
+        ) {
+            lock.lock()
+            opened = true
+            lock.unlock()
+            openSemaphore.signal()
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            webSocketTask: URLSessionWebSocketTask,
+            didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+            reason: Data?
+        ) {
+            lock.lock()
+            closed = true
+            lock.unlock()
+            openSemaphore.signal()
+        }
+
+        func waitForOpen(timeout: TimeInterval) -> Bool {
+            if openSemaphore.wait(timeout: .now() + timeout) != .success {
+                return false
+            }
+            lock.lock()
+            defer { lock.unlock() }
+            return opened && !closed
+        }
+
+        var isClosed: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return closed
+        }
     }
 
     private let configuration: WorkspaceRemoteConfiguration
@@ -1371,6 +1433,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
     private var stdinHandle: FileHandle?
     private var stdoutHandle: FileHandle?
     private var stderrHandle: FileHandle?
+    private var webSocketSession: URLSession?
+    private var webSocketTask: URLSessionWebSocketTask?
+    private var webSocketDelegate: WebSocketDelegate?
     private var isClosed = true
     private var shouldReportTermination = true
 
@@ -1389,6 +1454,47 @@ private final class WorkspaceRemoteDaemonRPCClient {
     }
 
     func start() throws {
+        pendingCalls.reset()
+
+        if configuration.transport == .websocket {
+            try startViaWebSocket()
+        } else if Self.usesSocketForwardTransport(configuration: configuration) {
+            try startViaBakedVMSocketForward()
+            markTransportOpen()
+        } else {
+            try startViaSSHExec()
+            markTransportOpen()
+        }
+
+        do {
+            let hello = try call(method: "hello", params: [:], timeout: 8.0)
+            let capabilities = (hello["capabilities"] as? [String]) ?? []
+            guard capabilities.contains(Self.requiredProxyStreamCapability) else {
+                throw NSError(domain: "cmux.remote.daemon.rpc", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon missing required capability \(Self.requiredProxyStreamCapability)",
+                ])
+            }
+        } catch {
+            stop(suppressTerminationCallback: true)
+            throw error
+        }
+    }
+
+    private func markTransportOpen() {
+        stateQueue.sync {
+            self.markTransportOpenLocked()
+        }
+    }
+
+    private func markTransportOpenLocked() {
+        isClosed = false
+        shouldReportTermination = true
+        stdoutBuffer = Data()
+        stderrBuffer = ""
+        streamSubscriptions.removeAll(keepingCapacity: false)
+    }
+
+    private func startViaSSHExec() throws {
         let process = Process()
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
@@ -1437,25 +1543,147 @@ private final class WorkspaceRemoteDaemonRPCClient {
             self.stdinHandle = stdinPipe.fileHandleForWriting
             self.stdoutHandle = stdoutPipe.fileHandleForReading
             self.stderrHandle = stderrPipe.fileHandleForReading
-            self.isClosed = false
-            self.shouldReportTermination = true
-            self.stdoutBuffer = Data()
-            self.stderrBuffer = ""
-            self.streamSubscriptions.removeAll(keepingCapacity: false)
         }
-        pendingCalls.reset()
+    }
+
+    private func startViaBakedVMSocketForward() throws {
+        let localPort = try Self.allocateLoopbackPort()
+        let process = Process()
+        let stderrPipe = Pipe()
+
+        stateQueue.sync {
+            self.stderrPipe = stderrPipe
+        }
+
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = Self.daemonSocketForwardArguments(
+            configuration: configuration,
+            localPort: localPort,
+            remoteSocketPath: Self.bakedVMDaemonSocketPath
+        )
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = stderrPipe
+
+        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            self?.stateQueue.async {
+                self?.consumeStderrData(data)
+            }
+        }
+        process.terminationHandler = { [weak self] terminated in
+            self?.stateQueue.async {
+                self?.handleProcessTermination(terminated)
+            }
+        }
 
         do {
-            let hello = try call(method: "hello", params: [:], timeout: 8.0)
-            let capabilities = (hello["capabilities"] as? [String]) ?? []
-            guard capabilities.contains(Self.requiredProxyStreamCapability) else {
-                throw NSError(domain: "cmux.remote.daemon.rpc", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon missing required capability \(Self.requiredProxyStreamCapability)",
-                ])
+            try process.run()
+        } catch {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 18, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to launch SSH daemon socket forward: \(error.localizedDescription)",
+            ])
+        }
+
+        if let startupFailure = Self.startupFailureDetail(
+            process: process,
+            stderrPipe: stderrPipe,
+            gracePeriod: Self.socketForwardStartupGracePeriod
+        ) {
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning {
+                process.terminate()
+            }
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 19, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to start SSH daemon socket forward: \(startupFailure)",
+            ])
+        }
+
+        let socketHandle: FileHandle
+        do {
+            socketHandle = try Self.connectLoopbackSocket(port: localPort)
+        } catch {
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning {
+                process.terminate()
+            }
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 20, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to connect VM daemon socket forward: \(error.localizedDescription)",
+            ])
+        }
+
+        socketHandle.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            self?.stateQueue.async {
+                self?.consumeStdoutData(data)
+            }
+        }
+
+        stateQueue.sync {
+            self.process = process
+            self.stdinHandle = socketHandle
+            self.stdoutHandle = socketHandle
+            self.stderrHandle = stderrPipe.fileHandleForReading
+        }
+    }
+
+    private func startViaWebSocket() throws {
+        guard let endpoint = configuration.daemonWebSocketEndpoint else {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 23, userInfo: [
+                NSLocalizedDescriptionKey: "websocket daemon endpoint is missing",
+            ])
+        }
+        guard let url = URL(string: endpoint.url),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "wss" || scheme == "ws" else {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 24, userInfo: [
+                NSLocalizedDescriptionKey: "invalid websocket daemon URL \(endpoint.url)",
+            ])
+        }
+
+        var request = URLRequest(url: url)
+        for (key, value) in endpoint.headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+
+        let delegate = WebSocketDelegate()
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        let task = session.webSocketTask(with: request)
+        task.resume()
+        guard delegate.waitForOpen(timeout: 15.0) else {
+            task.cancel(with: .goingAway, reason: nil)
+            session.invalidateAndCancel()
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 25, userInfo: [
+                NSLocalizedDescriptionKey: "timed out opening daemon websocket",
+            ])
+        }
+
+        stateQueue.sync {
+            self.webSocketSession = session
+            self.webSocketTask = task
+            self.webSocketDelegate = delegate
+            self.markTransportOpenLocked()
+        }
+
+        stateQueue.async {
+            self.receiveNextWebSocketMessageLocked()
+        }
+
+        let authPayload: [String: Any] = [
+            "type": "auth",
+            "token": endpoint.token,
+            "session_id": endpoint.sessionId,
+        ]
+        let authData = try Self.encodeJSON(authPayload)
+        do {
+            try writeQueue.sync {
+                try writePayload(authData)
             }
         } catch {
             stop(suppressTerminationCallback: true)
-            throw error
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 26, userInfo: [
+                NSLocalizedDescriptionKey: "failed authenticating daemon websocket: \(error.localizedDescription)",
+            ])
         }
     }
 
@@ -1598,6 +1826,31 @@ private final class WorkspaceRemoteDaemonRPCClient {
     }
 
     private func writePayload(_ payload: Data) throws {
+        let webSocketTask: URLSessionWebSocketTask? = stateQueue.sync {
+            self.webSocketTask
+        }
+        if let webSocketTask {
+            guard let text = String(data: payload, encoding: .utf8) else {
+                throw NSError(domain: "cmux.remote.daemon.rpc", code: 27, userInfo: [
+                    NSLocalizedDescriptionKey: "failed encoding daemon websocket request as UTF-8",
+                ])
+            }
+            let semaphore = DispatchSemaphore(value: 0)
+            var sendError: Error?
+            webSocketTask.send(.string(text)) { error in
+                sendError = error
+                semaphore.signal()
+            }
+            semaphore.wait()
+            if let sendError {
+                stop(suppressTerminationCallback: false)
+                throw NSError(domain: "cmux.remote.daemon.rpc", code: 16, userInfo: [
+                    NSLocalizedDescriptionKey: "failed writing daemon RPC request: \(sendError.localizedDescription)",
+                ])
+            }
+            return
+        }
+
         let stdinHandle: FileHandle = stateQueue.sync {
             self.stdinHandle ?? FileHandle.nullDevice
         }
@@ -1638,18 +1891,48 @@ private final class WorkspaceRemoteDaemonRPCClient {
                 lineData.remove(at: carriageIndex)
             }
             guard !lineData.isEmpty else { continue }
-
-            guard let payload = try? JSONSerialization.jsonObject(with: lineData, options: []) as? [String: Any] else {
-                continue
-            }
-
-            if let responseID = Self.responseID(in: payload) {
-                _ = pendingCalls.resolve(id: responseID, payload: payload)
-                continue
-            }
-
-            consumeEventPayload(payload)
+            consumeJSONPayload(lineData)
         }
+    }
+
+    private func receiveNextWebSocketMessageLocked() {
+        guard let task = webSocketTask, let delegate = webSocketDelegate else { return }
+        task.receive { [weak self] result in
+            guard let self else { return }
+            self.stateQueue.async {
+                switch result {
+                case .success(let message):
+                    switch message {
+                    case .string(let text):
+                        self.consumeJSONPayload(Data(text.utf8))
+                    case .data(let data):
+                        self.consumeJSONPayload(data)
+                    @unknown default:
+                        break
+                    }
+                    if !self.isClosed {
+                        self.receiveNextWebSocketMessageLocked()
+                    }
+                case .failure(let error):
+                    if delegate.isClosed || self.isClosed {
+                        self.handleWebSocketTermination("daemon websocket closed")
+                    } else {
+                        self.handleWebSocketTermination("daemon websocket failed: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+    }
+
+    private func consumeJSONPayload(_ data: Data) {
+        guard let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            return
+        }
+        if let responseID = Self.responseID(in: payload) {
+            _ = pendingCalls.resolve(id: responseID, payload: payload)
+            return
+        }
+        consumeEventPayload(payload)
     }
 
     private func consumeStderrData(_ data: Data) {
@@ -1723,13 +2006,31 @@ private final class WorkspaceRemoteDaemonRPCClient {
         onUnexpectedTermination(detail)
     }
 
+    private func handleWebSocketTermination(_ detail: String) {
+        let shouldNotify = !isClosed && shouldReportTermination
+        let capturedTask = webSocketTask
+        let capturedSession = webSocketSession
+
+        isClosed = true
+        webSocketTask = nil
+        webSocketSession = nil
+        webSocketDelegate = nil
+        streamSubscriptions.removeAll(keepingCapacity: false)
+        signalPendingFailureLocked(detail)
+        capturedTask?.cancel(with: .normalClosure, reason: nil)
+        capturedSession?.invalidateAndCancel()
+
+        guard shouldNotify else { return }
+        onUnexpectedTermination(detail)
+    }
+
     private func stop(suppressTerminationCallback: Bool) {
-        let captured: (Process?, FileHandle?, FileHandle?, FileHandle?, Bool, String) = stateQueue.sync {
+        let captured: (Process?, FileHandle?, FileHandle?, FileHandle?, URLSessionWebSocketTask?, URLSession?, Bool, String) = stateQueue.sync {
             let detail = Self.bestErrorLine(stderr: stderrBuffer) ?? "daemon transport stopped"
             let shouldNotify = !suppressTerminationCallback && !isClosed
             shouldReportTermination = !suppressTerminationCallback
             if isClosed {
-                return (nil, nil, nil, nil, false, detail)
+                return (nil, nil, nil, nil, nil, nil, false, detail)
             }
 
             isClosed = true
@@ -1738,6 +2039,8 @@ private final class WorkspaceRemoteDaemonRPCClient {
             let capturedStdin = stdinHandle
             let capturedStdout = stdoutHandle
             let capturedStderr = stderrHandle
+            let capturedWebSocketTask = webSocketTask
+            let capturedWebSocketSession = webSocketSession
 
             process = nil
             stdinPipe = nil
@@ -1746,8 +2049,20 @@ private final class WorkspaceRemoteDaemonRPCClient {
             stdinHandle = nil
             stdoutHandle = nil
             stderrHandle = nil
+            webSocketTask = nil
+            webSocketSession = nil
+            webSocketDelegate = nil
             streamSubscriptions.removeAll(keepingCapacity: false)
-            return (capturedProcess, capturedStdin, capturedStdout, capturedStderr, shouldNotify, detail)
+            return (
+                capturedProcess,
+                capturedStdin,
+                capturedStdout,
+                capturedStderr,
+                capturedWebSocketTask,
+                capturedWebSocketSession,
+                shouldNotify,
+                detail
+            )
         }
 
         captured.2?.readabilityHandler = nil
@@ -1758,8 +2073,10 @@ private final class WorkspaceRemoteDaemonRPCClient {
         if let process = captured.0, process.isRunning {
             process.terminate()
         }
-        if captured.4 {
-            onUnexpectedTermination(captured.5)
+        captured.4?.cancel(with: .normalClosure, reason: nil)
+        captured.5?.invalidateAndCancel()
+        if captured.6 {
+            onUnexpectedTermination(captured.7)
         }
     }
 
@@ -1786,11 +2103,132 @@ private final class WorkspaceRemoteDaemonRPCClient {
         try JSONSerialization.data(withJSONObject: object, options: [])
     }
 
+    private static func usesSocketForwardTransport(configuration: WorkspaceRemoteConfiguration) -> Bool {
+        configuration.transport == .ssh && configuration.skipDaemonBootstrap
+    }
+
     private static func daemonArguments(configuration: WorkspaceRemoteConfiguration, remotePath: String) -> [String] {
         WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
             configuration: configuration,
             remotePath: remotePath
         )
+    }
+
+    private static func daemonSocketForwardArguments(
+        configuration: WorkspaceRemoteConfiguration,
+        localPort: Int,
+        remoteSocketPath: String
+    ) -> [String] {
+        WorkspaceRemoteSSHBatchCommandBuilder.daemonSocketForwardArguments(
+            configuration: configuration,
+            localPort: localPort,
+            remoteSocketPath: remoteSocketPath
+        )
+    }
+
+    private static func allocateLoopbackPort() throws -> Int {
+        for _ in 0..<8 {
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else { break }
+            defer { close(fd) }
+
+            var yes: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+
+            var addr = sockaddr_in()
+            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = in_port_t(0)
+            addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+            let bindResult = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            guard bindResult == 0 else { continue }
+
+            var bound = sockaddr_in()
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let nameResult = withUnsafeMutablePointer(to: &bound) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    getsockname(fd, sockaddrPtr, &len)
+                }
+            }
+            guard nameResult == 0 else { continue }
+
+            let port = Int(UInt16(bigEndian: bound.sin_port))
+            if port > 0 {
+                return port
+            }
+        }
+
+        throw NSError(domain: "cmux.remote.daemon.rpc", code: 21, userInfo: [
+            NSLocalizedDescriptionKey: "failed to allocate local daemon socket forward port",
+        ])
+    }
+
+    private static func connectLoopbackSocket(port: Int) throws -> FileHandle {
+        guard port > 0 && port <= 65535 else {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 22, userInfo: [
+                NSLocalizedDescriptionKey: "invalid local daemon socket forward port \(port)",
+            ])
+        }
+
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [
+                NSLocalizedDescriptionKey: String(cString: strerror(errno)),
+            ])
+        }
+
+        var noSigPipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = UInt16(port).bigEndian
+        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connectResult == 0 else {
+            let errorCode = errno
+            close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errorCode), userInfo: [
+                NSLocalizedDescriptionKey: String(cString: strerror(errorCode)),
+            ])
+        }
+
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    }
+
+    private static func startupFailureDetail(
+        process: Process,
+        stderrPipe: Pipe,
+        gracePeriod: TimeInterval
+    ) -> String? {
+        if process.isRunning {
+            let originalTerminationHandler = process.terminationHandler
+            let exitSemaphore = DispatchSemaphore(value: 0)
+            process.terminationHandler = { terminated in
+                originalTerminationHandler?(terminated)
+                exitSemaphore.signal()
+            }
+            if !process.isRunning {
+                exitSemaphore.signal()
+            }
+            guard exitSemaphore.wait(timeout: .now() + max(0, gracePeriod)) == .success else {
+                return nil
+            }
+        }
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {
@@ -3469,6 +3907,26 @@ final class WorkspaceRemoteSessionController {
         let remotePath: String
     }
 
+    /// The capabilities advertised by the cmuxd-remote baked into the Freestyle snapshot
+    /// (scratch/vm-experiments/images/install.sh pins v0.63.2). Keep this in lockstep with
+    /// the daemon's `hello` response — if the baked version advertises a new capability,
+    /// bump it here too.
+    private static func bakedVMDaemonHello() -> DaemonHello {
+        DaemonHello(
+            name: "cmuxd-remote",
+            version: "v0.63.2-baked",
+            capabilities: [
+                "session.basic",
+                "session.resize.min",
+                "proxy.http_connect",
+                "proxy.socks5",
+                "proxy.stream",
+                "proxy.stream.push",
+            ],
+            remotePath: "/usr/local/bin/cmuxd-remote"
+        )
+    }
+
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.\(UUID().uuidString)", qos: .utility)
     private let queueKey = DispatchSpecificKey<Void>()
     private weak var workspace: Workspace?
@@ -3682,7 +4140,17 @@ final class WorkspaceRemoteSessionController {
         publishState(.connecting, detail: connectDetail)
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
-            let hello = try bootstrapDaemonLocked()
+            let hello: DaemonHello
+            if configuration.skipDaemonBootstrap {
+                // Cloud-VM path: cmuxd-remote is pre-baked in the image and exposed via
+                // systemd socket activation at /run/cmuxd-remote.sock. We skip the probe,
+                // upload, and stdio-hello steps entirely — they all depend on ssh-exec
+                // channel I/O, which the Freestyle gateway doesn't forward.
+                hello = Self.bakedVMDaemonHello()
+                debugLog("remote.bootstrap.skipped reason=vm-baked remotePath=\(hello.remotePath)")
+            } else {
+                hello = try bootstrapDaemonLocked()
+            }
             guard hello.capabilities.contains(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability) else {
                 throw NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon missing required capability \(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability)",
@@ -3700,9 +4168,27 @@ final class WorkspaceRemoteSessionController {
                 remotePath: hello.remotePath
             )
             recordHeartbeatActivityLocked()
-            startReverseRelayLocked(remotePath: hello.remotePath)
-            requestBootstrapRemoteTTYIfNeededLocked()
-            startProxyLocked()
+            if configuration.skipDaemonBootstrap {
+                debugLog("remote.relay.skipped reason=vm-baked transport=\(configuration.transport.rawValue)")
+                if configuration.daemonWebSocketEndpoint != nil {
+                    startProxyLocked()
+                } else {
+                    // SSH-only cloud VM fallback cannot use ssh-exec or local socket forwarding
+                    // through provider gateways. Keep the shell connected and leave proxy off.
+                    let connectedDetailFormat = String(
+                        localized: "remote.state.connected.vmNoProxy",
+                        defaultValue: "Connected to %@ (VM, proxy disabled)"
+                    )
+                    publishState(
+                        .connected,
+                        detail: String(format: connectedDetailFormat, configuration.displayTarget)
+                    )
+                }
+            } else {
+                startReverseRelayLocked(remotePath: hello.remotePath)
+                requestBootstrapRemoteTTYIfNeededLocked()
+                startProxyLocked()
+            }
         } catch {
             daemonReady = false
             daemonBootstrapVersion = nil
@@ -4537,6 +5023,12 @@ final class WorkspaceRemoteSessionController {
 
     private func removeRemoteRelayMetadataLocked() {
         guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
+        // VM workspaces never installed relay metadata (the reverse-relay path is gated off),
+        // and the ssh-exec the cleanup would issue hangs on Freestyle's russh gateway.
+        if configuration.skipDaemonBootstrap {
+            debugLog("remote.relay.cleanup.skipped reason=vm-baked relayPort=\(relayPort)")
+            return
+        }
         let script = Self.remoteRelayMetadataCleanupScript(relayPort: relayPort)
         let command = "sh -c \(Self.shellSingleQuoted(script))"
         do {
@@ -6112,7 +6604,30 @@ struct WorkspaceRemoteDaemonStatus: Equatable {
     }
 }
 
+enum WorkspaceRemoteTransport: String, Equatable {
+    case ssh
+    case websocket
+}
+
+struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
+    let url: String
+    let headers: [String: String]
+    let token: String
+    let sessionId: String
+    let expiresAtUnix: Int64
+
+    var proxyBrokerKeyComponent: String {
+        [
+            url.trimmingCharacters(in: .whitespacesAndNewlines),
+            sessionId.trimmingCharacters(in: .whitespacesAndNewlines),
+            String(expiresAtUnix),
+        ]
+            .joined(separator: "\u{1f}")
+    }
+}
+
 struct WorkspaceRemoteConfiguration: Equatable {
+    let transport: WorkspaceRemoteTransport
     let destination: String
     let port: Int?
     let identityFile: String?
@@ -6124,8 +6639,15 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let localSocketPath: String?
     let terminalStartupCommand: String?
     let foregroundAuthToken: String?
+    let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
+    /// True for cloud-VM remotes (Freestyle snapshots) where cmuxd-remote is pre-baked in
+    /// the image and started via systemd. Skip the upload+exec bootstrap entirely and synthesize
+    /// a `DaemonHello`. Reverse-relay still stays off, but SSH-backed VM workspaces can talk to
+    /// the baked daemon through an SSH local forward to `/run/cmuxd-remote.sock`.
+    let skipDaemonBootstrap: Bool
 
     init(
+        transport: WorkspaceRemoteTransport = .ssh,
         destination: String,
         port: Int?,
         identityFile: String?,
@@ -6136,8 +6658,11 @@ struct WorkspaceRemoteConfiguration: Equatable {
         relayToken: String?,
         localSocketPath: String?,
         terminalStartupCommand: String?,
-        foregroundAuthToken: String? = nil
+        foregroundAuthToken: String? = nil,
+        daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
+        skipDaemonBootstrap: Bool = false
     ) {
+        self.transport = transport
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
@@ -6149,6 +6674,8 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.localSocketPath = localSocketPath
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
+        self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
+        self.skipDaemonBootstrap = skipDaemonBootstrap
     }
 
     var displayTarget: String {
@@ -6157,12 +6684,24 @@ struct WorkspaceRemoteConfiguration: Equatable {
     }
 
     var proxyBrokerTransportKey: String {
+        let normalizedTransport = transport.rawValue
+        let normalizedBootstrapMode = skipDaemonBootstrap ? "vm-baked" : "bootstrap"
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPort = port.map(String.init) ?? ""
         let normalizedIdentity = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
         let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
-        return [normalizedDestination, normalizedPort, normalizedIdentity, normalizedOptions, normalizedLocalProxyPort]
+        let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+        return [
+            normalizedTransport,
+            normalizedBootstrapMode,
+            normalizedDestination,
+            normalizedPort,
+            normalizedIdentity,
+            normalizedOptions,
+            normalizedLocalProxyPort,
+            normalizedWebSocketDaemon,
+        ]
             .joined(separator: "\u{1e}")
     }
 
@@ -6763,6 +7302,11 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
     private var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
+    /// Display target of the remote workspace that just disconnected. Set right before
+    /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
+    /// explaining that ssh ended (instead of the user seeing an unexplained local prompt
+    /// that looks identical to a healthy workspace).
+    private var pendingReplacementBannerRemoteTarget: String?
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
@@ -7207,11 +7751,24 @@ final class Workspace: Identifiable, ObservableObject {
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
 
+        // When the workspace boots with an explicit initial command (`cmux ssh` /
+        // `cmux vm new` both funnel their ssh startup script through this path),
+        // hold the PTY open after that command exits. Without this Ghostty
+        // silently respawns a local login shell and the user can't tell a dead
+        // VM apart from a healthy local prompt.
+        var resolvedConfigTemplate = configTemplate
+        if let trimmedCommand = initialTerminalCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !trimmedCommand.isEmpty {
+            var template = resolvedConfigTemplate ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            resolvedConfigTemplate = template
+        }
+
         // Create initial terminal panel
         let terminalPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: configTemplate,
+            configTemplate: resolvedConfigTemplate,
             workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
             portOrdinal: portOrdinal,
             initialCommand: initialTerminalCommand,
@@ -8514,12 +9071,14 @@ final class Workspace: Identifiable, ObservableObject {
             ]
         }
         if let remoteConfiguration {
+            payload["transport"] = remoteConfiguration.transport.rawValue
             payload["destination"] = remoteConfiguration.destination
             payload["port"] = remoteConfiguration.port ?? NSNull()
             payload["has_identity_file"] = remoteConfiguration.identityFile != nil
             payload["has_ssh_options"] = !remoteConfiguration.sshOptions.isEmpty
             payload["local_proxy_port"] = remoteConfiguration.localProxyPort ?? NSNull()
         } else {
+            payload["transport"] = NSNull()
             payload["destination"] = NSNull()
             payload["port"] = NSNull()
             payload["has_identity_file"] = false
@@ -8561,6 +9120,12 @@ final class Workspace: Identifiable, ObservableObject {
             autoConnect
             || (foregroundAuthToken != nil && foregroundAuthToken == pendingRemoteForegroundAuthToken)
         pendingRemoteForegroundAuthToken = nil
+        if configuration.transport == .websocket,
+           configuration.daemonWebSocketEndpoint == nil {
+            remoteConnectionState = .connected
+            applyBrowserRemoteWorkspaceStatusToPanels()
+            return
+        }
         guard shouldAutoConnect else {
             remoteConnectionState = .disconnected
             applyBrowserRemoteWorkspaceStatusToPanels()
@@ -8804,6 +9369,13 @@ final class Workspace: Identifiable, ObservableObject {
               relayPort > 0,
               remoteConfiguration?.relayPort == relayPort else {
             return
+        }
+        // Arm the replacement-banner before ownership of `remoteConfiguration` drains
+        // away through `untrackRemoteTerminalSurface` → `disconnectRemoteConnection`.
+        // The banner only matters if we end up demoting this workspace to local, so
+        // `createReplacementTerminalPanel` consumes and clears the value.
+        if let displayTarget = remoteConfiguration?.displayTarget {
+            pendingReplacementBannerRemoteTarget = displayTarget
         }
         pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)
         untrackRemoteTerminalSurface(surfaceId)
@@ -9231,6 +9803,14 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         focus: Bool = true
     ) -> TerminalPanel? {
+#if DEBUG
+        let splitTimingStart = ProcessInfo.processInfo.systemUptime
+        let splitTransport = remoteConfiguration?.transport.rawValue ?? "local"
+        dlog(
+            "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "transport=\(splitTransport) stage=start elapsedMs=0.00"
+        )
+#endif
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -9243,8 +9823,25 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let paneId = sourcePaneId else { return nil }
-        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        // Hold the pane open after the remote session ends so the user can read the
+        // "ssh exited …" message the startup script prints. Otherwise Ghostty silently
+        // respawns a local login shell when the command exits (the PTY falls through
+        // to $SHELL), and a dead VM looks identical to a healthy workspace with a
+        // local prompt — which is what we saw during dogfood.
+        if remoteTerminalStartupCommand != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
+#if DEBUG
+        dlog(
+            "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "transport=\(splitTransport) stage=command_resolved elapsedMs=\(debugElapsedMs(since: splitTimingStart)) " +
+            "remoteCommand=\(remoteTerminalStartupCommand == nil ? 0 : 1)"
+        )
+#endif
 
         // Inherit working directory: prefer the source panel's reported cwd,
         // then its requested startup cwd if shell integration has not reported
@@ -9285,6 +9882,13 @@ final class Workspace: Identifiable, ObservableObject {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
+#if DEBUG
+        dlog(
+            "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "transport=\(splitTransport) stage=panel_ready elapsedMs=\(debugElapsedMs(since: splitTimingStart)) " +
+            "newPanel=\(newPanel.id.uuidString.prefix(5))"
+        )
+#endif
 
         // Pre-generate the bonsplit tab ID so we can install the panel mapping before bonsplit
         // mutates layout state (avoids transient "Empty Panel" flashes during split).
@@ -9318,6 +9922,11 @@ final class Workspace: Identifiable, ObservableObject {
 
 #if DEBUG
         cmuxDebugLog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
+        cmuxDebugLog(
+            "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "transport=\(splitTransport) stage=layout_committed elapsedMs=\(debugElapsedMs(since: splitTimingStart)) " +
+            "newPanel=\(newPanel.id.uuidString.prefix(5))"
+        )
 #endif
 
         // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
@@ -9336,6 +9945,13 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView: previousHostedView
             )
         }
+#if DEBUG
+        dlog(
+            "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "transport=\(splitTransport) stage=focus_scheduled elapsedMs=\(debugElapsedMs(since: splitTimingStart)) " +
+            "newPanel=\(newPanel.id.uuidString.prefix(5)) focus=\(focus ? 1 : 0)"
+        )
+#endif
 
         owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: id,
@@ -9362,8 +9978,16 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        // See the comment at the other call site: hold the PTY open after the remote
+        // command exits so the user sees the error rather than a silently-respawned
+        // local login shell.
+        if remoteTerminalStartupCommand != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
 
         // Create new terminal panel
         let newPanel = TerminalPanel(
@@ -10733,6 +11357,67 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Utility
 
+    /// Writes a small shell wrapper that prints a banner ("remote ssh ended — target X"),
+    /// then execs the user's `$SHELL`. Returned path goes to `initialCommand`, which Ghostty
+    /// runs as the PTY command. The banner survives as text in scrollback so the user can
+    /// see it after the replacement local shell starts.
+    private static func replacementShellScriptWithBanner(target: String) -> String {
+        let tempDir = FileManager.default.temporaryDirectory
+        let scriptURL = tempDir.appendingPathComponent(
+            "cmux-remote-disconnect-banner-\(UUID().uuidString.lowercased()).sh"
+        )
+        // Encode the target as base64 and decode it inside the shell. This sidesteps every
+        // layer of shell quoting: no matter what the target contains (`$(id)`, backticks,
+        // single/double quotes, escape sequences), the shell never sees it as shell syntax.
+        // Previous version only escaped backslash and double-quote, which left command
+        // substitution and backticks as a live injection vector (Codex P2).
+        let encodedTarget = Data(target.utf8).base64EncodedString()
+        // Localized banner strings. Both use %s (not %@) because they're rendered by the
+        // POSIX printf inside the shell wrapper, not by Swift's String(format:).
+        let endedLineFormat = String(
+            localized: "remote.disconnectBanner.sessionEnded",
+            defaultValue: "[cmux] remote ssh session ended: %s"
+        )
+        let reconnectLine = String(
+            localized: "remote.disconnectBanner.reconnectHint",
+            defaultValue: "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+        )
+        // Encode the localized lines the same way as the target, so a translator using
+        // backticks or $(…) in a translation string can't unexpectedly execute in the
+        // user's local shell. Decoded inline at wrapper startup, then fed to printf.
+        let encodedEndedFormat = Data(endedLineFormat.utf8).base64EncodedString()
+        let encodedReconnectLine = Data(reconnectLine.utf8).base64EncodedString()
+        let body = """
+        #!/bin/sh
+        cmux_disconnect_decode() {
+          printf '%s' "$1" | base64 --decode 2>/dev/null || printf '%s' "$1" | base64 -D 2>/dev/null
+        }
+        cmux_disconnect_target="$(cmux_disconnect_decode '\(encodedTarget)')"
+        cmux_disconnect_ended_format="$(cmux_disconnect_decode '\(encodedEndedFormat)')"
+        cmux_disconnect_reconnect_line="$(cmux_disconnect_decode '\(encodedReconnectLine)')"
+        # Append newline + color codes ourselves rather than trusting the translator to
+        # preserve them in every locale.
+        printf '\\033[1;33m'
+        printf "$cmux_disconnect_ended_format" "$cmux_disconnect_target"
+        printf '\\033[0m\\n' >&2
+        printf '\\033[2m%s\\033[0m\\n' "$cmux_disconnect_reconnect_line" >&2
+        printf '\\n'
+        unset cmux_disconnect_target cmux_disconnect_ended_format cmux_disconnect_reconnect_line
+        unset -f cmux_disconnect_decode 2>/dev/null || true
+        # Remove ourselves so /tmp doesn't accumulate these wrappers across sessions.
+        rm -f -- "$0" 2>/dev/null || true
+        exec "${SHELL:-/bin/sh}" -l
+
+        """
+        do {
+            try body.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+            return scriptURL.path
+        } catch {
+            return "/bin/sh"
+        }
+    }
+
     /// Create a new terminal panel (used when replacing the last panel)
     @discardableResult
     func createReplacementTerminalPanel() -> TerminalPanel {
@@ -10740,11 +11425,20 @@ final class Workspace: Identifiable, ObservableObject {
             preferredPanelId: focusedPanelId,
             inPane: bonsplitController.focusedPaneId
         )
+        // If the previous surface was a remote ssh terminal that just exited, spawn a
+        // local shell that first prints a clearly-coloured banner explaining what happened.
+        // Without this banner a dead VM surfaces as an ordinary local `lawrence@mac ~ %`
+        // prompt, which looks identical to "I never connected" and was mis-read during
+        // dogfood as "cmux disconnected silently".
+        let bannerTarget = pendingReplacementBannerRemoteTarget
+        pendingReplacementBannerRemoteTarget = nil
+        let replacementInitialCommand: String? = bannerTarget.map { Self.replacementShellScriptWithBanner(target: $0) }
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: inheritedConfig,
-            portOrdinal: portOrdinal
+            portOrdinal: portOrdinal,
+            initialCommand: replacementInitialCommand
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -12349,10 +13043,16 @@ extension Workspace: BonsplitDelegate {
         // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
             if isDetaching {
+                // Detach path also doesn't create a replacement panel this turn, so any
+                // pending banner state would survive and leak into a later close. Drop it.
+                pendingReplacementBannerRemoteTarget = nil
                 scheduleTerminalGeometryReconcile()
                 return
             }
 
+            #if DEBUG
+            dlog("replacement.banner.fire target=\(pendingReplacementBannerRemoteTarget ?? "nil")")
+            #endif
             let replacement = createReplacementTerminalPanel()
             if let replacementTabId = surfaceIdFromPanelId(replacement.id),
                let replacementPane = bonsplitController.allPaneIds.first {
@@ -12364,6 +13064,12 @@ extension Workspace: BonsplitDelegate {
             scheduleFocusReconcile()
             return
         }
+
+        // A remote terminal exited but sibling panels are still alive, so we won't spawn a
+        // replacement right now. Drop the banner-target — without this, a later unrelated
+        // close (e.g. a local pane shuts down its shell) would inherit the stale value and
+        // print "remote ssh session ended" for a flow that had nothing to do with the VM.
+        pendingReplacementBannerRemoteTarget = nil
 
         if let selectTabId,
            bonsplitController.allPaneIds.contains(pane),
