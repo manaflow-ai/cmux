@@ -1090,6 +1090,737 @@
         }
       }
     },
+    "debug.menu.tabBarBackdropLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar Backdrop Lab…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバー背景ラボ…"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.liveNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes apply live."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更はライブで反映されます。"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.controlBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "controlBackgroundColor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "controlBackgroundColor"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.precompositedBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pre-composited barBackground"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合成済み barBackground"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.precompositedPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pre-composited paneBackground"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合成済み paneBackground"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.rawBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "barBackground (tab chrome)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "barBackground（タブクローム）"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.rawPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raw paneBackground (opaque)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未加工 paneBackground（不透明）"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.translucentChrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translucent chrome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "半透明クローム"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.windowBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "windowBackgroundColor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "windowBackgroundColor"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Button Backdrop Color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタン背景色"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.leftSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.opacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface opacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス不透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.rightSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "R"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Bonsplit tab bars with overflow tabs under the split buttons. The window background is transparent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ボタンの下にあふれるタブを表示するライブ Bonsplit タブバーです。ウインドウ背景は透明です。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.agentBrowserLogs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-browser logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-browser ログ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.backdropCheck": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "split button backdrop check"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ボタン背景チェック"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.hiddenBelowControls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tabs hidden below controls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロール下に隠れるタブ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.rightEdgeOverflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right edge overflow sample"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右端オーバーフローのサンプル"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.terminalTransparency": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux terminal transparency"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ターミナル透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.underlayText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "underlay tab text visible here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のタブ文字が見える場所"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.terminal.compare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "drag / resize / compare the transparent edges"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグ / リサイズ / 透明な端を比較"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.terminal.overflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab titles intentionally overflow under the split buttons"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブタイトルは意図的に分割ボタンの下へあふれます"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.terminal.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lawrence in ~/cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lawrence in ~/cmux"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar Backdrop Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバー背景ラボ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.titlebarSample": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace@lab:~"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace@lab:~"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.controlBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4 Control background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4 コントロール背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.controlBackground.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses AppKit controlBackgroundColor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit の controlBackgroundColor を使います。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 No backdrop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 背景なし"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.hidden.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control sample. Tabs remain visible below the buttons."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較用サンプルです。ボタンの下にタブが見えたままになります。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaqueBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 Raw bar opaque"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 バーをそのまま不透明化"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaqueBar.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses the tab chrome color at full opacity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブクローム色を完全な不透明度で使います。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaquePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Raw pane opaque"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ペインをそのまま不透明化"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaquePane.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forces the pane fill to full opacity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン塗りを完全な不透明度にします。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 Opaque bar composite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 バー合成の不透明背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedBar.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composites tab chrome over the window background."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブクロームをウインドウ背景の上に合成します。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0 Opaque pane composite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0 ペイン合成の不透明背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedPane.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate default. Hides overflow tabs under the buttons."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補のデフォルトです。ボタンの下のあふれたタブを隠します。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentChrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 Translucent chrome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 半透明クローム"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentChrome.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the bleed-through problem."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透けて見える問題を表示します。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.windowBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 Window background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 ウインドウ背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.windowBackground.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses AppKit windowBackgroundColor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit の windowBackgroundColor を使います。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.width": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sample width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプル幅"
+          }
+        }
+      }
+    },
     "debug.menu.startupAppearanceDebug": {
       "extractionState": "manual",
       "localizations": {
