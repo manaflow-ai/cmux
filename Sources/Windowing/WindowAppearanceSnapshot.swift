@@ -192,10 +192,7 @@ struct WindowAppearanceSnapshot {
         case .terminalCanvas, .bonsplitChrome:
             return terminalBackdropPolicy()
         case .titlebar:
-            if unifySurfaceBackdrops {
-                return .clear
-            }
-            return terminalBackdropPolicy()
+            return .clear
         case .browserSurface:
             return terminalBackdropPolicy()
         case .leftSidebar, .rightSidebar:

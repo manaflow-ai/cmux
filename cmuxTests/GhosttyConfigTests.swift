@@ -778,7 +778,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
         assertTerminalBackdrop(snapshot.policy(for: .terminalCanvas))
         assertTerminalBackdrop(snapshot.policy(for: .bonsplitChrome))
-        assertTerminalBackdrop(snapshot.policy(for: .titlebar))
+        assertClearBackdrop(snapshot.policy(for: .titlebar))
 
         guard case let .sidebarMaterial(leftPolicy) = snapshot.policy(for: .leftSidebar) else {
             XCTFail("left sidebar should keep its own material policy")
@@ -978,7 +978,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
         XCTAssertEqual(hex, "#1122337F")
     }
 
-    func testBonsplitChromeColorsUsePaneBackdropWhenTerminalUsesHostLayerBackground() {
+    func testBonsplitChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
         let color = NSColor(
             srgbRed: 17.0 / 255.0,
             green: 34.0 / 255.0,
@@ -995,7 +995,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
         XCTAssertEqual(colors.backgroundHex, "#1122337F")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
-        XCTAssertEqual(colors.paneBackgroundHex, "#1122337F")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 
     func testBonsplitChromeColorsKeepPaneClearWhenSharingWindowBackdrop() {

@@ -3690,9 +3690,11 @@ struct ContentView: View {
             }
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)
-            syncUnifiedNativeTitlebarBackdrop(
+            // Let cmux supply the translucent titlebar fills. AppKit's native
+            // material otherwise blends a lighter strip over the terminal area.
+            syncNativeTitlebarBackdrop(
                 in: window,
-                enabled: shouldForceTransparentHosting && appearance.unifySurfaceBackdrops
+                enabled: shouldForceTransparentHosting
             )
             AppDelegate.shared?.registerMainWindow(
                 window,
@@ -3987,7 +3989,7 @@ struct ContentView: View {
         backdrop.wantsLayer = true
         backdrop.layer?.backgroundColor = color.cgColor
         backdrop.layer?.isOpaque = color.alphaComponent >= 0.999
-        backdrop.autoresizingMask = []
+        backdrop.autoresizingMask = [.width, .minYMargin]
 
         let resolvedHeight = max(0, height)
         let resolvedLeftWidth = max(0, leftWidth)
@@ -4020,7 +4022,7 @@ struct ContentView: View {
         }
     }
 
-    private func syncUnifiedNativeTitlebarBackdrop(
+    private func syncNativeTitlebarBackdrop(
         in window: NSWindow,
         enabled: Bool
     ) {

@@ -7476,8 +7476,8 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false
     ) -> String {
-        // Shared mode still paints Bonsplit chrome once. The terminal renderer
-        // owns the terminal canvas, so cmux no longer uses a global root fill.
+        // Bonsplit chrome still paints once. The terminal renderer owns the
+        // terminal canvas, so cmux no longer uses a global root fill.
         _ = sharesWindowBackdrop
         let themedColor = WindowAppearanceSnapshot.compositedTerminalColor(
             backgroundColor: backgroundColor,
@@ -7491,7 +7491,10 @@ final class Workspace: Identifiable, ObservableObject {
         renderingMode: GhosttyTerminalBackdropRenderingMode,
         sharesWindowBackdrop: Bool
     ) -> Bool {
-        renderingMode.usesHostLayerFill && !sharesWindowBackdrop
+        // Ghostty's renderer owns terminal translucency. Bonsplit pane fills
+        // make the canvas darker than Ghostty because they add another
+        // translucent layer under the Metal surface.
+        return false
     }
 
     nonisolated static func bonsplitChromeColors(
