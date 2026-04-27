@@ -188,54 +188,53 @@ struct cmuxApp: App {
         defaults.set(targetVersion, forKey: migrationKey)
     }
 
+    private var shouldLaunchTabBarBackdropLab: Bool {
+        ProcessInfo.processInfo.environment["CMUX_DEBUG_OPEN_TAB_BAR_BACKDROP_LAB"] == "1"
+    }
+
+    @ViewBuilder
+    private var mainContentView: some View {
+        ContentView(updateViewModel: appDelegate.updateViewModel, windowId: primaryWindowId)
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(sidebarState)
+            .environmentObject(sidebarSelectionState)
+            .environmentObject(fileExplorerState)
+            .environmentObject(cmuxConfigStore)
+            .onAppear {
+    #if DEBUG
+                if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
+                    UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
+                }
+    #endif
+                // Start the Unix socket controller for programmatic access
+                updateSocketController()
+                appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+                appDelegate.fileExplorerState = fileExplorerState
+                cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
+                cmuxConfigStore.loadAll()
+                applyAppearance()
+                if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
+                    DispatchQueue.main.async {
+                        appDelegate.openPreferencesWindow(debugSource: "uiTestShowSettings")
+                    }
+                }
+            }
+            .onChange(of: appearanceMode) { _ in
+                applyAppearance()
+            }
+            .onChange(of: socketControlMode) { _ in
+                updateSocketController()
+            }
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView(updateViewModel: appDelegate.updateViewModel, windowId: primaryWindowId)
-                .environmentObject(tabManager)
-                .environmentObject(notificationStore)
-                .environmentObject(sidebarState)
-                .environmentObject(sidebarSelectionState)
-                .environmentObject(fileExplorerState)
-                .environmentObject(cmuxConfigStore)
-                .onAppear {
-#if DEBUG
-                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-                        UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
-                    }
-#endif
-                    // Start the Unix socket controller for programmatic access
-                    updateSocketController()
-                    appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
-                    appDelegate.fileExplorerState = fileExplorerState
-                    cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
-                    cmuxConfigStore.loadAll()
-                    applyAppearance()
-#if DEBUG
-                    if ProcessInfo.processInfo.environment["CMUX_DEBUG_OPEN_TAB_BAR_BACKDROP_LAB"] == "1" {
-                        DispatchQueue.main.async {
-                            TabBarBackdropLabWindowController.shared.show()
-                        }
-                    }
-#endif
-                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
-                        DispatchQueue.main.async {
-                            appDelegate.openPreferencesWindow(debugSource: "uiTestShowSettings")
-                        }
-                    }
-                }
-#if DEBUG
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                    if ProcessInfo.processInfo.environment["CMUX_DEBUG_OPEN_TAB_BAR_BACKDROP_LAB"] == "1" {
-                        TabBarBackdropLabWindowController.shared.show()
-                    }
-                }
-#endif
-                .onChange(of: appearanceMode) { _ in
-                    applyAppearance()
-                }
-                .onChange(of: socketControlMode) { _ in
-                    updateSocketController()
-                }
+            if shouldLaunchTabBarBackdropLab {
+                TabBarBackdropLabPrimaryView()
+            } else {
+                mainContentView
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -3353,12 +3352,32 @@ private struct SplitButtonLayoutDebugView: View {
 
 // MARK: - Tab Bar Backdrop Lab Window
 
+private struct TabBarBackdropLabPrimaryView: View {
+    var body: some View {
+        TabBarBackdropLabView()
+            .background(
+                WindowAccessor { window in
+                    window.title = String(localized: "debug.tabBarBackdropLab.title", defaultValue: "Tab Bar Backdrop Lab")
+                    window.titleVisibility = .hidden
+                    window.titlebarAppearsTransparent = true
+                    window.isMovableByWindowBackground = true
+                    window.isOpaque = false
+                    window.backgroundColor = .clear
+                    window.minSize = NSSize(width: 1320, height: 820)
+                    window.setContentSize(NSSize(width: 1600, height: 1040))
+                    window.center()
+                }
+                .frame(width: 0, height: 0)
+            )
+    }
+}
+
 private final class TabBarBackdropLabWindowController: NSWindowController, NSWindowDelegate {
     static let shared = TabBarBackdropLabWindowController()
 
     private init() {
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 1260, height: 940),
+            contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1040),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -3400,6 +3419,8 @@ private struct TabBarBackdropLabVariant: Identifiable {
     let detail: String
     let effect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect
     let chromeHex: String
+    let tabBarHex: String
+    let splitButtonBackdropHex: String
     let paneHex: String
     let borderHex: String
     let terminalColor: NSColor
@@ -3408,15 +3429,17 @@ private struct TabBarBackdropLabVariant: Identifiable {
     let opacity: CGFloat
 
     var renderIdentity: String {
-        "\(id)-\(chromeHex)-\(paneHex)-\(borderHex)-\(String(format: "%.3f", opacity))-\(String(format: "%.1f", effect.fadeWidth))-\(String(format: "%.1f", effect.contentFadeWidth))-\(String(format: "%.2f", effect.leadingOpacity))-\(String(format: "%.2f", effect.trailingOpacity))-\(effect.masksTabContent ? 1 : 0)"
+        "\(id)-\(chromeHex)-\(tabBarHex)-\(splitButtonBackdropHex)-\(paneHex)-\(borderHex)-\(String(format: "%.3f", opacity))-\(String(format: "%.1f", effect.fadeWidth))-\(String(format: "%.1f", effect.contentFadeWidth))-\(String(format: "%.1f", effect.solidWidth))-\(String(format: "%.2f", effect.fadeRampStartFraction))-\(String(format: "%.2f", effect.leadingOpacity))-\(String(format: "%.2f", effect.trailingOpacity))-\(effect.masksTabContent ? 1 : 0)"
     }
 }
 
 private struct TabBarBackdropLabView: View {
     @State private var opacity: Double
     @State private var sidebarWidth: Double = 74
-    @State private var sampleWidth: Double = 500
-    @State private var candidateFadeWidth: Double = 24
+    @State private var sampleWidth: Double = 460
+    @State private var candidateFadeWidth: Double = 96
+    @State private var candidateSolidWidth: Double = 18
+    @State private var candidateFadeRampStart: Double = 0.82
     @State private var candidateLeadingOpacity: Double = 0
     @State private var candidateTrailingOpacity: Double = 1.0
     @State private var candidateMasksTabContent = true
@@ -3446,7 +3469,9 @@ private struct TabBarBackdropLabView: View {
         let candidate = BonsplitConfiguration.Appearance.SplitButtonBackdropEffect(
             style: .translucentChrome,
             fadeWidth: CGFloat(candidateFadeWidth),
-            contentFadeWidth: CGFloat(candidateFadeWidth),
+            contentFadeWidth: 42,
+            solidWidth: CGFloat(candidateSolidWidth),
+            fadeRampStartFraction: CGFloat(candidateFadeRampStart),
             leadingOpacity: CGFloat(candidateLeadingOpacity),
             trailingOpacity: CGFloat(candidateTrailingOpacity),
             masksTabContent: candidateMasksTabContent
@@ -3469,9 +3494,11 @@ private struct TabBarBackdropLabView: View {
                 detail: String(localized: "debug.tabBarBackdropLab.variant.candidateWideFade.detail", defaultValue: "Same model with a softer edge."),
                 effect: .init(
                     style: .translucentChrome,
-                    fadeWidth: 48,
-                    contentFadeWidth: 28,
-                    leadingOpacity: 0.08,
+                    fadeWidth: 104,
+                    contentFadeWidth: 46,
+                    solidWidth: 10,
+                    fadeRampStartFraction: 0.88,
+                    leadingOpacity: 0,
                     trailingOpacity: 1.0,
                     masksTabContent: true
                 ),
@@ -3486,9 +3513,11 @@ private struct TabBarBackdropLabView: View {
                 detail: String(localized: "debug.tabBarBackdropLab.variant.candidateSoftEnd.detail", defaultValue: "Same mask with lighter button fill."),
                 effect: .init(
                     style: .translucentChrome,
-                    fadeWidth: 34,
-                    contentFadeWidth: 24,
-                    leadingOpacity: 0.12,
+                    fadeWidth: 100,
+                    contentFadeWidth: 42,
+                    solidWidth: 14,
+                    fadeRampStartFraction: 0.84,
+                    leadingOpacity: 0,
                     trailingOpacity: 0.82,
                     masksTabContent: true
                 ),
@@ -3503,9 +3532,11 @@ private struct TabBarBackdropLabView: View {
                 detail: String(localized: "debug.tabBarBackdropLab.variant.candidateTightEdge.detail", defaultValue: "More coverage at the fade start."),
                 effect: .init(
                     style: .translucentChrome,
-                    fadeWidth: 18,
-                    contentFadeWidth: 18,
-                    leadingOpacity: 0.32,
+                    fadeWidth: 90,
+                    contentFadeWidth: 34,
+                    solidWidth: 24,
+                    fadeRampStartFraction: 0.70,
+                    leadingOpacity: 0.08,
                     trailingOpacity: 1.0,
                     masksTabContent: true
                 ),
@@ -3520,9 +3551,11 @@ private struct TabBarBackdropLabView: View {
                 detail: String(localized: "debug.tabBarBackdropLab.variant.candidateLowContrast.detail", defaultValue: "Lower-opacity solid region."),
                 effect: .init(
                     style: .translucentChrome,
-                    fadeWidth: 42,
-                    contentFadeWidth: 30,
-                    leadingOpacity: 0.10,
+                    fadeWidth: 102,
+                    contentFadeWidth: 38,
+                    solidWidth: 12,
+                    fadeRampStartFraction: 0.86,
+                    leadingOpacity: 0,
                     trailingOpacity: 0.72,
                     masksTabContent: true
                 ),
@@ -3537,7 +3570,10 @@ private struct TabBarBackdropLabView: View {
                 detail: String(localized: "debug.tabBarBackdropLab.variant.translucentChrome.detail", defaultValue: "Shows the bleed-through problem."),
                 effect: .init(
                     style: .translucentChrome,
-                    fadeWidth: 24,
+                    fadeWidth: 96,
+                    contentFadeWidth: 42,
+                    solidWidth: 18,
+                    fadeRampStartFraction: 0.82,
                     leadingOpacity: 0,
                     trailingOpacity: 1.0,
                     masksTabContent: false
@@ -3554,6 +3590,7 @@ private struct TabBarBackdropLabView: View {
                 effect: .init(
                     style: .translucentChrome,
                     fadeWidth: 0,
+                    solidWidth: 30,
                     leadingOpacity: 1.0,
                     trailingOpacity: 1.0,
                     masksTabContent: true
@@ -3644,11 +3681,12 @@ private struct TabBarBackdropLabView: View {
         [
             GridItem(.fixed(sampleWidthValue), spacing: 16, alignment: .top),
             GridItem(.fixed(sampleWidthValue), spacing: 16, alignment: .top),
+            GridItem(.fixed(sampleWidthValue), spacing: 16, alignment: .top),
         ]
     }
 
     private var gridContentWidth: CGFloat {
-        sampleWidthValue * 2 + 16
+        sampleWidthValue * 3 + 32
     }
 
     var body: some View {
@@ -3673,30 +3711,44 @@ private struct TabBarBackdropLabView: View {
                     labSlider(
                         title: String(localized: "debug.tabBarBackdropLab.width", defaultValue: "Sample width"),
                         value: $sampleWidth,
-                        range: 430...600,
+                        range: 390...580,
                         displayValue: "\(Int(sampleWidth))",
                         width: 140
                     )
                     labSlider(
                         title: String(localized: "debug.tabBarBackdropLab.candidateFade", defaultValue: "Candidate fade"),
                         value: $candidateFadeWidth,
-                        range: 0...72,
+                        range: 0...114,
                         displayValue: "\(Int(candidateFadeWidth))",
-                        width: 140
+                        width: 120
+                    )
+                    labSlider(
+                        title: String(localized: "debug.tabBarBackdropLab.candidateSolid", defaultValue: "Solid width"),
+                        value: $candidateSolidWidth,
+                        range: 0...72,
+                        displayValue: "\(Int(candidateSolidWidth))",
+                        width: 120
+                    )
+                    labSlider(
+                        title: String(localized: "debug.tabBarBackdropLab.candidateRamp", defaultValue: "Ramp start"),
+                        value: $candidateFadeRampStart,
+                        range: 0...0.98,
+                        displayValue: "\(Int(candidateFadeRampStart * 100))%",
+                        width: 120
                     )
                     labSlider(
                         title: String(localized: "debug.tabBarBackdropLab.candidateLead", defaultValue: "Lead opacity"),
                         value: $candidateLeadingOpacity,
                         range: 0...0.45,
                         displayValue: "\(Int(candidateLeadingOpacity * 100))%",
-                        width: 140
+                        width: 120
                     )
                     labSlider(
                         title: String(localized: "debug.tabBarBackdropLab.candidateEnd", defaultValue: "End opacity"),
                         value: $candidateTrailingOpacity,
                         range: 0.35...1.0,
                         displayValue: "\(Int(candidateTrailingOpacity * 100))%",
-                        width: 140
+                        width: 120
                     )
                     Toggle(String(localized: "debug.tabBarBackdropLab.maskTabs", defaultValue: "Mask tabs"), isOn: $candidateMasksTabContent)
                         .toggleStyle(.checkbox)
@@ -3728,7 +3780,7 @@ private struct TabBarBackdropLabView: View {
         }
         .padding(18)
         .background(Color.clear)
-        .frame(minWidth: 980, minHeight: 760)
+        .frame(minWidth: 1320, minHeight: 820)
     }
 
     private func variant(
@@ -3737,6 +3789,8 @@ private struct TabBarBackdropLabView: View {
         detail: String,
         effect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect,
         chromeHex: String,
+        tabBarHex: String? = nil,
+        splitButtonBackdropHex: String? = nil,
         paneHex: String,
         borderHex: String,
         opacity: CGFloat
@@ -3747,6 +3801,8 @@ private struct TabBarBackdropLabView: View {
             detail: detail,
             effect: effect,
             chromeHex: chromeHex,
+            tabBarHex: tabBarHex ?? chromeHex,
+            splitButtonBackdropHex: splitButtonBackdropHex ?? tabBarHex ?? chromeHex,
             paneHex: paneHex,
             borderHex: borderHex,
             terminalColor: terminalColor,
@@ -3859,6 +3915,8 @@ private struct TabBarBackdropLabSample: View {
             enableAnimations: false,
             chromeColors: .init(
                 backgroundHex: variant.chromeHex,
+                tabBarBackgroundHex: variant.tabBarHex,
+                splitButtonBackdropHex: variant.splitButtonBackdropHex,
                 paneBackgroundHex: variant.paneHex,
                 borderHex: variant.borderHex
             )

@@ -706,8 +706,10 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 
         let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#FDF6E3")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#FDF6E3")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertNil(colors.borderHex)
+        XCTAssertEqual(colors.borderHex, "#DED7C442")
     }
 
     func testResolvedChromeColorsUsesDarkGhosttyBackground() {
@@ -718,8 +720,10 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 
         let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertNil(colors.borderHex)
+        XCTAssertEqual(colors.borderHex, "#4F504A5B")
     }
 
     func testResolvedChromeColorsKeepChromeBackdropWhenSharingWindowBackdrop() {
@@ -733,8 +737,10 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             sharesWindowBackdrop: true
         )
         XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertNil(colors.borderHex)
+        XCTAssertEqual(colors.borderHex, "#4F504A5B")
     }
 }
 

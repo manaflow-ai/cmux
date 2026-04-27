@@ -1328,6 +1328,40 @@
         }
       }
     },
+    "debug.tabBarBackdropLab.candidateSolid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solid width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "塗りつぶし幅"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateRamp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ramp start"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ランプ開始"
+          }
+        }
+      }
+    },
     "debug.tabBarBackdropLab.candidateLead": {
       "extractionState": "manual",
       "localizations": {
