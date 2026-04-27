@@ -10,7 +10,9 @@ services/vms/
   billingGateway.ts   Stack Auth VM create credit reservations
   entitlements.ts     Team plan and active VM limit resolution
   drivers/            Provider SDK adapters for E2B and Freestyle
+  images/             Checked-in known-good provider image manifest
   errors.ts           Typed Effect errors for VM workflows
+  config.ts           Runtime kill switches and deployment guards
   providerGateway.ts  Effect service wrapper around provider drivers
   repository.ts       Effect service for Postgres state and usage rows
   routeHelpers.ts     Shared authenticated REST route helpers
@@ -36,7 +38,12 @@ Public callers only use `/api/vm/*`. Each route calls Stack Auth first and retur
 
 Ownership checks happen inside the Effect workflow by loading the VM row with both `user_id` and `provider_vm_id`. A user cannot destroy, exec, attach, or mint SSH credentials for a VM owned by another Stack Auth user.
 
-The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify unauthenticated create, list, destroy, attach, SSH endpoint, and exec requests return `401` before the VM workflow runs.
+Cookie-authenticated browser mutations also require a same-origin browser request. Native macOS
+calls use `Authorization: Bearer` plus `X-Stack-Refresh-Token` and are not subject to browser CSRF.
+For cookie calls, `POST`/`DELETE` routes reject cross-site `Origin` or `Sec-Fetch-Site` requests
+before any VM workflow runs.
+
+The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify unauthenticated create, list, destroy, attach, SSH endpoint, and exec requests return `401` before the VM workflow runs, and that cross-site cookie mutations are rejected.
 
 ## State model
 
@@ -47,6 +54,23 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
 Create idempotency is enforced by the partial unique index on `(user_id, idempotency_key)`. A retry with the same key returns the existing VM after provisioning succeeds. A concurrent retry while the first create is still provisioning returns `409` instead of starting a second paid provider VM.
 
 Active VM limits are enforced inside the same Postgres transaction that inserts the create row. The transaction takes a billing-team advisory lock before counting active VMs, so two concurrent creates for the same team cannot both pass the free-plan limit.
+
+## Image manifest and rollback
+
+Known-good provider images are recorded in `services/vms/images/manifest.json`. Each entry records
+the provider, provider image id, cmux image version, build metadata, and validation status.
+
+Vercel production, staging, and preview deployments fail closed for VM create if the selected image
+env var is missing or is not listed in the manifest. Local development can use the manifest default
+without setting provider image env vars. Set `CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1` only for local
+image experiments.
+
+Rollback is an env-only operation:
+
+1. Choose a previous manifest entry with `validationStatus: "passed"`.
+2. Set `E2B_CMUXD_WS_TEMPLATE` or `FREESTYLE_SANDBOX_SNAPSHOT` back to that entry's `imageId`.
+3. Redeploy staging, smoke test, then repeat for production.
+4. Keep old provider templates/snapshots until all VMs using them are gone.
 
 ## Effect conventions
 
@@ -75,7 +99,16 @@ Set these Vercel environment variables per production/staging environment:
 - `PGUSER`, IAM-enabled Postgres role.
 - `PGDATABASE`, app database name.
 - `CMUX_DB_POOL_MAX`, small pool size for Vercel Functions. Start with `5`.
-- `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, currently `false` unless an RDS CA certificate is configured.
+- `CMUX_DB_SSL_CA_PEM`, optional AWS RDS CA bundle PEM, such as the current global bundle from AWS.
+- `CMUX_DB_SSL_CA_PEM_BASE64`, Vercel-friendly alternative to `CMUX_DB_SSL_CA_PEM`.
+- `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, defaults to verifying AWS RDS server certificates. Only set
+  `false` temporarily after explicitly accepting the risk, and prefer installing or pinning the AWS
+  RDS global CA bundle.
+- `CMUX_VM_CREATE_ENABLED`, global create kill switch. Set `0` to block new paid creates while
+  keeping list, attach, and delete available.
+- `CMUX_VM_E2B_ENABLED`, per-provider E2B create kill switch.
+- `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
+- `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
 - `E2B_API_KEY`, E2B provider key.
 - `FREESTYLE_API_KEY`, Freestyle provider key.
 - `E2B_CMUXD_WS_TEMPLATE`, E2B template alias/name for WebSocket PTY sandboxes.

@@ -11,7 +11,7 @@ bun dev
 ```
 
 `bun dev` sources provider secrets from `~/.secrets/cmux.env` when present, then sources
-Stack/web secrets from `~/.secret/cmuxterm.env`. It derives local database URLs from `CMUX_PORT`,
+Stack/web secrets from `~/.secrets/cmuxterm-dev.env`. It derives local database URLs from `CMUX_PORT`,
 starts this worktree's Docker Postgres, applies Drizzle migrations, then starts Next.js.
 It listens on `CMUX_PORT` when it is set, otherwise `PORT`, otherwise `3777`.
 When `bun dev` exits or is interrupted, it stops the matching Docker Postgres container and
@@ -21,8 +21,9 @@ The committed `.envrc` uses the same loader for direnv. Run `direnv allow` once 
 want shells opened there to automatically get the same local dev environment.
 
 `web/.env.local` is not used for local development. Keep Stack/web runtime secrets in
-`~/.secret/cmuxterm.env` and Cloud VM provider secrets in `~/.secrets/cmux.env`.
-`~/.secrets/cmuxterm.env` is accepted as a legacy fallback for the Stack/web file.
+`~/.secrets/cmuxterm-dev.env` and Cloud VM provider secrets in `~/.secrets/cmux.env`.
+`~/.secret/cmuxterm.env` and `~/.secrets/cmuxterm.env` are accepted as legacy fallbacks for the
+Stack/web file.
 
 To start Next without Docker Postgres, use:
 

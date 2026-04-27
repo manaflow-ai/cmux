@@ -17,6 +17,8 @@ import {
 } from "../services/vms/errors";
 import {
   createVm,
+  destroyVm,
+  execVm,
   openAttachEndpoint,
   openSshEndpoint,
 } from "../services/vms/workflows";
@@ -88,6 +90,7 @@ describe("VM Effect workflows", () => {
       maxActiveVms: 1,
       provider: "e2b",
       image: "cmuxd-ws:test",
+      imageVersion: "test-version",
       idempotencyKey: "idem-1",
     });
     const layer = providerLayer(provider);
@@ -104,8 +107,12 @@ describe("VM Effect workflows", () => {
       select count(*)::text as "usageCount" from cloud_vm_usage_events
       where user_id = 'user-workflow-idem' and event_type = 'vm.created'
     `;
+    const [{ imageVersion }] = await sql<{ imageVersion: string | null }[]>`
+      select image_version as "imageVersion" from cloud_vms where user_id = 'user-workflow-idem'
+    `;
     expect(vmCount).toBe("1");
     expect(usageCount).toBe("1");
+    expect(imageVersion).toBe("test-version");
   });
 
   dbTest("revokes the previous SSH identity before minting a replacement", async () => {
@@ -417,6 +424,72 @@ describe("VM Effect workflows", () => {
     );
     expect(error).toBeInstanceOf(VmNotFoundError);
     expect(attachCalls).toBe(0);
+  });
+
+  dbTest("does not destroy, exec, or mint SSH for another user's VM", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-owner', 'team-workflow-owner', 'free', 'freestyle', 'provider-vm-private-2', 'snapshot-test', 'running')
+    `;
+
+    let destroyCalls = 0;
+    let execCalls = 0;
+    let sshCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.sync(() => {
+        destroyCalls += 1;
+      }),
+      exec: () => Effect.sync(() => {
+        execCalls += 1;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.sync(() => {
+        sshCalls += 1;
+        return {
+          transport: "ssh" as const,
+          host: "vm-ssh.freestyle.sh",
+          port: 22,
+          username: "provider-vm-private-2+cmux",
+          publicKeyFingerprint: null,
+          credential: { kind: "password" as const, value: "token" },
+          identityHandle: "identity",
+        };
+      }),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = providerLayer(provider);
+
+    const destroyError = await Effect.runPromise(
+      destroyVm({ userId: "user-workflow-attacker", providerVmId: "provider-vm-private-2" }).pipe(
+        Effect.flip,
+        Effect.provide(layer),
+      ),
+    );
+    const execError = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-attacker",
+        providerVmId: "provider-vm-private-2",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(layer)),
+    );
+    const sshError = await Effect.runPromise(
+      openSshEndpoint({ userId: "user-workflow-attacker", providerVmId: "provider-vm-private-2" }).pipe(
+        Effect.flip,
+        Effect.provide(layer),
+      ),
+    );
+
+    expect(destroyError).toBeInstanceOf(VmNotFoundError);
+    expect(execError).toBeInstanceOf(VmNotFoundError);
+    expect(sshError).toBeInstanceOf(VmNotFoundError);
+    expect(destroyCalls).toBe(0);
+    expect(execCalls).toBe(0);
+    expect(sshCalls).toBe(0);
   });
 
   dbTest("records repeated attach RPC leases idempotently when provider returns a stable daemon token", async () => {

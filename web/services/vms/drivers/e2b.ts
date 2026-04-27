@@ -22,7 +22,6 @@ import {
   type ReusableRpcLease,
 } from "./wsLease";
 
-export const DEFAULT_E2B_WS_TEMPLATE = "cmuxd-ws:proxy-20260424a";
 const CMUXD_WS_PORT = 7777;
 const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
 const CMUXD_WS_LEGACY_PTY_LEASE_PATH = "/tmp/cmux/attach-lease.json";
@@ -32,23 +31,20 @@ const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const DEFAULT_SANDBOX_ENVS = { LANG: "C.UTF-8" };
 
-// Default cmuxd WebSocket PTY template. Built by web/scripts/build-cloud-vm-images.ts.
-// E2B does not expose raw TCP, so interactive attach requires the cmuxd-remote WS image.
-const DEFAULT_TEMPLATE =
-  process.env.E2B_CMUXD_WS_TEMPLATE ??
-  DEFAULT_E2B_WS_TEMPLATE;
-
 export class E2BProvider implements VMProvider {
   readonly id = "e2b" as const;
 
   async create(options: CreateOptions): Promise<VMHandle> {
-    const image = options.image || DEFAULT_TEMPLATE;
+    const image = options.image.trim();
+    if (!image) {
+      throw new ProviderError("e2b", "create requires a resolved image");
+    }
     return withVmSpan(
       "cmux.vm.provider.create",
       {
         "cmux.vm.provider": "e2b",
         "cmux.vm.operation": "create",
-        "cmux.vm.image_set": image.length > 0,
+        "cmux.vm.image": image,
       },
       async (span) => {
         try {

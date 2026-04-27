@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export type CloudDbUrlConfig = {
   readonly driver: "url";
   readonly url: string;
@@ -14,6 +16,7 @@ export type CloudDbAwsRdsIamConfig = {
   readonly database: string;
   readonly poolMax: number;
   readonly sslRejectUnauthorized: boolean;
+  readonly sslCaPem?: string;
 };
 
 export type CloudDbConfig = CloudDbUrlConfig | CloudDbAwsRdsIamConfig;
@@ -45,6 +48,20 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   throw new Error("boolean env value must be one of true/false/1/0/yes/no/on/off");
+}
+
+function decodeBase64Env(value: string | undefined, key: string): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.replace(/\s+/g, "");
+  // Buffer.from(_, "base64") is permissive, so validate before decoding.
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(normalized)) {
+    throw new Error(`${key} must be valid base64`);
+  }
+  const decoded = Buffer.from(normalized, "base64");
+  if (decoded.toString("base64") !== normalized) {
+    throw new Error(`${key} must be valid base64`);
+  }
+  return decoded.toString("utf8");
 }
 
 function missingAwsKeys(env: Env): readonly string[] {
@@ -81,7 +98,9 @@ export function cloudDbConfig(env: Env = process.env): CloudDbConfig {
       user: envValue(env, "PGUSER")!,
       database: envValue(env, "PGDATABASE")!,
       poolMax,
-      sslRejectUnauthorized: parseBoolean(envValue(env, "CMUX_DB_SSL_REJECT_UNAUTHORIZED"), false),
+      sslRejectUnauthorized: parseBoolean(envValue(env, "CMUX_DB_SSL_REJECT_UNAUTHORIZED"), true),
+      sslCaPem: envValue(env, "CMUX_DB_SSL_CA_PEM") ??
+        decodeBase64Env(envValue(env, "CMUX_DB_SSL_CA_PEM_BASE64"), "CMUX_DB_SSL_CA_PEM_BASE64"),
     };
   }
 
@@ -104,5 +123,6 @@ export function cloudDbConfigKey(config: CloudDbConfig): string {
     config.database,
     config.poolMax,
     config.sslRejectUnauthorized,
+    config.sslCaPem ? createHash("sha256").update(config.sslCaPem).digest("hex") : "",
   ].join(":");
 }

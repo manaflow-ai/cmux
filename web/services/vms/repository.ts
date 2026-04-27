@@ -23,6 +23,7 @@ export type VmRepositoryShape = {
     readonly billingPlanId: string;
     readonly provider: ProviderId;
     readonly image: string;
+    readonly imageVersion?: string | null;
     readonly maxActiveVms: number;
     readonly idempotencyKey?: string;
   }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmLimitExceededError>;
@@ -30,6 +31,7 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly providerVmId: string;
     readonly image: string;
+    readonly imageVersion?: string | null;
   }) => Effect.Effect<CloudVmRow, VmDatabaseError>;
   readonly markCreateFailed: (input: {
     readonly id: string;
@@ -158,6 +160,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 billingPlanId: input.billingPlanId,
                 provider: input.provider,
                 imageId: input.image,
+                imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
                 idempotencyKey,
               })
@@ -186,6 +189,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .set({
           providerVmId: input.providerVmId,
           imageId: input.image,
+          imageVersion: input.imageVersion ?? null,
           status: "running",
           failureCode: null,
           failureMessage: null,

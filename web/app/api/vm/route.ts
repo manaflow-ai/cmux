@@ -2,19 +2,21 @@
 // provider credentials stay behind server-side ownership checks.
 
 import {
-  DEFAULT_E2B_WS_TEMPLATE,
-  DEFAULT_FREESTYLE_SNAPSHOT_ID,
   defaultProviderId,
   type ProviderId,
 } from "../../../services/vms/drivers";
+import { assertVmCreateEnabled } from "../../../services/vms/config";
 import {
   isVmBillingError,
+  isVmCreateDisabledError,
   isVmCreateFailedError,
   isVmCreateCreditsInsufficientError,
   isVmCreateInProgressError,
+  isVmImageConfigError,
   isVmLimitExceededError,
 } from "../../../services/vms/errors";
 import { resolveVmEntitlements } from "../../../services/vms/entitlements";
+import { resolveVmImage } from "../../../services/vms/images/resolver";
 import {
   jsonResponse,
   withAuthedVmApiRoute,
@@ -43,6 +45,7 @@ export async function GET(request: Request): Promise<Response> {
         id: entry.providerVmId,
         provider: entry.provider,
         image: entry.image,
+        imageVersion: entry.imageVersion,
         createdAt: entry.createdAt,
       }));
       return jsonResponse({ vms });
@@ -62,7 +65,7 @@ export async function POST(request: Request): Promise<Response> {
       // surfaced as a 500 from the driver after provisioning had already half-succeeded.
       let body: { image?: string; provider?: ProviderId };
       try {
-        // Allow callers to send no body at all — the handler already falls through to
+        // Allow callers to send no body at all. The handler already falls through to
         // default provider/image, so a bare `curl -X POST /api/vm` should create a default
         // VM. Previously request.json() threw on an empty body and the whole request came
         // back as 400 "invalid JSON body". Distinguish empty-body from literal-`null`:
@@ -101,7 +104,37 @@ export async function POST(request: Request): Promise<Response> {
         return jsonResponse({ error: "invalid JSON body" }, 400);
       }
       const provider = body.provider ?? defaultProviderId();
-      const image = body.image ?? defaultImageFor(provider);
+      let imageSelection;
+      try {
+        assertVmCreateEnabled(provider);
+        imageSelection = resolveVmImage(provider, body.image);
+      } catch (err) {
+        if (isVmCreateDisabledError(err)) {
+          return jsonResponse({
+            error: "vm_create_disabled",
+            provider: err.provider,
+            reason: err.reason,
+          }, 503);
+        }
+        if (isVmImageConfigError(err)) {
+          const payload: {
+            error: "vm_image_config_error";
+            provider: ProviderId;
+            image?: string;
+            envVar?: string;
+            reason: string;
+          } = {
+            error: "vm_image_config_error",
+            provider: err.provider,
+            envVar: err.envVar,
+            reason: err.reason,
+          };
+          if (err.image !== undefined) payload.image = err.image;
+          return jsonResponse(payload, 503);
+        }
+        throw err;
+      }
+      const image = imageSelection.image;
       // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
       // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
       // so we don't store unbounded idempotency metadata.
@@ -114,6 +147,8 @@ export async function POST(request: Request): Promise<Response> {
       setSpanAttributes(span, {
         "cmux.vm.provider": provider,
         "cmux.vm.image_set": image.length > 0,
+        "cmux.vm.image_version": imageSelection.imageVersion,
+        "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
 
@@ -134,6 +169,7 @@ export async function POST(request: Request): Promise<Response> {
           billingPlanId: entitlements.planId,
           maxActiveVms: entitlements.maxActiveVms,
           image,
+          imageVersion: imageSelection.imageVersion,
           provider,
           idempotencyKey,
         }));
@@ -168,16 +204,9 @@ export async function POST(request: Request): Promise<Response> {
         id: created.providerVmId,
         provider: created.provider,
         image: created.image,
+        imageVersion: created.imageVersion,
         createdAt: created.createdAt,
       });
     },
   );
-}
-
-function defaultImageFor(provider: ProviderId): string {
-  if (provider === "e2b") {
-    return process.env.E2B_CMUXD_WS_TEMPLATE ??
-      DEFAULT_E2B_WS_TEMPLATE;
-  }
-  return process.env.FREESTYLE_SANDBOX_SNAPSHOT?.trim() || DEFAULT_FREESTYLE_SNAPSHOT_ID;
 }

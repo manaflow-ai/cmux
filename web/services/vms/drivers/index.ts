@@ -1,9 +1,9 @@
-import { E2BProvider, DEFAULT_E2B_WS_TEMPLATE } from "./e2b";
-import { FreestyleProvider, DEFAULT_FREESTYLE_SNAPSHOT_ID } from "./freestyle";
+import { E2BProvider } from "./e2b";
+import { FreestyleProvider } from "./freestyle";
 import type { ProviderId, VMProvider } from "./types";
 
 export * from "./types";
-export { DEFAULT_E2B_WS_TEMPLATE, DEFAULT_FREESTYLE_SNAPSHOT_ID, E2BProvider, FreestyleProvider };
+export { E2BProvider, FreestyleProvider };
 
 let registry: Map<ProviderId, VMProvider> | null = null;
 
@@ -24,7 +24,7 @@ export function getProvider(id: ProviderId): VMProvider {
 export function defaultProviderId(): ProviderId {
   const configured = process.env.CMUX_VM_DEFAULT_PROVIDER as ProviderId | undefined;
   if (configured === "e2b" || configured === "freestyle") return configured;
-  // Freestyle is the default for interactive work. The driver carries a baked
-  // snapshot fallback, so this does not depend on dashboard env configuration.
+  // Freestyle is the default for interactive work. The route layer still resolves
+  // the provider image from the manifest/env before any paid create.
   return "freestyle";
 }

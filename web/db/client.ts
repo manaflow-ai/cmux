@@ -41,7 +41,10 @@ export function createAwsRdsIamPool(config: CloudDbAwsRdsIamConfig): Pool {
     user: config.user,
     database: config.database,
     password: () => signer.getAuthToken(),
-    ssl: { rejectUnauthorized: config.sslRejectUnauthorized },
+    ssl: {
+      rejectUnauthorized: config.sslRejectUnauthorized,
+      ...(config.sslCaPem ? { ca: config.sslCaPem } : {}),
+    },
     max: config.poolMax,
   });
 }
