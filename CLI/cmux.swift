@@ -7032,6 +7032,11 @@ struct CMUXCLI {
                 guard !url.isEmpty else {
                     throw CLIError(message: "browser <surface> open requires a URL")
                 }
+
+                guard !url.hasPrefix("javascript:") else {
+                    throw CLIError(message: "browser <surface> open does not support JavaScript URLs")
+                }
+
                 let payload = try client.sendV2(method: "browser.navigate", params: ["surface_id": sid, "url": url])
                 output(payload, fallback: "OK")
                 return
@@ -7039,6 +7044,9 @@ struct CMUXCLI {
 
             var params: [String: Any] = [:]
             if !url.isEmpty {
+                if url.hasPrefix("javascript:") {
+                    throw CLIError(message: "browser \(subcommand) does not support JavaScript URLs")
+                } 
                 params["url"] = url
             }
             if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
