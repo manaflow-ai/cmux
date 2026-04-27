@@ -316,6 +316,13 @@ private struct ClaudeHookParsedInput {
     let sessionId: String?
     let cwd: String?
     let transcriptPath: String?
+    /// `stop_reason` from the Claude Code hook payload (e.g. `"end_turn"`, `"error"`, `"tool_use_limit"`).
+    /// Present when provided by the hook payload (typically for Stop/StopFailure hook events).
+    let stopReason: String?
+    /// `hook_event_name` from the Claude Code hook payload (e.g. `"Stop"`, `"StopFailure"`).
+    let hookEventName: String?
+    /// `error` field from the Claude Code StopFailure hook payload (e.g. `"rate_limit"`, `"server_error"`).
+    let hookError: String?
 }
 
 private struct ClaudeHookSessionRecord: Codable {
@@ -13338,19 +13345,25 @@ struct CMUXCLI {
                 normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
                 maxLength: 180
             )
-            return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, cwd: nil, transcriptPath: nil)
+            return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, cwd: nil, transcriptPath: nil, stopReason: nil, hookEventName: nil, hookError: nil)
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = firstString(in: object, keys: ["transcript_path", "transcriptPath"])
+        let stopReason = firstString(in: object, keys: ["stop_reason", "stopReason"])
+        let hookEventName = firstString(in: object, keys: ["hook_event_name", "hookEventName"])
+        let hookError = firstString(in: object, keys: ["error"])
         let compactObject = compactClaudeHookObject(object)
         return ClaudeHookParsedInput(
             object: compactObject,
             rawFallback: nil,
             sessionId: sessionId,
             cwd: cwd,
-            transcriptPath: transcriptPath
+            transcriptPath: transcriptPath,
+            stopReason: stopReason,
+            hookEventName: hookEventName,
+            hookError: hookError
         )
     }
 
@@ -13557,13 +13570,26 @@ struct CMUXCLI {
             return tail.isEmpty ? path : tail
         }()
 
+        // Derive the turn verb from hook_event_name / hookError / stop_reason (in that priority order).
+        // StopFailure hook payloads carry hook_event_name="StopFailure" and an error field instead of
+        // stop_reason, so we check those first before falling back to stop_reason for back-compat.
+        let isFailure: Bool = {
+            if parsedInput.hookEventName == "StopFailure" { return true }
+            if parsedInput.hookError != nil { return true }
+            guard let reason = parsedInput.stopReason else { return false }
+            return reason != "end_turn"
+        }()
+        let verb = isFailure
+            ? String(localized: "claude.hook.stop.verb.stopped", defaultValue: "Stopped")
+            : String(localized: "claude.hook.stop.verb.completed", defaultValue: "Completed")
+
         // Try reading the transcript JSONL for a richer summary.
         let transcript = transcriptPath.flatMap { readTranscriptSummary(path: $0) }
 
         if let lastMsg = transcript?.lastAssistantMessage {
-            var subtitle = "Completed"
+            var subtitle = verb
             if let projectName, !projectName.isEmpty {
-                subtitle = "Completed in \(projectName)"
+                subtitle = "\(verb) in \(projectName)"
             }
             return (subtitle, truncate(lastMsg, maxLength: 200))
         }
@@ -13573,14 +13599,21 @@ struct CMUXCLI {
         let hasContext = cwd != nil || lastMessage != nil
         guard hasContext else { return nil }
 
-        var body = "Claude session completed"
+        var subtitle = verb
+        if let projectName, !projectName.isEmpty {
+            subtitle = "\(verb) in \(projectName)"
+        }
+        let sessionState = isFailure
+            ? String(localized: "claude.hook.stop.state.stopped", defaultValue: "stopped")
+            : String(localized: "claude.hook.stop.state.completed", defaultValue: "completed")
+        var body = "Claude session \(sessionState)"
         if let projectName, !projectName.isEmpty {
             body += " in \(projectName)"
         }
         if let lastMessage, !lastMessage.isEmpty {
             body += ". Last: \(lastMessage)"
         }
-        return ("Completed", body)
+        return (subtitle, body)
     }
 
     private struct TranscriptSummary {
