@@ -7033,7 +7033,7 @@ struct CMUXCLI {
                     throw CLIError(message: "browser <surface> open requires a URL")
                 }
 
-                guard !url.hasPrefix("javascript:") else {
+                guard !url.lowercased().hasPrefix("javascript:") else {
                     throw CLIError(message: "browser <surface> open does not support JavaScript URLs")
                 }
 
@@ -7044,7 +7044,7 @@ struct CMUXCLI {
 
             var params: [String: Any] = [:]
             if !url.isEmpty {
-                if url.hasPrefix("javascript:") {
+                if url.lowercased().hasPrefix("javascript:") {
                     throw CLIError(message: "browser \(subcommand) does not support JavaScript URLs")
                 } 
                 params["url"] = url
@@ -7084,6 +7084,9 @@ struct CMUXCLI {
             let url = urlArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !url.isEmpty else {
                 throw CLIError(message: "browser \(subcommand) requires a URL")
+            }
+            guard !url.lowercased().hasPrefix("javascript:") else {
+                throw CLIError(message: "browser \(subcommand) does not support JavaScript URLs")
             }
             var params: [String: Any] = ["surface_id": sid, "url": url]
             if snapshotAfter {
