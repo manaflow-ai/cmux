@@ -127,6 +127,7 @@ struct CmuxConfigFile: Codable, Sendable {
 enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Hashable {
     case newTerminal = "cmux.newTerminal"
     case newBrowser = "cmux.newBrowser"
+    case newEditor = "cmux.newEditor"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
 
@@ -136,6 +137,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .newTerminal
         case "cmux.newBrowser", "newBrowser":
             self = .newBrowser
+        case "cmux.newEditor", "newEditor":
+            self = .newEditor
         case "cmux.splitRight", "splitRight":
             self = .splitRight
         case "cmux.splitDown", "splitDown":
@@ -155,6 +158,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "terminal"
         case .newBrowser:
             return "globe"
+        case .newEditor:
+            return "doc.text"
         case .splitRight:
             return "square.split.2x1"
         case .splitDown:
@@ -168,6 +173,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return .newTerminal
         case .newBrowser:
             return .newBrowser
+        case .newEditor:
+            return .newEditor
         case .splitRight:
             return .splitRight
         case .splitDown:
@@ -1073,12 +1080,14 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
     static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
+    static let newEditor = actionReference(CmuxSurfaceTabBarBuiltInAction.newEditor.configID)
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
         .newBrowser,
+        .newEditor,
         .splitRight,
         .splitDown
     ]
@@ -1456,6 +1465,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .newBrowser:
             title = String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab")
             keywords = ["new", "browser", "tab", "surface"]
+        case .newEditor:
+            title = String(localized: "command.newEditorTab.title", defaultValue: "New Editor Tab")
+            keywords = ["new", "editor", "code", "tab", "surface"]
         case .splitRight:
             title = String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")
             keywords = ["terminal", "split", "right"]
@@ -2103,6 +2115,7 @@ final class CmuxConfigStore: ObservableObject {
         }) ?? [
             .builtIn(.newTerminal),
             .builtIn(.newBrowser),
+            .builtIn(.newEditor),
             .builtIn(.splitRight),
             .builtIn(.splitDown)
         ]

@@ -919,6 +919,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: .reactGrabDidCopySelection,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleEditorDidSendSelection(_:)),
+            name: .editorDidSendSelection,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFileExplorerOpenInCodeViewer(_:)),
+            name: .fileExplorerOpenInCodeViewer,
+            object: nil
+        )
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -6220,6 +6232,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sendTextWhenReady(content, to: workspace, preferredPanelId: returnPanelId)
     }
 
+    @objc private func handleEditorDidSendSelection(_ notification: Notification) {
+        guard let workspaceId = notification.userInfo?[EditorSendSelectionNotificationKey.workspaceId] as? UUID,
+              let returnPanelId = notification.userInfo?[EditorSendSelectionNotificationKey.returnPanelId] as? UUID,
+              let content = notification.userInfo?[EditorSendSelectionNotificationKey.content] as? String else {
+            return
+        }
+
+        guard let manager = tabManagerFor(tabId: workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else {
+#if DEBUG
+            cmuxDebugLog(
+                "editor.sendSelection.drop reason=missingWorkspace workspace=\(Self.debugShortId(workspaceId))"
+            )
+#endif
+            return
+        }
+
+        guard workspace.terminalPanel(for: returnPanelId) != nil else {
+#if DEBUG
+            cmuxDebugLog(
+                "editor.sendSelection.drop reason=missingReturnTerminal workspace=\(Self.debugShortId(workspaceId)) return=\(Self.debugShortId(returnPanelId))"
+            )
+#endif
+            return
+        }
+
+#if DEBUG
+        cmuxDebugLog(
+            "editor.sendSelection workspace=\(Self.debugShortId(workspaceId)) " +
+            "return=\(Self.debugShortId(returnPanelId)) len=\(content.count)"
+        )
+#endif
+        manager.focusTab(workspaceId, surfaceId: returnPanelId, suppressFlash: true)
+        sendTextWhenReady(content, to: workspace, preferredPanelId: returnPanelId)
+    }
+
+    @objc private func handleFileExplorerOpenInCodeViewer(_ notification: Notification) {
+        guard let path = notification.userInfo?["path"] as? String else { return }
+        guard let tabManager else { return }
+        guard let workspace = tabManager.selectedTab else { return }
+        guard let focusedPanelId = workspace.focusedPanelId else { return }
+        workspace.openOrFocusEditorSplit(from: focusedPanelId, filePath: path)
+    }
+
     nonisolated private static func debugShortId(_ id: UUID?) -> String {
         id.map { String($0.uuidString.prefix(5)) } ?? "nil"
     }
@@ -11103,6 +11159,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             case .newBrowser:
                 _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
+                return true
+            case .newEditor:
+                _ = tabManager?.selectedWorkspace?.newEditorSplitFromFocusedPanel(focus: true)
                 return true
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {

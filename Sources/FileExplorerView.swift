@@ -10,9 +10,10 @@ import SwiftUI
 struct FileExplorerPanelView: NSViewRepresentable {
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
+    var onOpenFile: ((String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(store: store, state: state)
+        Coordinator(store: store, state: state, onOpenFile: onOpenFile)
     }
 
     func makeNSView(context: Context) -> FileExplorerContainerView {
@@ -24,6 +25,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
         context.coordinator.store = store
         context.coordinator.state = state
+        context.coordinator.onOpenFile = onOpenFile
         container.updateHeader(store: store)
         context.coordinator.reloadIfNeeded()
     }
@@ -33,15 +35,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
+        var onOpenFile: ((String) -> Void)?
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
 
-        init(store: FileExplorerStore, state: FileExplorerState) {
+        init(store: FileExplorerStore, state: FileExplorerState, onOpenFile: ((String) -> Void)?) {
             self.store = store
             self.state = state
+            self.onOpenFile = onOpenFile
             super.init()
             observeStore()
             styleObserver = NotificationCenter.default.addObserver(
@@ -205,6 +209,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
             FileExplorerStyle.current.rowHeight
         }
 
+        @objc func openSelectedFileFromOutline(_ sender: NSOutlineView) {
+            let row = sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow
+            guard row >= 0,
+                  let node = sender.item(atRow: row) as? FileExplorerNode,
+                  !node.isDirectory else { return }
+            onOpenFile?(node.path)
+        }
+
         // MARK: - Drag-to-Terminal
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
@@ -233,6 +245,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 openItem.target = self
                 openItem.representedObject = node
                 menu.addItem(openItem)
+
+                let openInViewerItem = NSMenuItem(
+                    title: String(localized: "fileExplorer.contextMenu.openInCodeViewer", defaultValue: "Open in Code Viewer"),
+                    action: #selector(contextMenuOpenInCodeViewer(_:)),
+                    keyEquivalent: ""
+                )
+                openInViewerItem.target = self
+                openInViewerItem.representedObject = node
+                menu.addItem(openInViewerItem)
             }
 
             if isLocal {
@@ -270,6 +291,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
         @objc private func contextMenuOpenInDefaultEditor(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
             NSWorkspace.shared.open(URL(fileURLWithPath: node.path))
+        }
+
+        @objc private func contextMenuOpenInCodeViewer(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode else { return }
+            NotificationCenter.default.post(
+                name: .fileExplorerOpenInCodeViewer,
+                object: nil,
+                userInfo: ["path": node.path]
+            )
         }
 
         @objc private func contextMenuRevealInFinder(_ sender: NSMenuItem) {
@@ -356,6 +386,8 @@ final class FileExplorerContainerView: NSView {
 
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
+        outlineView.target = coordinator
+        outlineView.doubleAction = #selector(FileExplorerPanelView.Coordinator.openSelectedFileFromOutline(_:))
         coordinator.outlineView = outlineView
 
         // Context menu

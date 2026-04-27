@@ -495,6 +495,7 @@ extension Workspace {
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
+        let editorSnapshot: SessionEditorPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -519,6 +520,7 @@ extension Workspace {
             )
             browserSnapshot = nil
             markdownSnapshot = nil
+            editorSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -533,11 +535,19 @@ extension Workspace {
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
             markdownSnapshot = nil
+            editorSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            editorSnapshot = nil
+        case .editor:
+            guard let editorPanel = panel as? EditorPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            editorSnapshot = SessionEditorPanelSnapshot(filePath: editorPanel.filePath)
         }
 
         return SessionPanelSnapshot(
@@ -553,7 +563,8 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
-            markdown: markdownSnapshot
+            markdown: markdownSnapshot,
+            editor: editorSnapshot
         )
     }
 
@@ -774,6 +785,17 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
+        case .editor:
+            guard let filePath = snapshot.editor?.filePath,
+                  let editorPanel = newEditorSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: editorPanel.id)
+            return editorPanel.id
         }
     }
 
@@ -6882,6 +6904,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
+        static let editor = "editor"
     }
 
     enum PanelShellActivityState: String {
@@ -6910,6 +6933,7 @@ final class Workspace: Identifiable, ObservableObject {
         BonsplitConfiguration.SplitButtonTooltips(
             newTerminal: KeyboardShortcutSettings.Action.newSurface.tooltip("New Terminal"),
             newBrowser: KeyboardShortcutSettings.Action.openBrowser.tooltip("New Browser"),
+            newEditor: String(localized: "editor.new.tooltip", defaultValue: "New Editor"),
             splitRight: KeyboardShortcutSettings.Action.splitRight.tooltip("Split Right"),
             splitDown: KeyboardShortcutSettings.Action.splitDown.tooltip("Split Down")
         )
@@ -7496,6 +7520,10 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? MarkdownPanel
     }
 
+    func editorPanel(for panelId: UUID) -> EditorPanel? {
+        panels[panelId] as? EditorPanel
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -7504,6 +7532,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.browser
         case .markdown:
             return SurfaceKind.markdown
+        case .editor:
+            return SurfaceKind.editor
         }
     }
 
@@ -9602,7 +9632,277 @@ final class Workspace: Identifiable, ObservableObject {
         return markdownPanel
     }
 
-    /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
+    // MARK: - Editor Panel
+
+    /// Open or focus an existing editor panel viewing the same file.
+    @discardableResult
+    func openOrFocusEditorSplit(
+        from panelId: UUID,
+        filePath: String
+    ) -> EditorPanel? {
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        for (existingId, panel) in panels {
+            guard let ed = panel as? EditorPanel else { continue }
+            if (ed.filePath as NSString).resolvingSymlinksInPath == canonical {
+                focusPanel(existingId)
+                return ed
+            }
+        }
+        return newEditorSplit(
+            from: panelId,
+            orientation: .horizontal,
+            insertFirst: false,
+            filePath: filePath,
+            focus: true
+        )
+    }
+
+    func newEditorSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        filePath: String,
+        focus: Bool = true
+    ) -> EditorPanel? {
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            if tabs.contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+
+        guard let paneId = sourcePaneId else { return nil }
+
+        let editorPanel = EditorPanel(workspaceId: id, filePath: filePath)
+        return createEditorSplit(
+            editorPanel,
+            inPane: paneId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            focus: focus
+        )
+    }
+
+    @discardableResult
+    func newEditorSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        workspaceRootDirectory: String,
+        focus: Bool = true
+    ) -> EditorPanel? {
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            if tabs.contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+
+        guard let paneId = sourcePaneId else { return nil }
+
+        let editorPanel = EditorPanel(workspaceId: id, workspaceRootDirectory: workspaceRootDirectory)
+        return createEditorSplit(
+            editorPanel,
+            inPane: paneId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            focus: focus
+        )
+    }
+
+    private func createEditorSplit(
+        _ editorPanel: EditorPanel,
+        inPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        focus: Bool
+    ) -> EditorPanel? {
+        panels[editorPanel.id] = editorPanel
+        panelTitles[editorPanel.id] = editorPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: editorPanel.displayTitle,
+            icon: editorPanel.displayIcon,
+            kind: SurfaceKind.editor,
+            isDirty: editorPanel.isDirty,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = editorPanel.id
+        let previousFocusedPanelId = focusedPanelId
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: editorPanel.id)
+            panelTitles.removeValue(forKey: editorPanel.id)
+            return nil
+        }
+
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(editorPanel.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: editorPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installEditorPanelSubscription(editorPanel)
+        return editorPanel
+    }
+
+    @discardableResult
+    func newEditorSurfaceInFocusedPane(focus: Bool = true) -> EditorPanel? {
+        guard let paneId = bonsplitController.focusedPaneId else { return nil }
+        let directory = normalizedSidebarDirectory(currentDirectory)
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        return newEditorSurface(inPane: paneId, workspaceRootDirectory: directory, focus: focus)
+    }
+
+    @discardableResult
+    func newEditorSplitFromFocusedPanel(focus: Bool = true) -> EditorPanel? {
+        let directory = normalizedSidebarDirectory(currentDirectory)
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        guard let sourcePanelId = focusedPanelId else {
+            return newEditorSurfaceInFocusedPane(focus: focus)
+        }
+        return newEditorSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            insertFirst: false,
+            workspaceRootDirectory: directory,
+            focus: focus
+        )
+    }
+
+    @discardableResult
+    func newEditorSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool? = nil
+    ) -> EditorPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let editorPanel = EditorPanel(workspaceId: id, filePath: filePath)
+        panels[editorPanel.id] = editorPanel
+        panelTitles[editorPanel.id] = editorPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: editorPanel.displayTitle,
+            icon: editorPanel.displayIcon,
+            kind: SurfaceKind.editor,
+            isDirty: editorPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: editorPanel.id)
+            panelTitles.removeValue(forKey: editorPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = editorPanel.id
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: editorPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installEditorPanelSubscription(editorPanel)
+        return editorPanel
+    }
+
+    @discardableResult
+    func newEditorSurface(
+        inPane paneId: PaneID,
+        workspaceRootDirectory: String,
+        focus: Bool? = nil
+    ) -> EditorPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let editorPanel = EditorPanel(workspaceId: id, workspaceRootDirectory: workspaceRootDirectory)
+        panels[editorPanel.id] = editorPanel
+        panelTitles[editorPanel.id] = editorPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: editorPanel.displayTitle,
+            icon: editorPanel.displayIcon,
+            kind: SurfaceKind.editor,
+            isDirty: editorPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: editorPanel.id)
+            panelTitles.removeValue(forKey: editorPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = editorPanel.id
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: editorPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installEditorPanelSubscription(editorPanel)
+        return editorPanel
+    }
+
+    private func installEditorPanelSubscription(_ editorPanel: EditorPanel) {
+        let subscription = editorPanel.$displayTitle
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak editorPanel] newTitle in
+                guard let self,
+                      let editorPanel,
+                      let tabId = self.surfaceIdFromPanelId(editorPanel.id) else { return }
+                guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+                if self.panelTitles[editorPanel.id] != newTitle {
+                    self.panelTitles[editorPanel.id] = newTitle
+                }
+                let resolvedTitle = self.resolvedPanelTitle(panelId: editorPanel.id, fallback: newTitle)
+                guard existing.title != resolvedTitle else { return }
+                self.bonsplitController.updateTab(
+                    tabId,
+                    title: resolvedTitle,
+                    hasCustomTitle: self.panelCustomTitles[editorPanel.id] != nil
+                )
+            }
+        panelSubscriptions[editorPanel.id] = subscription
+    }
+
+    /// Close all panels, freeing their Ghostty surfaces.
     /// Called before the workspace is removed from TabManager to ensure child
     /// processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
@@ -12678,6 +12978,20 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
+        case "editor":
+            let directory = normalizedSidebarDirectory(currentDirectory)
+                ?? FileManager.default.homeDirectoryForCurrentUser.path
+            if let sourcePanelId = effectiveSelectedPanelId(inPane: pane) ?? focusedPanelId {
+                _ = newEditorSplit(
+                    from: sourcePanelId,
+                    orientation: .horizontal,
+                    insertFirst: false,
+                    workspaceRootDirectory: directory,
+                    focus: true
+                )
+            } else {
+                _ = newEditorSurface(inPane: pane, workspaceRootDirectory: directory)
+            }
         default:
             _ = newTerminalSurface(inPane: pane)
         }
