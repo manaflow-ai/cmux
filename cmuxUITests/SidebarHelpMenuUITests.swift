@@ -297,6 +297,7 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
 
 final class CommandPaletteAllSurfacesUITests: XCTestCase {
     private var socketPath = ""
+    private let debugDefaultsDomain = "com.cmuxterm.app.debug"
     private let hiddenSurfaceToken = "cmux-command-palette-hidden-surface"
     private let visibleSurfaceToken = "cmux-command-palette-visible-surface"
     private let noMatchWorkspaceQuery = "cmux-command-palette-no-match"
@@ -590,6 +591,12 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let app = XCUIApplication()
         let diagnosticsPath = "/tmp/cmux-ui-test-menu-bar-only-focus-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        resetMenuBarOnlyDefault()
+        addTeardownBlock {
+            app.terminate()
+            self.resetMenuBarOnlyDefault()
+            try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        }
         app.launchArguments += [
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
@@ -1074,6 +1081,18 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     private func socketCommand(_ command: String) -> String? {
         ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command)
+    }
+
+    private func resetMenuBarOnlyDefault() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = ["write", debugDefaultsDomain, "menuBarOnly", "-bool", "false"]
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return
+        }
     }
 
     private func commandPaletteResultRows(from snapshot: [String: Any]) -> [[String: Any]] {

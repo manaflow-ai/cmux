@@ -6595,7 +6595,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let window: NSWindow? = {
             if let context {
-                return context.window ?? windowForMainWindowId(context.windowId)
+                if let window = resolvedWindow(for: context) {
+                    return window
+                }
+                discardOrphanedMainWindowContext(context)
             }
             let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: false)
             return windowForMainWindowId(windowId)
