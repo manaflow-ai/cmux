@@ -3437,11 +3437,11 @@ private struct TabBarBackdropLabView: View {
     @State private var opacity: Double
     @State private var sidebarWidth: Double = 74
     @State private var sampleWidth: Double = 460
-    @State private var candidateFadeWidth: Double = 112
-    @State private var candidateSolidWidth: Double = 6
-    @State private var candidateFadeRampStart: Double = 0.72
+    @State private var candidateFadeWidth: Double = 136
+    @State private var candidateSolidWidth: Double = 2
+    @State private var candidateFadeRampStart: Double = 0.80
     @State private var candidateLeadingOpacity: Double = 0
-    @State private var candidateTrailingOpacity: Double = 1.0
+    @State private var candidateTrailingOpacity: Double = 0.80
     @State private var candidateMasksTabContent = true
 
     init() {
