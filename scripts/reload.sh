@@ -281,15 +281,6 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
-"$PWD/scripts/ensure-ghosttykit.sh"
-
-if should_skip_ghostty_cli_helper_zig_build; then
-  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
-    echo "Auto-enabling CMUX_SKIP_ZIG_BUILD=1 for Ghostty CLI helper (${AUTO_SKIP_ZIG_BUILD_REASON})"
-  fi
-  export CMUX_SKIP_ZIG_BUILD=1
-fi
-
 if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
@@ -302,6 +293,70 @@ if [[ -n "$TAG" ]]; then
   if [[ "$DERIVED_SET" -eq 0 ]]; then
     DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
   fi
+fi
+
+# Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
+# plistbuddy, etc.) to a single log file. On success we print only a one-line
+# summary plus the App/CLI paths. On failure we dump the log.
+RELOAD_LOG="/tmp/cmux-reload-${TAG_SLUG}.log"
+RELOAD_START_TIME="$(date +%s)"
+: > "$RELOAD_LOG"
+
+# Save the original stdout/stderr so the EXIT trap can write the user-facing
+# summary after the body redirect, then redirect bulk output into the log.
+exec 3>&1 4>&2
+exec >>"$RELOAD_LOG" 2>&1
+
+reload_finalize() {
+  local rc=$?
+  trap - EXIT
+  exec 1>&3 2>&4
+  local elapsed=$(( $(date +%s) - RELOAD_START_TIME ))
+  if [[ "$rc" -ne 0 ]]; then
+    if [[ -s "$RELOAD_LOG" ]]; then
+      cat "$RELOAD_LOG" >&2
+    fi
+    echo "" >&2
+    echo "==> reload FAILED (exit $rc) after ${elapsed}s" >&2
+    echo "==> log: $RELOAD_LOG" >&2
+    exit "$rc"
+  fi
+  echo "==> reload succeeded in ${elapsed}s"
+  echo "==> log: $RELOAD_LOG"
+  if [[ -n "${APP_PATH:-}" ]]; then
+    echo
+    echo "App path:"
+    echo "  $APP_PATH"
+  fi
+  if [[ -x "${CLI_PATH:-}" ]]; then
+    echo
+    echo "CLI path:"
+    echo "  $CLI_PATH"
+    echo "CLI helpers:"
+    echo "  /tmp/cmux-cli ..."
+    echo "  $HOME/.local/bin/cmux-dev ..."
+    if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
+      echo "  $CMUX_SHIM_TARGET ..."
+    fi
+    echo "If your shell still resolves the old cmux, run: rehash"
+  fi
+  if [[ "$LAUNCH" -eq 0 ]]; then
+    echo
+    echo "Build complete. Pass --launch to open the app, or cmd-click the path above."
+  fi
+}
+trap reload_finalize EXIT
+
+# Tell the user we're starting (visible even though body output is redirected).
+echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
+
+"$PWD/scripts/ensure-ghosttykit.sh"
+
+if should_skip_ghostty_cli_helper_zig_build; then
+  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
+    echo "Auto-enabling CMUX_SKIP_ZIG_BUILD=1 for Ghostty CLI helper (${AUTO_SKIP_ZIG_BUILD_REASON})"
+  fi
+  export CMUX_SKIP_ZIG_BUILD=1
 fi
 
 XCODEBUILD_ARGS=(
@@ -327,13 +382,11 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
 fi
 XCODEBUILD_ARGS+=(build)
 
-XCODE_LOG="/tmp/cmux-xcodebuild-${TAG_SLUG}.log"
 XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
 # Xcode 26's SWBBuildService is a per-user singleton. Concurrent xcodebuild
 # invocations (even with separate -derivedDataPath) share that daemon and can
 # crash it, SIGTERMing in-flight builds. Serialize via a per-user lock so
 # parallel reload.sh runs queue instead of trampling each other.
-set +e
 python3 -c '
 import fcntl
 import os
@@ -356,7 +409,16 @@ except OSError as exc:
 try:
     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
-    print(f"==> Another xcodebuild is running; waiting for {lock_path}...", file=sys.stderr, flush=True)
+    msg = f"==> Another xcodebuild is running; waiting for {lock_path}...\n"
+    # reload.sh saves the original stderr on fd 4 before redirecting to the
+    # log file. Surface the wait notice to the terminal so the user knows
+    # they are queued, not hung. Fall back to stderr (the log) if fd 4 is
+    # unavailable (e.g. when this script is run standalone).
+    try:
+        os.write(4, msg.encode())
+    except OSError:
+        sys.stderr.write(msg)
+        sys.stderr.flush()
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
     except OSError as exc:
@@ -368,15 +430,7 @@ try:
     os.execvp(command[0], command)
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$XCODE_LOG" | grep -E '(warning:|error:|fatal:|BUILD FAILED|BUILD SUCCEEDED|\*\* BUILD|^==> )'
-XCODE_PIPESTATUS=("${PIPESTATUS[@]}")
-set -e
-XCODE_EXIT="${XCODE_PIPESTATUS[0]}"
-echo "Full build log: $XCODE_LOG"
-if [[ "$XCODE_EXIT" -ne 0 ]]; then
-  echo "error: xcodebuild failed with exit code $XCODE_EXIT" >&2
-  exit "$XCODE_EXIT"
-fi
+' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
@@ -606,28 +660,10 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   fi
 fi
 
-echo
-echo "App path:"
-echo "  $APP_PATH"
-
+# The user-facing summary (success line, App path, CLI path/helpers, rehash
+# hint, "pass --launch") is printed by the reload_finalize EXIT trap. The
+# tag-cleanup reminder still runs here, but its output goes to $RELOAD_LOG
+# (visible by tail -f or by inspecting the log path printed in the summary).
 if [[ -n "${TAG_SLUG:-}" ]]; then
   print_tag_cleanup_reminder "$TAG_SLUG"
-fi
-
-if [[ -x "${CLI_PATH:-}" ]]; then
-  echo
-  echo "CLI path:"
-  echo "  $CLI_PATH"
-  echo "CLI helpers:"
-  echo "  /tmp/cmux-cli ..."
-  echo "  $HOME/.local/bin/cmux-dev ..."
-  if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
-    echo "  $CMUX_SHIM_TARGET ..."
-  fi
-  echo "If your shell still resolves the old cmux, run: rehash"
-fi
-
-if [[ "$LAUNCH" -eq 0 ]]; then
-  echo
-  echo "Build complete. Pass --launch to open the app, or cmd-click the path above."
 fi

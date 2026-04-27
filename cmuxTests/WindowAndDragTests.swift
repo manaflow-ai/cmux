@@ -77,14 +77,16 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
             windowId: windowAId,
             tabManager: managerA,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
         )
         app.registerMainWindow(
             windowB,
             windowId: windowBId,
             tabManager: managerB,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
         )
 
         windowB.makeKeyAndOrderFront(nil)
@@ -117,14 +119,16 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
             windowId: windowAId,
             tabManager: managerA,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
         )
         app.registerMainWindow(
             windowB,
             windowId: windowBId,
             tabManager: managerB,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
         )
 
         // Seed active manager and clear focus windows to force fallback routing.
@@ -153,7 +157,8 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
             windowId: windowId,
             tabManager: manager,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
         )
 
         // SwiftUI can replace the NSWindow identifier string at runtime.
@@ -184,14 +189,16 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
             windowId: windowAId,
             tabManager: managerA,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
         )
         app.registerMainWindow(
             windowB,
             windowId: windowBId,
             tabManager: managerB,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
         )
 
         windowA.makeKeyAndOrderFront(nil)
@@ -226,7 +233,8 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
             windowId: windowId,
             tabManager: manager,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
         )
 
         window.makeKeyAndOrderFront(nil)
@@ -275,7 +283,8 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
             windowId: windowId,
             tabManager: manager,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
         )
 
         window.makeKeyAndOrderFront(nil)

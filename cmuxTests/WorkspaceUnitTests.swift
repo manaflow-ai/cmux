@@ -705,6 +705,54 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
     }
 
+    func testSettingsFileStoreParsesRightSidebarShortcutBindings() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "focusRightSidebar": "cmd+opt+shift+e",
+                "switchRightSidebarToFiles": "ctrl+4",
+                "switchRightSidebarToFind": "ctrl+5",
+                "switchRightSidebarToSessions": "ctrl+6",
+                "switchRightSidebarToFeed": "ctrl+7"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .focusRightSidebar),
+            StoredShortcut(key: "e", command: true, shift: true, option: true, control: false)
+        )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToFiles),
+            StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
+        )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToFind),
+            StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
+        )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToSessions),
+            StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
+        )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToFeed),
+            StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
+        )
+    }
+
     func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: AppIconSettings.modeKey)

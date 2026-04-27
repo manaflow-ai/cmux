@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CMUXWorkstream
 import Foundation
 import Bonsplit
 import WebKit
@@ -141,7 +142,8 @@ class TerminalController {
         "browser.tab.switch",
         "debug.command_palette.toggle",
         "debug.notification.focus",
-        "debug.app.activate"
+        "debug.app.activate",
+        "feed.jump"
     ]
 
     private enum V2HandleKind: String, CaseIterable {
@@ -1649,6 +1651,14 @@ class TerminalController {
         }
     }
 
+    /// Public entry point mirroring the socket's `processCommand` path so
+    /// in-process callers (e.g. the Feed coordinator's `feed.jump` focus
+    /// request) can reuse the full V1/V2 dispatcher without duplicating
+    /// its auth/policy wrappers.
+    func handleSocketLine(_ line: String) -> String {
+        return processCommand(line)
+    }
+
     private func processCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Empty command" }
@@ -2148,6 +2158,20 @@ class TerminalController {
         case "feedback.submit":
             return v2Result(id: id, self.v2FeedbackSubmit(params: params))
 
+        // Feed (workstream)
+        case "feed.push":
+            return v2Result(id: id, self.v2FeedPush(params: params))
+        case "feed.permission.reply":
+            return v2Result(id: id, self.v2FeedPermissionReply(params: params))
+        case "feed.question.reply":
+            return v2Result(id: id, self.v2FeedQuestionReply(params: params))
+        case "feed.exit_plan.reply":
+            return v2Result(id: id, self.v2FeedExitPlanReply(params: params))
+        case "feed.jump":
+            return v2Result(id: id, self.v2FeedJump(params: params))
+        case "feed.list":
+            return v2Result(id: id, self.v2FeedList(params: params))
+
 
         // Surfaces / input
         case "surface.list":
@@ -2517,6 +2541,12 @@ class TerminalController {
             "settings.open",
             "feedback.open",
             "feedback.submit",
+            "feed.push",
+            "feed.permission.reply",
+            "feed.question.reply",
+            "feed.exit_plan.reply",
+            "feed.jump",
+            "feed.list",
             "surface.list",
             "surface.current",
             "surface.focus",
@@ -7113,6 +7143,170 @@ class TerminalController {
         }
 
         return result
+    }
+
+    // MARK: - V2 Feed (workstream) handlers
+
+    private func v2FeedPush(params: [String: Any]) -> V2CallResult {
+        let waitTimeout: TimeInterval
+        if let rawTimeout = params["wait_timeout_seconds"] {
+            let seconds: Double?
+            if let number = rawTimeout as? NSNumber {
+                seconds = number.doubleValue
+            } else if let value = rawTimeout as? Double {
+                seconds = value
+            } else if let value = rawTimeout as? Int {
+                seconds = Double(value)
+            } else {
+                seconds = nil
+            }
+            guard let seconds else {
+                return .err(
+                    code: "invalid_params",
+                    message: "feed.push wait_timeout_seconds must be numeric",
+                    data: nil
+                )
+            }
+            guard seconds.isFinite, seconds >= 0, seconds <= 120 else {
+                return .err(
+                    code: "invalid_params",
+                    message: "feed.push wait_timeout_seconds must be between 0 and 120",
+                    data: nil
+                )
+            }
+            waitTimeout = seconds
+        } else {
+            waitTimeout = 0
+        }
+        let eventDict: [String: Any]
+        if let nested = params["event"] as? [String: Any] {
+            eventDict = nested
+        } else if params["session_id"] != nil,
+                  params["hook_event_name"] != nil,
+                  params["_source"] != nil {
+            eventDict = params
+        } else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.push requires an `event` object",
+                data: nil
+            )
+        }
+
+        let event: WorkstreamEvent
+        do {
+            let data = try JSONSerialization.data(withJSONObject: eventDict)
+            event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+        } catch {
+            return .err(
+                code: "invalid_params",
+                message: "feed.push event failed to decode: \(error)",
+                data: nil
+            )
+        }
+
+        let result = FeedCoordinator.shared.ingestBlocking(
+            event: event,
+            waitTimeout: waitTimeout
+        )
+        return .ok(FeedSocketEncoding.payload(for: result))
+    }
+
+    private func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
+        guard let requestId = params["request_id"] as? String else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.permission.reply requires request_id",
+                data: nil
+            )
+        }
+        guard let modeRaw = params["mode"] as? String,
+              let mode = WorkstreamPermissionMode(rawValue: modeRaw)
+        else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.permission.reply requires mode ∈ once|always|all|bypass|deny",
+                data: nil
+            )
+        }
+        FeedCoordinator.shared.deliverReply(
+            requestId: requestId,
+            decision: .permission(mode)
+        )
+        return .ok(["delivered": true])
+    }
+
+    private func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
+        guard let requestId = params["request_id"] as? String else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.question.reply requires request_id",
+                data: nil
+            )
+        }
+        guard let selections = params["selections"] as? [String] else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.question.reply requires selections: [string]",
+                data: nil
+            )
+        }
+        FeedCoordinator.shared.deliverReply(
+            requestId: requestId,
+            decision: .question(selections: selections)
+        )
+        return .ok(["delivered": true])
+    }
+
+    private func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
+        guard let requestId = params["request_id"] as? String else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.exit_plan.reply requires request_id",
+                data: nil
+            )
+        }
+        guard let modeRaw = params["mode"] as? String,
+              let mode = WorkstreamExitPlanMode(rawValue: modeRaw)
+        else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.exit_plan.reply requires mode ∈ ultraplan|bypassPermissions|autoAccept|manual|deny",
+                data: nil
+            )
+        }
+        let feedback = params["feedback"] as? String
+        FeedCoordinator.shared.deliverReply(
+            requestId: requestId,
+            decision: .exitPlan(mode, feedback: feedback)
+        )
+        return .ok(["delivered": true])
+    }
+
+    private func v2FeedJump(params: [String: Any]) -> V2CallResult {
+        guard let workstreamId = params["workstream_id"] as? String else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.jump requires workstream_id",
+                data: nil
+            )
+        }
+        // MVP: resolve to a cmux surface via `SessionIndexStore` lands in
+        // the UI PR; for now we return whether the id is known so callers
+        // can show a toast.
+        let matched = FeedCoordinator.shared.resolvePossibleSurface(for: workstreamId)
+        return .ok([
+            "workstream_id": workstreamId,
+            "matched": matched
+        ])
+    }
+
+    private func v2FeedList(params: [String: Any]) -> V2CallResult {
+        let pendingOnly = (params["pending_only"] as? Bool) ?? false
+        let items = FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly)
+        return .ok([
+            "items": items.map { FeedSocketEncoding.itemDict($0) }
+        ])
     }
 
     // MARK: - V2 App Focus Methods

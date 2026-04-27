@@ -47,6 +47,11 @@ enum KeyboardShortcutSettings {
         case sendFeedback
         case showNotifications
         case jumpToUnread
+        case focusRightSidebar
+        case switchRightSidebarToFiles
+        case switchRightSidebarToFind
+        case switchRightSidebarToSessions
+        case switchRightSidebarToFeed
         case triggerFlash
 
         // Navigation
@@ -118,6 +123,11 @@ enum KeyboardShortcutSettings {
             case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
             case .showNotifications: return String(localized: "shortcut.showNotifications.label", defaultValue: "Show Notifications")
             case .jumpToUnread: return String(localized: "shortcut.jumpToUnread.label", defaultValue: "Jump to Latest Unread")
+            case .focusRightSidebar: return String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Focus Right Sidebar")
+            case .switchRightSidebarToFiles: return String(localized: "shortcut.switchRightSidebarToFiles.label", defaultValue: "Show Sidebar Files")
+            case .switchRightSidebarToFind: return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
+            case .switchRightSidebarToSessions: return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Sessions")
+            case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
@@ -165,6 +175,20 @@ enum KeyboardShortcutSettings {
 
         var defaultsKey: String { "shortcut.\(rawValue)" }
 
+        private enum ConflictScope {
+            case application
+            case rightSidebarFocus
+        }
+
+        private var conflictScope: ConflictScope {
+            switch self {
+            case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed:
+                return .rightSidebarFocus
+            default:
+                return .application
+            }
+        }
+
         var defaultShortcut: StoredShortcut {
             switch self {
             case .openSettings:
@@ -203,6 +227,16 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
             case .jumpToUnread:
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+            case .focusRightSidebar:
+                return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
+            case .switchRightSidebarToFiles:
+                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToFind:
+                return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToSessions:
+                return StoredShortcut(key: "3", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToFeed:
+                return StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
@@ -214,7 +248,7 @@ enum KeyboardShortcutSettings {
             case .renameWorkspace:
                 return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
             case .editWorkspaceDescription:
-                return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
+                return StoredShortcut(key: "e", command: true, shift: false, option: true, control: false)
             case .closeTab:
                 return StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
             case .closeOtherTabsInPane:
@@ -317,7 +351,10 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
-            KeyboardShortcutSettings.shortcutsConflict(
+            guard conflictScope == proposedAction.conflictScope else {
+                return false
+            }
+            return KeyboardShortcutSettings.shortcutsConflict(
                 proposedShortcut,
                 proposedUsesNumberedDigitMatching: proposedAction.usesNumberedDigitMatching,
                 configuredShortcut,
