@@ -446,10 +446,6 @@ struct cmuxApp: App {
 
             // New tab commands
             CommandGroup(replacing: .newItem) {
-                splitCommandButton(title: String(localized: "menu.file.newWindow", defaultValue: "New Window"), shortcut: menuShortcut(for: .newWindow)) {
-                    appDelegate.openNewMainWindow(nil)
-                }
-
                 splitCommandButton(title: String(localized: "menu.file.newWorkspace", defaultValue: "New Workspace"), shortcut: menuShortcut(for: .newTab)) {
                     if let appDelegate = AppDelegate.shared {
                         appDelegate.performNewWorkspaceAction(
@@ -829,11 +825,6 @@ struct cmuxApp: App {
         manager.tabs.firstIndex { $0.id == workspaceId }
     }
 
-    private func selectedWorkspaceWindowMoveTargets(in manager: TabManager) -> [AppDelegate.WindowMoveTarget] {
-        let referenceWindowId = AppDelegate.shared?.windowId(for: manager)
-        return AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
-    }
-
     private func toggleSelectedWorkspacePinned(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
         manager.setPinned(workspace, pinned: !workspace.isPinned)
@@ -857,16 +848,6 @@ struct cmuxApp: App {
         guard let workspace = manager.selectedWorkspace else { return }
         manager.moveTabsToTop([workspace.id])
         manager.selectWorkspace(workspace)
-    }
-
-    private func moveSelectedWorkspace(in manager: TabManager, toWindow windowId: UUID) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: workspace.id, windowId: windowId, focus: true)
-    }
-
-    private func moveSelectedWorkspaceToNewWindow(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        _ = AppDelegate.shared?.moveWorkspaceToNewWindow(workspaceId: workspace.id, focus: true)
     }
 
     private func closeWorkspaceIds(
@@ -921,7 +902,6 @@ struct cmuxApp: App {
     private func workspaceCommandMenuContent(manager: TabManager) -> some View {
         let workspace = manager.selectedWorkspace
         let workspaceIndex = workspace.flatMap { selectedWorkspaceIndex(in: manager, workspaceId: $0.id) }
-        let windowMoveTargets = selectedWorkspaceWindowMoveTargets(in: manager)
 
         Button(
             workspace?.isPinned == true
@@ -965,24 +945,8 @@ struct cmuxApp: App {
         }
         .disabled(workspace == nil || workspaceIndex == 0)
 
-        Menu(String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")) {
-            Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
-                moveSelectedWorkspaceToNewWindow(in: manager)
-            }
-            .disabled(workspace == nil)
-
-            if !windowMoveTargets.isEmpty {
-                Divider()
-            }
-
-            ForEach(windowMoveTargets) { target in
-                Button(target.label) {
-                    moveSelectedWorkspace(in: manager, toWindow: target.windowId)
-                }
-                .disabled(target.isCurrentWindow || workspace == nil)
-            }
-        }
-        .disabled(workspace == nil)
+        // Multi-window mode is disabled, so the "Move Workspace to Window"
+        // submenu is intentionally omitted.
 
         Divider()
 

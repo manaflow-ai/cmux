@@ -2306,31 +2306,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if let startupSnapshot {
-            let additionalWindows = Array(startupSnapshot
-                .windows
-                .dropFirst()
-                .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
-#if DEBUG
-            for (index, windowSnapshot) in additionalWindows.enumerated() {
-                cmuxDebugLog(
-                    "session.restore.enqueueAdditional idx=\(index + 1) " +
-                        "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
-                        "display={\(debugSessionDisplayDescription(windowSnapshot.display))}"
-                )
-            }
-#endif
-            if !additionalWindows.isEmpty {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    for windowSnapshot in additionalWindows {
-                        _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
-                    }
-                    self.completeSessionRestoreOperation(isManualReopen: false)
-                }
-            } else {
-                completeSessionRestoreOperation(isManualReopen: false)
-            }
+        if startupSnapshot != nil {
+            // Multi-window startup is disabled: only the primary snapshot window
+            // is restored. Skip any additional persisted windows so the user
+            // always boots into a single window.
+            completeSessionRestoreOperation(isManualReopen: false)
         }
     }
 
@@ -2354,9 +2334,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let snapshotWindows = Array(
-            snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-        )
+        // Multi-window mode is disabled: only the first persisted window is
+        // ever restored, so trim the snapshot down to a single window before
+        // applying it.
+        let snapshotWindows = Array(snapshot.windows.prefix(1))
         guard !snapshotWindows.isEmpty else { return false }
 
         let existingContexts = sortedMainWindowContextsForSessionSnapshot()
@@ -2378,15 +2359,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     to: context,
                     window: context.window ?? windowForMainWindowId(context.windowId)
                 )
-            }
-
-            if snapshotWindows.count > existingContexts.count {
-                for windowSnapshot in snapshotWindows.dropFirst(existingContexts.count) {
-                    _ = createMainWindow(
-                        sessionWindowSnapshot: windowSnapshot,
-                        shouldActivate: shouldActivate
-                    )
-                }
             }
 
             if existingContexts.count > snapshotWindows.count {
@@ -5461,19 +5433,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        let menu = NSMenu(title: "")
-        let newWindowItem = NSMenuItem(
-            title: String(localized: "menu.file.newWindow", defaultValue: "New Window"),
-            action: #selector(openNewMainWindow(_:)),
-            keyEquivalent: ""
-        )
-        newWindowItem.target = self
-        menu.addItem(newWindowItem)
-        return menu
+        return nil
     }
 
     @objc func openNewMainWindow(_ sender: Any?) {
-        _ = createMainWindow()
+        _ = ensureInitialMainWindowIfNeeded()
     }
 
     func scheduleInitialMainWindowBootstrap(debugSource: String) {
@@ -5794,9 +5758,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         prepareForExplicitOpenIntentAtStartup()
         for directory in directories {
             switch target {
-            case .window:
-                _ = createMainWindow(initialWorkingDirectory: directory)
-            case .workspace:
+            case .window, .workspace:
                 openWorkspaceFromService(workingDirectory: directory)
             }
         }
