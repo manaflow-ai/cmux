@@ -104,6 +104,101 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    func testTmuxWorkspacePaneTabBarRectReturnsTopChromeFrame() {
+        let paneID = PaneID(id: UUID())
+        let snapshot = LayoutSnapshot(
+            containerFrame: PixelRect(x: 200, y: 32, width: 1200, height: 800),
+            panes: [
+                PaneGeometry(
+                    paneId: paneID.id.uuidString,
+                    frame: PixelRect(x: 877.5, y: 32, width: 500, height: 320),
+                    selectedTabId: nil,
+                    tabIds: []
+                )
+            ],
+            focusedPaneId: paneID.id.uuidString,
+            timestamp: 0
+        )
+
+        XCTAssertEqual(
+            WorkspaceContentView.tmuxWorkspacePaneTabBarRect(
+                layoutSnapshot: snapshot,
+                paneId: paneID
+            ),
+            CGRect(x: 677.5, y: 0, width: 500, height: 30)
+        )
+    }
+
+    func testInactiveBonsplitTabBarRectsExcludeFocusedPaneWhenWorkspaceInputActive() {
+        let focusedPaneID = PaneID(id: UUID())
+        let unfocusedPaneID = PaneID(id: UUID())
+        let snapshot = LayoutSnapshot(
+            containerFrame: PixelRect(x: 200, y: 32, width: 1200, height: 800),
+            panes: [
+                PaneGeometry(
+                    paneId: focusedPaneID.id.uuidString,
+                    frame: PixelRect(x: 200, y: 32, width: 500, height: 320),
+                    selectedTabId: nil,
+                    tabIds: []
+                ),
+                PaneGeometry(
+                    paneId: unfocusedPaneID.id.uuidString,
+                    frame: PixelRect(x: 700, y: 32, width: 500, height: 320),
+                    selectedTabId: nil,
+                    tabIds: []
+                )
+            ],
+            focusedPaneId: focusedPaneID.id.uuidString,
+            timestamp: 0
+        )
+
+        XCTAssertEqual(
+            WorkspaceContentView.inactiveBonsplitTabBarRects(
+                layoutSnapshot: snapshot,
+                focusedPaneId: focusedPaneID,
+                zoomedPaneId: nil,
+                isWorkspaceInputActive: true,
+                shouldDimInactivePanes: true
+            ),
+            [CGRect(x: 500, y: 0, width: 500, height: 30)]
+        )
+    }
+
+    func testInactiveBonsplitTabBarRectsIncludeOnlyZoomedPaneWhenWorkspaceInactive() {
+        let firstPaneID = PaneID(id: UUID())
+        let zoomedPaneID = PaneID(id: UUID())
+        let snapshot = LayoutSnapshot(
+            containerFrame: PixelRect(x: 200, y: 32, width: 1200, height: 800),
+            panes: [
+                PaneGeometry(
+                    paneId: firstPaneID.id.uuidString,
+                    frame: PixelRect(x: 200, y: 32, width: 500, height: 320),
+                    selectedTabId: nil,
+                    tabIds: []
+                ),
+                PaneGeometry(
+                    paneId: zoomedPaneID.id.uuidString,
+                    frame: PixelRect(x: 700, y: 32, width: 500, height: 320),
+                    selectedTabId: nil,
+                    tabIds: []
+                )
+            ],
+            focusedPaneId: firstPaneID.id.uuidString,
+            timestamp: 0
+        )
+
+        XCTAssertEqual(
+            WorkspaceContentView.inactiveBonsplitTabBarRects(
+                layoutSnapshot: snapshot,
+                focusedPaneId: firstPaneID,
+                zoomedPaneId: zoomedPaneID,
+                isWorkspaceInputActive: false,
+                shouldDimInactivePanes: true
+            ),
+            [CGRect(x: 500, y: 0, width: 500, height: 30)]
+        )
+    }
+
     @MainActor
     func testTmuxWorkspacePaneUnreadRectsIncludeFocusedReadIndicator() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()

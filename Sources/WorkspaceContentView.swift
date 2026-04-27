@@ -220,6 +220,25 @@ struct TmuxWorkspacePaneOverlayView: View {
     }
 }
 
+struct UnfocusedBonsplitTabBarOverlayView: View {
+    let rects: [CGRect]
+    let color: NSColor
+    let opacity: Double
+
+    var body: some View {
+        Canvas { context, _ in
+            guard opacity > 0.0001 else { return }
+            let fill = Color(nsColor: color).opacity(opacity)
+
+            for rect in rects where rect.width > 0 && rect.height > 0 {
+                context.fill(Path(rect), with: .color(fill))
+            }
+        }
+        .allowsHitTesting(false)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace
@@ -259,6 +278,17 @@ struct WorkspaceContentView: View {
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
+        let bonsplitLayoutSnapshot = Self.effectiveTmuxLayoutSnapshot(
+            cachedSnapshot: workspace.tmuxLayoutSnapshot,
+            liveSnapshot: workspace.bonsplitController.layoutSnapshot()
+        )
+        let inactiveTabBarRects = Self.inactiveBonsplitTabBarRects(
+            layoutSnapshot: bonsplitLayoutSnapshot,
+            focusedPaneId: workspace.bonsplitController.focusedPaneId,
+            zoomedPaneId: workspace.bonsplitController.zoomedPaneId,
+            isWorkspaceInputActive: isWorkspaceInputActive,
+            shouldDimInactivePanes: isSplit
+        )
 
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
@@ -382,12 +412,23 @@ struct WorkspaceContentView: View {
             )
         }
 
+        let decoratedBonsplitView = bonsplitView
+            .overlay(alignment: .topLeading) {
+                if !inactiveTabBarRects.isEmpty {
+                    UnfocusedBonsplitTabBarOverlayView(
+                        rects: inactiveTabBarRects,
+                        color: appearance.unfocusedOverlayNSColor,
+                        opacity: appearance.unfocusedOverlayOpacity
+                    )
+                }
+            }
+
         Group {
             if isMinimalMode && !isFullScreen {
-                bonsplitView
+                decoratedBonsplitView
                     .ignoresSafeArea(.container, edges: .top)
             } else {
-                bonsplitView
+                decoratedBonsplitView
             }
         }
     }
@@ -431,6 +472,17 @@ struct WorkspaceContentView: View {
         case windowContent
     }
 
+    private static func tmuxWorkspacePaneTopChromeRect(_ rect: CGRect) -> CGRect? {
+        let topInset = min(tmuxWorkspacePaneTopChromeHeight, max(0, rect.height - 1))
+        guard topInset > 0 else { return nil }
+        return CGRect(
+            x: rect.origin.x,
+            y: rect.origin.y,
+            width: rect.width,
+            height: topInset
+        )
+    }
+
     private static func tmuxWorkspacePaneContentRect(
         _ rect: CGRect,
         trimMode: TmuxWorkspacePaneOverlayTrimMode
@@ -447,11 +499,10 @@ struct WorkspaceContentView: View {
         }
     }
 
-    private static func tmuxWorkspacePaneRect(
+    private static func tmuxWorkspacePaneLocalRect(
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?,
-        includeContainerOffset: Bool,
-        trimMode: TmuxWorkspacePaneOverlayTrimMode
+        includeContainerOffset: Bool
     ) -> CGRect? {
         guard let layoutSnapshot,
               let paneId,
@@ -474,7 +525,68 @@ struct WorkspaceContentView: View {
                 dy: -CGFloat(layoutSnapshot.containerFrame.y)
             )
         }
+        return rect
+    }
+
+    private static func tmuxWorkspacePaneRect(
+        layoutSnapshot: LayoutSnapshot?,
+        paneId: PaneID?,
+        includeContainerOffset: Bool,
+        trimMode: TmuxWorkspacePaneOverlayTrimMode
+    ) -> CGRect? {
+        guard let rect = tmuxWorkspacePaneLocalRect(
+            layoutSnapshot: layoutSnapshot,
+            paneId: paneId,
+            includeContainerOffset: includeContainerOffset
+        ) else {
+            return nil
+        }
         return tmuxWorkspacePaneContentRect(rect, trimMode: trimMode)
+    }
+
+    static func tmuxWorkspacePaneTabBarRect(
+        layoutSnapshot: LayoutSnapshot?,
+        paneId: PaneID?
+    ) -> CGRect? {
+        guard let rect = tmuxWorkspacePaneLocalRect(
+            layoutSnapshot: layoutSnapshot,
+            paneId: paneId,
+            includeContainerOffset: false
+        ) else {
+            return nil
+        }
+        return tmuxWorkspacePaneTopChromeRect(rect)
+    }
+
+    static func inactiveBonsplitTabBarRects(
+        layoutSnapshot: LayoutSnapshot?,
+        focusedPaneId: PaneID?,
+        zoomedPaneId: PaneID?,
+        isWorkspaceInputActive: Bool,
+        shouldDimInactivePanes: Bool
+    ) -> [CGRect] {
+        guard shouldDimInactivePanes,
+              let layoutSnapshot else { return [] }
+
+        let zoomedPaneUUID = zoomedPaneId?.id.uuidString
+
+        return layoutSnapshot.panes.compactMap { pane in
+            if let zoomedPaneUUID, pane.paneId != zoomedPaneUUID {
+                return nil
+            }
+
+            if isWorkspaceInputActive,
+               let focusedPaneId,
+               pane.paneId == focusedPaneId.id.uuidString {
+                return nil
+            }
+
+            guard let paneUUID = UUID(uuidString: pane.paneId) else { return nil }
+            return tmuxWorkspacePaneTabBarRect(
+                layoutSnapshot: layoutSnapshot,
+                paneId: PaneID(id: paneUUID)
+            )
+        }
     }
 
     private static func tmuxWorkspacePaneRects(
