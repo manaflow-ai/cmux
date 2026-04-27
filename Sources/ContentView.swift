@@ -10860,8 +10860,14 @@ final class FeedbackComposerMessageEditorView: NSView {
         )
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
+        let extraLineHeight: CGFloat
+        if layoutManager.extraLineFragmentTextContainer === textContainer {
+            extraLineHeight = ceil(layoutManager.extraLineFragmentRect.height)
+        } else {
+            extraLineHeight = 0
+        }
         let lineHeight = ceil(Self.font.ascender - Self.font.descender + Self.font.leading)
-        let contentHeight = max(lineHeight, ceil(usedRect.height))
+        let contentHeight = max(lineHeight, ceil(usedRect.height) + extraLineHeight)
         return max(
             Self.minimumDocumentHeight,
             ceil(contentHeight + Self.textInset.height * 2)
