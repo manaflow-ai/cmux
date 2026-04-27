@@ -5862,7 +5862,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
-        let color = renderingMode.usesHostLayerFill
+        let sharesWindowBackdrop = Workspace.usesSharedSurfaceBackdrop()
+        // In shared-backdrop mode the NSWindow background is the single surface
+        // backdrop. Painting the terminal host layer too double-composites it.
+        let usesHostLayerFill = renderingMode.usesHostLayerFill && !sharesWindowBackdrop
+        let color = usesHostLayerFill
             ? effectiveBackgroundColor()
             : .clear
         if let layer {
@@ -5876,15 +5880,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         terminalSurface?.hostedView.setBackgroundColor(color)
         if GhosttyApp.shared.backgroundLogEnabled {
-            let signature = "\(renderingMode.usesHostLayerFill ? color.hexString() : "ghostty-native"):\(String(format: "%.3f", color.alphaComponent))"
+            let signature = "\(usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(sharesWindowBackdrop ? "shared" : "terminal")"
             if signature != lastLoggedSurfaceBackgroundSignature {
                 lastLoggedSurfaceBackgroundSignature = signature
                 let hasOverride = backgroundColor != nil
                 let overrideHex = backgroundColor?.hexString() ?? "nil"
                 let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
-                let source = renderingMode.usesHostLayerFill ? (hasOverride ? "surfaceOverride" : "defaultBackground") : "ghosttyNativeBackground"
+                let source = usesHostLayerFill
+                    ? (hasOverride ? "surfaceOverride" : "defaultBackground")
+                    : (sharesWindowBackdrop ? "sharedWindowBackdrop" : "ghosttyNativeBackground")
                 GhosttyApp.shared.logBackground(
-                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) sharedWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
                 )
             }
         }
