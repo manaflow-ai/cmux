@@ -329,6 +329,36 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastBody: String?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
+    /// Whether a tool was used during the current turn. Reset to false on prompt-submit
+    /// so that only tool uses within the same turn suppress stop-hook notifications.
+    /// Using a per-turn Bool rather than a session-level timestamp prevents stale
+    /// timestamps from a previous turn from incorrectly suppressing later notifications.
+    var toolUsedThisTurn: Bool
+
+    init(
+        sessionId: String, workspaceId: String, surfaceId: String,
+        cwd: String?, pid: Int?, lastSubtitle: String?, lastBody: String?,
+        startedAt: TimeInterval, updatedAt: TimeInterval, toolUsedThisTurn: Bool = false
+    ) {
+        self.sessionId = sessionId; self.workspaceId = workspaceId; self.surfaceId = surfaceId
+        self.cwd = cwd; self.pid = pid; self.lastSubtitle = lastSubtitle; self.lastBody = lastBody
+        self.startedAt = startedAt; self.updatedAt = updatedAt; self.toolUsedThisTurn = toolUsedThisTurn
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        workspaceId = try c.decode(String.self, forKey: .workspaceId)
+        surfaceId = try c.decode(String.self, forKey: .surfaceId)
+        cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+        pid = try c.decodeIfPresent(Int.self, forKey: .pid)
+        lastSubtitle = try c.decodeIfPresent(String.self, forKey: .lastSubtitle)
+        lastBody = try c.decodeIfPresent(String.self, forKey: .lastBody)
+        startedAt = try c.decode(TimeInterval.self, forKey: .startedAt)
+        updatedAt = try c.decode(TimeInterval.self, forKey: .updatedAt)
+        // Default to false for records persisted before this field was introduced.
+        toolUsedThisTurn = try c.decodeIfPresent(Bool.self, forKey: .toolUsedThisTurn) ?? false
+    }
 }
 
 private struct AgentHookLaunchCommandRecord: Codable {
@@ -390,7 +420,8 @@ private final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         lastSubtitle: String? = nil,
-        lastBody: String? = nil
+        lastBody: String? = nil,
+        toolUsedThisTurn: Bool? = nil
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -406,7 +437,8 @@ private final class ClaudeHookSessionStore {
                 lastSubtitle: nil,
                 lastBody: nil,
                 startedAt: now,
-                updatedAt: now
+                updatedAt: now,
+                toolUsedThisTurn: false
             )
             record.workspaceId = workspaceId
             if !surfaceId.isEmpty {
@@ -426,6 +458,9 @@ private final class ClaudeHookSessionStore {
             }
             if let body = normalizeOptional(lastBody) {
                 record.lastBody = body
+            }
+            if let toolUsedThisTurn {
+                record.toolUsedThisTurn = toolUsedThisTurn
             }
             record.updatedAt = now
             state.sessions[normalized] = record
@@ -12838,8 +12873,23 @@ struct CMUXCLI {
                     )
                 }
 
-                if let completion {
-                    let title = "Claude Code"
+                // Consume the tool-used flag *before* checking completion so it is
+                // always reset — even when completion is nil (e.g. no cwd/transcript
+                // yet). Without this, a nil-completion stop leaves the flag stuck at
+                // true and the next legitimate completion notification is suppressed.
+                let suppressThisStop = mappedSession?.toolUsedThisTurn ?? false
+                if let sessionId = parsedInput.sessionId {
+                    try? sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: mappedSession?.surfaceId ?? surfaceId,
+                        cwd: parsedInput.cwd,
+                        toolUsedThisTurn: false
+                    )
+                }
+
+                if let completion, !suppressThisStop {
+                    let title = String(localized: "notification.title.claude-code", defaultValue: "Claude Code")
                     let subtitle = sanitizeNotificationField(completion.subtitle)
                     let body = sanitizeNotificationField(completion.body)
                     let payload = "\(title)|\(subtitle)|\(body)"
@@ -12871,6 +12921,17 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            // Reset per-turn tool flag at the start of each new turn so stale state
+            // from a previous turn cannot suppress the stop-hook notification.
+            if let sessionId = parsedInput.sessionId, let existingSession = mappedSession {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: existingSession.surfaceId,
+                    cwd: parsedInput.cwd,
+                    toolUsedThisTurn: false
+                )
+            }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setClaudeStatus(
                 client: client,
@@ -12904,7 +12965,7 @@ struct CMUXCLI {
                 client: client
             )
 
-            let title = "Claude Code"
+            let title = String(localized: "notification.title.claude-code", defaultValue: "Claude Code")
             let subtitle = sanitizeNotificationField(summary.subtitle)
             let body = sanitizeNotificationField(summary.body)
             let payload = "\(title)|\(subtitle)|\(body)"
@@ -12975,6 +13036,18 @@ struct CMUXCLI {
                 client: client
             )
             let claudePid = mappedSession?.pid
+
+            // Mark that a tool was used this turn so the stop handler can detect
+            // auto-continue turns (stop fired mid-task) and suppress premature notifications.
+            if let sessionId = parsedInput.sessionId, let existingSession = mappedSession {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: existingSession.surfaceId,
+                    cwd: parsedInput.cwd,
+                    toolUsedThisTurn: true
+                )
+            }
 
             // AskUserQuestion means Claude is about to ask the user something.
             // Save question text in session so the Notification handler can use it
