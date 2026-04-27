@@ -35,6 +35,7 @@ export type VmEntry = {
   readonly providerVmId: string;
   readonly provider: ProviderId;
   readonly image: string;
+  readonly imageVersion: string | null;
   readonly createdAt: number;
 };
 
@@ -62,6 +63,7 @@ export function createVm(input: {
   readonly maxActiveVms: number;
   readonly provider: ProviderId;
   readonly image: string;
+  readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
 }) {
   return Effect.gen(function* () {
@@ -95,6 +97,7 @@ export function createVm(input: {
       billingPlanId: input.billingPlanId,
       provider: input.provider,
       image: input.image,
+      imageVersion: input.imageVersion ?? null,
       vmId: create.vm.id,
       idempotencyKey: input.idempotencyKey,
     });
@@ -110,7 +113,10 @@ export function createVm(input: {
       eventType: "vm.create.requested",
       provider: input.provider,
       imageId: input.image,
-      metadata: { idempotencyKeySet: !!input.idempotencyKey },
+      metadata: {
+        idempotencyKeySet: !!input.idempotencyKey,
+        imageVersion: input.imageVersion ?? null,
+      },
     }).pipe(Effect.catchAll(() => Effect.void));
 
     const handle = yield* providers.create(input.provider, { image: input.image }).pipe(
@@ -141,6 +147,7 @@ export function createVm(input: {
         id: create.vm.id,
         providerVmId: handle.providerVmId,
         image: handle.image,
+        imageVersion: input.imageVersion ?? null,
       })
       .pipe(
         Effect.catchAll((err) =>
@@ -165,7 +172,10 @@ export function createVm(input: {
       eventType: "vm.created",
       provider: running.provider,
       imageId: running.imageId,
-      metadata: { idempotencyKeySet: !!input.idempotencyKey },
+      metadata: {
+        idempotencyKeySet: !!input.idempotencyKey,
+        imageVersion: running.imageVersion,
+      },
     }).pipe(Effect.catchAll(() => Effect.void));
 
     return vmEntryFromRow(running);
@@ -430,6 +440,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     providerVmId: row.providerVmId,
     provider: row.provider,
     image: row.imageId,
+    imageVersion: row.imageVersion,
     createdAt: row.createdAt.getTime(),
   };
 }

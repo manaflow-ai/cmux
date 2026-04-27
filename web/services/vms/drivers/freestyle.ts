@@ -27,14 +27,6 @@ import {
   type ReusableRpcLease,
 } from "./wsLease";
 
-// Default cmux-sandbox snapshot. Produced by web/scripts/build-cloud-vm-images.ts.
-// Override via FREESTYLE_SANDBOX_SNAPSHOT. Image bakes cmuxd-remote and validates Python/OpenSSL.
-export const DEFAULT_FREESTYLE_SNAPSHOT_ID = "sc-mt237w1nd7c7673bd03m";
-
-function defaultSnapshotId(): string {
-  return process.env.FREESTYLE_SANDBOX_SNAPSHOT?.trim() || DEFAULT_FREESTYLE_SNAPSHOT_ID;
-}
-
 // Freestyle VMs reach the outside world only via their SSH gateway, which terminates on
 // `vm-ssh.freestyle.sh:22`. `ssh <vmId>+<user>@vm-ssh.freestyle.sh` authenticates against
 // an identity token the backend mints per attach session (short TTL, revoked on rm).
@@ -88,24 +80,24 @@ export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
 
   async create(options: CreateOptions): Promise<VMHandle> {
-    const image = options.image || defaultSnapshotId();
+    const image = options.image.trim();
+    if (!image) {
+      throw new ProviderError("freestyle", "create requires a resolved image");
+    }
     return withVmSpan(
       "cmux.vm.provider.create",
       {
         "cmux.vm.provider": "freestyle",
         "cmux.vm.operation": "create",
-        "cmux.vm.image_set": image.length > 0,
+        "cmux.vm.image": image,
         "cmux.timeout_ms": CREATE_TIMEOUT_MS,
       },
       async (span) => {
         const fs = client(CREATE_TIMEOUT_MS);
         try {
-          const body: Parameters<typeof fs.vms.create>[0] = image
-            ? { snapshotId: image }
-            : {};
           // Build images can take several minutes if the snapshot cache misses.
           const created = await fs.vms.create({
-            ...body,
+            snapshotId: image,
             ports: FREESTYLE_WS_PORTS,
             readySignalTimeoutSeconds: 600,
           });
@@ -114,11 +106,11 @@ export class FreestyleProvider implements VMProvider {
             provider: "freestyle",
             providerVmId: created.vmId,
             status: "running",
-            image: image || "freestyle:default",
+            image,
             createdAt: Date.now(),
           };
         } catch (err) {
-          throw new ProviderError("freestyle", `create(${image || "<default>"})`, err);
+          throw new ProviderError("freestyle", `create(${image})`, err);
         }
       },
     );

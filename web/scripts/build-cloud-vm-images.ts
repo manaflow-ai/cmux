@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -59,17 +60,30 @@ const binaryPath = path.join(buildRoot, tag, "cmuxd-remote-linux-amd64");
 mkdirSync(path.dirname(binaryPath), { recursive: true });
 
 await buildRemoteDaemon(binaryPath);
+const imageMetadata = {
+  builtAt: new Date().toISOString(),
+  cmuxdRemoteCommit: await gitRevParse(path.join(repoRoot, "daemon/remote")),
+  binarySha256: sha256File(binaryPath),
+  builderScriptVersion: sha256File(fileURLToPath(import.meta.url)),
+  validationStatus: "passed" as const,
+};
 
 const output: Record<string, unknown> = {
   tag,
   binaryPath,
+  ...imageMetadata,
+  manifestEntries: [],
 };
 
 if (target === "e2b" || target === "all") {
-  output.e2b = await buildE2BTemplate(tag, binaryPath, skipCache);
+  const e2b = await buildE2BTemplate(tag, binaryPath, skipCache, imageMetadata);
+  output.e2b = e2b;
+  (output.manifestEntries as unknown[]).push(e2b.manifestEntry);
 }
 if (target === "freestyle" || target === "all") {
-  output.freestyle = await buildFreestyleSnapshot(tag, binaryPath, skipCache);
+  const freestyle = await buildFreestyleSnapshot(tag, binaryPath, skipCache, imageMetadata);
+  output.freestyle = freestyle;
+  (output.manifestEntries as unknown[]).push(freestyle.manifestEntry);
 }
 
 console.log(JSON.stringify(output, null, 2));
@@ -85,7 +99,12 @@ async function buildRemoteDaemon(outPath: string): Promise<void> {
   );
 }
 
-async function buildE2BTemplate(tag: string, daemonPath: string, skipCache: boolean): Promise<unknown> {
+async function buildE2BTemplate(
+  tag: string,
+  daemonPath: string,
+  skipCache: boolean,
+  metadata: ImageBuildMetadata,
+): Promise<Record<string, unknown>> {
   if (!process.env.E2B_API_KEY) {
     throw new Error("E2B_API_KEY is required to build the E2B template");
   }
@@ -112,10 +131,30 @@ async function buildE2BTemplate(tag: string, daemonPath: string, skipCache: bool
     skipCache,
     onBuildLogs: defaultBuildLogger({ minLevel: "info" }),
   });
-  return { name, result };
+  return {
+    name,
+    result,
+    manifestEntry: {
+      provider: "e2b",
+      version: `e2b-${tag}`,
+      imageId: name,
+      envVar: "E2B_CMUXD_WS_TEMPLATE",
+      defaultForLocalDev: false,
+      cmuxdRemoteCommit: metadata.cmuxdRemoteCommit,
+      builtAt: metadata.builtAt,
+      builderScriptVersion: metadata.builderScriptVersion,
+      validationStatus: metadata.validationStatus,
+      notes: `binarySha256=${metadata.binarySha256}`,
+    },
+  };
 }
 
-async function buildFreestyleSnapshot(tag: string, daemonPath: string, skipCache: boolean): Promise<unknown> {
+async function buildFreestyleSnapshot(
+  tag: string,
+  daemonPath: string,
+  skipCache: boolean,
+  metadata: ImageBuildMetadata,
+): Promise<Record<string, unknown>> {
   if (!process.env.FREESTYLE_API_KEY) {
     throw new Error("FREESTYLE_API_KEY is required to build the Freestyle snapshot");
   }
@@ -133,10 +172,29 @@ async function buildFreestyleSnapshot(tag: string, daemonPath: string, skipCache
       skipCache,
     },
   });
+  const imageId = extractProviderId(result);
+  if (!imageId) {
+    const keys = result && typeof result === "object"
+      ? Object.keys(result as unknown as Record<string, unknown>).sort().join(", ")
+      : typeof result;
+    throw new Error(`Freestyle snapshot build did not return a snapshot id; result keys: ${keys}`);
+  }
   return {
     name,
     daemonURL: daemonURL.includes("X-Amz-") ? "<presigned-r2-url>" : daemonURL,
     result,
+    manifestEntry: {
+      provider: "freestyle",
+      version: `freestyle-${tag}`,
+      imageId,
+      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
+      defaultForLocalDev: false,
+      cmuxdRemoteCommit: metadata.cmuxdRemoteCommit,
+      builtAt: metadata.builtAt,
+      builderScriptVersion: metadata.builderScriptVersion,
+      validationStatus: metadata.validationStatus,
+      notes: `binarySha256=${metadata.binarySha256}`,
+    },
   };
 }
 
@@ -250,6 +308,29 @@ async function remoteDaemonBuildURL(tag: string, daemonPath: string): Promise<st
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+type ImageBuildMetadata = {
+  readonly builtAt: string;
+  readonly cmuxdRemoteCommit: string;
+  readonly binarySha256: string;
+  readonly builderScriptVersion: string;
+  readonly validationStatus: "passed" | "failed" | "unknown";
+};
+
+function sha256File(filePath: string): string {
+  return createHash("sha256").update(readFileSync(filePath)).digest("hex");
+}
+
+function extractProviderId(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const record = result as Record<string, unknown>;
+  const value = record.snapshotId ?? record.id ?? record.templateId ?? record.name;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+async function gitRevParse(cwd: string): Promise<string> {
+  return (await runCommand("git", ["rev-parse", "HEAD"], { cwd })).trim();
 }
 
 function runCommand(

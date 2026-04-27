@@ -25,6 +25,18 @@ export class VmCreateFailedError extends Data.TaggedError("VmCreateFailedError")
   readonly message: string;
 }> {}
 
+export class VmCreateDisabledError extends Data.TaggedError("VmCreateDisabledError")<{
+  readonly provider?: ProviderId;
+  readonly reason: string;
+}> {}
+
+export class VmImageConfigError extends Data.TaggedError("VmImageConfigError")<{
+  readonly provider: ProviderId;
+  readonly image?: string;
+  readonly envVar?: string;
+  readonly reason: string;
+}> {}
+
 export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError")<{
   readonly kind: "active_vms";
   readonly billingTeamId: string;
@@ -48,6 +60,8 @@ export type VmWorkflowError =
   | VmNotFoundError
   | VmCreateInProgressError
   | VmCreateFailedError
+  | VmCreateDisabledError
+  | VmImageConfigError
   | VmLimitExceededError
   | VmCreateCreditsInsufficientError
   | VmBillingError;
@@ -62,6 +76,14 @@ export function isVmCreateInProgressError(err: unknown): err is VmCreateInProgre
 
 export function isVmCreateFailedError(err: unknown): err is VmCreateFailedError {
   return (err as { _tag?: string } | null)?._tag === "VmCreateFailedError";
+}
+
+export function isVmCreateDisabledError(err: unknown): err is VmCreateDisabledError {
+  return (err as { _tag?: string } | null)?._tag === "VmCreateDisabledError";
+}
+
+export function isVmImageConfigError(err: unknown): err is VmImageConfigError {
+  return (err as { _tag?: string } | null)?._tag === "VmImageConfigError";
 }
 
 export function isVmLimitExceededError(err: unknown): err is VmLimitExceededError {

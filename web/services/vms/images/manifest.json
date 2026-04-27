@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "images": [
+    {
+      "provider": "e2b",
+      "version": "e2b-proxy-20260424a",
+      "imageId": "cmuxd-ws:proxy-20260424a",
+      "envVar": "E2B_CMUXD_WS_TEMPLATE",
+      "defaultForLocalDev": true,
+      "cmuxdRemoteCommit": "pre-manifest",
+      "builtAt": "2026-04-24T00:00:00.000Z",
+      "builderScriptVersion": "pre-manifest",
+      "validationStatus": "passed",
+      "notes": "E2B WebSocket PTY/RPC image used by the merged Cloud VM backend."
+    },
+    {
+      "provider": "e2b",
+      "version": "e2b-sudofix",
+      "imageId": "cmuxd-ws:sudofix",
+      "envVar": "E2B_CMUXD_WS_TEMPLATE",
+      "defaultForLocalDev": false,
+      "cmuxdRemoteCommit": "pre-manifest",
+      "builtAt": "2026-04-24T00:00:00.000Z",
+      "builderScriptVersion": "pre-manifest",
+      "validationStatus": "passed",
+      "notes": "Known E2B template alias from local env examples."
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-sc-mt237",
+      "imageId": "sc-mt237w1nd7c7673bd03m",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": true,
+      "cmuxdRemoteCommit": "pre-manifest",
+      "builtAt": "2026-04-24T00:00:00.000Z",
+      "builderScriptVersion": "pre-manifest",
+      "validationStatus": "passed",
+      "notes": "Freestyle snapshot with cmuxd-remote WebSocket PTY/RPC, locale, sudo, and Python/OpenSSL fixes."
+    }
+  ]
+}

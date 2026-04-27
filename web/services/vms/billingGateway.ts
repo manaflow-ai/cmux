@@ -27,6 +27,7 @@ export type VmBillingGatewayShape = {
     readonly billingPlanId: string;
     readonly provider: ProviderId;
     readonly image: string;
+    readonly imageVersion?: string | null;
     readonly vmId: string;
     readonly idempotencyKey?: string;
   }) => Effect.Effect<VmCreateCreditReservation, VmBillingError | VmCreateCreditsInsufficientError>;
