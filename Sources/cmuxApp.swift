@@ -3457,15 +3457,25 @@ private struct TabBarBackdropLabView: View {
     }
 
     private var candidateBackdropEffect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
-        let softness = min(max(0, candidateSoftness), 1)
+        let softness = CGFloat(min(max(0, candidateSoftness), 1))
+        let productionSoftness: CGFloat = 0.80
+        func interpolate(strong: CGFloat, production: CGFloat, soft: CGFloat) -> CGFloat {
+            if softness <= productionSoftness {
+                let progress = softness / productionSoftness
+                return strong + ((production - strong) * progress)
+            }
+            let progress = (softness - productionSoftness) / (1 - productionSoftness)
+            return production + ((soft - production) * progress)
+        }
+
         return .init(
             style: .translucentChrome,
-            fadeWidth: 88 + (60 * CGFloat(softness)),
-            contentFadeWidth: 42,
-            solidWidth: 10 * CGFloat(1 - softness),
-            fadeRampStartFraction: 0.48 + (0.40 * CGFloat(softness)),
+            fadeWidth: interpolate(strong: 20, production: 136, soft: 240),
+            contentFadeWidth: interpolate(strong: 16, production: 42, soft: 80),
+            solidWidth: interpolate(strong: 72, production: 2, soft: 0),
+            fadeRampStartFraction: interpolate(strong: 0, production: 0.80, soft: 0.98),
             leadingOpacity: 0,
-            trailingOpacity: 1.0 - (0.25 * CGFloat(softness)),
+            trailingOpacity: interpolate(strong: 1.0, production: 0.80, soft: 0.25),
             masksTabContent: true
         )
     }
@@ -3865,10 +3875,20 @@ private struct TabBarBackdropLabSample: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .onAppear {
+            applyVariant()
+        }
+        .onChange(of: variant.renderIdentity) { _, _ in
+            applyVariant()
+        }
     }
 
-    private static func makeController(for variant: TabBarBackdropLabVariant) -> BonsplitController {
-        let appearance = BonsplitConfiguration.Appearance(
+    private func applyVariant() {
+        controller.configuration = Self.makeConfiguration(for: variant)
+    }
+
+    private static func makeAppearance(for variant: TabBarBackdropLabVariant) -> BonsplitConfiguration.Appearance {
+        BonsplitConfiguration.Appearance(
             tabBarHeight: 33,
             tabMinWidth: 138,
             tabMaxWidth: 210,
@@ -3890,7 +3910,10 @@ private struct TabBarBackdropLabSample: View {
                 borderHex: variant.borderHex
             )
         )
-        let controller = BonsplitController(configuration: BonsplitConfiguration(
+    }
+
+    private static func makeConfiguration(for variant: TabBarBackdropLabVariant) -> BonsplitConfiguration {
+        BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
             allowTabReordering: false,
@@ -3898,8 +3921,12 @@ private struct TabBarBackdropLabSample: View {
             autoCloseEmptyPanes: false,
             contentViewLifecycle: .recreateOnSwitch,
             newTabPosition: .end,
-            appearance: appearance
-        ))
+            appearance: makeAppearance(for: variant)
+        )
+    }
+
+    private static func makeController(for variant: TabBarBackdropLabVariant) -> BonsplitController {
+        let controller = BonsplitController(configuration: makeConfiguration(for: variant))
 
         let titles = [
             String(localized: "debug.tabBarBackdropLab.tab.agentBrowserLogs", defaultValue: "agent-browser logs"),
