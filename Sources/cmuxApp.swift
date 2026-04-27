@@ -3429,7 +3429,7 @@ private struct TabBarBackdropLabVariant: Identifiable {
     let opacity: CGFloat
 
     var renderIdentity: String {
-        "\(id)-\(chromeHex)-\(tabBarHex)-\(splitButtonBackdropHex)-\(paneHex)-\(borderHex)-\(String(format: "%.3f", opacity))-\(String(format: "%.1f", effect.fadeWidth))-\(String(format: "%.1f", effect.contentFadeWidth))-\(String(format: "%.1f", effect.solidWidth))-\(String(format: "%.2f", effect.fadeRampStartFraction))-\(String(format: "%.2f", effect.leadingOpacity))-\(String(format: "%.2f", effect.trailingOpacity))-\(effect.masksTabContent ? 1 : 0)"
+        "\(id)-\(chromeHex)-\(tabBarHex)-\(splitButtonBackdropHex)-\(paneHex)-\(borderHex)-\(String(format: "%.3f", opacity))-\(String(format: "%.1f", effect.fadeWidth))-\(String(format: "%.1f", effect.contentFadeWidth))-\(String(format: "%.1f", effect.solidWidth))-\(String(format: "%.2f", effect.fadeRampStartFraction))-\(String(format: "%.2f", effect.leadingOpacity))-\(String(format: "%.2f", effect.trailingOpacity))-\(String(format: "%.2f", effect.contentOcclusionFraction))-\(effect.masksTabContent ? 1 : 0)"
     }
 }
 
@@ -3471,11 +3471,12 @@ private struct TabBarBackdropLabView: View {
         return .init(
             style: .translucentChrome,
             fadeWidth: interpolate(strong: 20, production: 136, soft: 240),
-            contentFadeWidth: interpolate(strong: 16, production: 42, soft: 80),
+            contentFadeWidth: interpolate(strong: 0, production: 42, soft: 80),
             solidWidth: interpolate(strong: 72, production: 2, soft: 0),
             fadeRampStartFraction: interpolate(strong: 0, production: 0.80, soft: 0.98),
             leadingOpacity: 0,
             trailingOpacity: interpolate(strong: 1.0, production: 0.80, soft: 0.25),
+            contentOcclusionFraction: interpolate(strong: 0, production: 1, soft: 1),
             masksTabContent: true
         )
     }
