@@ -3437,9 +3437,9 @@ private struct TabBarBackdropLabView: View {
     @State private var opacity: Double
     @State private var sidebarWidth: Double = 74
     @State private var sampleWidth: Double = 460
-    @State private var candidateFadeWidth: Double = 96
-    @State private var candidateSolidWidth: Double = 18
-    @State private var candidateFadeRampStart: Double = 0.82
+    @State private var candidateFadeWidth: Double = 112
+    @State private var candidateSolidWidth: Double = 6
+    @State private var candidateFadeRampStart: Double = 0.72
     @State private var candidateLeadingOpacity: Double = 0
     @State private var candidateTrailingOpacity: Double = 1.0
     @State private var candidateMasksTabContent = true
@@ -3718,7 +3718,7 @@ private struct TabBarBackdropLabView: View {
                     labSlider(
                         title: String(localized: "debug.tabBarBackdropLab.candidateFade", defaultValue: "Candidate fade"),
                         value: $candidateFadeWidth,
-                        range: 0...114,
+                        range: 0...160,
                         displayValue: "\(Int(candidateFadeWidth))",
                         width: 120
                     )

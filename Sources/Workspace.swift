@@ -6972,10 +6972,10 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated static func bonsplitSplitButtonBackdropEffect() -> BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
         .init(
             style: .translucentChrome,
-            fadeWidth: 96,
+            fadeWidth: 112,
             contentFadeWidth: 42,
-            solidWidth: 18,
-            fadeRampStartFraction: 0.82,
+            solidWidth: 6,
+            fadeRampStartFraction: 0.72,
             leadingOpacity: 0,
             trailingOpacity: 1.0,
             masksTabContent: true
