@@ -5863,9 +5863,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
         let sharesWindowBackdrop = Workspace.usesSharedSurfaceBackdrop()
-        // In shared-backdrop mode the NSWindow background is the single surface
-        // backdrop. Painting the terminal host layer too double-composites it.
-        let usesHostLayerFill = renderingMode.usesHostLayerFill && !sharesWindowBackdrop
+        let usesBonsplitPaneBackdrop = Workspace.usesBonsplitPaneTerminalBackdrop(
+            renderingMode: renderingMode,
+            sharesWindowBackdrop: sharesWindowBackdrop
+        )
+        // Window/Bonsplit backdrops are the single surface fill for solid-color
+        // terminal backgrounds. Painting the terminal host layer too
+        // double-composites it against the surrounding chrome.
+        let usesHostLayerFill = renderingMode.usesHostLayerFill &&
+            !sharesWindowBackdrop &&
+            !usesBonsplitPaneBackdrop
         let color = usesHostLayerFill
             ? effectiveBackgroundColor()
             : .clear
@@ -5880,7 +5887,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         terminalSurface?.hostedView.setBackgroundColor(color)
         if GhosttyApp.shared.backgroundLogEnabled {
-            let signature = "\(usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(sharesWindowBackdrop ? "shared" : "terminal")"
+            let signature = "\(usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(sharesWindowBackdrop ? "shared" : (usesBonsplitPaneBackdrop ? "bonsplit-pane" : "terminal"))"
             if signature != lastLoggedSurfaceBackgroundSignature {
                 lastLoggedSurfaceBackgroundSignature = signature
                 let hasOverride = backgroundColor != nil
@@ -5888,9 +5895,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
                 let source = usesHostLayerFill
                     ? (hasOverride ? "surfaceOverride" : "defaultBackground")
-                    : (sharesWindowBackdrop ? "sharedWindowBackdrop" : "ghosttyNativeBackground")
+                    : (
+                        sharesWindowBackdrop
+                            ? "sharedWindowBackdrop"
+                            : (usesBonsplitPaneBackdrop ? "bonsplitPaneBackdrop" : "ghosttyNativeBackground")
+                    )
                 GhosttyApp.shared.logBackground(
-                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) sharedWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) sharedWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) bonsplitPaneBackdrop=\(usesBonsplitPaneBackdrop ? 1 : 0) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
                 )
             }
         }
