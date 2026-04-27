@@ -90539,19 +90539,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy Workspace and Surface IDs"
+            "value": "Copy IDs"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースIDとサーフェスIDをコピー"
+            "value": "IDをコピー"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "워크스페이스 및 서피스 ID 복사"
+            "value": "ID 복사"
           }
         }
       }
