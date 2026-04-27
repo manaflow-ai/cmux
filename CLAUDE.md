@@ -109,6 +109,50 @@ This creates an isolated app with its own name, bundle ID, socket, and derived d
 
 Before launching a new tagged run, clean up any older tags you started in this session (quit old tagged app + remove its `/tmp` socket/derived data).
 
+## Cloud VM secrets
+
+Cloud VM build, test, and local dev scripts use provider secrets from `~/.secrets/cmux.env`.
+
+- `E2B_API_KEY`
+- `FREESTYLE_API_KEY`
+- R2 upload vars used by `web/scripts/build-cloud-vm-images.ts` when creating Freestyle snapshots
+
+Load them with:
+
+```bash
+set -a
+source ~/.secrets/cmux.env
+set +a
+```
+
+`~/.secrets/cmuxterm-dev.env` is for local Stack/web env and does not contain the provider build keys.
+`bun dev` sources `~/.secrets/cmux.env` first when present, then `~/.secrets/cmuxterm-dev.env` so
+cmuxterm-specific Stack settings override broader cmux secrets. The web dev loader still accepts
+the legacy `~/.secret/cmuxterm.env` and `~/.secrets/cmuxterm.env` paths while machines migrate.
+
+## Backend TypeScript
+
+Default backend TypeScript to Effect. For code under `web/app/api/**`, `web/services/**`, and
+backend scripts that touch providers, databases, auth, rate limits, retries, timeouts, or telemetry,
+model workflows as `Effect.Effect` values with typed domain errors and explicit service
+dependencies. Keep Next route handlers thin: parse the request, run one Effect program at the
+boundary, map typed errors to HTTP responses, and treat unexpected defects separately.
+
+Use plain TypeScript only for trivial data shapes, constants, config files, frontend React code, or
+small glue where Effect would add ceremony without improving failure handling.
+
+Cloud VM backend logic must stay in Vercel route handlers and Effect services backed by Postgres.
+Do not reintroduce Rivet or a raw actor protocol for this feature unless a later architecture doc
+explicitly changes the control plane.
+
+Production and staging Cloud VM Postgres should use the Vercel Marketplace AWS Aurora PostgreSQL
+OIDC/RDS IAM path. Runtime env names are `CMUX_DB_DRIVER=aws-rds-iam`, `AWS_ROLE_ARN`,
+`AWS_REGION`, `PGHOST`, `PGPORT`, `PGUSER`, and `PGDATABASE`. Run production/staging migrations
+with `bun db:migrate:aws-rds-iam`; never run Drizzle migrations from Vercel build or route startup.
+Local development keeps using the `CMUX_PORT`-derived Docker Postgres path from `bun dev`.
+Cloud VM create pricing gates should use Stack Auth team payment items when enabled. Postgres remains
+the source of truth for VM lifecycle, active VM limits, idempotency, and usage events.
+
 ## Debug event log
 
 All debug events (keys, mouse, focus, splits, tabs) go to a unified log in DEBUG builds:

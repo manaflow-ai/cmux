@@ -1,10 +1,10 @@
 import Foundation
 
 enum AuthEnvironment {
-    private static let developmentStackProjectID = "1467bed0-8522-45ee-a8d8-055de324118c"
-    private static let developmentStackPublishableClientKey = "pck_pt4nwry6sdskews2pxk4g2fbe861ak2zvaf3mqendspa0"
-    private static let productionStackProjectID = "8a877114-b905-47c5-8b64-3a2d90679577"
-    private static let productionStackPublishableClientKey = "pck_pqghntgd942k1hg066m7htjakb8g4ybaj66hqj2g2frj0"
+    private static let developmentStackProjectID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+    private static let developmentStackPublishableClientKey = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
+    private static let productionStackProjectID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+    private static let productionStackPublishableClientKey = "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"
 
     static var callbackScheme: String {
         let environment = ProcessInfo.processInfo.environment
@@ -53,9 +53,64 @@ enum AuthEnvironment {
         )
     }
 
+    /// Base URL for the cmux-owned cloud VM backend (`/api/vm`).
+    ///
+    /// Resolution order (first hit wins):
+    ///   1. process env `CMUX_VM_API_BASE_URL` — works when the app is launched from a shell.
+    ///   2. `~/.cmux-dev.env` file `CMUX_VM_API_BASE_URL=...` line — works regardless of how
+    ///      the app was launched (click-through, Dock, `open`, etc.). Only honored in DEBUG.
+    ///   3. VM backend dev origin (`http://localhost:$CMUX_PORT` in Debug, cmux.com in Release).
+    static var vmAPIBaseURL: URL {
+        if let overridden = ProcessInfo.processInfo.environment["CMUX_VM_API_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return canonicalizedLoopbackURL(url)
+        }
+        if let override = devOverride(key: "CMUX_VM_API_BASE_URL"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
+        }
+        return canonicalizedLoopbackURL(URL(string: defaultVMAPIOrigin)!)
+    }
+
+    /// Look up `key=value` in `~/.cmux-dev.env` for the DEBUG build. Returns nil in Release.
+    /// Kept tiny on purpose — this is a "drop a file, restart the app, it picks up" override,
+    /// not a real config system.
+    private static func devOverride(key: String) -> String? {
+        #if DEBUG
+        guard let home = ProcessInfo.processInfo.environment["HOME"] else { return nil }
+        let path = (home as NSString).appendingPathComponent(".cmux-dev.env")
+        guard let data = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        for raw in data.split(separator: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else { continue }
+            let k = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+            guard k == key else { continue }
+            var v = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+            if v.hasPrefix("\"") && v.hasSuffix("\"") { v = String(v.dropFirst().dropLast()) }
+            if v.hasPrefix("'") && v.hasSuffix("'") { v = String(v.dropFirst().dropLast()) }
+            return v.isEmpty ? nil : v
+        }
+        return nil
+        #else
+        return nil
+        #endif
+    }
+
     private static var cmuxPort: String {
-        ProcessInfo.processInfo.environment["CMUX_PORT"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "3000"
+        environmentPort("CMUX_PORT") ?? environmentPort("PORT") ?? "3777"
+    }
+
+    private static func environmentPort(_ key: String) -> String? {
+        guard let port = ProcessInfo.processInfo.environment[key]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let value = UInt16(port),
+            value > 0
+        else {
+            return nil
+        }
+        return port
     }
 
     private static var defaultWebOrigin: String {
@@ -64,6 +119,14 @@ enum AuthEnvironment {
            !origin.isEmpty {
             return origin
         }
+        #if DEBUG
+        return "http://localhost:\(cmuxPort)"
+        #else
+        return "https://cmux.com"
+        #endif
+    }
+
+    private static var defaultVMAPIOrigin: String {
         #if DEBUG
         return "http://localhost:\(cmuxPort)"
         #else

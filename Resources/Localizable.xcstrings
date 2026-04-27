@@ -94771,6 +94771,392 @@
           }
         }
       }
+    },
+    "settings.account.error.missingRefreshToken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account refresh token is unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントの更新トークンを取得できません。"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токен оновлення облікового запису недоступний."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 새로 고침 토큰을 사용할 수 없습니다."
+          }
+        }
+      }
+    },
+    "remote.state.connected.vmNoProxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続済み (VM、プロキシ無効)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        }
+      }
+    },
+    "remote.disconnectBanner.sessionEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート SSH セッションが終了しました: %s"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        }
+      }
+    },
+    "remote.disconnectBanner.reconnectHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ローカルシェルにフォールバックしました。元の cmux ssh または cmux vm attach コマンドで再接続してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        }
+      }
     }
   }
 }
