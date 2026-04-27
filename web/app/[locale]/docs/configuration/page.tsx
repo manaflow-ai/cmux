@@ -52,6 +52,7 @@ const settingsFileExample = `{
 
   // "app": {
   //   "appearance": "dark",
+  //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent"
   // },
 
