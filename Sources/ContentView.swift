@@ -1927,6 +1927,7 @@ struct ContentView: View {
         static let workspaceHasBelow = "workspace.hasBelow"
         static let workspaceHasUnread = "workspace.hasUnread"
         static let workspaceHasRead = "workspace.hasRead"
+        static let sidebarMatchTerminalBackground = "sidebar.matchTerminalBackground"
 
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
@@ -6695,6 +6696,7 @@ struct ContentView: View {
     ) -> CommandPaletteContextSnapshot {
         var snapshot = CommandPaletteContextSnapshot()
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
+        snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
 
         if let workspace = tabManager.selectedWorkspace {
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
@@ -6925,6 +6927,18 @@ struct ContentView: View {
                 title: constant(String(localized: "command.toggleSidebar.title", defaultValue: "Toggle Sidebar")),
                 subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
                 keywords: ["toggle", "sidebar", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleMatchTerminalBackground",
+                title: { context in
+                    context.bool(CommandPaletteContextKeys.sidebarMatchTerminalBackground)
+                        ? String(localized: "command.disableMatchTerminalBackground.title", defaultValue: "Disable Match Terminal Background")
+                        : String(localized: "command.enableMatchTerminalBackground.title", defaultValue: "Enable Match Terminal Background")
+                },
+                subtitle: constant(String(localized: "command.matchTerminalBackground.subtitle", defaultValue: "Sidebar Appearance")),
+                keywords: ["match", "terminal", "background", "transparency", "sidebar", "surface", "chrome"]
             )
         )
         contributions.append(
@@ -7721,6 +7735,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        registry.register(commandId: "palette.toggleMatchTerminalBackground") {
+            sidebarMatchTerminalBackground.toggle()
         }
         registry.register(commandId: "palette.enableMinimalMode") {
             workspacePresentationMode = WorkspacePresentationModeSettings.Mode.minimal.rawValue

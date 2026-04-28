@@ -19601,6 +19601,57 @@
         }
       }
     },
+    "command.enableMatchTerminalBackground.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Match Terminal Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの背景に合わせる"
+          }
+        }
+      }
+    },
+    "command.disableMatchTerminalBackground.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Match Terminal Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの背景に合わせる設定を無効にする"
+          }
+        }
+      }
+    },
+    "command.matchTerminalBackground.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの外観"
+          }
+        }
+      }
+    },
     "command.enableMinimalMode.title": {
       "extractionState": "manual",
       "localizations": {
