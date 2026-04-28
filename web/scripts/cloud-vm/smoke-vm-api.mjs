@@ -150,5 +150,14 @@ try {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 } finally {
-  if (user) await user.delete().catch(() => undefined);
+  if (user) {
+    try {
+      await user.delete();
+    } catch (cleanupError) {
+      console.error(
+        `cleanup_delete_user_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+      );
+      process.exitCode = 1;
+    }
+  }
 }
