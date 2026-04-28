@@ -1,6 +1,6 @@
 # Feed
 
-Feed is cmux's inline surface for AI agent decisions. It shows three things that need a human response, right in the right sidebar next to Files and Sessions:
+Feed is cmux's inline surface for AI agent decisions. The keyboard-first Feed TUI can run in the right-sidebar [Dock](dock.md) with `cmux feed tui`. It shows three things that need a human response:
 
 - **Permission requests** — Agent wants to run a tool, edit a file, or execute a shell command. Pick Once / Always / All tools / Bypass / Deny.
 - **ExitPlanMode** — Agent finished planning and is ready to start editing. Pick Ultraplan / Manual / Auto.

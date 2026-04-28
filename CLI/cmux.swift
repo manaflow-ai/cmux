@@ -2058,8 +2058,11 @@ struct CMUXCLI {
             case "clear":
                 try runFeedClear()
                 return
+            case "tui":
+                try runFeedTUI(socketPath: resolvedSocketPath)
+                return
             case "help", "--help", "-h":
-                print("Usage: cmux feed clear [--yes]")
+                print("Usage: cmux feed <tui|clear> [--yes]")
                 return
             default:
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
@@ -8373,9 +8376,10 @@ struct CMUXCLI {
             """
         case "feed":
             return """
-            Usage: cmux feed clear [--yes|-y]
+            Usage: cmux feed tui
+                   cmux feed clear [--yes|-y]
 
-            Manage persisted Feed workstream history.
+            Open the keyboard-first Feed TUI or manage persisted Feed workstream history.
             """
         case "opencode":
             return """
@@ -16642,6 +16646,418 @@ export default CMUXSessionRestore;
     }
 
     // MARK: - Feed history
+
+    private struct FeedTUIOption {
+        let id: String
+        let label: String
+    }
+
+    private struct FeedTUIItem {
+        let id: String
+        let requestId: String?
+        let workstreamId: String
+        let source: String
+        let kind: String
+        let status: String
+        let title: String
+        let detail: String
+        let defaultMode: String?
+        let questionOptions: [FeedTUIOption]
+
+        var isPending: Bool {
+            status == "pending"
+        }
+
+        var canResolve: Bool {
+            isPending && requestId != nil &&
+                (kind == "permissionRequest" || kind == "exitPlan" || kind == "question")
+        }
+
+        static func parse(_ dict: [String: Any]) -> FeedTUIItem? {
+            guard let id = dict["id"] as? String,
+                  let workstreamId = dict["workstream_id"] as? String,
+                  let source = dict["source"] as? String,
+                  let kind = dict["kind"] as? String,
+                  let status = dict["status"] as? String else {
+                return nil
+            }
+            let title = (dict["title"] as? String)
+                ?? Self.defaultTitle(kind: kind, dict: dict)
+            let detail = Self.detail(kind: kind, dict: dict)
+            let options: [FeedTUIOption] = (dict["question_options"] as? [[String: Any]])?.compactMap { option in
+                guard let id = option["id"] as? String,
+                      let label = option["label"] as? String else {
+                    return nil
+                }
+                return FeedTUIOption(id: id, label: label)
+            } ?? []
+            return FeedTUIItem(
+                id: id,
+                requestId: dict["request_id"] as? String,
+                workstreamId: workstreamId,
+                source: source,
+                kind: kind,
+                status: status,
+                title: title,
+                detail: detail,
+                defaultMode: dict["default_mode"] as? String,
+                questionOptions: options
+            )
+        }
+
+        private static func defaultTitle(kind: String, dict: [String: Any]) -> String {
+            switch kind {
+            case "permissionRequest":
+                return "Permission: \((dict["tool_name"] as? String) ?? "tool")"
+            case "exitPlan":
+                return "Plan"
+            case "question":
+                return "Question"
+            default:
+                return kind
+            }
+        }
+
+        private static func detail(kind: String, dict: [String: Any]) -> String {
+            switch kind {
+            case "permissionRequest":
+                let tool = (dict["tool_name"] as? String) ?? "tool"
+                let input = (dict["tool_input"] as? String) ?? ""
+                return input.isEmpty ? tool : "\(tool): \(input)"
+            case "exitPlan":
+                return (dict["plan_summary"] as? String)
+                    ?? (dict["plan"] as? String)
+                    ?? "Review the proposed plan"
+            case "question":
+                return (dict["question_prompt"] as? String) ?? "Answer the agent question"
+            default:
+                return (dict["text"] as? String)
+                    ?? (dict["reason"] as? String)
+                    ?? ((dict["cwd"] as? String) ?? "")
+            }
+        }
+    }
+
+    private enum FeedTUIKey: Equatable {
+        case up
+        case down
+        case enter
+        case quit
+        case refresh
+        case deny
+        case feedback
+        case once
+        case always
+        case all
+        case bypass
+        case manual
+        case autoAccept
+        case ultraplan
+        case number(Int)
+        case ignored
+    }
+
+    private func runFeedTUI(socketPath: String) throws {
+        guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
+            throw CLIError(message: "cmux feed tui requires an interactive terminal")
+        }
+
+        let client = SocketClient(path: socketPath)
+        try client.connect()
+
+        var rawMode = TerminalRawMode()
+        guard rawMode != nil else {
+            throw CLIError(message: "Failed to enter terminal raw mode")
+        }
+
+        print("\u{001B}[?1049h", terminator: "")
+        defer {
+            rawMode?.restore()
+            print("\u{001B}[?1049l", terminator: "")
+            fflush(stdout)
+        }
+
+        var selectedIndex = 0
+        var statusLine = ""
+        while true {
+            let items = try feedTUIItems(client: client)
+            if selectedIndex >= items.count {
+                selectedIndex = max(items.count - 1, 0)
+            }
+            renderFeedTUI(items: items, selectedIndex: selectedIndex, statusLine: statusLine)
+            statusLine = ""
+
+            let key = readFeedTUIKey()
+            switch key {
+            case .up:
+                selectedIndex = max(selectedIndex - 1, 0)
+            case .down:
+                selectedIndex = min(selectedIndex + 1, max(items.count - 1, 0))
+            case .refresh:
+                continue
+            case .quit:
+                return
+            case .enter:
+                if let item = feedTUIItem(in: items, at: selectedIndex) {
+                    statusLine = try resolveFeedTUIItem(item, key: .enter, client: client, rawMode: &rawMode)
+                }
+            case .deny:
+                if let item = feedTUIItem(in: items, at: selectedIndex) {
+                    statusLine = try resolveFeedTUIItem(item, key: .deny, client: client, rawMode: &rawMode)
+                }
+            case .feedback:
+                if let item = feedTUIItem(in: items, at: selectedIndex) {
+                    statusLine = try resolveFeedTUIItem(item, key: .feedback, client: client, rawMode: &rawMode)
+                }
+            case .once, .always, .all, .bypass, .manual, .autoAccept, .ultraplan, .number(_):
+                if let item = feedTUIItem(in: items, at: selectedIndex) {
+                    statusLine = try resolveFeedTUIItem(item, key: key, client: client, rawMode: &rawMode)
+                }
+            case .ignored:
+                continue
+            }
+        }
+    }
+
+    private func feedTUIItems(client: SocketClient) throws -> [FeedTUIItem] {
+        let payload = try client.sendV2(method: "feed.list", params: ["pending_only": false])
+        let rawItems = payload["items"] as? [[String: Any]] ?? []
+        return rawItems.compactMap(FeedTUIItem.parse)
+            .sorted { lhs, rhs in
+                if lhs.isPending != rhs.isPending {
+                    return lhs.isPending && !rhs.isPending
+                }
+                return lhs.id > rhs.id
+            }
+    }
+
+    private func feedTUIItem(in items: [FeedTUIItem], at index: Int) -> FeedTUIItem? {
+        guard index >= 0, index < items.count else { return nil }
+        return items[index]
+    }
+
+    private func feedTUIOption(in options: [FeedTUIOption], at index: Int) -> FeedTUIOption? {
+        guard index >= 0, index < options.count else { return nil }
+        return options[index]
+    }
+
+    private func renderFeedTUI(items: [FeedTUIItem], selectedIndex: Int, statusLine: String) {
+        let size = currentCLITerminalSize()
+        let width = max(size.cols, 40)
+        let bodyRows = max(size.rows - 5, 1)
+        print("\u{001B}[2J\u{001B}[H", terminator: "")
+        print("cmux Dock Feed")
+        print("j/k or arrows move, Enter accepts default, d denies, f replans, r refreshes, q quits")
+        print(String(repeating: "-", count: min(width, 100)))
+
+        if items.isEmpty {
+            print("No feed items.")
+        } else {
+            for (index, item) in items.prefix(bodyRows).enumerated() {
+                let selected = index == selectedIndex
+                let prefix = selected ? "> " : "  "
+                let status = item.isPending ? "pending" : item.status
+                let line = "\(prefix)[\(status)] \(item.source) \(item.title) - \(item.detail)"
+                if selected {
+                    print("\u{001B}[7m\(truncateForTerminal(line, width: width))\u{001B}[0m")
+                } else {
+                    print(truncateForTerminal(line, width: width))
+                }
+            }
+        }
+
+        let footerTop = max(size.rows - 1, 1)
+        print("\u{001B}[\(footerTop);1H", terminator: "")
+        let footer = statusLine.isEmpty ? selectedHelp(feedTUIItem(in: items, at: selectedIndex)) : statusLine
+        print(truncateForTerminal(footer, width: width), terminator: "")
+        fflush(stdout)
+    }
+
+    private func selectedHelp(_ item: FeedTUIItem?) -> String {
+        guard let item else { return "No selection" }
+        guard item.canResolve else { return "Resolved or informational item" }
+        switch item.kind {
+        case "permissionRequest":
+            return "Permission: Enter/o once, a always, l all tools, b bypass, d deny"
+        case "exitPlan":
+            return "Plan: Enter default, a auto, m manual, u ultraplan, b bypass, f replan, d deny"
+        case "question":
+            let optionText = item.questionOptions.enumerated().map { index, option in
+                "\(index + 1)=\(option.label)"
+            }.joined(separator: "  ")
+            return optionText.isEmpty ? "Question: Enter selects the first option" : "Question: \(optionText)"
+        default:
+            return ""
+        }
+    }
+
+    private func resolveFeedTUIItem(
+        _ item: FeedTUIItem,
+        key: FeedTUIKey,
+        client: SocketClient,
+        rawMode: inout TerminalRawMode?
+    ) throws -> String {
+        guard item.canResolve, let requestId = item.requestId else {
+            return "No pending action for selected item"
+        }
+
+        switch item.kind {
+        case "permissionRequest":
+            let mode: String
+            switch key {
+            case .always:
+                mode = "always"
+            case .all:
+                mode = "all"
+            case .bypass:
+                mode = "bypass"
+            case .deny:
+                mode = "deny"
+            default:
+                mode = "once"
+            }
+            _ = try client.sendV2(
+                method: "feed.permission.reply",
+                params: ["request_id": requestId, "mode": mode]
+            )
+            return "Permission \(mode) sent"
+        case "exitPlan":
+            if key == .feedback {
+                let feedback = readFeedTUIFeedbackPrompt(rawMode: &rawMode)
+                guard !feedback.isEmpty else { return "Replan cancelled" }
+                _ = try client.sendV2(
+                    method: "feed.exit_plan.reply",
+                    params: ["request_id": requestId, "mode": "deny", "feedback": feedback]
+                )
+                return "Replan feedback sent"
+            }
+
+            let mode: String
+            switch key {
+            case .autoAccept, .always:
+                mode = "autoAccept"
+            case .manual:
+                mode = "manual"
+            case .ultraplan:
+                mode = "ultraplan"
+            case .bypass:
+                mode = "bypassPermissions"
+            case .deny:
+                mode = "deny"
+            default:
+                mode = item.defaultMode ?? "manual"
+            }
+            _ = try client.sendV2(
+                method: "feed.exit_plan.reply",
+                params: ["request_id": requestId, "mode": mode]
+            )
+            return "Plan \(mode) sent"
+        case "question":
+            let option: FeedTUIOption?
+            switch key {
+            case .number(let index):
+                option = feedTUIOption(in: item.questionOptions, at: index - 1)
+            default:
+                option = item.questionOptions.first
+            }
+            guard let option else {
+                return "No question option available"
+            }
+            _ = try client.sendV2(
+                method: "feed.question.reply",
+                params: ["request_id": requestId, "selections": [option.id]]
+            )
+            return "Question answer sent: \(option.label)"
+        default:
+            return "Unsupported feed item"
+        }
+    }
+
+    private func readFeedTUIFeedbackPrompt(rawMode: inout TerminalRawMode?) -> String {
+        rawMode?.restore()
+        print("\u{001B}[2J\u{001B}[H", terminator: "")
+        print("Tell the agent what to change, then press Return.")
+        print("> ", terminator: "")
+        fflush(stdout)
+        let value = readLine() ?? ""
+        rawMode = TerminalRawMode()
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func readFeedTUIKey() -> FeedTUIKey {
+        var byte: UInt8 = 0
+        while true {
+            let count = Darwin.read(STDIN_FILENO, &byte, 1)
+            if count < 0 {
+                if errno == EINTR { continue }
+                return .ignored
+            }
+            if count == 0 { return .quit }
+            break
+        }
+
+        switch byte {
+        case 3:
+            return .quit
+        case 10, 13:
+            return .enter
+        case 27:
+            var sequence = [UInt8](repeating: 0, count: 2)
+            let count = Darwin.read(STDIN_FILENO, &sequence, 2)
+            guard count == 2, sequence[0] == 91 else { return .ignored }
+            switch sequence[1] {
+            case 65: return .up
+            case 66: return .down
+            default: return .ignored
+            }
+        case 106, 74:
+            return .down
+        case 107, 75:
+            return .up
+        case 113, 81:
+            return .quit
+        case 114, 82:
+            return .refresh
+        case 100, 68:
+            return .deny
+        case 102, 70:
+            return .feedback
+        case 111, 79:
+            return .once
+        case 97, 65:
+            return .always
+        case 108, 76:
+            return .all
+        case 98, 66:
+            return .bypass
+        case 109, 77:
+            return .manual
+        case 117, 85:
+            return .ultraplan
+        case 49...57:
+            return .number(Int(byte - 48))
+        default:
+            return .ignored
+        }
+    }
+
+    private func currentCLITerminalSize() -> (cols: Int, rows: Int) {
+        var size = winsize()
+        if ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0,
+           size.ws_col > 0,
+           size.ws_row > 0 {
+            return (Int(size.ws_col), Int(size.ws_row))
+        }
+        return (80, 24)
+    }
+
+    private func truncateForTerminal(_ value: String, width: Int) -> String {
+        guard width > 1 else { return "" }
+        let sanitized = value.replacingOccurrences(of: "\n", with: " ")
+        if sanitized.count <= width { return sanitized }
+        let end = sanitized.index(sanitized.startIndex, offsetBy: max(width - 1, 0))
+        return String(sanitized[..<end])
+    }
 
     private func runFeedClear() throws {
         let home = FileManager.default.homeDirectoryForCurrentUser

@@ -12,6 +12,8 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 #endif
 
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
+/// The raw value `feed` is kept for persisted settings; the visible product
+/// surface is Dock.
 enum RightSidebarMode: String, CaseIterable {
     case files
     case find
@@ -23,7 +25,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
-        case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
+        case .feed: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         }
     }
 
@@ -32,7 +34,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .files: return "folder"
         case .find: return "magnifyingglass"
         case .sessions: return "bubble.left.and.text.bubble.right"
-        case .feed: return "dot.radiowaves.left.and.right"
+        case .feed: return "dock.rectangle"
         }
     }
 
@@ -257,7 +259,7 @@ struct RightSidebarPanelView: View {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
         case .feed:
-            FeedPanelView()
+            DockPanelView(rootDirectory: sessionIndexDirectory)
         }
     }
 

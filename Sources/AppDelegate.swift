@@ -5231,6 +5231,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let panelId = ghosttyView.terminalSurface?.id else {
             return nil
         }
+        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+            return nil
+        }
         return TerminalKeyboardFocusRequest(
             workspaceId: workspaceId,
             panelId: panelId,

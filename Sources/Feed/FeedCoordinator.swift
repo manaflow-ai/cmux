@@ -530,6 +530,57 @@ enum FeedSocketEncoding {
         case .telemetry:
             dict["status"] = "telemetry"
         }
+        switch item.payload {
+        case .permissionRequest(let requestId, let toolName, let toolInputJSON, let pattern):
+            dict["request_id"] = requestId
+            dict["tool_name"] = toolName
+            dict["tool_input"] = toolInputJSON
+            if let pattern { dict["pattern"] = pattern }
+        case .exitPlan(let requestId, let plan, let defaultMode):
+            dict["request_id"] = requestId
+            dict["plan"] = plan
+            dict["plan_summary"] = plan.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
+            dict["default_mode"] = defaultMode.rawValue
+        case .question(let requestId, let questions):
+            dict["request_id"] = requestId
+            if let firstQuestion = questions.first {
+                dict["question_prompt"] = firstQuestion.prompt
+                dict["question_multi_select"] = firstQuestion.multiSelect
+                dict["question_options"] = firstQuestion.options.map { option in
+                    var optionDict: [String: Any] = [
+                        "id": option.id,
+                        "label": option.label,
+                    ]
+                    if let description = option.description {
+                        optionDict["description"] = description
+                    }
+                    return optionDict
+                }
+            }
+        case .toolUse(let toolName, let toolInputJSON):
+            dict["tool_name"] = toolName
+            dict["tool_input"] = toolInputJSON
+        case .toolResult(let toolName, let resultJSON, let isError):
+            dict["tool_name"] = toolName
+            dict["tool_result"] = resultJSON
+            dict["tool_result_is_error"] = isError
+        case .userPrompt(let text), .assistantMessage(let text):
+            dict["text"] = text
+        case .sessionStart, .sessionEnd:
+            break
+        case .stop(let reason):
+            if let reason { dict["reason"] = reason }
+        case .todos(let todos):
+            dict["todos"] = todos.map { todo in
+                [
+                    "id": todo.id,
+                    "content": todo.content,
+                    "state": todo.state.rawValue,
+                ]
+            }
+        }
         return dict
     }
 }
