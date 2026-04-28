@@ -126,18 +126,64 @@ extension CMUXCLI {
     }
 
     func themeConfigSearchURLs() -> [URL] {
-        let rawPaths = [
-            "~/.config/ghostty/config",
-            "~/.config/ghostty/config.ghostty",
-            "~/Library/Application Support/com.mitchellh.ghostty/config",
-            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
-            "~/Library/Application Support/\(Self.cmuxThemeOverrideBundleIdentifier)/config",
-            "~/Library/Application Support/\(Self.cmuxThemeOverrideBundleIdentifier)/config.ghostty",
+        let fileManager = FileManager.default
+        var urls = [
+            configURL("~/.config/ghostty/config"),
+            configURL("~/.config/ghostty/config.ghostty"),
         ]
 
-        return rawPaths.map {
-            URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath, isDirectory: false)
+        if let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let ghosttyDirectory = appSupportDirectory.appendingPathComponent(
+                "com.mitchellh.ghostty",
+                isDirectory: true
+            )
+            let legacyGhosttyConfigURL = ghosttyDirectory.appendingPathComponent("config", isDirectory: false)
+            let currentGhosttyConfigURL = ghosttyDirectory.appendingPathComponent("config.ghostty", isDirectory: false)
+
+            urls.append(currentGhosttyConfigURL)
+            if shouldLoadLegacyGhosttyConfig(
+                newConfigURL: currentGhosttyConfigURL,
+                legacyConfigURL: legacyGhosttyConfigURL,
+                fileManager: fileManager
+            ) {
+                urls.append(legacyGhosttyConfigURL)
+            }
+
+            let cmuxDirectory = appSupportDirectory.appendingPathComponent(
+                Self.cmuxThemeOverrideBundleIdentifier,
+                isDirectory: true
+            )
+            urls.append(cmuxDirectory.appendingPathComponent("config", isDirectory: false))
+            urls.append(cmuxDirectory.appendingPathComponent("config.ghostty", isDirectory: false))
+        } else {
+            urls.append(configURL("~/Library/Application Support/com.mitchellh.ghostty/config.ghostty"))
+            urls.append(configURL("~/Library/Application Support/\(Self.cmuxThemeOverrideBundleIdentifier)/config"))
+            urls.append(configURL("~/Library/Application Support/\(Self.cmuxThemeOverrideBundleIdentifier)/config.ghostty"))
         }
+
+        return urls
+    }
+
+    private func configURL(_ rawPath: String) -> URL {
+        URL(fileURLWithPath: NSString(string: rawPath).expandingTildeInPath, isDirectory: false)
+    }
+
+    private func shouldLoadLegacyGhosttyConfig(
+        newConfigURL: URL,
+        legacyConfigURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        guard let newConfigFileSize = configFileSize(at: newConfigURL, fileManager: fileManager),
+              newConfigFileSize == 0 else { return false }
+        guard let legacyConfigFileSize = configFileSize(at: legacyConfigURL, fileManager: fileManager),
+              legacyConfigFileSize > 0 else { return false }
+        return true
+    }
+
+    private func configFileSize(at url: URL, fileManager: FileManager) -> Int? {
+        guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? NSNumber else { return nil }
+        return size.intValue
     }
 
     func lastThemeDirective(in contents: String) -> String? {

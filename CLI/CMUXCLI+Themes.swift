@@ -397,8 +397,8 @@ extension CMUXCLI {
             }
         }
 
-        let resolvedLight = lightTheme ?? fallbackTheme ?? darkTheme
-        let resolvedDark = darkTheme ?? fallbackTheme ?? lightTheme
+        let resolvedLight = lightTheme ?? fallbackTheme
+        let resolvedDark = darkTheme ?? fallbackTheme
         return ThemeSelection(rawValue: rawValue, light: resolvedLight, dark: resolvedDark, sourcePath: sourcePath)
     }
 
