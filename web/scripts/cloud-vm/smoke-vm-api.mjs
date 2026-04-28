@@ -96,6 +96,9 @@ try {
     if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
     const created = JSON.parse(createText);
     if (!created.id) throw new Error("create response missing id");
+    if (created.provider !== provider) {
+      throw new Error(`POST /api/vm returned provider ${created.provider}, expected ${provider}`);
+    }
     vmId = created.id;
 
     const attach = await fetchWithTimeout(`${project.url}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
@@ -145,7 +148,7 @@ try {
   }
   if (vmId) console.error(`cleanup_needed_vm=${vmId}`);
   console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  process.exitCode = 1;
 } finally {
   if (user) await user.delete().catch(() => undefined);
 }
