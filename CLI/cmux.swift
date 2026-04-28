@@ -3087,7 +3087,7 @@ struct CMUXCLI {
             }()
 
             let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
-            let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
+            let response = try sendV1Command("notify_target_async \(targetWorkspace) \(targetSurface) \(payload)", client: client)
             print(response)
 
         case "list-notifications":

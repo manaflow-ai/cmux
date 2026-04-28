@@ -1947,7 +1947,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 )
             }
 
-            if line == "notify_target \(currentWorkspace) \(currentSurface) Notification||" {
+            if line == "notify_target_async \(currentWorkspace) \(currentSurface) Notification||" {
                 return "OK"
             }
             return "ERROR: Unexpected command \(line)"
@@ -1973,8 +1973,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains("notify_target \(currentWorkspace) \(currentSurface) Notification||"),
-            "Expected notify_target to use current workspace and surface, saw \(state.commands)"
+            state.commands.contains("notify_target_async \(currentWorkspace) \(currentSurface) Notification||"),
+            "Expected notify_target_async to use current workspace and surface, saw \(state.commands)"
         )
     }
 
@@ -2595,7 +2595,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if line == "notify_target \(workspaceId) \(callerSurface) Notification||" {
+            if line == "notify_target_async \(workspaceId) \(callerSurface) Notification||" {
                 return "OK"
             }
 
@@ -2697,11 +2697,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains("notify_target \(workspaceId) \(callerSurface) Notification||"),
-            "Expected notify_target to use caller tty surface, saw \(state.commands)"
+            state.commands.contains("notify_target_async \(workspaceId) \(callerSurface) Notification||"),
+            "Expected notify_target_async to use caller tty surface, saw \(state.commands)"
         )
         XCTAssertFalse(
-            state.commands.contains("notify_target \(workspaceId) \(focusedSurface) Notification||"),
+            state.commands.contains("notify_target_async \(workspaceId) \(focusedSurface) Notification||"),
             "Focused surface should not win over caller tty, saw \(state.commands)"
         )
     }
@@ -2723,10 +2723,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if line == "notify_target \(workspaceId) \(callerSurface) Notification||" {
+            if line == "notify_target_async \(workspaceId) \(callerSurface) Notification||" {
                 return "OK"
             }
-            if line == "notify_target \(workspaceId) \(staleSurface) Notification||" {
+            if line == "notify_target_async \(workspaceId) \(staleSurface) Notification||" {
                 return "OK"
             }
 
@@ -2816,11 +2816,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains("notify_target \(workspaceId) \(callerSurface) Notification||"),
-            "Expected notify_target to use caller tty surface in tmux, saw \(state.commands)"
+            state.commands.contains("notify_target_async \(workspaceId) \(callerSurface) Notification||"),
+            "Expected notify_target_async to use caller tty surface in tmux, saw \(state.commands)"
         )
         XCTAssertFalse(
-            state.commands.contains("notify_target \(workspaceId) \(staleSurface) Notification||"),
+            state.commands.contains("notify_target_async \(workspaceId) \(staleSurface) Notification||"),
             "Stale env surface should not win inside tmux, saw \(state.commands)"
         )
     }
