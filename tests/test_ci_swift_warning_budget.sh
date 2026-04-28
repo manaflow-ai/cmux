@@ -73,7 +73,7 @@ if grep -q 'SourcePackages' "$BUDGET"; then
   exit 1
 fi
 
-if grep -q '.ci-source-packages' "$BUDGET"; then
+if grep -Fq '.ci-source-packages' "$BUDGET"; then
   echo "cloned package warning should not be included" >&2
   exit 1
 fi
@@ -92,5 +92,23 @@ fi
 if ! grep -q 'Swift warning budget exceeded' "$TMP_DIR/fail.out"; then
   echo "expected budget failure output" >&2
   cat "$TMP_DIR/fail.out" >&2
+  exit 1
+fi
+
+printf 'not-a-valid-budget-line\n' >"$TMP_DIR/bad-budget.tsv"
+if python3 scripts/swift_warning_budget.py --log "$LOG" --budget "$TMP_DIR/bad-budget.tsv" >"$TMP_DIR/bad.out" 2>&1; then
+  echo "expected malformed budget failure" >&2
+  exit 1
+fi
+
+if ! grep -q 'Error reading warning budget' "$TMP_DIR/bad.out"; then
+  echo "expected malformed budget error output" >&2
+  cat "$TMP_DIR/bad.out" >&2
+  exit 1
+fi
+
+if grep -q 'Traceback' "$TMP_DIR/bad.out"; then
+  echo "malformed budget should not print a traceback" >&2
+  cat "$TMP_DIR/bad.out" >&2
   exit 1
 fi

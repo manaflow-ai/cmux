@@ -222,7 +222,11 @@ def main(argv: list[str]) -> int:
         print(f"Missing warning budget: {args.budget}", file=sys.stderr)
         return 2
 
-    allowed = load_budget(args.budget)
+    try:
+        allowed = load_budget(args.budget)
+    except ValueError as exc:
+        print(f"Error reading warning budget: {exc}", file=sys.stderr)
+        return 2
     print_budget_summary("Allowed warning budget", allowed)
     return compare_budget(actual, allowed)
 
