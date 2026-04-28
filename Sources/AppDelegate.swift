@@ -6223,13 +6223,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let cascadeOffset: CGFloat = 24
+        let minimumWindowSize = NSSize(width: 460, height: 360)
         var frame = window.frame
         frame.origin = NSPoint(
             x: sourceFrame.minX + cascadeOffset,
             y: sourceFrame.maxY - cascadeOffset - frame.height
         )
         window.setFrame(
-            Self.clampFrame(frame, within: visibleFrame, minWidth: 1, minHeight: 1),
+            Self.clampFrame(
+                frame,
+                within: visibleFrame,
+                minWidth: minimumWindowSize.width,
+                minHeight: minimumWindowSize.height
+            ),
             display: false
         )
     }
