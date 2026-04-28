@@ -2,15 +2,16 @@ import AppKit
 import SwiftUI
 
 enum GhosttyTerminalBackdropRenderingMode {
-    case hostLayerSolidColor
+    case windowHostBackdrop
     case ghosttyRendererOwnedBackgroundImage
 
-    var usesHostLayerFill: Bool {
-        self == .hostLayerSolidColor
+    var usesWindowHostBackdrop: Bool {
+        self == .windowHostBackdrop
     }
 }
 
 enum WindowBackdropRole {
+    case windowRoot
     case terminalCanvas
     case bonsplitChrome
     case titlebar
@@ -42,7 +43,7 @@ enum WindowBackdropPolicy {
     var hostLayerBackgroundColor: NSColor? {
         switch self {
         case let .ghosttyTerminalBackdrop(color, opacity, renderingMode):
-            guard renderingMode.usesHostLayerFill else { return nil }
+            guard renderingMode.usesWindowHostBackdrop else { return nil }
             return color.withAlphaComponent(opacity)
         case .sidebarMaterial, .clear:
             return nil
@@ -175,7 +176,7 @@ struct WindowAppearanceSnapshot {
     static func terminalRenderingMode(
         usesHostLayerBackground: Bool
     ) -> GhosttyTerminalBackdropRenderingMode {
-        usesHostLayerBackground ? .hostLayerSolidColor : .ghosttyRendererOwnedBackgroundImage
+        usesHostLayerBackground ? .windowHostBackdrop : .ghosttyRendererOwnedBackgroundImage
     }
 
     var compositedTerminalBackgroundColor: NSColor {
@@ -189,13 +190,13 @@ struct WindowAppearanceSnapshot {
 
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
         switch role {
-        case .terminalCanvas, .bonsplitChrome:
+        case .windowRoot:
             return terminalBackdropPolicy()
-        case .titlebar, .browserSurface:
-            return terminalBackdropPolicy()
+        case .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
+            return .clear
         case .leftSidebar, .rightSidebar:
             if unifySurfaceBackdrops {
-                return terminalBackdropPolicy()
+                return .clear
             }
             return .sidebarMaterial(sidebarSettings.materialPolicy)
         }

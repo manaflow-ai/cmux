@@ -5473,7 +5473,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func openNewMainWindow(_ sender: Any?) {
-        _ = createMainWindow()
+        _ = createMainWindow(sourceWindow: preferredSourceWindowForNewMainWindow(sender: sender))
+    }
+
+    func openNewMainWindow(preferredWindow: NSWindow?) {
+        _ = createMainWindow(sourceWindow: preferredWindow)
+    }
+
+    private func preferredSourceWindowForNewMainWindow(sender: Any?) -> NSWindow? {
+        if let window = sender as? NSWindow, isMainTerminalWindow(window) {
+            return window
+        }
+        if let event = NSApp.currentEvent,
+           let window = mainWindowForShortcutEvent(event) {
+            return window
+        }
+        if let keyWindow = NSApp.keyWindow, isMainTerminalWindow(keyWindow) {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow, isMainTerminalWindow(mainWindow) {
+            return mainWindow
+        }
+        if let context = preferredRegisteredMainWindowContext(),
+           let window = resolvedWindow(for: context) {
+            return window
+        }
+        return nil
     }
 
     func scheduleInitialMainWindowBootstrap(debugSource: String) {
@@ -6177,11 +6202,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    private func resolvedMainWindowSource(_ window: NSWindow?) -> NSWindow? {
+        guard let window else { return nil }
+        if isMainTerminalWindow(window) {
+            return window
+        }
+        if let context = contextForMainWindow(window) ?? contextForMainTerminalWindow(window) {
+            return resolvedWindow(for: context)
+        }
+        return nil
+    }
+
+    private func positionNewMainWindow(_ window: NSWindow, relativeTo sourceWindow: NSWindow) {
+        let sourceFrame = sourceWindow.frame
+        let sourceScreen = sourceWindow.screen
+            ?? NSScreen.screens.first(where: { $0.frame.intersects(sourceFrame) })
+        guard let visibleFrame = sourceScreen?.visibleFrame else {
+            window.center()
+            return
+        }
+
+        let cascadeOffset: CGFloat = 24
+        let minimumWindowSize = NSSize(width: 460, height: 360)
+        var frame = window.frame
+        frame.origin = NSPoint(
+            x: sourceFrame.minX + cascadeOffset,
+            y: sourceFrame.maxY - cascadeOffset - frame.height
+        )
+        window.setFrame(
+            Self.clampFrame(
+                frame,
+                within: visibleFrame,
+                minWidth: minimumWindowSize.width,
+                minHeight: minimumWindowSize.height
+            ),
+            display: false
+        )
+    }
+
     @discardableResult
     func createMainWindow(
         initialWorkingDirectory: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
-        shouldActivate: Bool = true
+        shouldActivate: Bool = true,
+        sourceWindow preferredSourceWindow: NSWindow? = nil
     ) -> UUID {
         let windowId = UUID()
         let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
@@ -6235,7 +6299,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sourceContext = preferredMainWindowContextForWorkspaceCreation(
             debugSource: "createMainWindow.initialGeometry"
         )
-        let sourceWindow = sourceContext.flatMap { resolvedWindow(for: $0) }
+        let sourceWindow = resolvedMainWindowSource(preferredSourceWindow)
+            ?? sourceContext.flatMap { resolvedWindow(for: $0) }
         let existingFrame = sourceWindow?.frame
         let sourceWindowIsNativeFullScreen: Bool = {
 #if DEBUG
@@ -6279,6 +6344,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
+        } else if let sourceWindow {
+            positionNewMainWindow(window, relativeTo: sourceWindow)
         } else {
             window.center()
             // Cascade using the same algorithm as upstream Ghostty: seed from
@@ -10299,7 +10366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // after a browser panel has been shown, SwiftUI's menu dispatch can silently
         // consume the key equivalent without firing the action closure.
         if matchConfiguredShortcut(event: event, action: .newWindow) {
-            openNewMainWindow(nil)
+            openNewMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
             return true
         }
 

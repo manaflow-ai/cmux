@@ -624,6 +624,17 @@ private final class PassthroughWindowOverlayContainerView: NSView {
     }
 }
 
+@MainActor
+private final class NativeTitlebarBackdropView: NSView {
+    override var isOpaque: Bool {
+        layer?.isOpaque ?? false
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 #if DEBUG
 private func debugCommandPaletteWindowSummary(_ window: NSWindow?) -> String {
     guard let window else { return "nil" }
@@ -1916,6 +1927,7 @@ struct ContentView: View {
         static let workspaceHasBelow = "workspace.hasBelow"
         static let workspaceHasUnread = "workspace.hasUnread"
         static let workspaceHasRead = "workspace.hasRead"
+        static let sidebarMatchTerminalBackground = "sidebar.matchTerminalBackground"
 
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
@@ -2439,6 +2451,7 @@ struct ContentView: View {
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
             onSendFeedback: presentFeedbackComposer,
+            titlebarHeight: titlebarPadding,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
@@ -2449,7 +2462,7 @@ struct ContentView: View {
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
     /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
-    @State private var titlebarPadding: CGFloat = 32
+    @State private var titlebarPadding: CGFloat = WindowChromeMetrics.defaultTitlebarHeight
     /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
     /// main windows use MainWindowHostingView and report zero.
     @State private var hostingSafeAreaTop: CGFloat = 0
@@ -2622,6 +2635,7 @@ struct ContentView: View {
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
+            titlebarHeight: titlebarPadding,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             }
@@ -2758,7 +2772,6 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
-        .background(WindowBackdropLayer(role: .titlebar, snapshot: appearance))
         .overlay(alignment: .bottom) {
             WindowChromeBorder(orientation: .horizontal)
         }
@@ -3017,7 +3030,13 @@ struct ContentView: View {
     var body: some View {
         let appearance = windowAppearanceSnapshot
         var view = AnyView(
-            contentAndSidebarLayout(appearance: appearance)
+            ZStack(alignment: .topLeading) {
+                WindowBackdropLayer(role: .windowRoot, snapshot: appearance)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+
+                contentAndSidebarLayout(appearance: appearance)
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .overlay(alignment: .topLeading) {
                     if isFullScreen && sidebarState.isVisible && !isMinimalMode {
@@ -3621,8 +3640,14 @@ struct ContentView: View {
 
             // Keep content below the titlebar so drags on Bonsplit's tab bar don't
             // get interpreted as window drags.
+            // User settings decide whether window glass is active. The native Tahoe
+            // NSGlassEffectView path vs the older NSVisualEffectView fallback is chosen
+            // inside WindowGlassEffect.apply.
+            let currentThemeBackground = appearance.compositedTerminalBackgroundColor
+            let shouldApplyWindowGlass = appearance.windowGlassSettings.shouldApply()
+            let shouldForceTransparentHosting = appearance.shouldUseTransparentHosting()
             let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
-            let nextPadding = max(28, min(72, computedTitlebarHeight))
+            let nextPadding = WindowChromeMetrics.clampedTitlebarHeight(computedTitlebarHeight)
             let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
             if abs(titlebarPadding - nextPadding) > 0.5 {
                 DispatchQueue.main.async {
@@ -3634,18 +3659,12 @@ struct ContentView: View {
                     hostingSafeAreaTop = nextSafeAreaTop
                 }
             }
+            removeNativeTitlebarBackdrop(in: window)
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                 UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
             }
 #endif
-            // User settings decide whether window glass is active. The native Tahoe
-            // NSGlassEffectView path vs the older NSVisualEffectView fallback is chosen
-            // inside WindowGlassEffect.apply.
-            let currentThemeBackground = appearance.compositedTerminalBackgroundColor
-            let shouldApplyWindowGlass = appearance.windowGlassSettings.shouldApply()
-            let shouldForceTransparentHosting = appearance.shouldUseTransparentHosting()
-
             if shouldForceTransparentHosting {
                 window.isOpaque = false
                 // Keep the window clear whenever translucency is active. Relying only on
@@ -3670,6 +3689,12 @@ struct ContentView: View {
             }
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)
+            // Let cmux supply the translucent titlebar fills. AppKit's native
+            // material otherwise blends a lighter strip over the terminal area.
+            syncNativeTitlebarBackdrop(
+                in: window,
+                enabled: true
+            )
             AppDelegate.shared?.registerMainWindow(
                 window,
                 windowId: windowId,
@@ -3938,6 +3963,215 @@ struct ContentView: View {
         guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
         WindowGlassEffect.updateTint(to: window, color: tintColor)
+    }
+
+    private func removeNativeTitlebarBackdrop(in window: NSWindow) {
+        guard let contentView = window.contentView,
+              let themeFrame = contentView.superview else { return }
+
+        let identifier = NSUserInterfaceItemIdentifier("cmux.nativeTitlebarBackdrop")
+        let existing = themeFrame.subviews.first { $0.identifier == identifier } as? NativeTitlebarBackdropView
+        existing?.removeFromSuperview()
+    }
+
+    private func syncNativeTitlebarBackdrop(
+        in window: NSWindow,
+        enabled: Bool
+    ) {
+        guard let titlebarContainer = nativeTitlebarContainer(in: window) else { return }
+        let titlebarView = firstNativeDescendant(
+            in: titlebarContainer,
+            className: "NSTitlebarView",
+            includeRoot: true
+        )
+        let titlebarBackgroundViews = nativeDescendants(
+            in: titlebarContainer,
+            className: "NSTitlebarBackgroundView"
+        )
+        let effectViews = nativeDescendants(in: titlebarContainer, className: "NSVisualEffectView")
+
+        if enabled {
+            rememberNativeTitlebarBackdropState(
+                titlebarContainer: titlebarContainer,
+                titlebarView: titlebarView,
+                titlebarBackgroundViews: titlebarBackgroundViews,
+                effectViews: effectViews
+            )
+        } else {
+            restoreNativeTitlebarBackdropState(
+                titlebarContainer: titlebarContainer,
+                titlebarView: titlebarView,
+                titlebarBackgroundViews: titlebarBackgroundViews,
+                effectViews: effectViews
+            )
+            return
+        }
+
+        titlebarContainer.wantsLayer = true
+        titlebarContainer.layer?.backgroundColor = nil
+        titlebarContainer.layer?.isOpaque = false
+        titlebarView?.wantsLayer = true
+        titlebarView?.layer?.backgroundColor = nil
+        titlebarView?.layer?.isOpaque = false
+        for titlebarBackgroundView in titlebarBackgroundViews {
+            titlebarBackgroundView.isHidden = true
+        }
+        for effectView in effectViews {
+            effectView.isHidden = true
+        }
+        window.titlebarAppearsTransparent = true
+    }
+
+    private static var unifiedTitlebarLayerAppliedKey: UInt8 = 0
+    private static var unifiedTitlebarLayerColorKey: UInt8 = 0
+    private static var unifiedTitlebarLayerOpaqueKey: UInt8 = 0
+    private static var unifiedTitlebarHiddenAppliedKey: UInt8 = 0
+    private static var unifiedTitlebarHiddenKey: UInt8 = 0
+
+    private func rememberNativeTitlebarBackdropState(
+        titlebarContainer: NSView,
+        titlebarView: NSView?,
+        titlebarBackgroundViews: [NSView],
+        effectViews: [NSView]
+    ) {
+        rememberNativeTitlebarLayerState(titlebarContainer)
+        if let titlebarView {
+            rememberNativeTitlebarLayerState(titlebarView)
+        }
+        for titlebarBackgroundView in titlebarBackgroundViews {
+            rememberNativeTitlebarHiddenState(titlebarBackgroundView)
+        }
+        for effectView in effectViews {
+            rememberNativeTitlebarHiddenState(effectView)
+        }
+    }
+
+    private func restoreNativeTitlebarBackdropState(
+        titlebarContainer: NSView,
+        titlebarView: NSView?,
+        titlebarBackgroundViews: [NSView],
+        effectViews: [NSView]
+    ) {
+        restoreNativeTitlebarLayerState(titlebarContainer)
+        if let titlebarView {
+            restoreNativeTitlebarLayerState(titlebarView)
+        }
+        for titlebarBackgroundView in titlebarBackgroundViews {
+            restoreNativeTitlebarHiddenState(titlebarBackgroundView)
+        }
+        for effectView in effectViews {
+            restoreNativeTitlebarHiddenState(effectView)
+        }
+    }
+
+    private func rememberNativeTitlebarLayerState(_ view: NSView) {
+        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey) == nil else { return }
+
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey, NSNumber(value: true), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerColorKey, view.layer?.backgroundColor ?? NSNull(), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerOpaqueKey, view.layer.map { NSNumber(value: $0.isOpaque) } ?? NSNull(), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func restoreNativeTitlebarLayerState(_ view: NSView) {
+        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey) != nil else { return }
+
+        if let storedColor = objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerColorKey),
+           !(storedColor is NSNull) {
+            view.layer?.backgroundColor = storedColor as! CGColor
+        } else {
+            view.layer?.backgroundColor = nil
+        }
+
+        if let isOpaque = objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerOpaqueKey) as? NSNumber {
+            view.layer?.isOpaque = isOpaque.boolValue
+        }
+
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerColorKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerOpaqueKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func rememberNativeTitlebarHiddenState(_ view: NSView) {
+        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey) == nil else { return }
+
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey, NSNumber(value: true), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenKey, NSNumber(value: view.isHidden), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func restoreNativeTitlebarHiddenState(_ view: NSView) {
+        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey) != nil else { return }
+
+        if let hidden = objc_getAssociatedObject(view, &Self.unifiedTitlebarHiddenKey) as? NSNumber {
+            view.isHidden = hidden.boolValue
+        }
+
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func nativeTitlebarContainer(in window: NSWindow) -> NSView? {
+        if !window.styleMask.contains(.fullScreen) {
+            return window.contentView.flatMap {
+                firstNativeDescendant(
+                    in: nativeRootView(from: $0),
+                    className: "NSTitlebarContainerView",
+                    includeRoot: true
+                )
+            }
+        }
+
+        for candidate in NSApp.windows where candidate.className == "NSToolbarFullScreenWindow" {
+            guard candidate.parent == window else { continue }
+            if let contentView = candidate.contentView {
+                return firstNativeDescendant(
+                    in: nativeRootView(from: contentView),
+                    className: "NSTitlebarContainerView",
+                    includeRoot: true
+                )
+            }
+        }
+
+        return nil
+    }
+
+    private func nativeRootView(from view: NSView) -> NSView {
+        var root = view
+        while let superview = root.superview {
+            root = superview
+        }
+        return root
+    }
+
+    private func firstNativeDescendant(
+        in view: NSView,
+        className: String,
+        includeRoot: Bool = false
+    ) -> NSView? {
+        if includeRoot, String(describing: type(of: view)) == className {
+            return view
+        }
+
+        for subview in view.subviews {
+            if String(describing: type(of: subview)) == className {
+                return subview
+            }
+            if let found = firstNativeDescendant(in: subview, className: className) {
+                return found
+            }
+        }
+
+        return nil
+    }
+
+    private func nativeDescendants(in view: NSView, className: String) -> [NSView] {
+        var result: [NSView] = []
+        for subview in view.subviews {
+            if String(describing: type(of: subview)) == className {
+                result.append(subview)
+            }
+            result.append(contentsOf: nativeDescendants(in: subview, className: className))
+        }
+        return result
     }
 
     private func setTitlebarControlsHidden(_ hidden: Bool, in window: NSWindow) {
@@ -6466,6 +6700,7 @@ struct ContentView: View {
     ) -> CommandPaletteContextSnapshot {
         var snapshot = CommandPaletteContextSnapshot()
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
+        snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
 
         if let workspace = tabManager.selectedWorkspace {
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
@@ -6696,6 +6931,18 @@ struct ContentView: View {
                 title: constant(String(localized: "command.toggleSidebar.title", defaultValue: "Toggle Sidebar")),
                 subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
                 keywords: ["toggle", "sidebar", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleMatchTerminalBackground",
+                title: { context in
+                    context.bool(CommandPaletteContextKeys.sidebarMatchTerminalBackground)
+                        ? String(localized: "command.disableMatchTerminalBackground.title", defaultValue: "Disable Match Terminal Background")
+                        : String(localized: "command.enableMatchTerminalBackground.title", defaultValue: "Enable Match Terminal Background")
+                },
+                subtitle: constant(String(localized: "command.matchTerminalBackground.subtitle", defaultValue: "Sidebar Appearance")),
+                keywords: ["match", "terminal", "background", "transparency", "sidebar", "surface", "chrome"]
             )
         )
         contributions.append(
@@ -7440,7 +7687,8 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.newWindow") {
-            AppDelegate.shared?.openNewMainWindow(nil)
+            guard let appDelegate = AppDelegate.shared else { return }
+            appDelegate.openNewMainWindow(preferredWindow: appDelegate.mainWindow(for: windowId))
         }
         registry.register(commandId: "palette.installCLI") {
             AppDelegate.shared?.installCmuxCLIInPath(nil)
@@ -7492,6 +7740,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        registry.register(commandId: "palette.toggleMatchTerminalBackground") {
+            sidebarMatchTerminalBackground.toggle()
         }
         registry.register(commandId: "palette.enableMinimalMode") {
             workspacePresentationMode = WorkspacePresentationModeSettings.Mode.minimal.rawValue
@@ -9292,6 +9543,7 @@ struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
+    let titlebarHeight: CGFloat
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @Binding var selection: SidebarSelection
@@ -9313,13 +9565,11 @@ struct VerticalTabsSidebar: View {
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
 
-    /// Space at top of sidebar for traffic light buttons
-    private let trafficLightPadding: CGFloat = 28
     private let tabRowSpacing: CGFloat = 2
     private let hiddenTitlebarControlsLeadingInset: CGFloat = 72
 
     private var workspaceScrollTopVisibilityInset: CGFloat {
-        trafficLightPadding + 8
+        titlebarHeight + 8
     }
 
     private var isMinimalMode: Bool {
@@ -9526,17 +9776,14 @@ struct VerticalTabsSidebar: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
-                    SidebarTopScrim(
-                        height: trafficLightPadding + 20,
-                        isSharingTerminalBackground: sidebarMatchTerminalBackground
-                    )
+                    SidebarTopScrim(height: titlebarHeight + 20)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
                     // Match native titlebar behavior in the sidebar top strip:
                     // drag-to-move and double-click action (zoom/minimize).
                     WindowDragHandleView()
-                        .frame(height: trafficLightPadding)
+                        .frame(height: titlebarHeight)
                         .background(TitlebarDoubleClickMonitorView())
                 }
                 .overlay(alignment: .topLeading) {
@@ -11841,42 +12088,11 @@ private struct SidebarDevFooter: View {
 
 private struct SidebarTopScrim: View {
     let height: CGFloat
-    let isSharingTerminalBackground: Bool
 
     var body: some View {
-        if isSharingTerminalBackground {
-            Color.clear
-                .frame(height: height)
-        } else {
-            SidebarTopBlurEffect()
-                .frame(height: height)
-                .mask(
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.95),
-                            Color.black.opacity(0.75),
-                            Color.black.opacity(0.35),
-                            Color.clear
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-        }
+        Color.clear
+            .frame(height: height)
     }
-}
-
-private struct SidebarTopBlurEffect: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = .withinWindow
-        view.material = .underWindowBackground
-        view.state = .active
-        view.isEmphasized = false
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 private struct SidebarScrollViewResolver: NSViewRepresentable {
@@ -15181,6 +15397,16 @@ enum WindowChromeSeparatorColor {
     }
 }
 
+enum WindowChromeMetrics {
+    static let minimumTitlebarHeight: CGFloat = 28
+    static let maximumTitlebarHeight: CGFloat = 72
+    static let defaultTitlebarHeight: CGFloat = 32
+
+    static func clampedTitlebarHeight(_ height: CGFloat) -> CGFloat {
+        max(minimumTitlebarHeight, min(maximumTitlebarHeight, height))
+    }
+}
+
 struct WindowChromeBorder: View {
     enum Orientation {
         case vertical
@@ -15238,10 +15464,7 @@ private struct WindowBackdropLayer: View {
     private func backdrop(for policy: WindowBackdropPolicy) -> some View {
         switch policy {
         case let .ghosttyTerminalBackdrop(color, opacity, _):
-            // Renderer-owned background images currently cannot be shared outside
-            // the terminal Metal pass, so non-terminal roles use Ghostty's fallback
-            // color/opacity until cmux grows a host image backdrop renderer.
-            Color(nsColor: color.withAlphaComponent(opacity))
+            LayerBackedBackdropColor(color: color.withAlphaComponent(opacity))
         case let .sidebarMaterial(materialPolicy):
             ZStack {
                 let usingNativeLiquidGlass = materialPolicy.preferLiquidGlass &&
@@ -15266,6 +15489,51 @@ private struct WindowBackdropLayer: View {
             }
         case .clear:
             Color.clear
+        }
+    }
+}
+
+private struct LayerBackedBackdropColor: NSViewRepresentable {
+    let color: NSColor
+
+    func makeNSView(context _: Context) -> NSView {
+        let view = NonHitTestingLayerBackedColorView()
+        view.setBackdropColor(color)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context _: Context) {
+        (nsView as? NonHitTestingLayerBackedColorView)?.setBackdropColor(color)
+    }
+
+    private final class NonHitTestingLayerBackedColorView: NSView {
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+            layer?.masksToBounds = true
+            layer?.isOpaque = false
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            wantsLayer = true
+            layer?.masksToBounds = true
+            layer?.isOpaque = false
+        }
+
+        override var isOpaque: Bool { false }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
+
+        func setBackdropColor(_ color: NSColor) {
+            wantsLayer = true
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.backgroundColor = color.cgColor
+            layer?.isOpaque = color.alphaComponent >= 1
+            CATransaction.commit()
         }
     }
 }
