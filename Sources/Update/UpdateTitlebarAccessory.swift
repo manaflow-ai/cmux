@@ -507,10 +507,10 @@ struct TitlebarControlsView: View {
                     .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
                     .frame(width: item.width, alignment: .leading)
                     .offset(x: item.leftEdge, y: yOffset)
+                    .shortcutHintTransition()
             }
         }
-        .animation(.easeOut(duration: 0.12), value: shouldShowTitlebarShortcutHints)
-        .transition(.opacity)
+        .shortcutHintVisibilityAnimation(value: shouldShowTitlebarShortcutHints)
         .allowsHitTesting(false)
     }
 
@@ -686,13 +686,13 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
     }
 
     private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
-        guard ShortcutHintModifierPolicy.shouldShowHints(
-            for: modifierFlags,
-            hostWindowNumber: hostWindow?.windowNumber,
-            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
-            eventWindowNumber: eventWindow?.windowNumber,
-            keyWindowNumber: NSApp.keyWindow?.windowNumber
-        ) else {
+        guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: modifierFlags),
+              ShortcutHintModifierPolicy.isCurrentWindow(
+                hostWindowNumber: hostWindow?.windowNumber,
+                hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
+                eventWindowNumber: eventWindow?.windowNumber,
+                keyWindowNumber: NSApp.keyWindow?.windowNumber
+              ) else {
             cancelPendingHintShow(resetVisible: true)
             return
         }
@@ -701,19 +701,20 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
     }
 
     private func queueHintShow() {
-        guard !isModifierPressed else { return }
-        guard pendingShowWorkItem == nil else { return }
+        if pendingShowWorkItem != nil || isModifierPressed {
+            return
+        }
 
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingShowWorkItem = nil
-            guard ShortcutHintModifierPolicy.shouldShowHints(
-                for: NSEvent.modifierFlags,
-                hostWindowNumber: self.hostWindow?.windowNumber,
-                hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
-                eventWindowNumber: nil,
-                keyWindowNumber: NSApp.keyWindow?.windowNumber
-            ) else { return }
+            guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: NSEvent.modifierFlags),
+                  ShortcutHintModifierPolicy.isCurrentWindow(
+                    hostWindowNumber: self.hostWindow?.windowNumber,
+                    hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: NSApp.keyWindow?.windowNumber
+                  ) else { return }
             self.isModifierPressed = true
         }
 

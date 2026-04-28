@@ -11,6 +11,10 @@ DERIVED_SET=0
 TAG=""
 LAUNCH=0
 CMUX_DEBUG_LOG=""
+CMUX_DEV_PORT=""
+CMUX_DEV_PORT_END=""
+CMUX_DEV_PORT_RANGE=""
+CMUX_DEV_ORIGIN=""
 CLI_PATH=""
 LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
 LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
@@ -159,6 +163,64 @@ sanitize_path() {
   echo "$cleaned"
 }
 
+is_valid_port() {
+  local port="${1:-}"
+  [[ "$port" =~ ^[0-9]+$ ]] || return 1
+  local numeric=$((10#$port))
+  (( numeric >= 1 && numeric <= 65535 ))
+}
+
+is_positive_integer() {
+  local value="${1:-}"
+  [[ "$value" =~ ^[0-9]+$ ]] || return 1
+  local numeric=$((10#$value))
+  (( numeric > 0 ))
+}
+
+choose_cmux_dev_port() {
+  if is_valid_port "${CMUX_PORT:-}"; then
+    echo "$CMUX_PORT"
+    return 0
+  fi
+  if is_valid_port "${PORT:-}"; then
+    echo "$PORT"
+    return 0
+  fi
+  echo "3777"
+}
+
+choose_cmux_dev_port_range() {
+  if is_positive_integer "${CMUX_PORT_RANGE:-}"; then
+    echo "$CMUX_PORT_RANGE"
+    return 0
+  fi
+  echo "1"
+}
+
+choose_cmux_dev_port_end() {
+  local start="$1"
+  local range="$2"
+  if is_valid_port "${CMUX_PORT_END:-}"; then
+    echo "$CMUX_PORT_END"
+    return 0
+  fi
+  local start_num=$((10#$start))
+  local range_num=$((10#$range))
+  local end=$((start_num + range_num - 1))
+  if (( end > 65535 )); then
+    end="$start_num"
+  fi
+  echo "$end"
+}
+
+set_plist_env() {
+  local plist="$1"
+  local key="$2"
+  local value="$3"
+  /usr/libexec/PlistBuddy -c "Set :LSEnvironment:${key} \"${value}\"" "$plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:${key} string \"${value}\"" "$plist"
+}
+
 tagged_derived_data_path() {
   local slug="$1"
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
@@ -281,15 +343,6 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
-"$PWD/scripts/ensure-ghosttykit.sh"
-
-if should_skip_ghostty_cli_helper_zig_build; then
-  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
-    echo "Auto-enabling CMUX_SKIP_ZIG_BUILD=1 for Ghostty CLI helper (${AUTO_SKIP_ZIG_BUILD_REASON})"
-  fi
-  export CMUX_SKIP_ZIG_BUILD=1
-fi
-
 if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
@@ -302,6 +355,80 @@ if [[ -n "$TAG" ]]; then
   if [[ "$DERIVED_SET" -eq 0 ]]; then
     DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
   fi
+fi
+
+CMUX_DEV_PORT="$(choose_cmux_dev_port)"
+CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
+CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
+CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
+
+# Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
+# plistbuddy, etc.) to a single log file. On success we print only a one-line
+# summary plus the App/CLI paths. On failure we dump the log.
+RELOAD_LOG="/tmp/cmux-reload-${TAG_SLUG}.log"
+RELOAD_START_TIME="$(date +%s)"
+: > "$RELOAD_LOG"
+
+# Save the original stdout/stderr so the EXIT trap can write the user-facing
+# summary after the body redirect, then redirect bulk output into the log.
+exec 3>&1 4>&2
+exec >>"$RELOAD_LOG" 2>&1
+
+reload_finalize() {
+  local rc=$?
+  trap - EXIT
+  exec 1>&3 2>&4
+  local elapsed=$(( $(date +%s) - RELOAD_START_TIME ))
+  if [[ "$rc" -ne 0 ]]; then
+    if [[ -s "$RELOAD_LOG" ]]; then
+      cat "$RELOAD_LOG" >&2
+    fi
+    echo "" >&2
+    echo "==> reload FAILED (exit $rc) after ${elapsed}s" >&2
+    echo "==> log: $RELOAD_LOG" >&2
+    exit "$rc"
+  fi
+  echo "==> reload succeeded in ${elapsed}s"
+  echo "==> log: $RELOAD_LOG"
+  if [[ -n "${APP_PATH:-}" ]]; then
+    echo
+    echo "App path:"
+    echo "  $APP_PATH"
+  fi
+  if [[ -n "${CMUX_DEV_ORIGIN:-}" ]]; then
+    echo
+    echo "Dev web origin:"
+    echo "  $CMUX_DEV_ORIGIN"
+  fi
+  if [[ -x "${CLI_PATH:-}" ]]; then
+    echo
+    echo "CLI path:"
+    echo "  $CLI_PATH"
+    echo "CLI helpers:"
+    echo "  /tmp/cmux-cli ..."
+    echo "  $HOME/.local/bin/cmux-dev ..."
+    if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
+      echo "  $CMUX_SHIM_TARGET ..."
+    fi
+    echo "If your shell still resolves the old cmux, run: rehash"
+  fi
+  if [[ "$LAUNCH" -eq 0 ]]; then
+    echo
+    echo "Build complete. Pass --launch to open the app, or cmd-click the path above."
+  fi
+}
+trap reload_finalize EXIT
+
+# Tell the user we're starting (visible even though body output is redirected).
+echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
+
+"$PWD/scripts/ensure-ghosttykit.sh"
+
+if should_skip_ghostty_cli_helper_zig_build; then
+  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
+    echo "Auto-enabling CMUX_SKIP_ZIG_BUILD=1 for Ghostty CLI helper (${AUTO_SKIP_ZIG_BUILD_REASON})"
+  fi
+  export CMUX_SKIP_ZIG_BUILD=1
 fi
 
 XCODEBUILD_ARGS=(
@@ -327,13 +454,11 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
 fi
 XCODEBUILD_ARGS+=(build)
 
-XCODE_LOG="/tmp/cmux-xcodebuild-${TAG_SLUG}.log"
 XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
 # Xcode 26's SWBBuildService is a per-user singleton. Concurrent xcodebuild
 # invocations (even with separate -derivedDataPath) share that daemon and can
 # crash it, SIGTERMing in-flight builds. Serialize via a per-user lock so
 # parallel reload.sh runs queue instead of trampling each other.
-set +e
 python3 -c '
 import fcntl
 import os
@@ -356,7 +481,16 @@ except OSError as exc:
 try:
     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
-    print(f"==> Another xcodebuild is running; waiting for {lock_path}...", file=sys.stderr, flush=True)
+    msg = f"==> Another xcodebuild is running; waiting for {lock_path}...\n"
+    # reload.sh saves the original stderr on fd 4 before redirecting to the
+    # log file. Surface the wait notice to the terminal so the user knows
+    # they are queued, not hung. Fall back to stderr (the log) if fd 4 is
+    # unavailable (e.g. when this script is run standalone).
+    try:
+        os.write(4, msg.encode())
+    except OSError:
+        sys.stderr.write(msg)
+        sys.stderr.flush()
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
     except OSError as exc:
@@ -368,15 +502,7 @@ try:
     os.execvp(command[0], command)
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$XCODE_LOG" | grep -E '(warning:|error:|fatal:|BUILD FAILED|BUILD SUCCEEDED|\*\* BUILD|^==> )'
-XCODE_PIPESTATUS=("${PIPESTATUS[@]}")
-set -e
-XCODE_EXIT="${XCODE_PIPESTATUS[0]}"
-echo "Full build log: $XCODE_LOG"
-if [[ "$XCODE_EXIT" -ne 0 ]]; then
-  echo "error: xcodebuild failed with exit code $XCODE_EXIT" >&2
-  exit "$XCODE_EXIT"
-fi
+' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
@@ -447,20 +573,20 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       write_last_socket_path "$CMUX_SOCKET"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_PATH \"${CMUX_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_PATH string \"${CMUX_SOCKET}\"" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_DEBUG_LOG \"${CMUX_DEBUG_LOG}\"" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_DEBUG_LOG string \"${CMUX_DEBUG_LOG}\"" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_ENABLE 1" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_ENABLE string 1" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_MODE allowAll" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_MODE string allowAll" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD 1" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD string 1" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXTERM_REPO_ROOT \"${PWD}\"" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXTERM_REPO_ROOT string \"${PWD}\"" "$INFO_PLIST"
+      set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
+      set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET"
+      set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
+      set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
+      set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
+      set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
+      set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
+      set_plist_env "$INFO_PLIST" CMUX_PORT "$CMUX_DEV_PORT"
+      set_plist_env "$INFO_PLIST" CMUX_PORT_END "$CMUX_DEV_PORT_END"
+      set_plist_env "$INFO_PLIST" CMUX_PORT_RANGE "$CMUX_DEV_PORT_RANGE"
+      set_plist_env "$INFO_PLIST" PORT "$CMUX_DEV_PORT"
+      set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_DEV_ORIGIN"
+      set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_ORIGIN"
+      set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_ORIGIN"
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -514,6 +640,9 @@ if [[ -x "$GHOSTTY_HELPER_SRC" ]]; then
   mkdir -p "$BIN_DIR"
   cp "$GHOSTTY_HELPER_SRC" "$BIN_DIR/ghostty"
   chmod +x "$BIN_DIR/ghostty"
+fi
+if command -v xattr >/dev/null 2>&1; then
+  xattr -cr "$APP_PATH" || true
 fi
 if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
   if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
@@ -574,11 +703,27 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u XDG_DATA_DIRS
   )
 
+  TAG_LAUNCH_ENV=(
+    CMUX_TAG="${TAG_SLUG:-}"
+    CMUX_SOCKET_ENABLE=1
+    CMUX_SOCKET_MODE=allowAll
+    CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG"
+    CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1
+    CMUXTERM_REPO_ROOT="$PWD"
+    CMUX_PORT="$CMUX_DEV_PORT"
+    CMUX_PORT_END="$CMUX_DEV_PORT_END"
+    CMUX_PORT_RANGE="$CMUX_DEV_PORT_RANGE"
+    PORT="$CMUX_DEV_PORT"
+    CMUX_AUTH_WWW_ORIGIN="$CMUX_DEV_ORIGIN"
+    CMUX_API_BASE_URL="$CMUX_DEV_ORIGIN"
+    CMUX_VM_API_BASE_URL="$CMUX_DEV_ORIGIN"
+  )
+
   if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
     # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-    "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=allowAll CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 CMUXTERM_REPO_ROOT="$PWD" open -g "$APP_PATH"
+    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
   elif [[ -n "${TAG_SLUG:-}" ]]; then
-    "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=allowAll CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 CMUXTERM_REPO_ROOT="$PWD" open -g "$APP_PATH"
+    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -g "$APP_PATH"
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
@@ -606,28 +751,10 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   fi
 fi
 
-echo
-echo "App path:"
-echo "  $APP_PATH"
-
+# The user-facing summary (success line, App path, CLI path/helpers, rehash
+# hint, "pass --launch") is printed by the reload_finalize EXIT trap. The
+# tag-cleanup reminder still runs here, but its output goes to $RELOAD_LOG
+# (visible by tail -f or by inspecting the log path printed in the summary).
 if [[ -n "${TAG_SLUG:-}" ]]; then
   print_tag_cleanup_reminder "$TAG_SLUG"
-fi
-
-if [[ -x "${CLI_PATH:-}" ]]; then
-  echo
-  echo "CLI path:"
-  echo "  $CLI_PATH"
-  echo "CLI helpers:"
-  echo "  /tmp/cmux-cli ..."
-  echo "  $HOME/.local/bin/cmux-dev ..."
-  if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
-    echo "  $CMUX_SHIM_TARGET ..."
-  fi
-  echo "If your shell still resolves the old cmux, run: rehash"
-fi
-
-if [[ "$LAUNCH" -eq 0 ]]; then
-  echo
-  echo "Build complete. Pass --launch to open the app, or cmd-click the path above."
 fi

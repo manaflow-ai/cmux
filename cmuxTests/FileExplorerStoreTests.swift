@@ -53,25 +53,39 @@ final class FileExplorerStoreTests: XCTestCase {
         let description: String
     }
 
-    /// Poll on the main actor until `condition` holds or `timeout` elapses.
-    /// Replaces fixed `Task.sleep` delays that were flaky on slow CI runners
-    /// (warp-macos-15) where the spawned load Task hadn't run inside 100ms.
-    /// Throws on timeout so the test function aborts instead of falling through
-    /// to force-unwraps that would crash the runner.
-    private func waitFor(
+    /// Poll until `condition` holds or `timeout` elapses.
+    /// The timeout runs off the main actor so a wedged main-actor load fails the
+    /// specific test instead of consuming the whole CI job timeout.
+    private nonisolated func waitFor(
         _ description: String,
         timeout: TimeInterval = 5.0,
         file: StaticString = #filePath,
         line: UInt = #line,
-        _ condition: () -> Bool
+        _ condition: @MainActor @escaping @Sendable () -> Bool
     ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition() {
-            if Date() >= deadline {
-                XCTFail("Timed out waiting for: \(description)", file: file, line: line)
-                throw WaitTimeout(description: description)
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    while !Task.isCancelled {
+                        if await MainActor.run(body: condition) {
+                            return
+                        }
+                        try await Task.sleep(nanoseconds: 10_000_000)
+                    }
+                }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    throw WaitTimeout(description: description)
+                }
+
+                _ = try await group.next()
+                group.cancelAll()
             }
-            try? await Task.sleep(nanoseconds: 10_000_000)
+        } catch {
+            await MainActor.run {
+                XCTFail("Timed out waiting for: \(description)", file: file, line: line)
+            }
+            throw error
         }
     }
 
@@ -277,5 +291,27 @@ final class FileExplorerStoreTests: XCTestCase {
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         XCTAssertFalse(store.isExpanded(node))
+    }
+}
+
+final class FileSearchRipgrepParserTests: XCTestCase {
+    func testParseMatchLineBuildsRelativeSearchResult() {
+        let line = """
+        {"type":"match","data":{"path":{"text":"/tmp/project/Sources/App.swift"},"lines":{"text":"let title = \\"Search files\\"\\n"},"line_number":42,"submatches":[{"match":{"text":"Search"},"start":13,"end":19}]}}
+        """
+
+        let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project")
+
+        XCTAssertEqual(result?.path, "/tmp/project/Sources/App.swift")
+        XCTAssertEqual(result?.relativePath, "Sources/App.swift")
+        XCTAssertEqual(result?.lineNumber, 42)
+        XCTAssertEqual(result?.columnNumber, 14)
+        XCTAssertEqual(result?.preview, "let title = \"Search files\"")
+    }
+
+    func testParseMatchLineIgnoresNonMatchEvents() {
+        let line = #"{"type":"summary","data":{"elapsed_total":{"secs":0,"nanos":1}}}"#
+
+        XCTAssertNil(FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project"))
     }
 }

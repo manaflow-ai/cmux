@@ -62,6 +62,11 @@
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
+        "menuBarOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the Dock icon and app switcher entry while keeping cmux available from the menu bar."
+        },
         "newWorkspacePlacement": {
           "type": "string",
           "enum": ["top", "afterCurrent", "end"],
@@ -524,6 +529,11 @@
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
+              "focusRightSidebar",
+              "switchRightSidebarToFiles",
+              "switchRightSidebarToFind",
+              "switchRightSidebarToSessions",
+              "switchRightSidebarToFeed",
               "triggerFlash",
               "nextSurface",
               "prevSurface",
@@ -533,6 +543,7 @@
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",
+              "editWorkspaceDescription",
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",

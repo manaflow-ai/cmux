@@ -550,7 +550,7 @@ struct BrowserPanelView: View {
     }
 
     var body: some View {
-        // Layering contract: browser Cmd+F UI is mounted in the portal-hosted AppKit
+        // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
             addressBar
@@ -559,7 +559,7 @@ struct BrowserPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
-            // Keep Cmd+F usable when the browser is still in the empty new-tab
+            // Keep browser find usable when the browser is still in the empty new-tab
             // state (no WKWebView mounted yet). WebView-backed cases are hosted
             // in AppKit by WindowBrowserPortal to avoid layering/clipping issues.
             if !panel.shouldRenderWebView, let searchState = panel.searchState {
@@ -5544,17 +5544,23 @@ struct WebViewRepresentable: NSViewRepresentable {
             if hostedInspectorHit != nil {
                 return false
             }
-            // Pass through a narrow leading-edge band so the shared sidebar divider
-            // handle can receive hover/click even when WKWebView is attached here.
-            // Keeping this deterministic avoids flicker from dynamic left-edge scans.
-            guard point.x >= 0, point.x <= SidebarResizeInteraction.contentSideHitWidth else {
+            // Pass through narrow content-edge bands so shared sidebar divider
+            // handles receive hover/click even when WKWebView is attached here.
+            let isLeadingContentEdge = point.x >= 0 &&
+                point.x <= SidebarResizeInteraction.contentSideHitWidth
+            let isTrailingContentEdge = point.x >= bounds.maxX - SidebarResizeInteraction.contentSideHitWidth &&
+                point.x <= bounds.maxX
+            guard isLeadingContentEdge || isTrailingContentEdge else {
                 return false
             }
             guard let window, let contentView = window.contentView else {
                 return false
             }
             let hostRectInContent = contentView.convert(bounds, from: self)
-            return hostRectInContent.minX > 1
+            if isLeadingContentEdge {
+                return hostRectInContent.minX > 1
+            }
+            return contentView.bounds.maxX - hostRectInContent.maxX > 24
         }
 
         private func updateDividerCursor(

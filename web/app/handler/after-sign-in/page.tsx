@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { stackServerApp } from "../../lib/stack";
 import { env } from "../../env";
 import { OpenNativeClient } from "./OpenNativeClient";
@@ -72,8 +72,11 @@ type Props = {
 };
 
 export default async function AfterSignInPage({ searchParams: searchParamsPromise }: Props) {
+  const projectId = env.NEXT_PUBLIC_STACK_PROJECT_ID;
+  if (!stackServerApp || !projectId) notFound();
+
   const stackCookies = await cookies();
-  const refreshBaseName = `stack-refresh-${env.NEXT_PUBLIC_STACK_PROJECT_ID}`;
+  const refreshBaseName = `stack-refresh-${projectId}`;
   const rawRefreshCookie = findStackCookie(stackCookies, refreshBaseName);
   const rawAccessCookie = findStackCookie(stackCookies, "stack-access");
   const parsedAccess = decodeAccessCookie(rawAccessCookie);

@@ -40,11 +40,14 @@ struct BrowserRemoteWorkspaceStatus: Equatable {
 
 enum GhosttyBackgroundTheme {
     static func clampedOpacity(_ opacity: Double) -> CGFloat {
-        CGFloat(max(0.0, min(1.0, opacity)))
+        WindowAppearanceSnapshot.clampedOpacity(opacity)
     }
 
     static func color(backgroundColor: NSColor, opacity: Double) -> NSColor {
-        backgroundColor.withAlphaComponent(clampedOpacity(opacity))
+        WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: backgroundColor,
+            opacity: opacity
+        )
     }
 
     static func color(

@@ -493,15 +493,19 @@ private func browserFindCommandEquivalent(for event: NSEvent) -> BrowserFindComm
     }
 }
 
-/// For browser content, let the page try the Find command family before cmux's menu fallback.
-/// This preserves native web-app shortcuts like VS Code's Cmd+F while still allowing cmux's
-/// browser find overlay to keep owning its visible Find UI shortcuts.
+/// For browser content, let the page try browser-local Find-family commands before cmux's menu fallback.
+/// Cmd+F is excluded because cmux chooses terminal, browser, or right-sidebar
+/// find from the current focus owner.
 func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     _ event: NSEvent,
     responder: NSResponder? = nil,
     owningWebView: CmuxWebView? = nil
 ) -> Bool {
     guard let shortcut = browserFindCommandEquivalent(for: event) else {
+        return false
+    }
+
+    if case .find = shortcut {
         return false
     }
 

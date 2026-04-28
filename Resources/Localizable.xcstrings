@@ -1090,6 +1090,1519 @@
         }
       }
     },
+    "debug.menu.tabBarBackdropLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar Backdrop Lab…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバー背景ラボ…"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.liveNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes apply live."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更はライブで反映されます。"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.controlBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "controlBackgroundColor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "controlBackgroundColor"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.precompositedBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pre-composited barBackground"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合成済み barBackground"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.precompositedPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pre-composited paneBackground"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合成済み paneBackground"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.rawBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "barBackground (tab chrome)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "barBackground（タブクローム）"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.rawPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raw paneBackground (opaque)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未加工 paneBackground（不透明）"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.translucentChrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translucent chrome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "半透明クローム"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.option.windowBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "windowBackgroundColor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "windowBackgroundColor"
+          }
+        }
+      }
+    },
+    "debug.splitButtonLayout.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Button Backdrop Color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタン背景色"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.leftSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateEnd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End opacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端不透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate fade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補フェード"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateSolid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solid width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "塗りつぶし幅"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateRamp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ramp start"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ランプ開始"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateSoftness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate softness"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補の柔らかさ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.candidateLead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lead opacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始不透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.maskTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mask tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブをマスク"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.opacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface opacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス不透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.rightSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "R"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Bonsplit tab bars with overflow tabs under the split buttons. The window background is transparent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ボタンの下にあふれるタブを表示するライブ Bonsplit タブバーです。ウインドウ背景は透明です。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.agentBrowserLogs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-browser logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-browser ログ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.backdropCheck": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "split button backdrop check"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ボタン背景チェック"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.hiddenBelowControls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tabs hidden below controls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロール下に隠れるタブ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.rightEdgeOverflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right edge overflow sample"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右端オーバーフローのサンプル"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.terminalTransparency": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux terminal transparency"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ターミナル透明度"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.tab.underlayText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "underlay tab text visible here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のタブ文字が見える場所"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.terminal.compare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "drag / resize / compare the transparent edges"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグ / リサイズ / 透明な端を比較"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.terminal.overflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab titles intentionally overflow under the split buttons"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブタイトルは意図的に分割ボタンの下へあふれます"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.terminal.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lawrence in ~/cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lawrence in ~/cmux"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar Backdrop Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバー背景ラボ"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.titlebarSample": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace@lab:~"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace@lab:~"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidate.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translucent chrome with tab occlusion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを隠す半透明クロームです。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateLowContrast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low contrast"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低コントラスト"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateLowContrast.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lower-opacity solid region."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソリッド領域の不透明度を下げます。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateSoftEnd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soft end"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔らかい終端"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateSoftEnd.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same mask with lighter button fill."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じマスクでボタン背景を薄くします。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateTightEdge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tight edge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強めの端"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateTightEdge.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More coverage at the fade start."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェード開始部分の被覆を強めます。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateWideFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wide fade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "広いフェード"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.candidateWideFade.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same model with a softer edge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じモデルで端をより柔らかくします。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.controlBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4 Control background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4 コントロール背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.controlBackground.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses AppKit controlBackgroundColor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit の controlBackgroundColor を使います。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 No backdrop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 背景なし"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.hidden.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control sample. Tabs remain visible below the buttons."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較用サンプルです。ボタンの下にタブが見えたままになります。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaqueBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 Raw bar opaque"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 バーをそのまま不透明化"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaqueBar.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses the tab chrome color at full opacity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブクローム色を完全な不透明度で使います。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaquePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Raw pane opaque"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ペインをそのまま不透明化"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.opaquePane.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forces the pane fill to full opacity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン塗りを完全な不透明度にします。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 Opaque bar composite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 バー合成の不透明背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedBar.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composites tab chrome over the window background."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブクロームをウインドウ背景の上に合成します。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0 Opaque pane composite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0 ペイン合成の不透明背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.precompositedPane.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Old candidate. Covers too hard."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の候補です。被覆が強すぎます。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentChrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 Translucent chrome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 半透明クローム"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentChrome.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the bleed-through problem."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透けて見える問題を表示します。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentNoFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No fade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェードなし"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.translucentNoFade.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hard translucent edge for contrast."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較用の硬い半透明エッジです。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.windowBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 Window background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 ウインドウ背景"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.variant.windowBackground.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses AppKit windowBackgroundColor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit の windowBackgroundColor を使います。"
+          }
+        }
+      }
+    },
+    "debug.tabBarBackdropLab.width": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sample width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプル幅"
+          }
+        }
+      }
+    },
+    "debug.menu.startupAppearanceDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup Appearance Debug…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動時の外観デバッグ…"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.appearance.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外観"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.appearanceLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外観:"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.configLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Config:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定:"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用済み"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applied.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reloads the running app through Ghostty config update, matching startup theme resolution without editing config files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定ファイルを編集せず、Ghostty 設定更新で実行中のアプリを再読み込みし、起動時のテーマ解決を再現します。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.applyPreview.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを適用"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.copySelectedConfig.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Selected Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中の設定をコピー"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.mode.dark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Dark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダークを強制"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.mode.light": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Light"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトを強制"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.mode.stored": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stored App Setting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みのアプリ設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.preview.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.freshInstall.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No user theme or terminal colors, so cmux applies its managed default colors."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーのテーマやターミナル色がないため、cmux の管理されたデフォルト色を適用します。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.freshInstall.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fresh Install"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規インストール"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.realUserConfig.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loads your actual Ghostty and cmux config files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際の Ghostty と cmux の設定ファイルを読み込みます。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.realUserConfig.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Real User Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際のユーザー設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userExplicitColors.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulates a user with direct terminal color settings and no theme."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマなしでターミナル色を直接設定しているユーザーをシミュレートします。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userExplicitColors.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User Explicit Colors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー指定色"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userSingleTheme.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulates a user with one Ghostty theme applied in both appearances."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトとダークの両方に同じ Ghostty テーマを適用しているユーザーをシミュレートします。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userSingleTheme.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User Single Theme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー単一テーマ"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userThemePair.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulates a user with an explicit light/dark Ghostty theme."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトとダークの Ghostty テーマを明示的に設定しているユーザーをシミュレートします。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.profile.userThemePair.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User Light/Dark Theme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーのライト/ダークテーマ"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.realConfigFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loads real user config files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際のユーザー設定ファイルを読み込みます。"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.restoreRealStartup.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Real Startup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際の起動設定に戻す"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.selectedConfig.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中の設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.startupConfig.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動設定"
+          }
+        }
+      }
+    },
+    "debug.startupAppearance.window.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startup Appearance Debug"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動時の外観デバッグ"
+          }
+        }
+      }
+    },
     "debug.windows.browserProfilePopover.title": {
       "extractionState": "manual",
       "localizations": {
@@ -18088,6 +19601,57 @@
         }
       }
     },
+    "command.enableMatchTerminalBackground.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Match Terminal Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの背景に合わせる"
+          }
+        }
+      }
+    },
+    "command.disableMatchTerminalBackground.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Match Terminal Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの背景に合わせる設定を無効にする"
+          }
+        }
+      }
+    },
+    "command.matchTerminalBackground.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの外観"
+          }
+        }
+      }
+    },
     "command.enableMinimalMode.title": {
       "extractionState": "manual",
       "localizations": {
@@ -32038,6 +33602,52 @@
         }
       }
     },
+    "contextMenu.copyWorkspaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Workspace ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースIDをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 ID 복사"
+          }
+        }
+      }
+    },
+    "contextMenu.copyWorkspaceIDs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Workspace IDs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースIDをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 ID 복사"
+          }
+        }
+      }
+    },
     "contextMenu.moveDown": {
       "extractionState": "manual",
       "localizations": {
@@ -40042,13 +41652,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "查找..."
+            "value": "查找…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "尋找..."
+            "value": "尋找…"
           }
         },
         "ko": {
@@ -40060,7 +41670,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suchen …"
+            "value": "Suchen…"
           }
         },
         "es": {
@@ -40072,19 +41682,19 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher..."
+            "value": "Rechercher…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trova…"
+            "value": "Cerca…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Søg…"
+            "value": "Find…"
           }
         },
         "pl": {
@@ -40096,7 +41706,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Найти..."
+            "value": "Найти…"
           }
         },
         "bs": {
@@ -40114,7 +41724,7 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finn …"
+            "value": "Finn…"
           }
         },
         "pt-BR": {
@@ -40126,7 +41736,7 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ค้นหา..."
+            "value": "ค้นหา…"
           }
         },
         "tr": {
@@ -48382,6 +49992,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "메뉴 막대에 표시"
+          }
+        }
+      }
+    },
+    "settings.app.menuBarOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Bar Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーのみ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅菜单栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅選單列"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대 전용"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Menüleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo barra de menús"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre des menus uniquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo barra dei menu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun menulinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko pasek menu"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только строка меню"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo traka menija"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط القائمة فقط"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun menylinje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas barra de menus"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฉพาะแถบเมนู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca menü çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише рядок меню"
+          }
+        }
+      }
+    },
+    "settings.app.menuBarOnly.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide the Dock icon and Cmd+Tab entry. Use the menu bar item to show cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DockアイコンとCmd+Tabの項目を非表示にします。cmuxを表示するにはメニューバー項目を使います。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏 Dock 图标和 Cmd+Tab 条目。使用菜单栏项目显示 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏 Dock 圖示和 Cmd+Tab 項目。使用選單列項目顯示 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 아이콘과 Cmd+Tab 항목을 숨깁니다. 메뉴 막대 항목으로 cmux를 표시합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet das Dock-Symbol und den Cmd+Tab-Eintrag aus. Verwende den Menüleisteneintrag, um cmux anzuzeigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta el ícono del Dock y la entrada de Cmd+Tab. Usa el elemento de la barra de menús para mostrar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque l’icône du Dock et l’entrée Cmd+Tab. Utilisez l’élément de barre des menus pour afficher cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasconde l'icona del Dock e la voce Cmd+Tab. Usa l'elemento nella barra dei menu per mostrare cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul Dock-symbolet og Cmd+Tab-posten. Brug menulinjeelementet til at vise cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukrywa ikonę Docka i pozycję Cmd+Tab. Użyj elementu na pasku menu, aby pokazać cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрывает значок Dock и пункт Cmd+Tab. Используйте пункт строки меню, чтобы показать cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakriva Dock ikonu i Cmd+Tab stavku. Koristi stavku trake menija za prikaz cmux-a."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يخفي أيقونة Dock وإدخال Cmd+Tab. استخدم عنصر شريط القائمة لإظهار cmux."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjuler Dock-symbolet og Cmd+Tab-oppføringen. Bruk menylinjeelementet for å vise cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta o ícone no Dock e a entrada Cmd+Tab. Use o item da barra de menus para mostrar o cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนไอคอน Dock และรายการ Cmd+Tab ใช้รายการในแถบเมนูเพื่อแสดง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock simgesini ve Cmd+Tab girişini gizler. cmux'u göstermek için menü çubuğu öğesini kullan."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приховує іконку Dock і пункт Cmd+Tab. Використовуйте пункт рядка меню, щоб показати cmux."
           }
         }
       }
@@ -71753,6 +73601,159 @@
         }
       }
     },
+    "fileExplorer.search.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type to search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力して検索"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First %d matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の%d件"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.matches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d件"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.noMatches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致なし"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを検索"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.rgExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rg exited with status %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rg がステータス %d で終了しました"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.searching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d matches, searching"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d件、検索中"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local folders only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルフォルダのみ"
+          }
+        }
+      }
+    },
     "titlebar.fileExplorer.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -76125,6 +78126,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Непрочитаних сповіщень немає"
+          }
+        }
+      }
+    },
+    "statusMenu.showCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxを表示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 표시"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض cmux"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'u Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати cmux"
           }
         }
       }
@@ -88464,6 +90584,29 @@
         }
       }
     },
+    "terminalContextMenu.copyIdentifiers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy IDs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IDをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID 복사"
+          }
+        }
+      }
+    },
     "terminalContextMenu.paste": {
       "extractionState": "manual",
       "localizations": {
@@ -90071,6 +92214,138 @@
         }
       }
     },
+    "shortcut.focusRightSidebar.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーにフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 사이드바에 포커스"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToFiles.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのファイルを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 파일 표시"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToFind.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Find"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの検索を表示"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToSessions.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのセッションを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 세션 표시"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToFeed.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Feed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのフィードを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 피드 표시"
+          }
+        }
+      }
+    },
+    "menu.view.focusRightSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーにフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 사이드바에 포커스"
+          }
+        }
+      }
+    },
     "menu.view.editWorkspaceDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -90465,6 +92740,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ファイル"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.find": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
           }
         }
       }
@@ -91224,6 +93516,2121 @@
           "stringUnit": {
             "state": "translated",
             "value": "계정 액세스 토큰을 사용할 수 없습니다."
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.feed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィード"
+          }
+        }
+      }
+    },
+    "feed.filter.actionable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actionable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要対応"
+          }
+        }
+      }
+    },
+    "feed.filter.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて"
+          }
+        }
+      }
+    },
+    "feed.empty.actionable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pending decisions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留中の判断はありません"
+          }
+        }
+      }
+    },
+    "feed.empty.actionable.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permission, plan, and question requests from AI agents will appear here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIエージェントからの権限、計画、質問のリクエストがここに表示されます。"
+          }
+        }
+      }
+    },
+    "feed.empty.all.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No feed activity yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードのアクティビティはまだありません"
+          }
+        }
+      }
+    },
+    "feed.empty.all.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool use, messages, and session events will appear here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールの利用、メッセージ、セッションイベントがここに表示されます。"
+          }
+        }
+      }
+    },
+    "feed.status.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pending"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留中"
+          }
+        }
+      }
+    },
+    "feed.status.expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expired"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限切れ"
+          }
+        }
+      }
+    },
+    "feed.badge.allowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可"
+          }
+        }
+      }
+    },
+    "feed.badge.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラン"
+          }
+        }
+      }
+    },
+    "feed.badge.answered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answered"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答済み"
+          }
+        }
+      }
+    },
+    "feed.permission.once": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Once"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1回"
+          }
+        }
+      }
+    },
+    "feed.permission.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に"
+          }
+        }
+      }
+    },
+    "feed.permission.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All tools"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのツール"
+          }
+        }
+      }
+    },
+    "feed.permission.bypass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bypass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイパス"
+          }
+        }
+      }
+    },
+    "feed.permission.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deny"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        }
+      }
+    },
+    "feed.exitplan.bypass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bypass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイパス"
+          }
+        }
+      }
+    },
+    "feed.exitplan.ultraplan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultraplan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウルトラプラン"
+          }
+        }
+      }
+    },
+    "feed.exitplan.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "feed.exitplan.autoaccept": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "feed.exitplan.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        }
+      }
+    },
+    "feed.exitplan.allowedPrompts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowed prompts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可されたプロンプト"
+          }
+        }
+      }
+    },
+    "feed.exitplan.planFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計画ファイル"
+          }
+        }
+      }
+    },
+    "feed.exitplan.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deny"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        }
+      }
+    },
+    "feed.question.noOptions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent provided no options."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントは選択肢を提供していません。"
+          }
+        }
+      }
+    },
+    "feed.question.submit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
+    },
+    "feed.divider.resolved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolved"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解決済み"
+          }
+        }
+      }
+    },
+    "feed.exitplan.feedback.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tell Claude what to change…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeに変更内容を伝える…"
+          }
+        }
+      }
+    },
+    "feed.exitplan.refine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send feedback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードバック送信"
+          }
+        }
+      }
+    },
+    "feed.badge.refined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refined"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正依頼"
+          }
+        }
+      }
+    },
+    "feed.question.submitAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit All Answers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての回答を送信"
+          }
+        }
+      }
+    },
+    "feed.question.skipInterviewPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip + plan immediately"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップしてすぐ計画"
+          }
+        }
+      }
+    },
+    "feed.question.typeSomething": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type something…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自由記入…"
+          }
+        }
+      }
+    },
+    "feed.stop.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude finished — reply to continue"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeが完了しました。続行するには返信してください"
+          }
+        }
+      }
+    },
+    "feed.stop.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reply to Claude…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeへの返信…"
+          }
+        }
+      }
+    },
+    "feed.stop.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send to Claude"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeへ送信"
+          }
+        }
+      }
+    },
+    "feed.question.answerAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Please answer all questions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての質問に回答してください"
+          }
+        }
+      }
+    },
+    "feed.badge.submitted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submitted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信済み"
+          }
+        }
+      }
+    },
+    "feed.context.you": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "You:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "あなた:" } }
+      }
+    },
+    "feed.context.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント:" } }
+      }
+    },
+    "feed.context.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Plan:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "計画:" } }
+      }
+    },
+    "feed.promptEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "You: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "あなた: %@" } }
+      }
+    },
+    "feed.promptEcho.permission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "You: %@ request from %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%2$@からの%1$@リクエスト" } }
+      }
+    },
+    "feed.kind.permission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PERMISSION" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "権限" } }
+      }
+    },
+    "feed.kind.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PLAN" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プラン" } }
+      }
+    },
+    "feed.kind.exitPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Exit plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了プラン" } }
+      }
+    },
+    "feed.kind.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Question" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "質問" } }
+      }
+    },
+    "feed.kind.question.upper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "QUESTION" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "質問" } }
+      }
+    },
+    "feed.kind.toolUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "TOOL USE" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ツール使用" } }
+      }
+    },
+    "feed.kind.toolResult": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "TOOL RESULT" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ツール結果" } }
+      }
+    },
+    "feed.kind.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PROMPT" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロンプト" } }
+      }
+    },
+    "feed.kind.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "MESSAGE" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メッセージ" } }
+      }
+    },
+    "feed.kind.sessionStart.upper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "SESSION START" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション開始" } }
+      }
+    },
+    "feed.kind.sessionEnd.upper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "SESSION END" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション終了" } }
+      }
+    },
+    "feed.kind.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "STOP" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "停止" } }
+      }
+    },
+    "feed.kind.todos": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "TODOS" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "TODO" } }
+      }
+    },
+    "feed.permission.mode.once": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "once" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1回" } }
+      }
+    },
+    "feed.permission.mode.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "always" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "常に" } }
+      }
+    },
+    "feed.permission.mode.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "all tools" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "全ツール" } }
+      }
+    },
+    "feed.permission.mode.bypass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "bypass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バイパス" } }
+      }
+    },
+    "feed.permission.mode.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "denied" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拒否" } }
+      }
+    },
+    "feed.exitplan.mode.bypass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "bypass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バイパス" } }
+      }
+    },
+    "feed.exitplan.mode.ultraplan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ultraplan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウルトラプラン" } }
+      }
+    },
+    "feed.exitplan.mode.autoAccept": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "auto" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動" } }
+      }
+    },
+    "feed.exitplan.mode.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "manual" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "手動" } }
+      }
+    },
+    "feed.exitplan.mode.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "denied" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拒否" } }
+      }
+    },
+    "feed.question.multiSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Multi-select" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "複数選択" } }
+      }
+    },
+    "feed.telemetry.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー" } }
+      }
+    },
+    "feed.telemetry.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ok" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK" } }
+      }
+    },
+    "feed.telemetry.sessionStart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "session start" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション開始" } }
+      }
+    },
+    "feed.telemetry.sessionEnd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "session end" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション終了" } }
+      }
+    },
+    "feed.telemetry.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "stop" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "停止" } }
+      }
+    },
+    "feed.todos.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tasks" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスク" } }
+      }
+    },
+    "feed.todos.moreCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "... +%lld completed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "... 完了が%lld件" } }
+      }
+    },
+    "feed.todos.collapse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Collapse" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "折りたたむ" } }
+      }
+    },
+    "feed.todos.summary.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld done" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了%lld件" } }
+      }
+    },
+    "feed.todos.summary.inProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld in progress" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "進行中%lld件" } }
+      }
+    },
+    "feed.todos.summary.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld open" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未完了%lld件" } }
+      }
+    },
+    "feed.notification.permission.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@の権限確認" } }
+      }
+    },
+    "feed.notification.permission.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ needs approval" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@に承認が必要です" } }
+      }
+    },
+    "feed.notification.decisionNeeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Decision needed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "判断が必要です" } }
+      }
+    },
+    "feed.notification.exitPlan.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ plan ready" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@のプラン準備完了" } }
+      }
+    },
+    "feed.notification.exitPlan.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Review and approve the plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プランを確認して承認してください" } }
+      }
+    },
+    "feed.notification.question.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ question" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@からの質問" } }
+      }
+    },
+    "feed.notification.question.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent is asking a question" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが質問しています" } }
+      }
+    },
+    "feed.notification.permission.allowOnce": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Allow Once" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1回だけ許可" } }
+      }
+    },
+    "feed.notification.permission.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Always" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "常に許可" } }
+      }
+    },
+    "feed.notification.permission.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Deny" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拒否" } }
+      }
+    },
+    "feed.notification.exitPlan.bypass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Bypass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バイパス" } }
+      }
+    },
+    "feed.notification.exitPlan.ultraplan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ultraplan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウルトラプラン" } }
+      }
+    },
+    "feed.notification.exitPlan.autoAccept": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Auto" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動" } }
+      }
+    },
+    "feed.notification.exitPlan.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Manual" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "手動" } }
+      }
+    },
+    "feed.notification.question.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "返信" } }
+      }
+    },
+    "debug.menu.feedButtonStyleDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Button Style Debug…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィードボタンスタイルのデバッグ…" } }
+      }
+    },
+    "debug.menu.feedTextEditorDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Text Editor Lab…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィードテキストエディタラボ…" } }
+      }
+    },
+    "feed.textEditorDebug.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Text Editor Lab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィードテキストエディタラボ" } }
+      }
+    },
+    "feed.textEditorDebug.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Text Editors" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィードテキストエディタ" } }
+      }
+    },
+    "feed.textEditorDebug.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compare autosizing editors with identical input." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "同じ入力で自動サイズ調整エディタを比較します。" } }
+      }
+    },
+    "feed.textEditorDebug.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リセット" } }
+      }
+    },
+    "feed.textEditorDebug.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Type several lines here..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ここに複数行を入力..." } }
+      }
+    },
+    "feed.textEditorDebug.metrics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld lines · %lld chars" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 行・%lld 文字" } }
+      }
+    },
+    "feed.textEditorDebug.section.swiftui": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "SwiftUI" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SwiftUI" } }
+      }
+    },
+    "feed.textEditorDebug.section.appkit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "AppKit" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "AppKit" } }
+      }
+    },
+    "feed.textEditorDebug.variant.swiftUITextField": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "SwiftUI TextField" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SwiftUI TextField" } }
+      }
+    },
+    "feed.textEditorDebug.variant.swiftUIMirror": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "SwiftUI Mirror TextEditor" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SwiftUI Mirror TextEditor" } }
+      }
+    },
+    "feed.textEditorDebug.variant.appKitDirectSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "AppKit Direct, sizeThatFits" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "AppKit Direct, sizeThatFits" } }
+      }
+    },
+    "feed.textEditorDebug.variant.appKitDirectIntrinsic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "AppKit Direct, intrinsic" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "AppKit Direct, intrinsic" } }
+      }
+    },
+    "feed.textEditorDebug.variant.appKitScrollSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "AppKit ScrollView, sizeThatFits" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "AppKit ScrollView, sizeThatFits" } }
+      }
+    },
+    "feed.textEditorDebug.variant.appKitScrollMeasured": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "AppKit ScrollView, measured" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "AppKit ScrollView, measured" } }
+      }
+    },
+    "feed.buttonDebug.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Button Style" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィードボタンスタイル" } }
+      }
+    },
+    "feed.buttonDebug.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Buttons" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィードボタン" } }
+      }
+    },
+    "feed.buttonDebug.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tune every Feed button kind live." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのフィードボタン種別をライブ調整します。" } }
+      }
+    },
+    "feed.buttonDebug.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リセット" } }
+      }
+    },
+    "feed.buttonDebug.palette": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Palette" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "パレット" } }
+      }
+    },
+    "feed.buttonDebug.palette.system": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "System" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "システム" } }
+      }
+    },
+    "feed.buttonDebug.palette.glassNeutral": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Glass Neutral" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Glassニュートラル" } }
+      }
+    },
+    "feed.buttonDebug.palette.graphite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Graphite" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グラファイト" } }
+      }
+    },
+    "feed.buttonDebug.palette.aqua": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Aqua" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクア" } }
+      }
+    },
+    "feed.buttonDebug.palette.orchard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Orchard" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オーチャード" } }
+      }
+    },
+    "feed.buttonDebug.palette.ember": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ember" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エンバー" } }
+      }
+    },
+    "feed.buttonDebug.palette.contrast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Contrast" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コントラスト" } }
+      }
+    },
+    "feed.buttonDebug.palette.light": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Light" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライト" } }
+      }
+    },
+    "feed.buttonDebug.palette.dark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Dark" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダーク" } }
+      }
+    },
+    "feed.buttonDebug.style": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Style" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スタイル" } }
+      }
+    },
+    "feed.buttonDebug.style.solid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Solid" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ソリッド" } }
+      }
+    },
+    "feed.buttonDebug.style.glass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Raycast Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Raycast Glass" } }
+      }
+    },
+    "feed.buttonDebug.style.standardGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Standard Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "標準Glass" } }
+      }
+    },
+    "feed.buttonDebug.style.standardTintedGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Standard Tinted Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "標準Tint Glass" } }
+      }
+    },
+    "feed.buttonDebug.style.nativeGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Native Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ネイティブGlass" } }
+      }
+    },
+    "feed.buttonDebug.style.nativeProminentGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Prominent Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "強調Glass" } }
+      }
+    },
+    "feed.buttonDebug.style.liquid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Liquid" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リキッド" } }
+      }
+    },
+    "feed.buttonDebug.style.halo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Halo" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ハロー" } }
+      }
+    },
+    "feed.buttonDebug.style.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コマンド" } }
+      }
+    },
+    "feed.buttonDebug.style.commandLight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Command Light" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コマンドライト" } }
+      }
+    },
+    "feed.buttonDebug.style.outline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Outline" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アウトライン" } }
+      }
+    },
+    "feed.buttonDebug.style.flat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Flat" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フラット" } }
+      }
+    },
+    "feed.buttonDebug.applyRaycastGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Apply Raycast Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Raycast Glassを適用" } }
+      }
+    },
+    "feed.buttonDebug.variations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Variations" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バリエーション" } }
+      }
+    },
+    "feed.buttonDebug.section.base": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Base" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ベース" } }
+      }
+    },
+    "feed.buttonDebug.section.nativeGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Native Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ネイティブGlass" } }
+      }
+    },
+    "feed.buttonDebug.section.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コマンド" } }
+      }
+    },
+    "feed.buttonDebug.section.material": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Material" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マテリアル" } }
+      }
+    },
+    "feed.buttonDebug.preset.solidClassic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Solid Classic" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ソリッド定番" } }
+      }
+    },
+    "feed.buttonDebug.preset.raycastGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Raycast Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Raycast Glass" } }
+      }
+    },
+    "feed.buttonDebug.preset.standardLiquidGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Standard Liquid Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "標準Liquid Glass" } }
+      }
+    },
+    "feed.buttonDebug.preset.tintedLiquidGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tinted Liquid Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tint付きLiquid Glass" } }
+      }
+    },
+    "feed.buttonDebug.preset.nativeGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Native Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ネイティブGlass" } }
+      }
+    },
+    "feed.buttonDebug.preset.nativeProminentGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Prominent Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "強調Glass" } }
+      }
+    },
+    "feed.buttonDebug.preset.liquidCapsule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Liquid Capsule" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リキッドカプセル" } }
+      }
+    },
+    "feed.buttonDebug.preset.frostedOutline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Frosted Outline" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フロストアウトライン" } }
+      }
+    },
+    "feed.buttonDebug.preset.haloGlow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Halo Glow" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ハローグロー" } }
+      }
+    },
+    "feed.buttonDebug.preset.commandDark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Command Dark" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コマンドダーク" } }
+      }
+    },
+    "feed.buttonDebug.preset.commandLight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Command Light" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コマンドライト" } }
+      }
+    },
+    "feed.buttonDebug.preset.clearGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クリアGlass" } }
+      }
+    },
+    "feed.buttonDebug.preset.compactGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compact Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンパクトGlass" } }
+      }
+    },
+    "feed.buttonDebug.preset.nativeBlue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Native Blue" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ネイティブブルー" } }
+      }
+    },
+    "feed.buttonDebug.preset.liquidMono": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Liquid Mono" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リキッドモノ" } }
+      }
+    },
+    "feed.buttonDebug.preset.softHalo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Soft Halo" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ソフトハロー" } }
+      }
+    },
+    "feed.buttonDebug.preset.hairlineGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hairline Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ヘアラインGlass" } }
+      }
+    },
+    "feed.buttonDebug.preset.minimalFlat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Minimal Flat" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ミニマルフラット" } }
+      }
+    },
+    "feed.buttonDebug.compactRadius": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compact radius" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンパクト半径" } }
+      }
+    },
+    "feed.buttonDebug.mediumRadius": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Medium radius" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "中サイズ半径" } }
+      }
+    },
+    "feed.buttonDebug.horizontalPadding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Medium horizontal padding" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "中サイズ横余白" } }
+      }
+    },
+    "feed.buttonDebug.compactHorizontalPadding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compact horizontal padding" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンパクト横余白" } }
+      }
+    },
+    "feed.buttonDebug.compactVerticalPadding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compact vertical padding" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンパクト縦余白" } }
+      }
+    },
+    "feed.buttonDebug.mediumVerticalPadding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Medium vertical padding" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "中サイズ縦余白" } }
+      }
+    },
+    "feed.buttonDebug.glassTint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Glass tint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ガラスの色合い" } }
+      }
+    },
+    "feed.buttonDebug.borderWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Border" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "境界線" } }
+      }
+    },
+    "feed.buttonDebug.kind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Button Kind" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ボタン種別" } }
+      }
+    },
+    "feed.buttonDebug.colors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Colors" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "色" } }
+      }
+    },
+    "feed.buttonDebug.background": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Background" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "背景" } }
+      }
+    },
+    "feed.buttonDebug.hover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hover" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ホバー" } }
+      }
+    },
+    "feed.buttonDebug.foreground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Foreground" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "前景" } }
+      }
+    },
+    "feed.buttonDebug.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビュー" } }
+      }
+    },
+    "feed.buttonDebug.kind.ghost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ghost" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ゴースト" } }
+      }
+    },
+    "feed.buttonDebug.kind.soft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Soft" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ソフト" } }
+      }
+    },
+    "feed.buttonDebug.kind.dark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Dark" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ダーク" } }
+      }
+    },
+    "feed.buttonDebug.kind.light": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Light" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライト" } }
+      }
+    },
+    "feed.buttonDebug.kind.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Primary" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プライマリ" } }
+      }
+    },
+    "feed.buttonDebug.kind.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Success" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "成功" } }
+      }
+    },
+    "feed.buttonDebug.kind.warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Warning" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "警告" } }
+      }
+    },
+    "feed.buttonDebug.kind.destructive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Destructive" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "破壊的" } }
+      }
+    },
+    "rightSidebar.mode.pendingHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ · %lld pending" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ · 保留中%lld件" } }
+      }
+    },
+    "feed.filter.activity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティビティ"
+          }
+        }
+      }
+    },
+    "feed.empty.activity.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No activity yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティビティはまだありません"
+          }
+        }
+      }
+    },
+    "feed.empty.activity.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent decisions and todo-list updates will appear here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの判断とTodoリストの更新がここに表示されます。"
+          }
+        }
+      }
+    },
+    "settings.account.error.missingRefreshToken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account refresh token is unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントの更新トークンを取得できません。"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токен оновлення облікового запису недоступний."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 새로 고침 토큰을 사용할 수 없습니다."
+          }
+        }
+      }
+    },
+    "remote.state.connected.vmNoProxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続済み (VM、プロキシ無効)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connected to %@ (VM, proxy disabled)"
+          }
+        }
+      }
+    },
+    "remote.disconnectBanner.sessionEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート SSH セッションが終了しました: %s"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] remote ssh session ended: %s"
+          }
+        }
+      }
+    },
+    "remote.disconnectBanner.reconnectHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ローカルシェルにフォールバックしました。元の cmux ssh または cmux vm attach コマンドで再接続してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
           }
         }
       }

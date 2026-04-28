@@ -7,6 +7,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu(title: "cmux")
     private let notificationStore: TerminalNotificationStore
+    private let onShowMainWindow: () -> Void
     private let onShowNotifications: () -> Void
     private let onOpenNotification: (TerminalNotification) -> Void
     private let onJumpToLatestUnread: () -> Void
@@ -18,6 +19,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
     private let stateHintItem = NSMenuItem(title: String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications"), action: nil, keyEquivalent: "")
     private let buildHintItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let showMainWindowItem = NSMenuItem(title: String(localized: "statusMenu.showCmux", defaultValue: "Show cmux"), action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
     private let showNotificationsItem = NSMenuItem(title: String(localized: "statusMenu.showNotifications", defaultValue: "Show Notifications"), action: nil, keyEquivalent: "")
@@ -33,6 +35,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
     init(
         notificationStore: TerminalNotificationStore,
+        onShowMainWindow: @escaping () -> Void,
         onShowNotifications: @escaping () -> Void,
         onOpenNotification: @escaping (TerminalNotification) -> Void,
         onJumpToLatestUnread: @escaping () -> Void,
@@ -41,6 +44,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         onQuitApp: @escaping () -> Void
     ) {
         self.notificationStore = notificationStore
+        self.onShowMainWindow = onShowMainWindow
         self.onShowNotifications = onShowNotifications
         self.onOpenNotification = onOpenNotification
         self.onJumpToLatestUnread = onJumpToLatestUnread
@@ -80,6 +84,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             buildHintItem.isEnabled = false
             menu.addItem(buildHintItem)
         }
+
+        menu.addItem(.separator())
+
+        showMainWindowItem.target = self
+        showMainWindowItem.action = #selector(showMainWindowAction)
+        menu.addItem(showMainWindowItem)
 
         menu.addItem(notificationListSeparator)
         notificationSectionSeparator.isHidden = true
@@ -148,6 +158,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 #endif
 
         stateHintItem.title = snapshot.stateHintTitle
+        showMainWindowItem.isHidden = !MenuBarOnlySettings.shouldShowMainWindowMenuItem()
 
         applyShortcut(KeyboardShortcutSettings.shortcut(for: .showNotifications), to: showNotificationsItem)
         applyShortcut(KeyboardShortcutSettings.shortcut(for: .jumpToUnread), to: jumpToUnreadItem)
@@ -211,6 +222,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     @objc private func openNotificationItemAction(_ sender: NSMenuItem) {
         guard let payload = sender.representedObject as? NotificationMenuItemPayload else { return }
         onOpenNotification(payload.notification)
+    }
+
+    @objc private func showMainWindowAction() {
+        onShowMainWindow()
     }
 
     @objc private func showNotificationsAction() {
@@ -464,6 +479,36 @@ enum MenuBarExtraSettings {
             return defaultShowInMenuBar
         }
         return defaults.bool(forKey: showInMenuBarKey)
+    }
+
+    static func shouldInstallMenuBarExtra(defaults: UserDefaults = .standard) -> Bool {
+        MenuBarOnlySettings.isEnabled(defaults: defaults) || showsMenuBarExtra(defaults: defaults)
+    }
+}
+
+enum MenuBarOnlySettings {
+    static let menuBarOnlyKey = "menuBarOnly"
+    static let defaultMenuBarOnly = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: menuBarOnlyKey) == nil {
+            return defaultMenuBarOnly
+        }
+        return defaults.bool(forKey: menuBarOnlyKey)
+    }
+
+    static func activationPolicy(defaults: UserDefaults = .standard) -> NSApplication.ActivationPolicy {
+        isEnabled(defaults: defaults) ? .accessory : .regular
+    }
+
+    static func shouldShowMainWindowMenuItem(defaults: UserDefaults = .standard) -> Bool {
+        isEnabled(defaults: defaults)
+    }
+
+    static func applyActivationPolicy(defaults: UserDefaults = .standard, application: NSApplication = .shared) {
+        let targetPolicy = activationPolicy(defaults: defaults)
+        guard application.activationPolicy() != targetPolicy else { return }
+        application.setActivationPolicy(targetPolicy)
     }
 }
 

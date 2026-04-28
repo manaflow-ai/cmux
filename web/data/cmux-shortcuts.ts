@@ -62,6 +62,23 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "prevSidebarTab", combos: [["⌃", "⌘", "["]], description: { en: "Previous workspace", ja: "前のワークスペース" } },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
+      { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
+      { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Focus right sidebar", ja: "右サイドバーにフォーカス" } },
+      {
+        id: "switchRightSidebarMode",
+        combos: [["⌃", "1 / 2 / 3 / 4"]],
+        description: { en: "Switch Files / Find / Sessions / Feed", ja: "ファイル / 検索 / セッション / フィードを切り替え" },
+        note: { en: "when the right sidebar is focused", ja: "右サイドバーにフォーカス中" },
+      },
+      {
+        id: "navigateRightSidebarRows",
+        combos: [["J / K"], ["⌃", "N / P"], ["H / L"]],
+        description: { en: "Navigate focused sidebar rows", ja: "フォーカス中のサイドバー行を移動" },
+        note: {
+          en: "In Files, H/L collapse and expand folders. Search starts with /.",
+          ja: "ファイルでは H/L でフォルダを折りたたみ/展開します。検索は / で開始します。",
+        },
+      },
       { id: "closeWorkspace", combos: [["⌘", "⇧", "W"]], description: { en: "Close workspace", ja: "ワークスペースを閉じる" } },
     ],
   },
