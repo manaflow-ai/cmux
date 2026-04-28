@@ -14168,7 +14168,11 @@ struct CMUXCLI {
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+                summary = (
+                    subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
+                    body: savedBody,
+                    statusKind: summary.statusKind
+                )
             }
 
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
@@ -14195,13 +14199,28 @@ struct CMUXCLI {
             }
 
             let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
-            _ = try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
-            )
+            switch summary.statusKind {
+            case .needsInput:
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Needs input",
+                    icon: "bell.fill",
+                    color: "#4C8DFF"
+                )
+            case .idle:
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Idle",
+                    icon: "pause.circle",
+                    color: "#8E8E93"
+                )
+            case .noStatus:
+                // auth_success, completion, and other non-attention events
+                // should not clobber the existing running/idle pill state.
+                break
+            }
             print(response)
 
         case "session-end":
@@ -14908,56 +14927,110 @@ struct CMUXCLI {
         return nil
     }
 
-    private func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String) {
+    /// Sidebar status implied by a Claude Notification hook.
+    ///
+    /// Claude Code's `Notification` hook fires for multiple reasons; only some
+    /// actually require user input. Treating them all as "Needs input" causes
+    /// false positives (e.g. `idle_prompt` is emitted after the session sits
+    /// idle for a while, not because Claude is blocked on the user).
+    enum ClaudeNotificationStatusKind {
+        case needsInput  // permission_prompt, elicitation_dialog, unknown attention-class messages
+        case idle        // idle_prompt — session parked, no action required
+        case noStatus    // auth_success, completion, and other events that should not clobber the existing pill
+    }
+
+    private func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String, statusKind: ClaudeNotificationStatusKind) {
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
-                return classifyClaudeNotification(signal: fallback, message: fallback)
+                return classifyClaudeNotification(notificationType: nil, signal: fallback, message: fallback)
             }
-            return ("Waiting", "Claude is waiting for your input")
+            return ("Waiting", "Claude is waiting for your input", .needsInput)
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        // The authoritative Notification hook type field per Claude Code docs.
+        let notificationType = firstString(in: object, keys: ["notification_type"])
+            ?? firstString(in: nested, keys: ["notification_type"])
+        // Include notification_type in signalParts so unknown-but-classifiable
+        // type values (e.g. future values not yet enumerated below) still
+        // influence the keyword-based fallback instead of being dropped.
         let signalParts = [
             firstString(in: object, keys: ["event", "event_name", "hook_event_name", "type", "kind"]),
             firstString(in: object, keys: ["notification_type", "matcher", "reason"]),
-            firstString(in: nested, keys: ["type", "kind", "reason"])
+            firstString(in: nested, keys: ["notification_type", "type", "kind", "reason"])
         ]
         let messageCandidates = [
             firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
         ]
-        let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
+        // Keep the message empty when the payload doesn't supply one, so the
+        // per-type body defaults below ("Session idle", "Authentication
+        // successful", etc.) are chosen instead of the generic needs-input
+        // placeholder. Only fall back to the placeholder when the classifier
+        // actually produces a needs-input event with no body of its own.
+        let message = messageCandidates.compactMap { $0 }.first ?? ""
         let normalizedMessage = normalizedSingleLine(message)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
-        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
+        var classified = classifyClaudeNotification(
+            notificationType: notificationType,
+            signal: signal,
+            message: normalizedMessage
+        )
+
+        if classified.statusKind == .needsInput, classified.body.isEmpty {
+            classified.body = "Claude needs your input"
+        }
 
         classified.body = truncate(classified.body, maxLength: 180)
         return classified
     }
 
-    private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
+    private func classifyClaudeNotification(
+        notificationType: String?,
+        signal: String,
+        message: String
+    ) -> (subtitle: String, body: String, statusKind: ClaudeNotificationStatusKind) {
+        // Prefer the authoritative notification_type field when Claude Code
+        // provides one — it distinguishes states that the message text cannot.
+        if let normalizedType = notificationType?.lowercased(), !normalizedType.isEmpty {
+            switch normalizedType {
+            case "permission_prompt":
+                return ("Permission", message.isEmpty ? "Approval needed" : message, .needsInput)
+            case "elicitation_dialog":
+                return ("Waiting", message.isEmpty ? "Waiting for input" : message, .needsInput)
+            case "idle_prompt":
+                return ("Idle", message.isEmpty ? "Session idle" : message, .idle)
+            case "auth_success":
+                return ("Auth", message.isEmpty ? "Authentication successful" : message, .noStatus)
+            default:
+                break  // fall through to keyword-based classification
+            }
+        }
+
         let lower = "\(signal) \(message)".lowercased()
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
-            let body = message.isEmpty ? "Approval needed" : message
-            return ("Permission", body)
+            return ("Permission", message.isEmpty ? "Approval needed" : message, .needsInput)
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
-            let body = message.isEmpty ? "Claude reported an error" : message
-            return ("Error", body)
+            return ("Error", message.isEmpty ? "Claude reported an error" : message, .needsInput)
         }
         if lower.contains("complet") || lower.contains("finish") || lower.contains("done") || lower.contains("success") {
-            let body = message.isEmpty ? "Task completed" : message
-            return ("Completed", body)
+            // Completion events should not clobber the current status with a
+            // blue "Needs input" bell; the Stop hook is responsible for moving
+            // the pill to Idle.
+            return ("Completed", message.isEmpty ? "Task completed" : message, .noStatus)
         }
-        if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("idle_prompt") {
-            let body = message.isEmpty ? "Waiting for input" : message
-            return ("Waiting", body)
+        if lower.contains("idle_prompt") || lower.contains("idle prompt") {
+            return ("Idle", message.isEmpty ? "Session idle" : message, .idle)
+        }
+        if lower.contains("wait") || lower.contains("input") {
+            return ("Waiting", message.isEmpty ? "Waiting for input" : message, .needsInput)
         }
         // Use the message directly if it's meaningful (not a generic placeholder).
         if !message.isEmpty, message != "Claude needs your input" {
-            return ("Attention", message)
+            return ("Attention", message, .needsInput)
         }
-        return ("Attention", "Claude needs your attention")
+        return ("Attention", "Claude needs your attention", .needsInput)
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
