@@ -2769,7 +2769,6 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
-        .background(WindowBackdropLayer(role: .titlebar, snapshot: appearance))
         .overlay(alignment: .bottom) {
             WindowChromeBorder(orientation: .horizontal)
         }
@@ -3028,7 +3027,13 @@ struct ContentView: View {
     var body: some View {
         let appearance = windowAppearanceSnapshot
         var view = AnyView(
-            contentAndSidebarLayout(appearance: appearance)
+            ZStack(alignment: .topLeading) {
+                WindowBackdropLayer(role: .windowRoot, snapshot: appearance)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+
+                contentAndSidebarLayout(appearance: appearance)
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .overlay(alignment: .topLeading) {
                     if isFullScreen && sidebarState.isVisible && !isMinimalMode {
@@ -3685,7 +3690,7 @@ struct ContentView: View {
             // material otherwise blends a lighter strip over the terminal area.
             syncNativeTitlebarBackdrop(
                 in: window,
-                enabled: shouldForceTransparentHosting
+                enabled: true
             )
             AppDelegate.shared?.registerMainWindow(
                 window,
@@ -15426,9 +15431,6 @@ private struct WindowBackdropLayer: View {
     private func backdrop(for policy: WindowBackdropPolicy) -> some View {
         switch policy {
         case let .ghosttyTerminalBackdrop(color, opacity, _):
-            // Renderer-owned background images currently cannot be shared outside
-            // the terminal Metal pass, so non-terminal roles use Ghostty's fallback
-            // color/opacity until cmux grows a host image backdrop renderer.
             LayerBackedBackdropColor(color: color.withAlphaComponent(opacity))
         case let .sidebarMaterial(materialPolicy):
             ZStack {

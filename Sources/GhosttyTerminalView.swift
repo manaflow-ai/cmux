@@ -1919,7 +1919,7 @@ class GhosttyApp {
             }
 
             loadInlineGhosttyConfig(
-                "macos-background-from-layer = false",
+                "macos-background-from-layer = true",
                 into: fallbackConfig,
                 prefix: "cmux-renderer-bg",
                 logLabel: "renderer background (fallback)"
@@ -1931,7 +1931,7 @@ class GhosttyApp {
                 logLabel: "shell integration override (fallback)"
             )
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
-                false,
+                true,
                 source: "initialize.fallbackConfig"
             )
             ghostty_config_finalize(fallbackConfig)
@@ -2067,15 +2067,14 @@ class GhosttyApp {
         #endif
         loadCJKFontFallbackIfNeeded(config)
         let renderingModeChanged = setUsesHostLayerBackground(
-            false,
+            true,
             source: "loadDefaultConfigFilesWithLegacyFallback"
         )
-        // Keep Ghostty's renderer in charge of terminal background compositing.
-        // The cmux host-layer shortcut was close for solid colors, but it did
-        // not match Ghostty's translucent composition and made the terminal pane
-        // darker than the matched-surface mode.
+        // Let cmux own the window-level backdrop once, while Ghostty keeps
+        // rendering text, cell backgrounds, and background images. This avoids
+        // separate translucent fills for terminal and chrome surfaces.
         loadInlineGhosttyConfig(
-            "macos-background-from-layer = false",
+            "macos-background-from-layer = true",
             into: config,
             prefix: "cmux-renderer-bg",
             logLabel: "renderer background"
@@ -5835,15 +5834,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
-        let sharesWindowBackdrop = Workspace.usesSharedSurfaceBackdrop()
+        let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
         let usesBonsplitPaneBackdrop = Workspace.usesBonsplitPaneTerminalBackdrop(
             renderingMode: renderingMode,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        // Window/Bonsplit backdrops are the single surface fill for solid-color
-        // terminal backgrounds. Painting the terminal host layer too
-        // double-composites it against the surrounding chrome.
-        let usesHostLayerFill = renderingMode.usesHostLayerFill &&
+        // The window root backdrop is the single surface fill for solid-color
+        // terminal backgrounds. Painting the terminal host layer too would
+        // double-composite it against the surrounding chrome.
+        let usesHostLayerFill = renderingMode.usesWindowHostBackdrop &&
             !sharesWindowBackdrop &&
             !usesBonsplitPaneBackdrop
         let color = usesHostLayerFill
@@ -9564,10 +9563,8 @@ final class GhosttySurfaceScrollView: NSView {
         layer?.masksToBounds = true
 
         backgroundView.wantsLayer = true
-        let initialTerminalBackground = GhosttyApp.shared.defaultBackgroundColor
-            .withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
-        backgroundView.layer?.backgroundColor = initialTerminalBackground.cgColor
-        backgroundView.layer?.isOpaque = initialTerminalBackground.alphaComponent >= 1.0
+        backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+        backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
         synchronizeScrollbarAppearance()

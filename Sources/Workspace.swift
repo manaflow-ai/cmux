@@ -7518,13 +7518,15 @@ final class Workspace: Identifiable, ObservableObject {
         defaults.bool(forKey: "sidebarMatchTerminalBackground")
     }
 
+    nonisolated static func usesWindowRootTerminalBackdrop() -> Bool {
+        true
+    }
+
     nonisolated static func bonsplitChromeHex(
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false
     ) -> String {
-        // Bonsplit chrome still paints once. The terminal renderer owns the
-        // terminal canvas, so cmux no longer uses a global root fill.
         _ = sharesWindowBackdrop
         let themedColor = WindowAppearanceSnapshot.compositedTerminalColor(
             backgroundColor: backgroundColor,
@@ -7538,9 +7540,8 @@ final class Workspace: Identifiable, ObservableObject {
         renderingMode: GhosttyTerminalBackdropRenderingMode,
         sharesWindowBackdrop: Bool
     ) -> Bool {
-        // Ghostty's renderer owns terminal translucency. Bonsplit pane fills
-        // make the canvas darker than Ghostty because they add another
-        // translucent layer under the Metal surface.
+        // The window root backdrop owns terminal fills. Bonsplit pane fills
+        // would add a second translucent layer under the Metal surface.
         return false
     }
 
@@ -7548,22 +7549,33 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .hostLayerSolidColor
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
+        let borderHex = WindowChromeSeparatorColor
+            .color(forChromeBackground: backgroundColor)
+            .hexString(includeAlpha: true)
+
+        if sharesWindowBackdrop {
+            return .init(
+                backgroundHex: "#00000000",
+                tabBarBackgroundHex: "#00000000",
+                splitButtonBackdropHex: "#00000000",
+                paneBackgroundHex: "#00000000",
+                borderHex: borderHex
+            )
+        }
+
         let paneBackgroundHex = usesBonsplitPaneTerminalBackdrop(
             renderingMode: renderingMode,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
             ? surfaceHex
             : "#00000000"
-        let borderHex = WindowChromeSeparatorColor
-            .color(forChromeBackground: backgroundColor)
-            .hexString(includeAlpha: true)
         return .init(
             backgroundHex: surfaceHex,
             tabBarBackgroundHex: surfaceHex,
@@ -7592,11 +7604,25 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated static func resolvedChromeColors(
         from backgroundColor: NSColor,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .hostLayerSolidColor
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
         let backgroundHex = backgroundColor.hexString()
+        let borderHex = WindowChromeSeparatorColor
+            .color(forChromeBackground: backgroundColor)
+            .hexString(includeAlpha: true)
+
+        if sharesWindowBackdrop {
+            return .init(
+                backgroundHex: "#00000000",
+                tabBarBackgroundHex: "#00000000",
+                splitButtonBackdropHex: "#00000000",
+                paneBackgroundHex: "#00000000",
+                borderHex: borderHex
+            )
+        }
+
         let paneBackgroundHex = usesBonsplitPaneTerminalBackdrop(
             renderingMode: renderingMode,
             sharesWindowBackdrop: sharesWindowBackdrop
@@ -7608,9 +7634,7 @@ final class Workspace: Identifiable, ObservableObject {
             tabBarBackgroundHex: backgroundHex,
             splitButtonBackdropHex: backgroundHex,
             paneBackgroundHex: paneBackgroundHex,
-            borderHex: WindowChromeSeparatorColor
-                .color(forChromeBackground: backgroundColor)
-                .hexString(includeAlpha: true)
+            borderHex: borderHex
         )
     }
 
@@ -7640,7 +7664,7 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundOpacity: Double,
         tabTitleFontSize: CGFloat = 11
     ) -> BonsplitConfiguration.Appearance {
-        let sharesWindowBackdrop = usesSharedSurfaceBackdrop()
+        let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
@@ -7661,7 +7685,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
-        let sharesWindowBackdrop = Self.usesSharedSurfaceBackdrop()
+        let sharesWindowBackdrop = Self.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
@@ -7719,7 +7743,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor, backgroundOpacity: Double, reason: String = "unspecified") {
-        let sharesWindowBackdrop = Self.usesSharedSurfaceBackdrop()
+        let sharesWindowBackdrop = Self.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
