@@ -1375,6 +1375,12 @@ struct ShortcutStroke: Equatable, Hashable {
         guard flags == self.modifierFlags else { return false }
 
         let shortcutKey = key.lowercased()
+        if flags.contains(.command) || flags.contains(.control) || flags.contains(.option) {
+            if let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) {
+                return keyCode == expectedKeyCode
+            }
+        }
+
         if Self.usesDirectKeyCodeMatching(shortcutKey) {
             guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
                 return false

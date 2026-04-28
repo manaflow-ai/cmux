@@ -21,7 +21,7 @@
 3128	cmuxTests/BrowserPanelTests.swift
 3126	cmuxTests/WorkspaceRemoteConnectionTests.swift
 2850	Sources/CmuxConfig.swift
-2675	Sources/KeyboardShortcutSettings.swift
+2681	Sources/KeyboardShortcutSettings.swift
 2491	Sources/Panels/CmuxWebView.swift
 2292	cmuxTests/TabManagerUnitTests.swift
 2153	cmuxTests/SessionPersistenceTests.swift
