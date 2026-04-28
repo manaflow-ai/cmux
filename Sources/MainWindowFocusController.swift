@@ -98,7 +98,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed:
+        case .sessions, .feed, .voice:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -343,6 +343,8 @@ final class MainWindowFocusController {
                 feedHost?.focusFirstItemFromCoordinator()
             }
             modeResult = feedHost?.focusHostFromCoordinator() == true
+        case .voice:
+            modeResult = false
         }
         if modeResult {
             pendingRightSidebarFirstItemFocusMode = nil
@@ -538,6 +540,8 @@ final class MainWindowFocusController {
         case .feed:
             feedHost?.focusFirstItemFromCoordinator()
             result = feedHost?.focusHostFromCoordinator() == true
+        case .voice:
+            result = false
         }
         if result {
             pendingRightSidebarFirstItemFocusMode = nil

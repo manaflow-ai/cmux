@@ -17,6 +17,7 @@ enum RightSidebarMode: String, CaseIterable {
     case find
     case sessions
     case feed
+    case voice
 
     var label: String {
         switch self {
@@ -24,6 +25,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
+        case .voice: return String(localized: "rightSidebar.mode.voice", defaultValue: "Voice")
         }
     }
 
@@ -33,15 +35,17 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return "magnifyingglass"
         case .sessions: return "bubble.left.and.text.bubble.right"
         case .feed: return "dot.radiowaves.left.and.right"
+        case .voice: return "waveform.circle"
         }
     }
 
-    var shortcutAction: KeyboardShortcutSettings.Action {
+    var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
+        case .voice: return .switchRightSidebarToVoice
         }
     }
 }
@@ -49,17 +53,11 @@ enum RightSidebarMode: String, CaseIterable {
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFiles).matches(event: event) {
-            return .files
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFind).matches(event: event) {
-            return .find
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToSessions).matches(event: event) {
-            return .sessions
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFeed).matches(event: event) {
-            return .feed
+        for mode in allCases {
+            guard let action = mode.shortcutAction else { continue }
+            if KeyboardShortcutSettings.shortcut(for: action).matches(event: event) {
+                return mode
+            }
         }
         return nil
     }
@@ -202,7 +200,7 @@ struct RightSidebarPanelView: View {
                     mode: mode,
                     isSelected: fileExplorerState.mode == mode,
                     badgeCount: mode == .feed ? feedPendingCount : 0,
-                    shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
+                    shortcutHint: mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) },
                     showsShortcutHint: showsModeShortcutHints
                 ) {
                     if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -258,6 +256,8 @@ struct RightSidebarPanelView: View {
                 }
         case .feed:
             FeedPanelView()
+        case .voice:
+            VoicePanelView()
         }
     }
 
@@ -374,7 +374,7 @@ private struct ModeBarButton: View {
     let mode: RightSidebarMode
     let isSelected: Bool
     var badgeCount: Int = 0
-    let shortcutHint: StoredShortcut
+    let shortcutHint: StoredShortcut?
     let showsShortcutHint: Bool
     let action: () -> Void
 
@@ -401,7 +401,7 @@ private struct ModeBarButton: View {
                     .fill(backgroundColor)
             )
             .overlay(alignment: .trailing) {
-                if showsShortcutHint {
+                if showsShortcutHint, let shortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
                         .offset(x: 5)
                         .shortcutHintTransition()

@@ -66,8 +66,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Focus right sidebar", ja: "右サイドバーにフォーカス" } },
       {
         id: "switchRightSidebarMode",
-        combos: [["⌃", "1 / 2 / 3 / 4"]],
-        description: { en: "Switch Files / Find / Sessions / Feed", ja: "ファイル / 検索 / セッション / フィードを切り替え" },
+        combos: [["⌃", "1 / 2 / 3 / 4 / 5"]],
+        description: { en: "Switch Files / Find / Sessions / Feed / Voice", ja: "ファイル / 検索 / セッション / フィード / 音声を切り替え" },
         note: { en: "when the right sidebar is focused", ja: "右サイドバーにフォーカス中" },
       },
       {

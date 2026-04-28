@@ -117,6 +117,13 @@
 		A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
 		A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */; };
+		AC10A001A1B2C3D4E5F60718 /* VoiceRealtimeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC10B001A1B2C3D4E5F60718 /* VoiceRealtimeModels.swift */; };
+		AC10A002A1B2C3D4E5F60718 /* OpenAIRealtimeClientSecretProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC10B002A1B2C3D4E5F60718 /* OpenAIRealtimeClientSecretProvider.swift */; };
+		AC10A003A1B2C3D4E5F60718 /* VoiceToolExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC10B003A1B2C3D4E5F60718 /* VoiceToolExecutor.swift */; };
+		AC10A004A1B2C3D4E5F60718 /* VoiceRealtimeWebRTCBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC10B004A1B2C3D4E5F60718 /* VoiceRealtimeWebRTCBridge.swift */; };
+		AC10A005A1B2C3D4E5F60718 /* VoiceAgentViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC10B005A1B2C3D4E5F60718 /* VoiceAgentViewModel.swift */; };
+		AC10A006A1B2C3D4E5F60718 /* VoicePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC10B006A1B2C3D4E5F60718 /* VoicePanelView.swift */; };
+		AC10A101A1B2C3D4E5F60718 /* VoiceRealtimeEventParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC10B101A1B2C3D4E5F60718 /* VoiceRealtimeEventParserTests.swift */; };
 		AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
 		B6BF3DC98DB1495E57900199 /* TabManagerUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */; };
@@ -362,6 +369,13 @@
 		A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
 		A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStore.swift; sourceTree = "<group>"; };
+		AC10B001A1B2C3D4E5F60718 /* VoiceRealtimeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRealtimeModels.swift; sourceTree = "<group>"; };
+		AC10B002A1B2C3D4E5F60718 /* OpenAIRealtimeClientSecretProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIRealtimeClientSecretProvider.swift; sourceTree = "<group>"; };
+		AC10B003A1B2C3D4E5F60718 /* VoiceToolExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceToolExecutor.swift; sourceTree = "<group>"; };
+		AC10B004A1B2C3D4E5F60718 /* VoiceRealtimeWebRTCBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRealtimeWebRTCBridge.swift; sourceTree = "<group>"; };
+		AC10B005A1B2C3D4E5F60718 /* VoiceAgentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAgentViewModel.swift; sourceTree = "<group>"; };
+		AC10B006A1B2C3D4E5F60718 /* VoicePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePanelView.swift; sourceTree = "<group>"; };
+		AC10B101A1B2C3D4E5F60718 /* VoiceRealtimeEventParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRealtimeEventParserTests.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
 		B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
@@ -650,6 +664,12 @@
 				FE003001 /* SessionIndexStore.swift */,
 				FE003002 /* SessionIndexView.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
+				AC10B001A1B2C3D4E5F60718 /* VoiceRealtimeModels.swift */,
+				AC10B002A1B2C3D4E5F60718 /* OpenAIRealtimeClientSecretProvider.swift */,
+				AC10B003A1B2C3D4E5F60718 /* VoiceToolExecutor.swift */,
+				AC10B004A1B2C3D4E5F60718 /* VoiceRealtimeWebRTCBridge.swift */,
+				AC10B005A1B2C3D4E5F60718 /* VoiceAgentViewModel.swift */,
+				AC10B006A1B2C3D4E5F60718 /* VoicePanelView.swift */,
 				105D8421DF4E2E09D255D785 /* Auth */,
 				590E4F5F342E5B27010ECC8D /* Cloud */,
 				FEED0000000000000000F003 /* Feed */,
@@ -712,6 +732,7 @@
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */,
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */,
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
+				AC10B101A1B2C3D4E5F60718 /* VoiceRealtimeEventParserTests.swift */,
 				FE002001 /* FileExplorerRootResolverTests.swift */,
 				FE002002 /* FileExplorerStoreTests.swift */,
 			);
@@ -1035,6 +1056,12 @@
 				FE003101 /* SessionIndexStore.swift in Sources */,
 				FE003102 /* SessionIndexView.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
+				AC10A001A1B2C3D4E5F60718 /* VoiceRealtimeModels.swift in Sources */,
+				AC10A002A1B2C3D4E5F60718 /* OpenAIRealtimeClientSecretProvider.swift in Sources */,
+				AC10A003A1B2C3D4E5F60718 /* VoiceToolExecutor.swift in Sources */,
+				AC10A004A1B2C3D4E5F60718 /* VoiceRealtimeWebRTCBridge.swift in Sources */,
+				AC10A005A1B2C3D4E5F60718 /* VoiceAgentViewModel.swift in Sources */,
+				AC10A006A1B2C3D4E5F60718 /* VoicePanelView.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
 				FEED0000000000000000F005 /* FeedPanelView.swift in Sources */,
 				FEED0000000000000000F00B /* FeedPreviewWindowController.swift in Sources */,
@@ -1128,6 +1155,7 @@
 				8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 				2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
 				C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
+				AC10A101A1B2C3D4E5F60718 /* VoiceRealtimeEventParserTests.swift in Sources */,
 				FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 				FE002102 /* FileExplorerStoreTests.swift in Sources */,
 			);

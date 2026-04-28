@@ -130,6 +130,7 @@ class TerminalController {
 
     private static let focusIntentV2Methods: Set<String> = [
         "window.focus",
+        "workspace.create",
         "workspace.select",
         "workspace.next",
         "workspace.previous",
@@ -3693,7 +3694,7 @@ class TerminalController {
         }
 
         var newId: UUID?
-        let shouldFocus = v2FocusAllowed()
+        let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         v2MainSync {
             let ws = tabManager.addWorkspace(
                 title: title,

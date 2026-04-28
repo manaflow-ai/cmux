@@ -158,7 +158,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌥ ⌘ E | Edit workspace description |
 | ⌘ B | Toggle sidebar |
 | ⌘ ⇧ E | Focus right sidebar |
-| ⌃ 1 / ⌃ 2 / ⌃ 3 | Switch Files / Sessions / Feed when the right sidebar is focused |
+| ⌃ 1 / ⌃ 2 / ⌃ 3 / ⌃ 4 / ⌃ 5 | Switch Files / Find / Sessions / Feed / Voice when the right sidebar is focused |
 
 ### Surfaces
 

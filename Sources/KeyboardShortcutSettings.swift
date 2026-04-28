@@ -52,6 +52,7 @@ enum KeyboardShortcutSettings {
         case switchRightSidebarToFind
         case switchRightSidebarToSessions
         case switchRightSidebarToFeed
+        case switchRightSidebarToVoice
         case triggerFlash
 
         // Navigation
@@ -128,6 +129,7 @@ enum KeyboardShortcutSettings {
             case .switchRightSidebarToFind: return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
             case .switchRightSidebarToSessions: return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Sessions")
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
+            case .switchRightSidebarToVoice: return String(localized: "shortcut.switchRightSidebarToVoice.label", defaultValue: "Show Sidebar Voice")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
@@ -182,7 +184,7 @@ enum KeyboardShortcutSettings {
 
         private var conflictScope: ConflictScope {
             switch self {
-            case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed:
+            case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToVoice:
                 return .rightSidebarFocus
             default:
                 return .application
@@ -237,6 +239,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "3", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToFeed:
                 return StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToVoice:
+                return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
