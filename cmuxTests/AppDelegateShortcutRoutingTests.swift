@@ -96,6 +96,33 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         super.tearDown()
     }
 
+    func testShortcutMonitorIgnoresSystemDefinedEvents() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: 7,
+            data1: 1,
+            data2: 1
+        ) else {
+            XCTFail("Failed to construct system-defined event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleShortcutMonitorEvent(event: event))
+#else
+        XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+    }
+
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
