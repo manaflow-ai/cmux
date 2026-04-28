@@ -11619,6 +11619,13 @@ class TerminalController {
                 focusFirstItem: focusFirstItem,
                 preferredWindow: preferredWindow
             ) ?? false
+            if !focused, let state = AppDelegate.shared?.fileExplorerState {
+                if state.mode != mode {
+                    state.mode = mode
+                }
+                state.setVisible(true)
+                focused = true
+            }
         }
 
         if missingWindow {
