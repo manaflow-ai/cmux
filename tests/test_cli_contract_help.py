@@ -13,7 +13,6 @@ import glob
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -34,6 +33,14 @@ class HelpProbe:
     needle: str
 
 
+@dataclass(frozen=True)
+class ProbeResult:
+    returncode: int
+    stdout: str
+    stderr: str
+    socket_path: str
+
+
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
@@ -45,15 +52,10 @@ def resolve_cmux_cli() -> str:
 
     candidates: list[str] = []
     candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux")))
-    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux"))
     candidates = [path for path in candidates if os.path.exists(path) and os.access(path, os.X_OK)]
     if candidates:
         candidates.sort(key=os.path.getmtime, reverse=True)
         return candidates[0]
-
-    in_path = shutil.which("cmux")
-    if in_path:
-        return in_path
 
     raise RuntimeError("Unable to find cmux CLI binary. Set CMUX_CLI_BIN.")
 
@@ -101,7 +103,7 @@ def load_probes(start_marker: str, end_marker: str, pattern: re.Pattern[str]) ->
     return probes
 
 
-def run_probe(cli_path: str, probe: HelpProbe) -> tuple[int, str, str]:
+def run_probe(cli_path: str, probe: HelpProbe) -> ProbeResult:
     tokens = shlex.split(probe.command)
     if not tokens or tokens[0] != "cmux":
         raise RuntimeError(f"Probe must start with cmux: {probe.command}")
@@ -128,7 +130,12 @@ def run_probe(cli_path: str, probe: HelpProbe) -> tuple[int, str, str]:
         timeout=5.0,
         env=env,
     )
-    return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
+    return ProbeResult(
+        returncode=proc.returncode,
+        stdout=proc.stdout.strip(),
+        stderr=proc.stderr.strip(),
+        socket_path=no_socket,
+    )
 
 
 def main() -> int:
@@ -143,7 +150,7 @@ def main() -> int:
     failures: list[str] = []
     for probe in probes:
         try:
-            code, stdout, stderr = run_probe(cli_path, probe)
+            result = run_probe(cli_path, probe)
         except subprocess.TimeoutExpired:
             failures.append(f"{probe.command}: timed out")
             continue
@@ -151,20 +158,22 @@ def main() -> int:
             failures.append(f"{probe.command}: {exc}")
             continue
 
-        merged = f"{stdout}\n{stderr}".strip()
-        if code != 0:
+        merged = f"{result.stdout}\n{result.stderr}".strip()
+        if result.returncode != 0:
             failures.append(
-                f"{probe.command}: expected exit 0, got {code}\nstdout={stdout!r}\nstderr={stderr!r}"
+                f"{probe.command}: expected exit 0, got {result.returncode}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
             )
             continue
         if probe.needle not in merged:
             failures.append(
-                f"{probe.command}: missing expected text {probe.needle!r}\nstdout={stdout!r}\nstderr={stderr!r}"
+                f"{probe.command}: missing expected text {probe.needle!r}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
             )
 
     for probe in negative_probes:
         try:
-            _code, stdout, stderr = run_probe(cli_path, probe)
+            result = run_probe(cli_path, probe)
         except subprocess.TimeoutExpired:
             failures.append(f"{probe.command}: timed out")
             continue
@@ -172,10 +181,21 @@ def main() -> int:
             failures.append(f"{probe.command}: {exc}")
             continue
 
-        merged = f"{stdout}\n{stderr}".strip()
+        merged = f"{result.stdout}\n{result.stderr}".strip()
         if probe.needle in merged:
             failures.append(
-                f"{probe.command}: unexpected help text {probe.needle!r}\nstdout={stdout!r}\nstderr={stderr!r}"
+                f"{probe.command}: unexpected help text {probe.needle!r}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+        if result.returncode == 0:
+            failures.append(
+                f"{probe.command}: expected nonzero exit after forwarding --help, got 0\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+        if result.socket_path not in merged:
+            failures.append(
+                f"{probe.command}: expected forwarded command to reach forced socket {result.socket_path!r}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
             )
 
     if failures:
