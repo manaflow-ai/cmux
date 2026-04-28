@@ -893,7 +893,9 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
     Button {
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(entry.resumeCommand, forType: .string)
+        // Always include `cd` when copied: the user could paste this into any
+        // shell regardless of its current directory.
+        pb.setString(entry.resumeCommandWithCwd, forType: .string)
     } label: {
         Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
     }

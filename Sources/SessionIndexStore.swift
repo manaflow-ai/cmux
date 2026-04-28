@@ -99,8 +99,19 @@ struct SessionEntry: Identifiable, Hashable {
         }
     }
 
+    /// Shell command that resumes this session, prefixed with `cd <cwd> && `
+    /// when a cwd is known. Always include `cd`: every caller drops this into a
+    /// fresh or unrelated shell (clipboard, drag-drop, or a newly spawned
+    /// terminal whose rc files can land it anywhere), so we can never assume
+    /// the receiver is already in the session's working directory.
+    var resumeCommandWithCwd: String {
+        let base = resumeCommand
+        guard let cwd, !cwd.isEmpty else { return base }
+        return "cd \(Self.shellQuote(cwd)) && \(base)"
+    }
+
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
-    private static func shellQuote(_ value: String) -> String {
+    fileprivate static func shellQuote(_ value: String) -> String {
         if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
             return value
         }
@@ -653,12 +664,20 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
         var out = ClaudeParsed()
         out.cwd = decodeClaudeProjectDir(projectDir)
+        // Claude records the cwd on every event (including later tool calls that
+        // may have cd'd into a subdirectory). `--resume` needs the *project* cwd,
+        // which is the cwd Claude was launched with, i.e. the first cwd seen in
+        // the transcript. Lock it in the first time and don't let later cwd's
+        // overwrite it.
+        var cwdLocked = false
 
         for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-            if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
+            if !cwdLocked,
+               let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
                 out.cwd = cwdField
+                cwdLocked = true
             }
             if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
                 out.branch = branchField
@@ -739,6 +758,15 @@ final class SessionIndexStore: ObservableObject {
             return nil
         }
         return trimmed
+    }
+
+    /// Claude Code marks sessions created over `claude ssh <host>` with an
+    /// `ssh-` prefix on the project directory name. Their recorded cwd is on
+    /// the remote machine, so a local `claude --resume` can't find them.
+    /// Filter them out of the local session index rather than surfacing broken
+    /// rows.
+    nonisolated private static func isClaudeRemoteProjectDir(_ dirName: String) -> Bool {
+        return dirName.hasPrefix("ssh-")
     }
 
     nonisolated private static func decodeClaudeProjectDir(_ raw: String) -> String? {
@@ -1155,9 +1183,10 @@ final class SessionIndexStore: ObservableObject {
            let rgPaths = await ripgrepMatchingPaths(needle: needle, root: projectsRoot, fileGlob: "*.jsonl") {
             rgFiltered = true
             for url in rgPaths {
+                let dirName = url.deletingLastPathComponent().lastPathComponent
+                if isClaudeRemoteProjectDir(dirName) { continue }
                 guard let attrs = try? fm.attributesOfItem(atPath: url.path),
                       let mtime = attrs[.modificationDate] as? Date else { continue }
-                let dirName = url.deletingLastPathComponent().lastPathComponent
                 candidates.append((url, mtime, dirName))
             }
         } else if let cwdFilter {
@@ -1179,6 +1208,7 @@ final class SessionIndexStore: ObservableObject {
         } else {
             guard let projectDirs = try? fm.contentsOfDirectory(atPath: projectsRoot) else { return [] }
             for dirName in projectDirs {
+                if isClaudeRemoteProjectDir(dirName) { continue }
                 let dirPath = (projectsRoot as NSString).appendingPathComponent(dirName)
                 var isDir: ObjCBool = false
                 guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
@@ -1516,20 +1546,26 @@ final class SessionIndexStore: ObservableObject {
         }
         defer { sqlite3_close(db) }
 
+        // Prefer the session's owning project.worktree over session.directory
+        // for cwd: opencode binds sessions to a project_id, and `--session` must
+        // be run from the project's worktree or it fails with
+        // "No context found for instance". session.directory can point at a
+        // sibling worktree the user was browsing when the session was created.
         var sql = """
-            SELECT s.id, s.title, s.directory, s.time_updated, (
+            SELECT s.id, s.title, COALESCE(p.worktree, s.directory) AS cwd, s.time_updated, (
                 SELECT data FROM message
                 WHERE session_id = s.id AND data LIKE '%"role":"assistant"%'
                 ORDER BY time_created DESC LIMIT 1
             ) AS last_assistant
             FROM session s
+            LEFT JOIN project p ON p.id = s.project_id
             """
         var conditions: [String] = []
         if !needle.isEmpty {
-            conditions.append("(LOWER(s.title) LIKE ? OR LOWER(s.directory) LIKE ?)")
+            conditions.append("(LOWER(s.title) LIKE ? OR LOWER(COALESCE(p.worktree, s.directory)) LIKE ?)")
         }
         if cwdFilter != nil {
-            conditions.append("s.directory = ?")
+            conditions.append("COALESCE(p.worktree, s.directory) = ?")
         }
         if !conditions.isEmpty {
             sql += " WHERE " + conditions.joined(separator: " AND ")

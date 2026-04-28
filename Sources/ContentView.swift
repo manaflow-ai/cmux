@@ -2831,7 +2831,6 @@ struct ContentView: View {
     }
 
     private func resumeSession(entry: SessionEntry) {
-        let inputWithReturn = entry.resumeCommand + "\n"
         let targetCwd = entry.cwd
 
         // Smart placement: if the focused workspace's tracked cwd matches, open a
@@ -2853,6 +2852,12 @@ struct ContentView: View {
             let rhs = (workspaceCwd as NSString).standardizingPath
             return lhs == rhs
         }()
+
+        // Always prepend `cd`: every path here spawns a NEW shell, and the
+        // shell's rc files can cd elsewhere before our typed input runs. The
+        // cost of a redundant `cd` is zero; the cost of landing in the wrong
+        // repo is a broken `claude --resume`.
+        let inputWithReturn = entry.resumeCommandWithCwd + "\n"
 
         if pwdMatches,
            let workspace = selected,
