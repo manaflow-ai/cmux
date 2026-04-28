@@ -99,11 +99,7 @@ Set these Vercel environment variables per production/staging environment:
 - `PGUSER`, IAM-enabled Postgres role.
 - `PGDATABASE`, app database name.
 - `CMUX_DB_POOL_MAX`, small pool size for Vercel Functions. Start with `5`.
-- `CMUX_DB_SSL_CA_PEM`, optional AWS RDS CA bundle PEM, such as the current global bundle from AWS.
-- `CMUX_DB_SSL_CA_PEM_BASE64`, Vercel-friendly alternative to `CMUX_DB_SSL_CA_PEM`.
-- `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, defaults to verifying AWS RDS server certificates. Only set
-  `false` temporarily after explicitly accepting the risk, and prefer installing or pinning the AWS
-  RDS global CA bundle.
+- `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, optional. Leave unset for the current Vercel Marketplace Aurora databases so Node uses its default trust store.
 - `CMUX_VM_CREATE_ENABLED`, global create kill switch. Set `0` to block new paid creates while
   keeping list, attach, and delete available.
 - `CMUX_VM_E2B_ENABLED`, per-provider E2B create kill switch.
@@ -125,10 +121,11 @@ Set these Vercel environment variables per production/staging environment:
 
 Local development keeps using Docker Postgres through `DATABASE_URL`, derived from `CMUX_PORT`.
 
-Run production/staging migrations explicitly, never during Vercel build or route startup:
+Run production/staging migrations explicitly, never during Vercel build or route startup. The operator and CI path pulls the deployed Vercel env, generates an RDS IAM auth token, and applies Drizzle migrations:
 
 ```bash
-CMUX_DB_DRIVER=aws-rds-iam bun db:migrate:aws-rds-iam
+bun run cloud-vm:migrate -- staging
+bun run cloud-vm:migrate -- production
 ```
 
 For local Docker Postgres, keep using:
@@ -136,6 +133,53 @@ For local Docker Postgres, keep using:
 ```bash
 bun db:migrate
 ```
+
+Before a staging or production migration, run the preflight:
+
+```bash
+bun run cloud-vm:preflight -- --schema-only .
+```
+
+Audit deployed env names without printing values:
+
+```bash
+bun run cloud-vm:env:audit -- staging --strict
+bun run cloud-vm:env:audit -- production --strict
+```
+
+Smoke deployed API auth/list behavior without creating production VMs:
+
+```bash
+bun run cloud-vm:smoke -- staging
+bun run cloud-vm:smoke -- production
+```
+
+Staging may run a real create/destroy smoke with tiny quotas:
+
+```bash
+bun run cloud-vm:smoke -- staging --create --provider e2b
+```
+
+## GitHub operations
+
+Cloud VM migrations and smoke checks are exposed as manual GitHub Actions:
+
+- `Cloud VM DB migration`
+- `Cloud VM smoke`
+- `Cloud VM env audit`
+
+They use these GitHub Environments:
+
+- `cloud-vm-staging`
+- `cloud-vm-production`
+
+Each environment needs:
+
+- variable `AWS_REGION`, usually `us-west-2`
+- secret `VERCEL_TOKEN`
+- secret `AWS_MIGRATION_ROLE_ARN` for migration workflows
+
+Production migration runs staging migration first on the same commit, then waits on the protected production environment approval.
 
 ## Local database development
 
@@ -161,6 +205,8 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 | `cmux vm ls / rm`           | yes       | yes |
 
 E2B interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
+
+Operational note: Freestyle creates are currently disabled in staging and production while the active Freestyle snapshot lacks the cmuxd RPC lease path required for browser proxy. Keep `CMUX_VM_DEFAULT_PROVIDER=e2b` and `CMUX_VM_FREESTYLE_ENABLED=0` until a new Freestyle snapshot passes WebSocket PTY and browser proxy smoke.
 
 ## Usage, limits, and pricing
 

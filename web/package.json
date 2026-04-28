@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "exec bash scripts/dev-local.sh",
     "build": "next build",
+    "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
+    "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",
+    "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",
+    "cloud-vm:smoke": "bun scripts/cloud-vm/smoke-vm-api.mjs",
     "db:check": "bunx drizzle-kit check --config drizzle.config.ts",
     "db:down": "bash scripts/db-local.sh down",
     "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",

@@ -20,6 +20,30 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 - No separate AWS app server is required for the current version.
 - A separate `manaflow/cmux-staging` Vercel project exists for staging.
 
+## Current Blockers
+
+- [ ] Add GitHub Environment secret `VERCEL_TOKEN` to both `cloud-vm-staging` and `cloud-vm-production`.
+- [ ] Create AWS IAM migration roles trusted by GitHub OIDC for the two Cloud VM environments.
+- [ ] Add GitHub Environment secret `AWS_MIGRATION_ROLE_ARN` to both `cloud-vm-staging` and `cloud-vm-production`.
+- [ ] Add Axiom/OpenTelemetry env to both Vercel projects:
+  - `OTEL_SERVICE_NAME`
+  - `OTEL_EXPORTER_OTLP_ENDPOINT`
+  - `OTEL_EXPORTER_OTLP_HEADERS`
+- [ ] Publish a new Freestyle snapshot with cmuxd-remote started with `--rpc-auth-lease-file`.
+- [ ] Resolve Freestyle snapshot creation returning provider `INTERNAL_ERROR`.
+- [ ] Promote the new Freestyle snapshot to staging and rerun Freestyle create/attach/browser proxy smoke.
+- [x] Keep Freestyle creates disabled and non-default until the current snapshot supports RPC/browser proxy.
+- [x] Use E2B as the staging and production default provider while Freestyle is blocked.
+
+## Current Operational State
+
+- [x] GitHub environments `cloud-vm-staging` and `cloud-vm-production` exist.
+- [x] GitHub environment variable `AWS_REGION=us-west-2` is set for both Cloud VM environments.
+- [x] Staging and production Cloud VM default provider are set to E2B.
+- [x] Freestyle creates are disabled in staging and production with `CMUX_VM_FREESTYLE_ENABLED=0`.
+- [x] Staging E2B create, WebSocket attach, and destroy smoke passed.
+- [x] Production auth/list smoke passed without creating a production VM.
+
 ## Existing Vercel Env Vars
 
 These are already configured in Vercel for development, preview, and production:

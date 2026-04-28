@@ -19,9 +19,9 @@ import {
 } from "../telemetry";
 import {
   isReusableRpcLease,
+  ensurePrivateDirectoryCommand,
   leaseClientMetadata,
   makeWebSocketLease,
-  parentDirectory,
   shellArgValue,
   shellQuote,
   type ReusableRpcLease,
@@ -338,7 +338,7 @@ export class FreestyleProvider implements VMProvider {
           const pty = makeWebSocketLease("freestyle", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS);
           const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
           const commands = [
-            `install -d -m 0700 ${shellQuote(parentDirectory(service.ptyLeasePath))}`,
+            ensurePrivateDirectoryCommand(service.ptyLeasePath),
             `printf '%s' '${encodedPTY}' | base64 -d > ${shellQuote(service.ptyLeasePath)}`,
             `chmod 600 ${shellQuote(service.ptyLeasePath)}`,
           ];
@@ -355,7 +355,7 @@ export class FreestyleProvider implements VMProvider {
               const encodedDaemon = Buffer.from(JSON.stringify(newDaemon.lease)).toString("base64");
               const encodedDaemonClient = Buffer.from(JSON.stringify(leaseClientMetadata(newDaemon))).toString("base64");
               commands.push(
-                `install -d -m 0700 ${shellQuote(parentDirectory(service.rpcLeasePath))}`,
+                ensurePrivateDirectoryCommand(service.rpcLeasePath),
                 `printf '%s' '${encodedDaemon}' | base64 -d > ${shellQuote(service.rpcLeasePath)}`,
                 `chmod 600 ${shellQuote(service.rpcLeasePath)}`,
                 `printf '%s' '${encodedDaemonClient}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
