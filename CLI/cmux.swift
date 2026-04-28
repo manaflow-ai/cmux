@@ -16812,7 +16812,168 @@ export default CMUXSessionRestore;
         case ignored
     }
 
+    private static let openTUIFeedCoreVersion = "0.1.106"
+
     private func runFeedTUI(socketPath: String) throws {
+        if ProcessInfo.processInfo.environment["CMUX_FEED_TUI_LEGACY"] == "1" {
+            try runLegacyFeedTUI(socketPath: socketPath)
+            return
+        }
+
+        do {
+            try runOpenTUIFeedTUI(socketPath: socketPath)
+        } catch {
+            fputs(
+                "cmux feed tui: OpenTUI unavailable (\(error)); falling back to legacy TUI.\n",
+                stderr
+            )
+            try runLegacyFeedTUI(socketPath: socketPath)
+        }
+    }
+
+    private func runOpenTUIFeedTUI(socketPath: String) throws {
+        guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
+            throw CLIError(message: "cmux feed tui requires an interactive terminal")
+        }
+        guard let bunPath = resolveBunExecutable() else {
+            throw CLIError(message: "Bun is required for the OpenTUI Feed")
+        }
+
+        let appDirectory = try prepareOpenTUIFeedApp(bunPath: bunPath)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: bunPath)
+        process.arguments = ["index.ts"]
+        process.currentDirectoryURL = appDirectory
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SOCKET"] = socketPath
+        environment["OTUI_USE_CONSOLE"] = environment["OTUI_USE_CONSOLE"] ?? "0"
+        process.environment = environment
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            throw CLIError(message: "OpenTUI Feed exited with status \(process.terminationStatus)")
+        }
+    }
+
+    private func resolveBunExecutable() -> String? {
+        if let path = resolveExecutableInPath("bun") {
+            return path
+        }
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        for path in [
+            "\(homePath)/.bun/bin/bun",
+            "\(homePath)/.local/bin/bun",
+            "/opt/homebrew/bin/bun",
+            "/usr/local/bin/bun",
+        ] {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
+
+    private func prepareOpenTUIFeedApp(bunPath: String) throws -> URL {
+        let fileManager = FileManager.default
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        let appDirectory = URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("feed-tui-opentui", isDirectory: true)
+        try fileManager.createDirectory(at: appDirectory, withIntermediateDirectories: true)
+
+        let packageURL = appDirectory.appendingPathComponent("package.json", isDirectory: false)
+        let sourceURL = appDirectory.appendingPathComponent("index.ts", isDirectory: false)
+        let packageSource = """
+        {
+          "private": true,
+          "type": "module",
+          "dependencies": {
+            "@opentui/core": "\(Self.openTUIFeedCoreVersion)"
+          }
+        }
+        """
+        try writeFileIfChanged(packageSource, to: packageURL)
+        try writeFileIfChanged(try bundledOpenTUIFeedSource(), to: sourceURL)
+
+        let installedPackageURL = appDirectory
+            .appendingPathComponent("node_modules", isDirectory: true)
+            .appendingPathComponent("@opentui", isDirectory: true)
+            .appendingPathComponent("core", isDirectory: true)
+            .appendingPathComponent("package.json", isDirectory: false)
+        if !fileManager.fileExists(atPath: installedPackageURL.path)
+            || installedOpenTUIVersion(at: installedPackageURL) != Self.openTUIFeedCoreVersion {
+            try installOpenTUIFeedDependencies(bunPath: bunPath, appDirectory: appDirectory)
+        }
+        return appDirectory
+    }
+
+    private func bundledOpenTUIFeedSource() throws -> String {
+        let fileManager = FileManager.default
+        if let resourceURL = Bundle.main.resourceURL {
+            let url = resourceURL
+                .appendingPathComponent("feed-tui", isDirectory: true)
+                .appendingPathComponent("index.ts", isDirectory: false)
+            if fileManager.fileExists(atPath: url.path),
+               let contents = try? String(contentsOf: url, encoding: .utf8) {
+                return contents
+            }
+        }
+
+        let devURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("feed-tui", isDirectory: true)
+            .appendingPathComponent("index.ts", isDirectory: false)
+        if fileManager.fileExists(atPath: devURL.path),
+           let contents = try? String(contentsOf: devURL, encoding: .utf8) {
+            return contents
+        }
+
+        throw CLIError(message: "bundled OpenTUI Feed source not found")
+    }
+
+    private func writeFileIfChanged(_ contents: String, to url: URL) throws {
+        let existing = try? String(contentsOf: url, encoding: .utf8)
+        guard existing != contents else { return }
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func installedOpenTUIVersion(at url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let version = object["version"] as? String else {
+            return nil
+        }
+        return version
+    }
+
+    private func installOpenTUIFeedDependencies(bunPath: String, appDirectory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: bunPath)
+        process.arguments = ["install", "--silent"]
+        process.currentDirectoryURL = appDirectory
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            let stderrText = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw CLIError(message: stderrText.isEmpty ? "bun install failed" : stderrText)
+        }
+    }
+
+    private func runLegacyFeedTUI(socketPath: String) throws {
         guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
             throw CLIError(message: "cmux feed tui requires an interactive terminal")
         }

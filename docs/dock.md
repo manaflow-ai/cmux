@@ -16,7 +16,9 @@ The built-in Dock starts with Feed:
 }
 ```
 
-`cmux feed tui` is the keyboard-first version of Feed. It shows a latest-first timeline of permission requests, plans, questions, and activity. Use `j` / `k` or arrow keys to move, Enter to accept the default action, `d` to deny, `f` to send replan feedback, `r` to refresh, and `q` or `Ctrl-C` to quit.
+`cmux feed tui` is the keyboard-first OpenTUI version of Feed. It shows a latest-first timeline of permission requests, plans, questions, and activity. Use `j` / `k` or arrow keys to move, Enter to accept the default action, `d` to deny, `f` to send replan feedback, `r` to refresh, and `q` or `Ctrl-C` to quit.
+
+OpenTUI currently runs through Bun. On first launch, cmux prepares `~/.cmuxterm/feed-tui-opentui` and installs `@opentui/core` there. If Bun is missing or the install fails, cmux falls back to the legacy built-in Feed TUI so Dock still opens.
 
 ## Team Config
 

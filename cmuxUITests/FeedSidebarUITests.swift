@@ -61,6 +61,10 @@ final class FeedSidebarUITests: XCTestCase {
             "Dock Feed focus button did not appear"
         )
         focusButton.click()
+        XCTAssertTrue(
+            waitForOpenTUIFeedAppPrepared(timeout: 45),
+            "OpenTUI Feed app was not prepared"
+        )
 
         // Push a synthetic permission request via the socket.
         let requestId = "uitest-\(UUID().uuidString)"
@@ -69,6 +73,7 @@ final class FeedSidebarUITests: XCTestCase {
         // The TUI blocks on keyboard input. Refresh first so it observes the
         // pending request, then Enter accepts the default "once" action.
         app.typeKey("r", modifierFlags: [])
+        Thread.sleep(forTimeInterval: 1.0)
         app.typeKey(.return, modifierFlags: [])
 
         // Await the socket reply from the earlier push.
@@ -373,6 +378,21 @@ final class FeedSidebarUITests: XCTestCase {
     private func shellSingleQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private func waitForOpenTUIFeedAppPrepared(timeout: TimeInterval) -> Bool {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        let markerPath = URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("feed-tui-opentui", isDirectory: true)
+            .appendingPathComponent("node_modules", isDirectory: true)
+            .appendingPathComponent("@opentui", isDirectory: true)
+            .appendingPathComponent("core", isDirectory: true)
+            .appendingPathComponent("package.json", isDirectory: false)
+            .path
+        return pollUntil(timeout: timeout, interval: 0.5) {
+            FileManager.default.fileExists(atPath: markerPath)
+        }
     }
 
     private func waitForDockPortalToLeaveVisibleSidebar(timeout: TimeInterval) -> Bool {

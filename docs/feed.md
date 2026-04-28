@@ -1,12 +1,14 @@
 # Feed
 
-Feed is cmux's inline surface for AI agent decisions. The keyboard-first Feed TUI can run in the right-sidebar [Dock](dock.md) with `cmux feed tui`. It shows three things that need a human response:
+Feed is cmux's inline surface for AI agent decisions. The keyboard-first OpenTUI Feed can run in the right-sidebar [Dock](dock.md) with `cmux feed tui`. It shows three things that need a human response:
 
-- **Permission requests** — Agent wants to run a tool, edit a file, or execute a shell command. Pick Once / Always / All tools / Bypass / Deny.
-- **ExitPlanMode** — Agent finished planning and is ready to start editing. Pick Ultraplan / Manual / Auto.
-- **AskUserQuestion** — Agent is asking a multiple-choice question. Pick one (or several) and hit Submit.
+- **Permission requests:** Agent wants to run a tool, edit a file, or execute a shell command. Pick Once / Always / All tools / Bypass / Deny.
+- **ExitPlanMode:** Agent finished planning and is ready to start editing. Pick Ultraplan / Manual / Auto.
+- **AskUserQuestion:** Agent is asking a multiple-choice question. Pick one (or several) and hit Submit.
 
-Anything else the agent does — tool uses, assistant messages, session starts/stops, `TodoWrite` updates — is stored but hidden under the Feed's Actionable / All toggle. The default view only shows what needs your attention.
+Anything else the agent does, including tool uses, assistant messages, session starts/stops, and `TodoWrite` updates, is stored and shown in the TUI's latest-first timeline as informational activity.
+
+`cmux feed tui` uses OpenTUI through Bun. The first run creates `~/.cmuxterm/feed-tui-opentui`, writes the bundled Feed app there, and installs `@opentui/core`. Set `CMUX_FEED_TUI_LEGACY=1` to force the older built-in TUI.
 
 ## How it works
 
