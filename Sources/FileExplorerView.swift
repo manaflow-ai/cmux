@@ -85,17 +85,6 @@ final class FileSearchController {
         let contentRevision: Int
     }
 
-    private struct CacheKey: Hashable {
-        let query: String
-        let rootPath: String
-        let contentRevision: Int
-    }
-
-    private struct CacheEntry {
-        let results: [FileSearchResult]
-        let status: FileSearchSnapshot.Status
-    }
-
     private struct RipgrepExecutable {
         let url: URL
         let prefixArguments: [String]
@@ -104,15 +93,12 @@ final class FileSearchController {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
 
     private let maxResults = 500
-    private let maxCacheEntries = 32
     private var process: Process?
     private var stdoutBuffer = Data()
     private var stderrBuffer = Data()
     private var generation = 0
     private var request: Request?
     private var results: [FileSearchResult] = []
-    private var cache: [CacheKey: CacheEntry] = [:]
-    private var cacheOrder: [CacheKey] = []
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -122,7 +108,9 @@ final class FileSearchController {
             isLocal: isLocal,
             contentRevision: contentRevision
         )
-        guard nextRequest != request else { return }
+        if nextRequest == request, process?.isRunning == true {
+            return
+        }
         request = nextRequest
 
         stopAndAdvanceGeneration()
@@ -140,12 +128,6 @@ final class FileSearchController {
         }
         guard !rootPath.isEmpty else {
             emit(status: .noMatches, isSearching: false)
-            return
-        }
-        let cacheKey = CacheKey(query: query, rootPath: rootPath, contentRevision: contentRevision)
-        if let cached = cache[cacheKey] {
-            results = cached.results
-            emit(status: cached.status, isSearching: false)
             return
         }
         guard let executable = Self.ripgrepExecutable() else {
@@ -241,7 +223,6 @@ final class FileSearchController {
             results.append(result)
             didAppendResult = true
             if results.count >= maxResults {
-                cacheCurrentResults(status: .limited(maxResults))
                 stopAndAdvanceGeneration()
                 emit(status: .limited(maxResults), isSearching: false)
                 return
@@ -266,7 +247,6 @@ final class FileSearchController {
 
         if status == 0 || status == 1 {
             let finalStatus: FileSearchSnapshot.Status = results.isEmpty ? .noMatches : .matches
-            cacheCurrentResults(status: finalStatus)
             emit(status: finalStatus, isSearching: false)
             return
         }
@@ -278,24 +258,6 @@ final class FileSearchController {
             Int(status)
         )
         emit(status: .failed(errorText?.isEmpty == false ? errorText! : fallback), isSearching: false)
-    }
-
-    private func cacheCurrentResults(status: FileSearchSnapshot.Status) {
-        guard let request, request.isLocal, !request.query.isEmpty, !request.rootPath.isEmpty else {
-            return
-        }
-        let key = CacheKey(
-            query: request.query,
-            rootPath: request.rootPath,
-            contentRevision: request.contentRevision
-        )
-        cache[key] = CacheEntry(results: results, status: status)
-        cacheOrder.removeAll { $0 == key }
-        cacheOrder.append(key)
-        while cacheOrder.count > maxCacheEntries {
-            let evicted = cacheOrder.removeFirst()
-            cache.removeValue(forKey: evicted)
-        }
     }
 
     private func emit(status: FileSearchSnapshot.Status, isSearching: Bool) {
@@ -1168,11 +1130,20 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updateHeader(store: FileExplorerStore) {
-        currentRootPath = store.rootPath
-        currentProviderIsLocal = store.provider is LocalFileExplorerProvider
-        currentContentRevision = store.contentRevision
+        let nextRootPath = store.rootPath
+        let nextProviderIsLocal = store.provider is LocalFileExplorerProvider
+        let nextContentRevision = store.contentRevision
+        let shouldRefreshSearch = nextRootPath != currentRootPath ||
+            nextProviderIsLocal != currentProviderIsLocal ||
+            nextContentRevision != currentContentRevision
+
+        currentRootPath = nextRootPath
+        currentProviderIsLocal = nextProviderIsLocal
+        currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
-        refreshSearchIfNeeded()
+        if shouldRefreshSearch {
+            refreshSearchIfNeeded()
+        }
     }
 
     func representedRightSidebarMode() -> RightSidebarMode {
