@@ -31,6 +31,19 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(entry.displayTitle, "/plugin install codex@openai-codex")
     }
 
+    func testClaudeResumeCommandPinsConfigDirectoryFromFileURL() {
+        let entry = makeEntry(
+            sessionId: "claude-session-123",
+            title: "resume me",
+            fileURL: URL(fileURLWithPath: "/tmp/claude config/projects/-tmp/claude-session-123.jsonl")
+        )
+
+        XCTAssertEqual(
+            entry.resumeCommand,
+            "env CLAUDE_CONFIG_DIR='/tmp/claude config' claude --resume claude-session-123"
+        )
+    }
+
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {
         let store = SessionIndexStore()
         var emittedValues: [String?] = []
@@ -141,17 +154,21 @@ final class SessionIndexViewTests: XCTestCase {
         return SessionPopoverHarness(host: host, section: section, search: search, loadSnapshot: loadSnapshot)
     }
 
-    private func makeEntry(title: String) -> SessionEntry {
+    private func makeEntry(
+        sessionId: String = UUID().uuidString,
+        title: String,
+        fileURL: URL? = nil
+    ) -> SessionEntry {
         SessionEntry(
             id: UUID().uuidString,
             agent: .claude,
-            sessionId: UUID().uuidString,
+            sessionId: sessionId,
             title: title,
             cwd: nil,
             gitBranch: nil,
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
-            fileURL: nil,
+            fileURL: fileURL,
             specifics: .claude(model: nil, permissionMode: nil)
         )
     }
