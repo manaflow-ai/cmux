@@ -477,6 +477,15 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     private func focusDockModeViaSocket() -> Bool {
+        if let response = try? sendSocketLine("debug_right_sidebar_focus feed", responseTimeout: 3) {
+            lastSocketProbe = "right-sidebar-focus-v1 response=\(response)"
+            if response.hasPrefix("OK:") {
+                return true
+            }
+        } else {
+            lastSocketProbe = "right-sidebar-focus-v1 response=nil"
+        }
+
         let frame: [String: Any] = [
             "id": UUID().uuidString,
             "method": "debug.right_sidebar.focus",
@@ -488,12 +497,14 @@ final class FeedSidebarUITests: XCTestCase {
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8),
               let response = try? sendSocketLine("\(line)\n", responseTimeout: 3),
-              let responseData = response.data(using: .utf8),
-              let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+              let responseData = response.data(using: .utf8)
         else {
             return false
         }
         lastSocketProbe = "right-sidebar-focus response=\(response)"
+        guard let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            return false
+        }
         guard responseObject["ok"] as? Bool == true else {
             return false
         }

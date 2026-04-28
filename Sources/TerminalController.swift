@@ -125,7 +125,8 @@ class TerminalController {
         "focus_surface_by_panel",
         "focus_webview",
         "focus_notification",
-        "activate_app"
+        "activate_app",
+        "debug_right_sidebar_focus",
     ]
 
     private static let focusIntentV2Methods: Set<String> = [
@@ -1932,6 +1933,9 @@ class TerminalController {
 
         case "focus_notification":
             return focusFromNotification(args)
+
+        case "debug_right_sidebar_focus":
+            return debugRightSidebarFocus(args)
 
         case "flash_count":
             return flashCount(args)
@@ -11595,6 +11599,7 @@ class TerminalController {
         }
     }
 
+#if DEBUG
     private func v2DebugRightSidebarFocus(params: [String: Any]) -> V2CallResult {
         let modeName = v2String(params, "mode") ?? RightSidebarMode.feed.rawValue
         guard let mode = RightSidebarMode(rawValue: modeName) else {
@@ -11651,6 +11656,41 @@ class TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
         ])
     }
+
+    private func debugRightSidebarFocus(_ args: String) -> String {
+        let modeName = args.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? RightSidebarMode.feed.rawValue
+            : args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let mode = RightSidebarMode(rawValue: modeName) else {
+            return "ERROR: Invalid right sidebar mode: \(modeName)"
+        }
+
+        var revealed = false
+        var focusApplied = false
+        var contextFound = false
+        var stateFound = false
+        var visible = false
+        var activeMode = ""
+
+        DispatchQueue.main.sync {
+            let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: false,
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            revealed = result?.revealed ?? false
+            focusApplied = result?.focusApplied ?? false
+            contextFound = result?.contextFound ?? false
+            stateFound = result?.stateFound ?? false
+            visible = result?.visible ?? false
+            activeMode = result?.activeMode ?? ""
+        }
+
+        let details = "mode=\(mode.rawValue) active=\(activeMode) visible=\(visible ? 1 : 0) " +
+            "context=\(contextFound ? 1 : 0) state=\(stateFound ? 1 : 0) focus=\(focusApplied ? 1 : 0)"
+        return revealed ? "OK: \(details)" : "ERROR: \(details)"
+    }
+#endif
 
     private func v2DebugSidebarVisible(params: [String: Any]) -> V2CallResult {
         guard let windowId = v2UUID(params, "window_id") else {
