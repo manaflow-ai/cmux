@@ -5,6 +5,7 @@ set -euo pipefail
 # Downloads cat photos over HTTPS, converts them to PNG, then renders them.
 
 cache_dir="${TMPDIR:-/tmp}/cmux-kitty-image-demo"
+curl_user_agent="cmux-kitty-image-demo/1.0 (https://github.com/manaflow-ai/cmux)"
 
 names=(
   "White Cat"
@@ -107,7 +108,7 @@ download_images() {
     local tmp="$file.tmp"
 
     printf 'Downloading %s\n' "${urls[$i]}"
-    if curl -LfsS --retry 2 --connect-timeout 10 "${urls[$i]}" -o "$tmp"; then
+    if curl -LfsS --retry 2 --connect-timeout 10 -A "$curl_user_agent" "${urls[$i]}" -o "$tmp"; then
       mv "$tmp" "$file"
     else
       rm -f "$tmp"
