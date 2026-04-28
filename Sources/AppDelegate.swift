@@ -733,6 +733,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupDisplayResolutionUITestDiagnostics = false
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
     private var didSetupFeedSidebarUITest = false
+    private var feedSidebarUITestObservers: [NSObjectProtocol] = []
     private var didSetupPortalStatsUITestDiagnostics = false
     private var portalStatsUITestObservers: [NSObjectProtocol] = []
     private struct UITestRenderDiagnosticsSnapshot {
@@ -2245,6 +2246,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let path = env["CMUX_UI_TEST_FEED_SIDEBAR_RESULT_PATH"], !path.isEmpty else { return }
         didSetupFeedSidebarUITest = true
 
+        setupFeedSidebarUITestReveal(resultPath: path)
+
         let requestId = env["CMUX_UI_TEST_FEED_SIDEBAR_REQUEST_ID"] ?? "uitest-feed-sidebar"
         writeFeedSidebarUITestData([
             "stage": "feedPushStarting",
@@ -2259,6 +2262,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             updates["requestId"] = requestId
             self.writeFeedSidebarUITestData(updates, at: path)
         }
+    }
+
+    private func setupFeedSidebarUITestReveal(resultPath: String) {
+        var observer: NSObjectProtocol?
+        let attemptReveal: () -> Void = { [weak self] in
+            guard let self else { return }
+            let result = self.debugRevealRightSidebarInActiveMainWindow(
+                mode: .feed,
+                focusFirstItem: false,
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            self.writeFeedSidebarUITestData([
+                "reveal": result.revealed ? "1" : "0",
+                "revealVisible": result.visible ? "1" : "0",
+                "revealContextFound": result.contextFound ? "1" : "0",
+                "revealStateFound": result.stateFound ? "1" : "0",
+                "revealActiveMode": result.activeMode ?? "",
+            ], at: resultPath)
+            self.writeUITestDiagnosticsIfNeeded(
+                stage: result.revealed ? "feedSidebarUITest.reveal.ok" : "feedSidebarUITest.reveal.pending"
+            )
+            if result.revealed, let observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+
+        observer = NotificationCenter.default.addObserver(
+            forName: .mainWindowContextsDidChange,
+            object: self,
+            queue: .main
+        ) { _ in
+            attemptReveal()
+        }
+        if let observer {
+            feedSidebarUITestObservers.append(observer)
+        }
+        DispatchQueue.main.async(execute: attemptReveal)
     }
 
     private func runFeedSidebarUITestPush(requestId: String) -> String {

@@ -452,6 +452,9 @@ final class FeedSidebarUITests: XCTestCase {
         }
 
         app.activate()
+        if waitForFeedSidebarReveal(timeout: 5) {
+            return true
+        }
         if focusDockModeViaSocket() {
             return true
         }
@@ -474,6 +477,12 @@ final class FeedSidebarUITests: XCTestCase {
             return true
         }
         return false
+    }
+
+    private func waitForFeedSidebarReveal(timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout) {
+            self.loadFeedResult()["reveal"] == "1"
+        }
     }
 
     private func focusDockModeViaSocket() -> Bool {
