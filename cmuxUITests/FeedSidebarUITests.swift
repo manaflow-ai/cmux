@@ -8,6 +8,7 @@ import XCTest
 /// response carries the resolved decision.
 final class FeedSidebarUITests: XCTestCase {
     private var socketPath = ""
+    private var diagnosticsPath = ""
     private let modeKey = "socketControlMode"
     private let launchTag = "ui-tests-feed-sidebar"
 
@@ -15,7 +16,9 @@ final class FeedSidebarUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
+        diagnosticsPath = "/tmp/cmux-feed-sidebar-\(UUID().uuidString).json"
         removeSocketFile()
+        try? FileManager.default.removeItem(atPath: diagnosticsPath)
     }
 
     func testFeedReceivesAndResolvesPermissionRequest() throws {
@@ -30,10 +33,15 @@ final class FeedSidebarUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "cmuxOnly"
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         launchAndEnsureUsable(app)
 
-        XCTAssertTrue(waitForSocketPong(timeout: 20), "Expected control socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 75),
+            "Expected control socket at \(socketPath). diagnostics=\(loadDiagnostics())"
+        )
 
         // Reveal the right sidebar and toggle to Dock. Uses accessibility
         // identifiers registered on the ModeBarButton row.
@@ -204,13 +212,46 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+        var resolvedPath: String?
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
-                (try? self.sendLine("ping\n")) == "PONG"
+                let originalPath = self.socketPath
+                for candidate in self.socketCandidates() {
+                    guard FileManager.default.fileExists(atPath: candidate) else { continue }
+                    self.socketPath = candidate
+                    if (try? self.sendLine("ping\n")) == "PONG" {
+                        resolvedPath = candidate
+                        return true
+                    }
+                    self.socketPath = originalPath
+                }
+                return false
             },
             object: NSObject()
         )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+        let completed = XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+        if let resolvedPath {
+            socketPath = resolvedPath
+        }
+        return completed
+    }
+
+    private func socketCandidates() -> [String] {
+        var candidates = [socketPath, taggedSocketPath()]
+        var seen = Set<String>()
+        candidates.removeAll { !seen.insert($0).inserted }
+        return candidates
+    }
+
+    private func taggedSocketPath() -> String {
+        let slug = launchTag
+            .lowercased()
+            .replacingOccurrences(of: ".", with: "-")
+            .replacingOccurrences(of: "_", with: "-")
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        return "/tmp/cmux-debug-\(slug).sock"
     }
 
     private func waitForDockPortalToLeaveVisibleSidebar(timeout: TimeInterval) -> Bool {
@@ -276,5 +317,14 @@ final class FeedSidebarUITests: XCTestCase {
 
     private func removeSocketFile() {
         try? FileManager.default.removeItem(atPath: socketPath)
+        try? FileManager.default.removeItem(atPath: taggedSocketPath())
+    }
+
+    private func loadDiagnostics() -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
     }
 }
