@@ -4160,7 +4160,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
             ("cmd-g", [.command], "g", 5),
             ("cmd-shift-g", [.command, .shift], "g", 5),
-            ("cmd-shift-f", [.command, .shift], "f", 3),
+            ("cmd-option-shift-f", [.command, .option, .shift], "f", 3),
             ("cmd-e", [.command], "e", 14),
         ]
 
@@ -4178,18 +4178,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testBrowserFirstFindShortcutRoutingExcludesGlobalFindCommand() {
-        let event = makeKeyEvent(
-            modifierFlags: [.command],
-            characters: "f",
-            charactersIgnoringModifiers: "f",
-            keyCode: 3
-        )
+    func testBrowserFirstFindShortcutRoutingExcludesAppOwnedFindCommands() {
+        let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
+            ("cmd-f", [.command], "f", 3),
+            ("cmd-shift-f", [.command, .shift], "f", 3),
+        ]
 
-        XCTAssertFalse(
-            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
-            "Cmd+F belongs to cmux focus-aware find routing, not browser-first routing"
-        )
+        for testCase in cases {
+            let event = makeKeyEvent(
+                modifierFlags: testCase.modifiers,
+                characters: testCase.chars,
+                charactersIgnoringModifiers: testCase.chars,
+                keyCode: testCase.keyCode
+            )
+
+            XCTAssertFalse(
+                shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
+                "\(testCase.name) belongs to cmux find routing, not browser-first routing"
+            )
+        }
     }
 
     func testBrowserFirstFindShortcutRoutingFallsBackToKeyCodeForNonLatinInput() {

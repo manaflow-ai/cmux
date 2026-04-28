@@ -489,6 +489,11 @@ private func browserFindCommandEquivalent(for event: NSEvent) -> BrowserFindComm
             return .findPrevious
         }
         return nil
+    case [.command, .option, .shift]:
+        if matches("f", keyCode: 3) { // kVK_ANSI_F
+            return .hideFind
+        }
+        return nil
     default:
         return nil
     }
