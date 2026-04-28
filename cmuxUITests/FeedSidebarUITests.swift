@@ -2,13 +2,14 @@ import Foundation
 import XCTest
 
 /// Exercises the right-sidebar Feed end-to-end: boot the app with a
-/// dedicated socket, inject a synthetic permission request over the
-/// socket's `feed.push` V2 verb, toggle the sidebar to Dock mode, drive
-/// the Feed TUI from the keyboard, and assert the hook-side socket
-/// response carries the resolved decision.
+/// dedicated socket, inject a synthetic permission request in-process,
+/// toggle the sidebar to Dock mode, drive the Feed TUI from the keyboard,
+/// and assert the hook-side response carries the resolved decision.
 final class FeedSidebarUITests: XCTestCase {
     private var socketPath = ""
     private var diagnosticsPath = ""
+    private var feedResultPath = ""
+    private var requestId = ""
     private var lastSocketProbe = ""
     private let modeKey = "socketControlMode"
     private let launchTag = "ui-tests-feed-sidebar"
@@ -18,8 +19,11 @@ final class FeedSidebarUITests: XCTestCase {
         continueAfterFailure = false
         socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
         diagnosticsPath = "/tmp/cmux-feed-sidebar-\(UUID().uuidString).json"
+        feedResultPath = "/tmp/cmux-feed-sidebar-result-\(UUID().uuidString).json"
+        requestId = "uitest-\(UUID().uuidString)"
         removeSocketFile()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        try? FileManager.default.removeItem(atPath: feedResultPath)
     }
 
     func testFeedReceivesAndResolvesPermissionRequest() throws {
@@ -37,11 +41,18 @@ final class FeedSidebarUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_UI_TEST_PORTAL_STATS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_FEED_SIDEBAR_RESULT_PATH"] = feedResultPath
+        app.launchEnvironment["CMUX_UI_TEST_FEED_SIDEBAR_REQUEST_ID"] = requestId
         launchAndEnsureUsable(app)
 
         XCTAssertTrue(
-            waitForSocketPong(timeout: 75),
-            "Expected control socket at \(socketPath). probe=\(lastSocketProbe) diagnostics=\(loadDiagnostics())"
+            waitForInAppSocketReady(timeout: 75),
+            "Expected app-side control socket readiness at \(socketPath). diagnostics=\(loadDiagnostics())"
+        )
+        XCTAssertTrue(
+            waitForFeedBridgeStarted(timeout: 10),
+            "Synthetic feed.push did not start. result=\(loadFeedResult())"
         )
 
         // Reveal the right sidebar and toggle to Dock. Uses accessibility
@@ -66,18 +77,14 @@ final class FeedSidebarUITests: XCTestCase {
             "OpenTUI Feed app was not prepared"
         )
 
-        // Push a synthetic permission request via the socket.
-        let requestId = "uitest-\(UUID().uuidString)"
-        let replyPayload = try sendFeedPush(requestId: requestId, waitSeconds: 30)
-
         // The TUI blocks on keyboard input. Refresh first so it observes the
         // pending request, then Enter accepts the default "once" action.
         app.typeKey("r", modifierFlags: [])
         Thread.sleep(forTimeInterval: 1.0)
         app.typeKey(.return, modifierFlags: [])
 
-        // Await the socket reply from the earlier push.
-        let result = try replyPayload.result(timeout: 30)
+        // Await the hook-side reply from the earlier in-app feed.push.
+        let result = try waitForFeedBridgeResult(timeout: 35)
         XCTAssertEqual(
             result.status, "resolved",
             "Expected feed.push to resolve, got status=\(result.status)"
@@ -102,6 +109,47 @@ final class FeedSidebarUITests: XCTestCase {
     private struct FeedPushResult {
         let status: String
         let mode: String
+    }
+
+    private func waitForInAppSocketReady(timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout) {
+            let diagnostics = loadDiagnostics()
+            return diagnostics["socketReady"] == "1" &&
+                diagnostics["socketPingResponse"] == "PONG"
+        }
+    }
+
+    private func waitForFeedBridgeStarted(timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout) {
+            let stage = loadFeedResult()["stage"]
+            return stage == "feedPushStarting" || stage == "feedPushReturned"
+        }
+    }
+
+    private func waitForFeedBridgeResult(timeout: TimeInterval) throws -> FeedPushResult {
+        var payload: [String: String] = [:]
+        let completed = pollUntil(timeout: timeout) {
+            payload = loadFeedResult()
+            return payload["stage"] == "feedPushReturned"
+        }
+        guard completed else {
+            throw NSError(
+                domain: "FeedPush",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "feed.push never returned. result=\(loadFeedResult())"]
+            )
+        }
+        guard payload["ok"] == "1" else {
+            throw NSError(
+                domain: "FeedPush",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "feed.push failed. result=\(payload)"]
+            )
+        }
+        return FeedPushResult(
+            status: payload["status"] ?? "",
+            mode: payload["mode"] ?? ""
+        )
     }
 
     private final class FeedPushFuture {
@@ -396,9 +444,9 @@ final class FeedSidebarUITests: XCTestCase {
 
     private func waitForDockPortalToLeaveVisibleSidebar(timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
-            guard let totals = try? self.portalStatsTotals() else { return false }
-            return self.integerValue(in: totals, key: "visible_invalid_anchor_entry_count") == 0 &&
-                self.integerValue(in: totals, key: "visible_orphan_terminal_subview_count") == 0
+            let diagnostics = self.loadDiagnostics()
+            return (Int(diagnostics["portal_visible_invalid_anchor_entry_count"] ?? "") ?? 0) == 0 &&
+                (Int(diagnostics["portal_visible_orphan_terminal_subview_count"] ?? "") ?? 0) == 0
         }
     }
 
@@ -461,6 +509,14 @@ final class FeedSidebarUITests: XCTestCase {
 
     private func loadDiagnostics() -> [String: String] {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+
+    private func loadFeedResult() -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: feedResultPath)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return [:]
         }
