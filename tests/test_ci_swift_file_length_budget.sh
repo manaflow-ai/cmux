@@ -63,6 +63,36 @@ python3 scripts/swift_file_length_budget.py \
   --budget "$BUDGET" \
   --threshold 5
 
+python3 - "$FIXTURE/Sources/NewLarge.swift" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text("".join(f"new line {index}\n" for index in range(5)), encoding="utf-8")
+PY
+
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$BUDGET" \
+  --threshold 5 >"$TMP_DIR/new-file.out" 2>&1; then
+  echo "expected new untracked file failure" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'new Sources/NewLarge.swift' "$TMP_DIR/new-file.out"; then
+  echo "expected new untracked file output" >&2
+  cat "$TMP_DIR/new-file.out" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'budget=untracked threshold=5' "$TMP_DIR/new-file.out"; then
+  echo "expected untracked budget output" >&2
+  cat "$TMP_DIR/new-file.out" >&2
+  exit 1
+fi
+
+rm "$FIXTURE/Sources/NewLarge.swift"
+
 printf 'new growth\n' >>"$FIXTURE/Sources/Big.swift"
 
 if python3 scripts/swift_file_length_budget.py \

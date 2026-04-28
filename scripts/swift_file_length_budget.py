@@ -94,12 +94,17 @@ def print_file_summary(label: str, file_lengths: FileLengthBudget) -> None:
     print(f"{label}: {total} line(s) across {len(file_lengths)} Swift file(s)")
 
 
-def compare_budget(actual: FileLengthBudget, allowed: FileLengthBudget, threshold: int) -> int:
+def compare_budget(
+    actual: FileLengthBudget,
+    allowed: FileLengthBudget,
+    threshold: int,
+    all_file_lengths: FileLengthBudget,
+) -> int:
     failures: list[tuple[str, int, int | None]] = []
     reductions: list[tuple[str, int, int]] = []
 
     for rel_path in sorted(set(actual) | set(allowed)):
-        actual_count = actual.get(rel_path, 0)
+        actual_count = actual.get(rel_path, all_file_lengths.get(rel_path, 0))
         allowed_count = allowed.get(rel_path)
         if allowed_count is None and actual_count >= threshold:
             failures.append((rel_path, actual_count, None))
@@ -113,14 +118,16 @@ def compare_budget(actual: FileLengthBudget, allowed: FileLengthBudget, threshol
         print("")
         for rel_path, actual_count, allowed_count in sorted(
             failures,
-            key=lambda item: ((item[2] if item[2] is not None else threshold - 1) - item[1], item[0]),
+            key=lambda item: ((item[2] if item[2] is not None else threshold) - item[1], item[0]),
         ):
-            comparison_count = allowed_count if allowed_count is not None else threshold - 1
+            comparison_count = allowed_count if allowed_count is not None else threshold
             delta = actual_count - comparison_count
-            print(f"+{delta} {rel_path}")
             if allowed_count is None:
+                prefix = f"+{delta}" if delta > 0 else "new"
+                print(f"{prefix} {rel_path}")
                 print(f"   actual={actual_count} budget=untracked threshold={threshold}")
             else:
+                print(f"+{delta} {rel_path}")
                 print(f"   actual={actual_count} budget={allowed_count}")
         print("")
         print("Split the file, reduce the new growth, or refresh the budget only when accepting known debt.")
@@ -201,7 +208,7 @@ def main(argv: list[str]) -> int:
         print(f"Error reading Swift file length budget: {exc}", file=sys.stderr)
         return 2
     print_file_summary("Allowed Swift file length budget", allowed)
-    return compare_budget(actual, allowed, args.threshold)
+    return compare_budget(actual, allowed, args.threshold, file_lengths)
 
 
 if __name__ == "__main__":
