@@ -165,9 +165,6 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         baseDirectory: String,
         workspaceId: UUID
     ) -> TerminalPanel {
-        var template = CmuxSurfaceConfigTemplate()
-        template.waitAfterCommand = true
-
         var environment = definition.env
         environment["CMUX_DOCK_CONTROL_ID"] = definition.id
         environment["CMUX_DOCK_CONTROL_TITLE"] = definition.title
@@ -175,9 +172,8 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         return TerminalPanel(
             workspaceId: workspaceId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: template,
             workingDirectory: resolvedWorkingDirectory(definition.cwd, baseDirectory: baseDirectory),
-            initialCommand: definition.command,
+            initialInput: "\(definition.command)\n",
             initialEnvironmentOverrides: environment,
             focusPlacement: .rightSidebarDock
         )

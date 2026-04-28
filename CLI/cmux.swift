@@ -16845,7 +16845,11 @@ export default CMUXSessionRestore;
             throw CLIError(message: "Bun is required for the OpenTUI Feed")
         }
 
+        fputs("cmux feed tui: preparing OpenTUI Feed...\n", stderr)
+        fflush(stderr)
         let appDirectory = try prepareOpenTUIFeedApp(bunPath: bunPath)
+        fputs("cmux feed tui: starting OpenTUI Feed.\n", stderr)
+        fflush(stderr)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: bunPath)
         process.arguments = ["index.ts"]
@@ -16916,6 +16920,8 @@ export default CMUXSessionRestore;
             .appendingPathComponent("package.json", isDirectory: false)
         if !fileManager.fileExists(atPath: installedPackageURL.path)
             || installedOpenTUIVersion(at: installedPackageURL) != Self.openTUIFeedCoreVersion {
+            fputs("cmux feed tui: installing @opentui/core \(Self.openTUIFeedCoreVersion)...\n", stderr)
+            fflush(stderr)
             try installOpenTUIFeedDependencies(bunPath: bunPath, appDirectory: appDirectory)
         }
         return appDirectory
