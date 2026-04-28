@@ -7,9 +7,12 @@
 
   var editor = null;
   var diffEditor = null;
+  var diffOriginalModel = null;
+  var diffModifiedModel = null;
   var isDiffMode = false;
   var currentLanguage = "plaintext";
   var currentFilePath = "";
+  var suppressContentChanged = false;
 
   // Post message to Swift.
   function postToNative(msg) {
@@ -30,6 +33,95 @@
       : "vs";
   }
 
+  function editorOptions(value, language) {
+    return {
+      value: value || "",
+      language: language || "plaintext",
+      theme: detectTheme(),
+      readOnly: false,
+      automaticLayout: true,
+      minimap: { enabled: true },
+      scrollBeyondLastLine: false,
+      fontSize: 12,
+      fontFamily: '"SF Mono", Menlo, Monaco, "Courier New", monospace',
+      lineNumbers: "on",
+      renderWhitespace: "none",
+      wordWrap: "off",
+      folding: true,
+      glyphMargin: false,
+      largeFileOptimizations: true,
+      maxTokenizationLineLength: 20000,
+      scrollbar: {
+        verticalScrollbarSize: 10,
+        horizontalScrollbarSize: 10,
+      },
+      overviewRulerLanes: 0,
+      hideCursorInOverviewRuler: true,
+      contextmenu: false,
+      domReadOnly: false,
+    };
+  }
+
+  function wireNormalEditor() {
+    if (!editor) return;
+
+    editor.onDidChangeCursorSelection(function () {
+      var selection = editor.getSelection();
+      var hasSelection = selection !== null && !selection.isEmpty();
+      postToNative({ type: "selectionChanged", hasSelection: hasSelection });
+    });
+
+    editor.onDidChangeModelContent(function () {
+      if (!suppressContentChanged && !isDiffMode) {
+        postToNative({ type: "contentChanged" });
+      }
+    });
+
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+      postToNative({ type: "saveRequested" });
+    });
+  }
+
+  function replaceEditorContent(content, language) {
+    if (!editor) return;
+    var model = editor.getModel();
+    if (!model) return;
+
+    suppressContentChanged = true;
+    try {
+      model.setValue(content);
+      monaco.editor.setModelLanguage(model, language || "plaintext");
+    } finally {
+      suppressContentChanged = false;
+    }
+  }
+
+  function disposeDiffEditor() {
+    if (diffEditor) {
+      diffEditor.dispose();
+      diffEditor = null;
+    }
+    if (diffOriginalModel) {
+      diffOriginalModel.dispose();
+      diffOriginalModel = null;
+    }
+    if (diffModifiedModel) {
+      diffModifiedModel.dispose();
+      diffModifiedModel = null;
+    }
+    isDiffMode = false;
+  }
+
+  function disposeNormalEditor() {
+    if (!editor) return;
+    var model = editor.getModel();
+    editor.dispose();
+    editor = null;
+    if (model) {
+      model.dispose();
+    }
+  }
+
   // Initialize Monaco.
   function initMonaco() {
     require.config({
@@ -40,40 +132,11 @@
       var container = document.getElementById("editor-container");
       container.innerHTML = "";
 
-      editor = monaco.editor.create(container, {
-        value: "",
-        language: "plaintext",
-        theme: detectTheme(),
-        readOnly: true,
-        automaticLayout: true,
-        minimap: { enabled: true },
-        scrollBeyondLastLine: false,
-        fontSize: 12,
-        fontFamily: '"SF Mono", Menlo, Monaco, "Courier New", monospace',
-        lineNumbers: "on",
-        renderWhitespace: "none",
-        wordWrap: "off",
-        folding: true,
-        glyphMargin: false,
-        largeFileOptimizations: true,
-        maxTokenizationLineLength: 20000,
-        scrollbar: {
-          verticalScrollbarSize: 10,
-          horizontalScrollbarSize: 10,
-        },
-        overviewRulerLanes: 0,
-        hideCursorInOverviewRuler: true,
-        contextmenu: false,
-        domReadOnly: true,
-      });
-
-      // Track selection changes.
-      editor.onDidChangeCursorSelection(function () {
-        var selection = editor.getSelection();
-        var hasSelection =
-          selection !== null && !selection.isEmpty();
-        postToNative({ type: "selectionChanged", hasSelection: hasSelection });
-      });
+      editor = monaco.editor.create(
+        container,
+        editorOptions("", "plaintext")
+      );
+      wireNormalEditor();
 
       // Listen for theme changes.
       if (window.matchMedia) {
@@ -97,74 +160,30 @@
       currentFilePath = filePath || "";
 
       if (isDiffMode && diffEditor) {
-        diffEditor.dispose();
-        diffEditor = null;
-        isDiffMode = false;
+        disposeDiffEditor();
         document.getElementById("editor-container").innerHTML = "";
-        // Re-create the normal editor.
         editor = monaco.editor.create(
           document.getElementById("editor-container"),
-          {
-            value: content,
-            language: currentLanguage,
-            theme: detectTheme(),
-            readOnly: true,
-            automaticLayout: true,
-            minimap: { enabled: true },
-            scrollBeyondLastLine: false,
-            fontSize: 12,
-            fontFamily:
-              '"SF Mono", Menlo, Monaco, "Courier New", monospace',
-            lineNumbers: "on",
-            renderWhitespace: "none",
-            wordWrap: "off",
-            folding: true,
-            glyphMargin: false,
-            largeFileOptimizations: true,
-            maxTokenizationLineLength: 20000,
-            scrollbar: {
-              verticalScrollbarSize: 10,
-              horizontalScrollbarSize: 10,
-            },
-            overviewRulerLanes: 0,
-            hideCursorInOverviewRuler: true,
-            contextmenu: false,
-            domReadOnly: true,
-          }
+          editorOptions(content, currentLanguage)
         );
-        editor.onDidChangeCursorSelection(function () {
-          var selection = editor.getSelection();
-          var hasSelection =
-            selection !== null && !selection.isEmpty();
-          postToNative({
-            type: "selectionChanged",
-            hasSelection: hasSelection,
-          });
-        });
+        wireNormalEditor();
       } else if (editor) {
-        var model = editor.getModel();
-        if (model) {
-          model.setValue(content);
-          monaco.editor.setModelLanguage(model, currentLanguage);
-        }
+        replaceEditorContent(content, currentLanguage);
       }
     },
 
     // Enter diff mode: show original (base) vs modified (current).
     setDiffContent: function (original, modified, language) {
       var lang = language || currentLanguage;
-      isDiffMode = true;
+      disposeDiffEditor();
 
-      if (editor) {
-        editor.dispose();
-        editor = null;
-      }
+      disposeNormalEditor();
 
       var container = document.getElementById("editor-container");
       container.innerHTML = "";
 
-      var originalModel = monaco.editor.createModel(original, lang);
-      var modifiedModel = monaco.editor.createModel(modified, lang);
+      diffOriginalModel = monaco.editor.createModel(original, lang);
+      diffModifiedModel = monaco.editor.createModel(modified, lang);
 
       diffEditor = monaco.editor.createDiffEditor(container, {
         theme: detectTheme(),
@@ -182,16 +201,16 @@
       });
 
       diffEditor.setModel({
-        original: originalModel,
-        modified: modifiedModel,
+        original: diffOriginalModel,
+        modified: diffModifiedModel,
       });
+      isDiffMode = true;
 
       // Track selection on the modified side.
       var modifiedEditor = diffEditor.getModifiedEditor();
       modifiedEditor.onDidChangeCursorSelection(function () {
         var selection = modifiedEditor.getSelection();
-        var hasSelection =
-          selection !== null && !selection.isEmpty();
+        var hasSelection = selection !== null && !selection.isEmpty();
         postToNative({ type: "selectionChanged", hasSelection: hasSelection });
       });
     },

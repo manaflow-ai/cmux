@@ -547,7 +547,10 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
-            editorSnapshot = SessionEditorPanelSnapshot(filePath: editorPanel.filePath)
+            editorSnapshot = SessionEditorPanelSnapshot(
+                filePath: editorPanel.filePath,
+                workspaceRootDirectory: editorPanel.workspaceRootDirectory
+            )
         }
 
         return SessionPanelSnapshot(
@@ -786,14 +789,31 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
         case .editor:
-            guard let filePath = snapshot.editor?.filePath,
-                  let editorPanel = newEditorSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: false
-                  ) else {
+            guard let editorSnapshot = snapshot.editor else {
                 return nil
             }
+            let restoredRootDirectory = normalizedSidebarDirectory(editorSnapshot.workspaceRootDirectory)
+            let restoredFilePath = editorSnapshot.filePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            let editorPanel: EditorPanel?
+            if let restoredRootDirectory {
+                editorPanel = newEditorSurface(
+                    inPane: paneId,
+                    workspaceRootDirectory: restoredRootDirectory,
+                    focus: false
+                )
+                if !restoredFilePath.isEmpty {
+                    _ = editorPanel?.navigateToFile(restoredFilePath)
+                }
+            } else if !restoredFilePath.isEmpty {
+                editorPanel = newEditorSurface(
+                    inPane: paneId,
+                    filePath: restoredFilePath,
+                    focus: false
+                )
+            } else {
+                editorPanel = nil
+            }
+            guard let editorPanel else { return nil }
             applySessionPanelMetadata(snapshot, toPanelId: editorPanel.id)
             return editorPanel.id
         }
@@ -7703,8 +7723,7 @@ final class Workspace: Identifiable, ObservableObject {
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
-            chromeColors: chromeColors,
-            usesSharedBackdrop: sharesWindowBackdrop
+            chromeColors: chromeColors
         )
     }
 
@@ -7726,20 +7745,26 @@ final class Workspace: Identifiable, ObservableObject {
             currentAppearance.chromeColors,
             nextChromeColors
         )
-        let sharedBackdropChanged = currentAppearance.usesSharedBackdrop != sharesWindowBackdrop
         let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
-        let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged
+        let isNoOp = !colorsChanged && !fontSizeChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
+            let currentColorsDescription = Self.bonsplitChromeColorsLogDescription(currentAppearance.chromeColors)
+            let nextColorsDescription = Self.bonsplitChromeColorsLogDescription(nextChromeColors)
+            let currentTabFont = String(format: "%.3f", currentTabTitleFontSize)
+            let nextTabFont = String(format: "%.3f", nextTabTitleFontSize)
+            let paneBackdrop = Self.usesBonsplitPaneTerminalBackdrop(
+                renderingMode: renderingMode,
+                sharesWindowBackdrop: sharesWindowBackdrop
+            )
             GhosttyApp.shared.logBackground(
                 "theme apply workspace=\(id.uuidString) reason=\(reason) " +
-                "current=[\(Self.bonsplitChromeColorsLogDescription(currentAppearance.chromeColors))] " +
-                "next=[\(Self.bonsplitChromeColorsLogDescription(nextChromeColors))] " +
-                "currentTabFont=\(String(format: "%.3f", currentTabTitleFontSize)) " +
-                "nextTabFont=\(String(format: "%.3f", nextTabTitleFontSize)) " +
+                "current=[\(currentColorsDescription)] " +
+                "next=[\(nextColorsDescription)] " +
+                "currentTabFont=\(currentTabFont) " +
+                "nextTabFont=\(nextTabFont) " +
                 "sharesWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) " +
-                "currentUsesSharedBackdrop=\(currentAppearance.usesSharedBackdrop ? 1 : 0) " +
-                "paneBackdrop=\(Self.usesBonsplitPaneTerminalBackdrop(renderingMode: renderingMode, sharesWindowBackdrop: sharesWindowBackdrop) ? 1 : 0) " +
+                "paneBackdrop=\(paneBackdrop ? 1 : 0) " +
                 "noop=\(isNoOp)"
             )
         }
@@ -7749,19 +7774,22 @@ final class Workspace: Identifiable, ObservableObject {
         if colorsChanged {
             bonsplitController.configuration.appearance.chromeColors = nextChromeColors
         }
-        if sharedBackdropChanged {
-            bonsplitController.configuration.appearance.usesSharedBackdrop = sharesWindowBackdrop
-        }
         if fontSizeChanged {
             bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
         }
 
         if GhosttyApp.shared.backgroundLogEnabled {
+            let resultingColorsDescription = Self.bonsplitChromeColorsLogDescription(
+                bonsplitController.configuration.appearance.chromeColors
+            )
+            let resultingTabFont = String(
+                format: "%.3f",
+                bonsplitController.configuration.appearance.tabTitleFontSize
+            )
             GhosttyApp.shared.logBackground(
                 "theme applied workspace=\(id.uuidString) reason=\(reason) " +
-                "resulting=[\(Self.bonsplitChromeColorsLogDescription(bonsplitController.configuration.appearance.chromeColors))] " +
-                "resultingUsesSharedBackdrop=\(bonsplitController.configuration.appearance.usesSharedBackdrop ? 1 : 0) " +
-                "resultingTabFont=\(String(format: "%.3f", bonsplitController.configuration.appearance.tabTitleFontSize))"
+                "resulting=[\(resultingColorsDescription)] " +
+                "resultingTabFont=\(resultingTabFont)"
             )
         }
     }
@@ -7778,19 +7806,22 @@ final class Workspace: Identifiable, ObservableObject {
             renderingMode: renderingMode
         )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
-        let currentUsesSharedBackdrop = bonsplitController.configuration.appearance.usesSharedBackdrop
         let colorsChanged = !Self.bonsplitChromeColorsEqual(currentChromeColors, nextChromeColors)
-        let sharedBackdropChanged = currentUsesSharedBackdrop != sharesWindowBackdrop
-        let isNoOp = !colorsChanged && !sharedBackdropChanged
+        let isNoOp = !colorsChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
+            let currentColorsDescription = Self.bonsplitChromeColorsLogDescription(currentChromeColors)
+            let nextColorsDescription = Self.bonsplitChromeColorsLogDescription(nextChromeColors)
+            let paneBackdrop = Self.usesBonsplitPaneTerminalBackdrop(
+                renderingMode: renderingMode,
+                sharesWindowBackdrop: sharesWindowBackdrop
+            )
             GhosttyApp.shared.logBackground(
                 "theme apply workspace=\(id.uuidString) reason=\(reason) " +
-                "current=[\(Self.bonsplitChromeColorsLogDescription(currentChromeColors))] " +
-                "next=[\(Self.bonsplitChromeColorsLogDescription(nextChromeColors))] " +
+                "current=[\(currentColorsDescription)] " +
+                "next=[\(nextColorsDescription)] " +
                 "sharesWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) " +
-                "currentUsesSharedBackdrop=\(currentUsesSharedBackdrop ? 1 : 0) " +
-                "paneBackdrop=\(Self.usesBonsplitPaneTerminalBackdrop(renderingMode: renderingMode, sharesWindowBackdrop: sharesWindowBackdrop) ? 1 : 0) " +
+                "paneBackdrop=\(paneBackdrop ? 1 : 0) " +
                 "noop=\(isNoOp)"
             )
         }
@@ -7801,14 +7832,13 @@ final class Workspace: Identifiable, ObservableObject {
         if colorsChanged {
             bonsplitController.configuration.appearance.chromeColors = nextChromeColors
         }
-        if sharedBackdropChanged {
-            bonsplitController.configuration.appearance.usesSharedBackdrop = sharesWindowBackdrop
-        }
         if GhosttyApp.shared.backgroundLogEnabled {
+            let resultingColorsDescription = Self.bonsplitChromeColorsLogDescription(
+                bonsplitController.configuration.appearance.chromeColors
+            )
             GhosttyApp.shared.logBackground(
                 "theme applied workspace=\(id.uuidString) reason=\(reason) " +
-                "resulting=[\(Self.bonsplitChromeColorsLogDescription(bonsplitController.configuration.appearance.chromeColors))] " +
-                "resultingUsesSharedBackdrop=\(bonsplitController.configuration.appearance.usesSharedBackdrop ? 1 : 0)"
+                "resulting=[\(resultingColorsDescription)]"
             )
         }
     }
@@ -10481,6 +10511,218 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Editor Panel
 
+    private func canonicalEditorPath(_ path: String) -> String {
+        let expanded = NSString(string: path).expandingTildeInPath
+        let standardized = NSString(string: expanded).standardizingPath
+        return (standardized as NSString).resolvingSymlinksInPath
+    }
+
+    private func editorPanelIdsInPriorityOrder(preferredPanelId: UUID?) -> [UUID] {
+        var ordered: [UUID] = []
+        var seen = Set<UUID>()
+
+        func append(_ panelId: UUID?) {
+            guard let panelId,
+                  panels[panelId] is EditorPanel,
+                  seen.insert(panelId).inserted else { return }
+            ordered.append(panelId)
+        }
+
+        append(preferredPanelId)
+        append(focusedPanelId)
+        for panelId in sidebarOrderedPanelIds() {
+            append(panelId)
+        }
+        for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+            append(panelId)
+        }
+        return ordered
+    }
+
+    private func isFilePath(_ filePath: String, insideDirectory directory: String) -> Bool {
+        let fileComponents = URL(fileURLWithPath: canonicalEditorPath(filePath)).pathComponents
+        let directoryComponents = URL(fileURLWithPath: canonicalEditorPath(directory)).pathComponents
+        guard fileComponents.count > directoryComponents.count else { return false }
+        return Array(fileComponents.prefix(directoryComponents.count)) == directoryComponents
+    }
+
+    private func isSameOrDescendantPath(_ path: String, of directory: String) -> Bool {
+        let pathComponents = URL(fileURLWithPath: canonicalEditorPath(path)).pathComponents
+        let directoryComponents = URL(fileURLWithPath: canonicalEditorPath(directory)).pathComponents
+        guard pathComponents.count >= directoryComponents.count else { return false }
+        return Array(pathComponents.prefix(directoryComponents.count)) == directoryComponents
+    }
+
+    private static let workspaceEditorRootMarkers: Set<String> = [
+        ".git",
+        ".mcp.json",
+        "Package.swift",
+        "README.md",
+        "bun.lock",
+        "bun.lockb",
+        "deno.json",
+        "deno.jsonc",
+        "go.mod",
+        "package-lock.json",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pyproject.toml",
+        "yarn.lock"
+    ]
+
+    private func directoryHasWorkspaceRootMarker(_ directory: String) -> Bool {
+        for marker in Self.workspaceEditorRootMarkers {
+            let markerPath = (directory as NSString).appendingPathComponent(marker)
+            if FileManager.default.fileExists(atPath: markerPath) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func inferredWorkspaceEditorRootDirectory(for filePath: String) -> String? {
+        let canonicalPath = canonicalEditorPath(filePath)
+        var isDirectory: ObjCBool = false
+        let startDirectory: String
+        if FileManager.default.fileExists(atPath: canonicalPath, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            startDirectory = canonicalPath
+        } else {
+            startDirectory = (canonicalPath as NSString).deletingLastPathComponent
+        }
+
+        var directory = startDirectory
+        while !directory.isEmpty {
+            if directoryHasWorkspaceRootMarker(directory) {
+                return directory
+            }
+            let parent = (directory as NSString).deletingLastPathComponent
+            if parent == directory {
+                break
+            }
+            directory = parent
+        }
+        return nil
+    }
+
+    private func workspaceEditorRootDirectory(for filePath: String, requestedRoot: String?) -> String {
+        let inferredRoot = inferredWorkspaceEditorRootDirectory(for: filePath)
+        if let requestedRoot = normalizedSidebarDirectory(requestedRoot) {
+            if let inferredRoot,
+               canonicalEditorPath(inferredRoot) == canonicalEditorPath(requestedRoot)
+                    || isSameOrDescendantPath(inferredRoot, of: requestedRoot) {
+                return inferredRoot
+            }
+            return requestedRoot
+        }
+        if let inferredRoot {
+            return inferredRoot
+        }
+        if let currentDirectory = normalizedSidebarDirectory(currentDirectory),
+           isFilePath(filePath, insideDirectory: currentDirectory) {
+            return currentDirectory
+        }
+        return (filePath as NSString).deletingLastPathComponent
+    }
+
+    /// Open a file in the workspace editor/file area, reusing an existing
+    /// workspace-root editor when possible so file clicks stay inside cmux.
+    @discardableResult
+    func openOrFocusWorkspaceEditor(
+        from panelId: UUID? = nil,
+        filePath: String,
+        workspaceRootDirectory: String? = nil
+    ) -> EditorPanel? {
+        let canonical = canonicalEditorPath(filePath)
+        let rootDirectory = workspaceEditorRootDirectory(
+            for: filePath,
+            requestedRoot: workspaceRootDirectory
+        )
+        let canonicalRootDirectory = canonicalEditorPath(rootDirectory)
+        let editorPanelIds = editorPanelIdsInPriorityOrder(preferredPanelId: panelId)
+
+        for existingId in editorPanelIds {
+            guard let editorPanel = panels[existingId] as? EditorPanel,
+                  !editorPanel.filePath.isEmpty,
+                  canonicalEditorPath(editorPanel.filePath) == canonical else {
+                continue
+            }
+            if !editorPanel.hasWorkspaceFileExplorer {
+                editorPanel.ensureWorkspaceFileExplorer(rootDirectory: rootDirectory)
+            }
+            focusPanel(existingId)
+            return editorPanel
+        }
+
+        for existingId in editorPanelIds {
+            guard let editorPanel = panels[existingId] as? EditorPanel,
+                  editorPanel.hasWorkspaceFileExplorer,
+                  let existingRootDirectory = editorPanel.workspaceRootDirectory,
+                  canonicalEditorPath(existingRootDirectory) == canonicalRootDirectory,
+                  editorPanel.navigateToFile(filePath) else {
+                continue
+            }
+            focusPanel(existingId)
+            return editorPanel
+        }
+
+        for existingId in editorPanelIds {
+            guard let editorPanel = panels[existingId] as? EditorPanel,
+                  editorPanel.hasWorkspaceFileExplorer,
+                  let existingRootDirectory = editorPanel.workspaceRootDirectory,
+                  isFilePath(filePath, insideDirectory: existingRootDirectory),
+                  editorPanel.navigateToFile(filePath) else {
+                continue
+            }
+            if canonicalEditorPath(existingRootDirectory) != canonicalRootDirectory,
+               isSameOrDescendantPath(rootDirectory, of: existingRootDirectory) {
+                editorPanel.ensureWorkspaceFileExplorer(rootDirectory: rootDirectory)
+            }
+            focusPanel(existingId)
+            return editorPanel
+        }
+
+        for existingId in editorPanelIds {
+            guard let editorPanel = panels[existingId] as? EditorPanel,
+                  !editorPanel.hasWorkspaceFileExplorer,
+                  !editorPanel.filePath.isEmpty,
+                  canonicalEditorPath(workspaceEditorRootDirectory(
+                    for: editorPanel.filePath,
+                    requestedRoot: nil
+                  )) == canonicalRootDirectory,
+                  editorPanel.navigateToFile(filePath) else {
+                continue
+            }
+            editorPanel.ensureWorkspaceFileExplorer(rootDirectory: rootDirectory)
+            focusPanel(existingId)
+            return editorPanel
+        }
+
+        if let sourcePanelId = panelId ?? focusedPanelId,
+           let editorPanel = newEditorSplit(
+               from: sourcePanelId,
+               orientation: .horizontal,
+               insertFirst: false,
+               workspaceRootDirectory: rootDirectory,
+               focus: true
+           ) {
+            _ = editorPanel.navigateToFile(filePath)
+            return editorPanel
+        }
+
+        if let paneId = bonsplitController.focusedPaneId,
+           let editorPanel = newEditorSurface(
+               inPane: paneId,
+               workspaceRootDirectory: rootDirectory,
+               focus: true
+           ) {
+            _ = editorPanel.navigateToFile(filePath)
+            return editorPanel
+        }
+
+        return nil
+    }
+
     /// Open or focus an existing editor panel viewing the same file.
     @discardableResult
     func openOrFocusEditorSplit(
@@ -10726,7 +10968,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installEditorPanelSubscription(_ editorPanel: EditorPanel) {
-        let subscription = editorPanel.$displayTitle
+        let titleSubscription = editorPanel.$displayTitle
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak editorPanel] newTitle in
@@ -10746,7 +10988,22 @@ final class Workspace: Identifiable, ObservableObject {
                     hasCustomTitle: self.panelCustomTitles[editorPanel.id] != nil
                 )
             }
-        panelSubscriptions[editorPanel.id] = subscription
+
+        let dirtySubscription = editorPanel.$isDirty
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak editorPanel] isDirty in
+                guard let self,
+                      let editorPanel,
+                      let tabId = self.surfaceIdFromPanelId(editorPanel.id) else { return }
+                guard let existing = self.bonsplitController.tab(tabId), existing.isDirty != isDirty else { return }
+                self.bonsplitController.updateTab(tabId, isDirty: isDirty)
+            }
+
+        panelSubscriptions[editorPanel.id] = AnyCancellable {
+            titleSubscription.cancel()
+            dirtySubscription.cancel()
+        }
     }
 
     /// Close all panels, freeing their Ghostty surfaces.
@@ -11247,6 +11504,9 @@ final class Workspace: Identifiable, ObservableObject {
                 remoteStatus: browserRemoteWorkspaceStatusSnapshot()
             )
             installBrowserPanelSubscription(browserPanel)
+        } else if let editorPanel = detached.panel as? EditorPanel {
+            editorPanel.updateWorkspaceId(id)
+            installEditorPanelSubscription(editorPanel)
         }
 
         if let directory = detached.directory {
@@ -13958,6 +14218,63 @@ extension Workspace: BonsplitDelegate {
         executeSurfaceTabBarCommandButton(identifier: identifier, inPane: pane)
     }
 
+    private func adjacentHorizontalPane(from sourcePane: PaneID, movingRight: Bool) -> PaneID? {
+        let snapshot = bonsplitController.layoutSnapshot()
+        guard let source = snapshot.panes.first(where: { $0.paneId == sourcePane.id.uuidString }) else {
+            return nil
+        }
+
+        let sourceMinX = source.frame.x
+        let sourceMaxX = source.frame.x + source.frame.width
+        let sourceMinY = source.frame.y
+        let sourceMaxY = source.frame.y + source.frame.height
+        let sourceMidY = source.frame.y + source.frame.height * 0.5
+        let epsilon = 0.5
+
+        let candidates = snapshot.panes.compactMap { pane -> (paneId: String, distance: Double, overlap: Double, centerDelta: Double)? in
+            guard pane.paneId != source.paneId else { return nil }
+
+            let paneMinX = pane.frame.x
+            let paneMaxX = pane.frame.x + pane.frame.width
+            let paneMinY = pane.frame.y
+            let paneMaxY = pane.frame.y + pane.frame.height
+            let paneMidY = pane.frame.y + pane.frame.height * 0.5
+
+            let distance: Double
+            if movingRight {
+                guard paneMinX >= sourceMaxX - epsilon else { return nil }
+                distance = max(0, paneMinX - sourceMaxX)
+            } else {
+                guard paneMaxX <= sourceMinX + epsilon else { return nil }
+                distance = max(0, sourceMinX - paneMaxX)
+            }
+
+            let overlap = max(0, min(sourceMaxY, paneMaxY) - max(sourceMinY, paneMinY))
+            let centerDelta = abs(paneMidY - sourceMidY)
+            return (pane.paneId, distance, overlap, centerDelta)
+        }
+
+        guard let best = candidates.min(by: { lhs, rhs in
+            if lhs.distance != rhs.distance { return lhs.distance < rhs.distance }
+            if lhs.overlap != rhs.overlap { return lhs.overlap > rhs.overlap }
+            if lhs.centerDelta != rhs.centerDelta { return lhs.centerDelta < rhs.centerDelta }
+            return lhs.paneId < rhs.paneId
+        }),
+            let uuid = UUID(uuidString: best.paneId) else {
+            return nil
+        }
+        return PaneID(id: uuid)
+    }
+
+    private func moveTabToAdjacentHorizontalPane(_ tab: Bonsplit.Tab, from pane: PaneID, movingRight: Bool) {
+        guard let targetPane = adjacentHorizontalPane(from: pane, movingRight: movingRight) else { return }
+        if let panelId = panelIdFromSurfaceId(tab.id) {
+            _ = moveSurface(panelId: panelId, toPane: targetPane)
+        } else {
+            _ = bonsplitController.moveTab(tab.id, toPane: targetPane)
+        }
+    }
+
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
         switch action {
         case .rename:
@@ -13996,6 +14313,10 @@ extension Workspace: BonsplitDelegate {
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
+        case .moveToLeftPane:
+            moveTabToAdjacentHorizontalPane(tab, from: pane, movingRight: false)
+        case .moveToRightPane:
+            moveTabToAdjacentHorizontalPane(tab, from: pane, movingRight: true)
         case .toggleZoom:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleSplitZoom(panelId: panelId)

@@ -1,7 +1,7 @@
 import SwiftUI
 import WebKit
 
-/// SwiftUI view that renders an EditorPanel's Monaco-based code viewer.
+/// SwiftUI view that renders an EditorPanel's Monaco-based code editor.
 struct EditorPanelView: View {
     @ObservedObject var panel: EditorPanel
     let isFocused: Bool
@@ -31,11 +31,17 @@ struct EditorPanelView: View {
                 .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
-        .onChange(of: panel.focusFlashToken) { _ in
+        .onChange(of: panel.focusFlashToken) { _, _ in
             triggerFocusFlashAnimation()
         }
-        .onChange(of: colorScheme) { newScheme in
+        .onChange(of: colorScheme) { _, newScheme in
             panel.setTheme(isDark: newScheme == .dark)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
+            guard let webView = notification.object as? CmuxWebView,
+                  let panelWebView = panel.webView,
+                  webView === panelWebView else { return }
+            onRequestPanelFocus()
         }
     }
 
@@ -79,6 +85,31 @@ struct EditorPanelView: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(Capsule().fill(Color.orange))
+            } else if panel.isDirty {
+                Text(String(localized: "editor.unsaved", defaultValue: "Unsaved"))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor))
+            }
+            if let error = panel.lastSaveErrorMessage {
+                Text(error)
+                    .font(.system(size: 10))
+                    .foregroundColor(.red)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            if !panel.isDiffMode {
+                Button {
+                    panel.save()
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(panel.isDirty ? .accentColor : .secondary)
+                .help(String(localized: "editor.save", defaultValue: "Save"))
             }
             Text(panel.monacoLanguage)
                 .font(.system(size: 10))
@@ -110,6 +141,10 @@ struct EditorPanelView: View {
             }
         }
         .background(backgroundColor)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onRequestPanelFocus()
+        }
     }
 
     private var workspacePlaceholderView: some View {
@@ -204,7 +239,10 @@ private struct EditorWebViewRepresentable: NSViewRepresentable {
 
         let webView = panel.createWebView()
         webView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(webView)
+        if webView.superview !== container {
+            webView.removeFromSuperview()
+            container.addSubview(webView)
+        }
 
         NSLayoutConstraint.activate([
             webView.topAnchor.constraint(equalTo: container.topAnchor),

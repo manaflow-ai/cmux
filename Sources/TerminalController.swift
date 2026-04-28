@@ -8304,6 +8304,23 @@ class TerminalController {
         return result
     }
 
+    private func v2RunProcessStdout(
+        executablePath: String,
+        arguments: [String]
+    ) throws -> (status: Int32, stdout: Data) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, data)
+    }
+
     private func v2EditorDiff(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -8318,8 +8335,15 @@ class TerminalController {
         guard filePath.hasPrefix("/") else {
             return .err(code: "invalid_params", message: "Path must be absolute: \(filePath)", data: ["path": filePath])
         }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: filePath, isDirectory: &isDir) else {
+            return .err(code: "not_found", message: "File not found: \(filePath)", data: ["path": filePath])
+        }
+        guard !isDir.boolValue else {
+            return .err(code: "invalid_params", message: "Path is a directory, not a file: \(filePath)", data: ["path": filePath])
+        }
         guard FileManager.default.isReadableFile(atPath: filePath) else {
-            return .err(code: "not_found", message: "File not found or not readable: \(filePath)", data: ["path": filePath])
+            return .err(code: "permission_denied", message: "File not readable: \(filePath)", data: ["path": filePath])
         }
 
         // Get base content — either from explicit `base` param or `git show HEAD:<path>`.
@@ -8328,40 +8352,36 @@ class TerminalController {
             baseContent = explicitBase
         } else {
             let fileDir = (filePath as NSString).deletingLastPathComponent
-            // First, find the git repo root.
-            let topLevelProcess = Process()
-            topLevelProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            topLevelProcess.arguments = ["-C", fileDir, "rev-parse", "--show-toplevel"]
-            let topLevelPipe = Pipe()
-            topLevelProcess.standardOutput = topLevelPipe
-            topLevelProcess.standardError = Pipe()
             var repoRoot: String?
             do {
-                try topLevelProcess.run()
-                topLevelProcess.waitUntilExit()
-                if topLevelProcess.terminationStatus == 0,
-                   let root = String(data: topLevelPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                let topLevel = try v2RunProcessStdout(
+                    executablePath: "/usr/bin/git",
+                    arguments: ["-C", fileDir, "rev-parse", "--show-toplevel"]
+                )
+                if topLevel.status == 0,
+                   let root = String(data: topLevel.stdout, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !root.isEmpty {
                     repoRoot = root
                 }
             } catch {}
 
-            guard let repoRoot, filePath.hasPrefix(repoRoot) else {
+            guard let repoRoot else {
                 return .err(code: "git_error", message: "File is not in a git repository", data: ["path": filePath])
             }
-            let relativePath = String(filePath.dropFirst(repoRoot.count + 1)) // +1 for trailing /
+            let repoComponents = URL(fileURLWithPath: repoRoot).standardizedFileURL.pathComponents
+            let fileComponents = URL(fileURLWithPath: filePath).standardizedFileURL.pathComponents
+            guard fileComponents.count > repoComponents.count,
+                  Array(fileComponents.prefix(repoComponents.count)) == repoComponents else {
+                return .err(code: "git_error", message: "File is not in a git repository", data: ["path": filePath])
+            }
+            let relativePath = fileComponents.dropFirst(repoComponents.count).joined(separator: "/")
 
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            process.arguments = ["-C", repoRoot, "show", "HEAD:\(relativePath)"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = Pipe()
             do {
-                try process.run()
-                process.waitUntilExit()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                guard process.terminationStatus == 0, let text = String(data: data, encoding: .utf8) else {
+                let gitShow = try v2RunProcessStdout(
+                    executablePath: "/usr/bin/git",
+                    arguments: ["-C", repoRoot, "show", "HEAD:\(relativePath)"]
+                )
+                guard gitShow.status == 0, let text = String(data: gitShow.stdout, encoding: .utf8) else {
                     return .err(code: "git_error", message: "Failed to get git HEAD content for \(filePath)", data: ["path": filePath])
                 }
                 baseContent = text
@@ -8384,6 +8404,10 @@ class TerminalController {
             let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let sourceSurfaceId else {
                 result = .err(code: "not_found", message: "No focused surface to split", data: nil)
+                return
+            }
+            guard ws.panels[sourceSurfaceId] != nil else {
+                result = .err(code: "unknown_surface", message: "Source surface not found", data: ["surface_id": sourceSurfaceId.uuidString])
                 return
             }
 
@@ -8474,10 +8498,10 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let line = params["line"] as? Int, line > 0 else {
+        guard let line = v2Int(params, "line"), line > 0 else {
             return .err(code: "invalid_params", message: "Missing or invalid 'line' parameter (must be positive integer)", data: nil)
         }
-        let column = params["column"] as? Int
+        let column = v2Int(params, "column")
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to goto", data: nil)
         v2MainSync {

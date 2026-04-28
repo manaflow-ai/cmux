@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import WebKit
 
-/// A read-only code viewer panel that displays syntax-highlighted file content
+/// An editable code editor panel that displays syntax-highlighted file content
 /// using Monaco Editor in a WKWebView, with live file-watching.
 @MainActor
 final class EditorPanel: Panel, ObservableObject {
@@ -62,10 +62,20 @@ final class EditorPanel: Panel, ObservableObject {
     /// Whether there is a non-empty text selection in Monaco.
     @Published private(set) var hasSelection: Bool = false
 
+    /// Whether the current file has unsaved edits.
+    @Published private(set) var isDirty: Bool = false
+
+    /// Last save or navigation error shown in the editor header.
+    @Published private(set) var lastSaveErrorMessage: String?
+
+    /// Last content loaded from or saved to disk.
+    private var lastLoadedContent: String = ""
+
     // MARK: - WKWebView
 
     /// The WKWebView hosting Monaco Editor.
     private(set) var webView: CmuxWebView?
+    private var hasLoadedMonacoPage = false
 
     /// Message handler name for JS → Swift bridge.
     static let bridgeHandlerName = "cmuxEditor"
@@ -120,7 +130,7 @@ final class EditorPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
-        // No-op for read-only panel.
+        // No-op for editor panel.
     }
 
     func close() {
@@ -131,12 +141,18 @@ final class EditorPanel: Panel, ObservableObject {
             wv.removeFromSuperview()
             webView = nil
         }
+        hasLoadedMonacoPage = false
+        isMonacoReady = false
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken += 1
+    }
+
+    func updateWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
     }
 
     // MARK: - Public API
@@ -148,19 +164,54 @@ final class EditorPanel: Panel, ObservableObject {
     }
 
     /// Navigate to a different file path.
-    func navigateToFile(_ newPath: String) {
+    @discardableResult
+    func navigateToFile(_ newPath: String) -> Bool {
+        let currentCanonical = (filePath as NSString).resolvingSymlinksInPath
+        let newCanonical = (newPath as NSString).resolvingSymlinksInPath
+        if !filePath.isEmpty, currentCanonical == newCanonical {
+            return true
+        }
+
+        guard !isDirty else {
+            lastSaveErrorMessage = String(localized: "editor.unsavedSwitchBlocked", defaultValue: "Save changes before opening another file.")
+            return false
+        }
+
         stopFileWatcher()
         filePath = newPath
         displayTitle = (newPath as NSString).lastPathComponent
         isDiffMode = false
         diffBaseContent = nil
         diffBaseLabel = nil
+        isDirty = false
+        lastSaveErrorMessage = nil
+        lastLoadedContent = ""
         loadFileContent()
         startFileWatcher()
+        return true
+    }
+
+    /// Ensure this editor keeps a workspace file explorer rooted at `rootDirectory`.
+    func ensureWorkspaceFileExplorer(rootDirectory: String) {
+        let trimmedRoot = rootDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRoot.isEmpty else { return }
+
+        let canonicalRoot = (trimmedRoot as NSString).resolvingSymlinksInPath
+        if let existingRoot = workspaceRootDirectory,
+           (existingRoot as NSString).resolvingSymlinksInPath == canonicalRoot {
+            return
+        }
+
+        workspaceRootDirectory = trimmedRoot
+        fileExplorerStore.setProvider(LocalFileExplorerProvider())
+        fileExplorerStore.showHiddenFiles = fileExplorerState.showHiddenFiles
+        fileExplorerStore.setRootPath(trimmedRoot)
     }
 
     /// Enter diff mode comparing the current file against base content.
     func enterDiffMode(baseContent: String, baseLabel: String?) {
+        isDirty = false
+        lastSaveErrorMessage = nil
         isDiffMode = true
         diffBaseContent = baseContent
         diffBaseLabel = baseLabel
@@ -200,6 +251,10 @@ final class EditorPanel: Panel, ObservableObject {
 
     /// Create and configure the WKWebView for Monaco Editor.
     func createWebView() -> CmuxWebView {
+        if let webView {
+            return webView
+        }
+
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -221,6 +276,7 @@ final class EditorPanel: Panel, ObservableObject {
     /// Load the Monaco HTML page from the app bundle.
     func loadMonacoPage() {
         guard let wv = webView else { return }
+        guard !hasLoadedMonacoPage else { return }
         guard let htmlURL = Bundle.main.url(
             forResource: "index",
             withExtension: "html",
@@ -232,6 +288,7 @@ final class EditorPanel: Panel, ObservableObject {
             return
         }
         let resourceDir = htmlURL.deletingLastPathComponent()
+        hasLoadedMonacoPage = true
         wv.loadFileURL(htmlURL, allowingReadAccessTo: resourceDir)
     }
 
@@ -243,16 +300,16 @@ final class EditorPanel: Panel, ObservableObject {
         if isDiffMode, let baseContent = diffBaseContent {
             let escapedOriginal = Self.jsEscapeString(baseContent)
             let escapedModified = Self.jsEscapeString(content)
-            let lang = monacoLanguage
+            let lang = Self.jsEscapeString(monacoLanguage)
             wv.evaluateJavaScript(
-                "cmuxEditor.setDiffContent(\"\(escapedOriginal)\", \"\(escapedModified)\", \"\(lang)\")"
+                "cmuxEditor.setDiffContent(\(escapedOriginal), \(escapedModified), \(lang))"
             )
         } else {
             let escaped = Self.jsEscapeString(content)
-            let lang = monacoLanguage
+            let lang = Self.jsEscapeString(monacoLanguage)
             let escapedPath = Self.jsEscapeString(filePath)
             wv.evaluateJavaScript(
-                "cmuxEditor.setContent(\"\(escaped)\", \"\(lang)\", \"\(escapedPath)\")"
+                "cmuxEditor.setContent(\(escaped), \(lang), \(escapedPath))"
             )
         }
     }
@@ -292,6 +349,35 @@ final class EditorPanel: Panel, ObservableObject {
         wv.evaluateJavaScript("cmuxEditor.triggerSendSelection()")
     }
 
+    /// Save the current Monaco content to disk.
+    func save() {
+        guard !filePath.isEmpty, !isDiffMode else { return }
+        getContent { [weak self] currentContent in
+            guard let self else { return }
+            guard let currentContent else {
+                self.lastSaveErrorMessage = String(localized: "editor.readContentFailed", defaultValue: "Could not read editor content.")
+                return
+            }
+            self.writeContentToDisk(currentContent)
+        }
+    }
+
+    private func writeContentToDisk(_ newContent: String) {
+        do {
+            try newContent.write(toFile: filePath, atomically: true, encoding: .utf8)
+            content = newContent
+            lastLoadedContent = newContent
+            isFileUnavailable = false
+            isDirty = false
+            lastSaveErrorMessage = nil
+            if fileWatchSource == nil {
+                startFileWatcher()
+            }
+        } catch {
+            lastSaveErrorMessage = String(localized: "editor.saveFailed", defaultValue: "Could not save file.")
+        }
+    }
+
     /// Set Monaco theme from Swift.
     func setTheme(isDark: Bool) {
         guard isMonacoReady, let wv = webView else { return }
@@ -306,6 +392,12 @@ final class EditorPanel: Panel, ObservableObject {
             markMonacoReady()
         case .selectionChanged(let has):
             updateSelectionState(hasSelection: has)
+        case .contentChanged:
+            guard !isWorkspaceRootPlaceholder, !isDiffMode else { return }
+            isDirty = true
+            lastSaveErrorMessage = nil
+        case .saveRequested:
+            save()
         case .sendSelection(let text):
             guard let returnPanelId = pendingReturnTerminalPanelId else { return }
             clearSendSelection()
@@ -325,38 +417,47 @@ final class EditorPanel: Panel, ObservableObject {
     // MARK: - JS string escaping
 
     private static func jsEscapeString(_ str: String) -> String {
-        var result = ""
-        result.reserveCapacity(str.count + str.count / 10)
-        for ch in str {
-            switch ch {
-            case "\\": result += "\\\\"
-            case "\"": result += "\\\""
-            case "\n": result += "\\n"
-            case "\r": result += "\\r"
-            case "\t": result += "\\t"
-            default: result.append(ch)
-            }
+        guard JSONSerialization.isValidJSONObject([str]),
+              let data = try? JSONSerialization.data(withJSONObject: [str], options: []),
+              let arrayLiteral = String(data: data, encoding: .utf8),
+              arrayLiteral.hasPrefix("["),
+              arrayLiteral.hasSuffix("]") else {
+            return "\"\""
         }
-        return result
+        return String(arrayLiteral.dropFirst().dropLast())
+            .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+            .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
     }
 
     // MARK: - File I/O
 
     private func loadFileContent() {
         guard !filePath.isEmpty else { return }
+        guard !isDirty else { return }
+
+        let newContent: String
         do {
-            let newContent = try String(contentsOfFile: filePath, encoding: .utf8)
-            content = newContent
-            isFileUnavailable = false
+            newContent = try String(contentsOfFile: filePath, encoding: .utf8)
         } catch {
             if let data = FileManager.default.contents(atPath: filePath),
                let decoded = String(data: data, encoding: .isoLatin1) {
-                content = decoded
-                isFileUnavailable = false
+                newContent = decoded
             } else {
                 isFileUnavailable = true
+                return
             }
         }
+
+        if !isFileUnavailable, newContent == content {
+            lastLoadedContent = newContent
+            lastSaveErrorMessage = nil
+            return
+        }
+
+        content = newContent
+        lastLoadedContent = newContent
+        isFileUnavailable = false
+        lastSaveErrorMessage = nil
         pushContentToMonaco()
     }
 
@@ -378,7 +479,7 @@ final class EditorPanel: Panel, ObservableObject {
             guard let self else { return }
             let flags = source.data
             if flags.contains(.delete) || flags.contains(.rename) {
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     self.stopFileWatcher()
                     self.loadFileContent()
                     if self.isFileUnavailable {
@@ -388,7 +489,7 @@ final class EditorPanel: Panel, ObservableObject {
                     }
                 }
             } else {
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     self.loadFileContent()
                 }
             }
@@ -406,7 +507,7 @@ final class EditorPanel: Panel, ObservableObject {
         guard attempt <= Self.maxReattachAttempts else { return }
         watchQueue.asyncAfter(deadline: .now() + Self.reattachDelay) { [weak self] in
             guard let self else { return }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard !self.isClosed else { return }
                 if FileManager.default.fileExists(atPath: self.filePath) {
                     self.isFileUnavailable = false
@@ -506,6 +607,8 @@ enum EditorSendSelectionNotificationKey {
 enum EditorBridgeMessage {
     case ready
     case selectionChanged(hasSelection: Bool)
+    case contentChanged
+    case saveRequested
     case sendSelection(content: String)
 
     init?(body: [String: Any]) {
@@ -516,6 +619,10 @@ enum EditorBridgeMessage {
         case "selectionChanged":
             guard let hasSelection = body["hasSelection"] as? Bool else { return nil }
             self = .selectionChanged(hasSelection: hasSelection)
+        case "contentChanged":
+            self = .contentChanged
+        case "saveRequested":
+            self = .saveRequested
         case "sendSelection":
             guard let content = body["content"] as? String else { return nil }
             self = .sendSelection(content: content)
@@ -546,6 +653,10 @@ class EditorBridgeMessageHandler: NSObject, WKScriptMessageHandler {
             cmuxDebugLog("editor.bridge type=ready")
         case .selectionChanged(let has):
             cmuxDebugLog("editor.bridge type=selectionChanged hasSelection=\(has)")
+        case .contentChanged:
+            cmuxDebugLog("editor.bridge type=contentChanged")
+        case .saveRequested:
+            cmuxDebugLog("editor.bridge type=saveRequested")
         case .sendSelection(let content):
             cmuxDebugLog("editor.bridge type=sendSelection len=\(content.count)")
         }

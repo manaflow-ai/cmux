@@ -2638,6 +2638,9 @@ struct ContentView: View {
             titlebarHeight: titlebarPadding,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
+            },
+            onOpenFile: { path in
+                openFileInSelectedWorkspaceFileArea(path)
             }
         )
         .frame(width: rightSidebarWidth)
@@ -2666,6 +2669,15 @@ struct ContentView: View {
                 fileExplorerWidth = sanitized
             }
         }
+    }
+
+    private func openFileInSelectedWorkspaceFileArea(_ path: String) {
+        guard let workspace = tabManager.selectedWorkspace,
+              !workspace.isRemoteWorkspace else { return }
+        _ = workspace.openOrFocusWorkspaceEditor(
+            from: workspace.focusedPanelId,
+            filePath: path
+        )
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
