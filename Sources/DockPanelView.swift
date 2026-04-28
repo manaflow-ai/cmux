@@ -458,7 +458,7 @@ struct DockPanelView: View {
         .onDisappear {
             store.deactivate()
         }
-        .onChange(of: rootDirectory) { newValue in
+        .onChange(of: rootDirectory) { _, newValue in
             store.activate(rootDirectory: newValue)
         }
         .background(
