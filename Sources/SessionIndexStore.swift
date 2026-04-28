@@ -785,7 +785,7 @@ final class SessionIndexStore: ObservableObject {
 
         appendRoot(
             ("~/.claude" as NSString).expandingTildeInPath,
-            requireConfigured: !roots.isEmpty
+            requireConfigured: false
         )
 
         return roots.map(ClaudeSessionRoot.init(configDir:))
