@@ -24,13 +24,13 @@ final class FeedSidebarUITests: XCTestCase {
     func testFeedReceivesAndResolvesPermissionRequest() throws {
         let app = XCUIApplication()
         app.launchArguments += [
-            "-\(modeKey)", "cmuxOnly",
+            "-\(modeKey)", "allowAll",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US"
         ]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "cmuxOnly"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
