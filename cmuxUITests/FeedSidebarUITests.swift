@@ -332,7 +332,14 @@ final class FeedSidebarUITests: XCTestCase {
 
     private func sendSocketLine(_ line: String, responseTimeout: TimeInterval = 2.0) throws -> String {
         do {
-            return try sendLine(line, responseTimeout: responseTimeout)
+            let response = try sendLine(line, responseTimeout: responseTimeout)
+            if !response.isEmpty {
+                return response
+            }
+            if let fallback = socketCommandViaNetcat(line, responseTimeout: responseTimeout), !fallback.isEmpty {
+                return fallback
+            }
+            return response
         } catch {
             if let response = socketCommandViaNetcat(line, responseTimeout: responseTimeout) {
                 return response
@@ -445,36 +452,40 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     private func revealDockMode(in app: XCUIApplication) -> Bool {
-        let dockButton = app.buttons["RightSidebarModeButton.feed"].firstMatch
-        if waitForHittable(dockButton, timeout: 5) {
-            dockButton.click()
+        app.activate()
+        if waitForFeedSidebarReveal(timeout: 5), waitForDockModeVisible(in: app, timeout: 8) {
             return true
         }
 
-        app.activate()
-        if waitForFeedSidebarReveal(timeout: 5) {
+        if focusDockModeViaSocket(), waitForDockModeVisible(in: app, timeout: 8) {
             return true
         }
-        if focusDockModeViaSocket() {
-            return true
+
+        let dockButton = app.buttons["RightSidebarModeButton.feed"].firstMatch
+        if waitForHittable(dockButton, timeout: 5) {
+            dockButton.click()
+            return waitForDockModeVisible(in: app, timeout: 8)
         }
 
         app.typeKey("e", modifierFlags: [.command, .shift])
         if waitForHittable(dockButton, timeout: 5) {
             dockButton.click()
-            return true
+            return waitForDockModeVisible(in: app, timeout: 8)
         }
 
         app.typeKey("b", modifierFlags: [.command, .option])
         if waitForHittable(dockButton, timeout: 5) {
             dockButton.click()
-            return true
+            return waitForDockModeVisible(in: app, timeout: 8)
         }
 
         app.typeKey("4", modifierFlags: [.control])
-        if waitForHittable(dockButton, timeout: 5) {
-            dockButton.click()
+        if waitForDockModeVisible(in: app, timeout: 8) {
             return true
+        }
+        if waitForHittable(dockButton, timeout: 2) {
+            dockButton.click()
+            return waitForDockModeVisible(in: app, timeout: 8)
         }
         return false
     }
@@ -482,6 +493,14 @@ final class FeedSidebarUITests: XCTestCase {
     private func waitForFeedSidebarReveal(timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             self.loadFeedResult()["reveal"] == "1"
+        }
+    }
+
+    private func waitForDockModeVisible(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let focusButton = app.buttons["Focus Control"].firstMatch
+        let dockPanel = app.otherElements["DockPanel"].firstMatch
+        return pollUntil(timeout: timeout, interval: 0.2) {
+            focusButton.exists || dockPanel.exists
         }
     }
 
@@ -500,18 +519,24 @@ final class FeedSidebarUITests: XCTestCase {
             "method": "debug.right_sidebar.focus",
             "params": [
                 "mode": "feed",
-                "focus_first_item": false,
+                "focus_first_item": true,
             ],
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
-              let line = String(data: data, encoding: .utf8),
-              let response = try? sendSocketLine("\(line)\n", responseTimeout: 3),
-              let responseData = response.data(using: .utf8)
-        else {
+              let line = String(data: data, encoding: .utf8) else {
+            lastSocketProbe = "right-sidebar-focus encode-failed"
             return false
         }
-        lastSocketProbe = "right-sidebar-focus response=\(response)"
-        guard let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+        let response: String
+        do {
+            response = try sendSocketLine("\(line)\n", responseTimeout: 10)
+            lastSocketProbe = "right-sidebar-focus response=\(response)"
+        } catch {
+            lastSocketProbe = "right-sidebar-focus error=\(error.localizedDescription)"
+            return false
+        }
+        guard let responseData = response.data(using: .utf8),
+              let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             return false
         }
         guard responseObject["ok"] as? Bool == true else {

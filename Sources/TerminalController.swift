@@ -144,6 +144,7 @@ class TerminalController {
         "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate",
+        "debug.right_sidebar.focus",
         "feed.jump"
     ]
 
