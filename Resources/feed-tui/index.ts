@@ -28,6 +28,7 @@ interface FeedItem {
   title: string;
   detail: string;
   defaultMode?: string;
+  questionMultiSelect: boolean;
   questionOptions: FeedOption[];
   canResolve: boolean;
 }
@@ -57,7 +58,7 @@ const layout = {
 } as const;
 
 class FeedSocketClient {
-  constructor(private readonly socketPath: string) {}
+  constructor(private readonly socketPath: string, private readonly socketPassword?: string) {}
 
   public request<T>(method: string, params: Record<string, unknown> = {}, timeoutMs = 10_000): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -66,6 +67,7 @@ class FeedSocketClient {
       const payload = `${JSON.stringify({ id, method, params })}\n`;
       let buffer = "";
       let settled = false;
+      let requestSent = !this.socketPassword;
       const timer = setTimeout(() => {
         finish(new Error(`${method} timed out`));
       }, timeoutMs);
@@ -84,36 +86,58 @@ class FeedSocketClient {
         }
       };
 
-      socket.setEncoding("utf8");
-      socket.on("connect", () => {
+      const sendRequest = () => {
+        requestSent = true;
         socket.write(payload);
         socket.end();
+      };
+
+      socket.setEncoding("utf8");
+      socket.on("connect", () => {
+        if (this.socketPassword) {
+          socket.write(`auth ${this.socketPassword}\n`);
+        } else {
+          sendRequest();
+        }
       });
       socket.on("data", (chunk) => {
         buffer += chunk;
-        const newlineIndex = buffer.indexOf("\n");
-        if (newlineIndex === -1) {
-          return;
-        }
-        const line = buffer.slice(0, newlineIndex).trim();
-        if (!line) {
-          return;
-        }
-        try {
-          const response = JSON.parse(line) as {
-            ok?: boolean;
-            result?: T;
-            error?: { code?: string; message?: string };
-          };
-          if (response.ok) {
-            finish(undefined, response.result as T);
+        while (true) {
+          const newlineIndex = buffer.indexOf("\n");
+          if (newlineIndex === -1) {
             return;
           }
-          const code = response.error?.code ?? "error";
-          const message = response.error?.message ?? "Unknown Feed error";
-          finish(new Error(`${code}: ${message}`));
-        } catch (error) {
-          finish(error as Error);
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line) {
+            continue;
+          }
+          if (!requestSent) {
+            if (line.startsWith("ERROR:")) {
+              finish(new Error(line));
+              return;
+            }
+            sendRequest();
+            continue;
+          }
+          try {
+            const response = JSON.parse(line) as {
+              ok?: boolean;
+              result?: T;
+              error?: { code?: string; message?: string };
+            };
+            if (response.ok) {
+              finish(undefined, response.result as T);
+              return;
+            }
+            const code = response.error?.code ?? "error";
+            const message = response.error?.message ?? "Unknown Feed error";
+            finish(new Error(`${code}: ${message}`));
+            return;
+          } catch (error) {
+            finish(error as Error);
+            return;
+          }
         }
       });
       socket.on("error", (error) => finish(error));
@@ -139,6 +163,7 @@ class FeedApp {
   private refreshTimer: NodeJS.Timeout | undefined;
   private feedbackItem: FeedItem | undefined;
   private feedbackText = "";
+  private readonly questionSelections = new Map<string, Set<string>>();
   private readonly keyHandler = (key: KeyEvent) => {
     void this.handleKeySafely(key);
   };
@@ -458,6 +483,15 @@ class FeedApp {
 
     const action = actionForKey(key);
     if (action) {
+      if (!this.canUseAction(item, action)) {
+        this.statusMessage = "Key is not available for this card.";
+        this.render();
+        return;
+      }
+      if (item.kind === "question" && item.questionMultiSelect && action.startsWith("option:")) {
+        this.toggleQuestionSelection(item, action);
+        return;
+      }
       await this.resolveItem(item, action);
     }
   }
@@ -577,16 +611,18 @@ class FeedApp {
           break;
         }
         case "question": {
-          const option = questionOption(item, action);
-          if (!option) {
+          const selections = this.questionSelectionsForReply(item, action);
+          if (!selections) {
             this.statusMessage = "No option for selected question.";
-            break;
+            this.render();
+            return;
           }
           await this.client.request("feed.question.reply", {
             request_id: item.requestId,
-            selections: [option.id],
+            selections,
           });
-          this.statusMessage = `Answered: ${option.label}`;
+          this.questionSelections.delete(item.requestId);
+          this.statusMessage = selections.length === 0 ? "Answered with no selections." : `Answered ${selections.length} option(s).`;
           break;
         }
       }
@@ -607,9 +643,15 @@ class FeedApp {
       case "exitPlan":
         return "Enter default | a auto | m manual | u ultra | b bypass | f replan | d deny";
       case "question":
+        if (item.questionOptions.length === 0) {
+          return "Enter sends empty answer";
+        }
         return item.questionOptions
-          .map((option, index) => `${index + 1} ${clamp(option.label, 18)}`)
-          .join(" | ") || "Enter selects first option";
+          .map((option, index) => {
+            const prefix = this.questionOptionIsSelected(item, option.id) ? "[x]" : `${index + 1}`;
+            return `${prefix} ${clamp(option.label, 18)}`;
+          })
+          .join(" | ") + (item.questionMultiSelect ? " | Enter sends selected" : "");
       default:
         return "";
     }
@@ -631,6 +673,66 @@ class FeedApp {
     for (const child of this.renderer.root.getChildren()) {
       this.renderer.root.remove(child.id);
     }
+  }
+
+  private canUseAction(item: FeedItem, action: string): boolean {
+    if (!item.canResolve) {
+      return false;
+    }
+    switch (item.kind) {
+      case "permissionRequest":
+        return ["deny", "always", "all", "bypass"].includes(action);
+      case "exitPlan":
+        return ["deny", "always", "manual", "ultraplan", "bypass"].includes(action);
+      case "question":
+        return action.startsWith("option:");
+      default:
+        return false;
+    }
+  }
+
+  private questionOptionIsSelected(item: FeedItem, optionId: string): boolean {
+    if (!item.requestId) {
+      return false;
+    }
+    return this.questionSelections.get(item.requestId)?.has(optionId) ?? false;
+  }
+
+  private toggleQuestionSelection(item: FeedItem, action: string): void {
+    if (!item.requestId) {
+      return;
+    }
+    const option = questionOption(item, action);
+    if (!option) {
+      this.statusMessage = "No option for selected question.";
+      this.render();
+      return;
+    }
+    const selections = this.questionSelections.get(item.requestId) ?? new Set<string>();
+    if (selections.has(option.id)) {
+      selections.delete(option.id);
+      this.statusMessage = `Unselected: ${option.label}`;
+    } else {
+      selections.add(option.id);
+      this.statusMessage = `Selected: ${option.label}`;
+    }
+    this.questionSelections.set(item.requestId, selections);
+    this.render();
+  }
+
+  private questionSelectionsForReply(item: FeedItem, action: string): string[] | undefined {
+    if (item.questionOptions.length === 0) {
+      return [];
+    }
+    if (item.questionMultiSelect) {
+      if (!item.requestId) {
+        return undefined;
+      }
+      const selected = this.questionSelections.get(item.requestId) ?? new Set<string>();
+      return item.questionOptions.map((option) => option.id).filter((id) => selected.has(id));
+    }
+    const option = questionOption(item, action);
+    return option ? [option.id] : undefined;
   }
 }
 
@@ -669,6 +771,7 @@ function parseFeedItem(raw: Record<string, unknown>): FeedItem | undefined {
     title: stringValue(raw.title) || defaultTitle(kind, raw),
     detail: detailText(kind, raw),
     defaultMode: stringValue(raw.default_mode),
+    questionMultiSelect: raw.question_multi_select === true,
     questionOptions,
     canResolve: status === "pending" &&
       Boolean(stringValue(raw.request_id)) &&
@@ -948,7 +1051,7 @@ async function main() {
     autoFocus: true,
     targetFps: 30,
   });
-  const app = new FeedApp(renderer, new FeedSocketClient(socketPath));
+  const app = new FeedApp(renderer, new FeedSocketClient(socketPath, process.env.CMUX_SOCKET_PASSWORD));
 
   const shutdown = () => {
     app.stop();

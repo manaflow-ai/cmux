@@ -443,8 +443,11 @@ final class FeedSidebarUITests: XCTestCase {
             app.launch()
         }
 
-        if app.state == .runningForeground || app.state == .runningBackground {
+        if app.state == .runningForeground {
             return
+        }
+        if app.state == .runningBackground {
+            app.activate()
         }
         XCTAssertTrue(
             app.wait(for: .runningForeground, timeout: 15),

@@ -11190,9 +11190,29 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
                 return
             }
+            if terminalSurface.searchState != nil {
+#if DEBUG
+                cmuxDebugLog(
+                    "focus.ensure.dock.search surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
+                    "firstResponder=\(String(describing: window.firstResponder))"
+                )
+#endif
+                restoreSearchFocus(window: window)
+                return
+            }
             if let fr = window.firstResponder as? NSView,
                fr === surfaceView || fr.isDescendant(of: surfaceView) {
                 reassertTerminalSurfaceFocus(reason: "ensureFocus.dock.alreadyFirstResponder")
+                return
+            }
+            if respectForeignFirstResponder,
+               let firstResponder = window.firstResponder,
+               firstResponder is NSText || AppDelegate.shared?.isRightSidebarFocusResponder(firstResponder, in: window) == true {
+#if DEBUG
+                let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
+                dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=dock.\(reason)")
+#endif
                 return
             }
             let result = window.makeFirstResponder(surfaceView)

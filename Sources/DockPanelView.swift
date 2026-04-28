@@ -101,15 +101,31 @@ final class DockControlRuntime: ObservableObject, Identifiable {
     let id: String
     let definition: DockControlDefinition
     let baseDirectory: String
+    let workspaceId: UUID
     let paneId: PaneID
     @Published private(set) var panel: TerminalPanel
 
-    init(definition: DockControlDefinition, baseDirectory: String) {
+    init(definition: DockControlDefinition, baseDirectory: String, workspaceId: UUID) {
         self.id = definition.id
         self.definition = definition
         self.baseDirectory = baseDirectory
+        self.workspaceId = workspaceId
         self.paneId = PaneID(id: UUID())
-        self.panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory)
+        self.panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
+    }
+
+    fileprivate var snapshot: DockControlSnapshot {
+        DockControlSnapshot(
+            id: id,
+            title: definition.title,
+            command: definition.command,
+            requestedHeight: definition.height,
+            paneId: paneId,
+            panelId: panel.id,
+            terminalSurface: panel.surface,
+            searchState: panel.searchState,
+            reattachToken: panel.viewReattachToken
+        )
     }
 
     func focus() {
@@ -122,7 +138,7 @@ final class DockControlRuntime: ObservableObject, Identifiable {
 
     func restart() {
         let oldPanel = panel
-        panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory)
+        panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
         oldPanel.close()
     }
 
@@ -146,7 +162,8 @@ final class DockControlRuntime: ObservableObject, Identifiable {
 
     private static func makePanel(
         definition: DockControlDefinition,
-        baseDirectory: String
+        baseDirectory: String,
+        workspaceId: UUID
     ) -> TerminalPanel {
         var template = CmuxSurfaceConfigTemplate()
         template.waitAfterCommand = true
@@ -156,7 +173,7 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         environment["CMUX_DOCK_CONTROL_TITLE"] = definition.title
 
         return TerminalPanel(
-            workspaceId: UUID(),
+            workspaceId: workspaceId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: template,
             workingDirectory: resolvedWorkingDirectory(definition.cwd, baseDirectory: baseDirectory),
@@ -175,6 +192,18 @@ final class DockControlRuntime: ObservableObject, Identifiable {
     }
 }
 
+fileprivate struct DockControlSnapshot: Identifiable {
+    let id: String
+    let title: String
+    let command: String
+    let requestedHeight: Double?
+    let paneId: PaneID
+    let panelId: UUID
+    let terminalSurface: TerminalSurface
+    let searchState: TerminalSurface.SearchState?
+    let reattachToken: UInt64
+}
+
 @MainActor
 final class DockControlsStore: ObservableObject {
     @Published private(set) var controls: [DockControlRuntime] = []
@@ -183,13 +212,18 @@ final class DockControlsStore: ObservableObject {
     @Published private(set) var trustRequest: DockTrustRequest?
 
     private var lastRootDirectory: String?
+    private var lastWorkspaceId: UUID?
     private var hasLoadedConfiguration = false
     private var controlsVisibleInUI = false
 
-    func activate(rootDirectory: String?) {
+    fileprivate var controlSnapshots: [DockControlSnapshot] {
+        controls.map(\.snapshot)
+    }
+
+    func activate(rootDirectory: String?, workspaceId: UUID?) {
         controlsVisibleInUI = true
-        guard hasLoadedConfiguration, lastRootDirectory == rootDirectory else {
-            reload(rootDirectory: rootDirectory)
+        guard hasLoadedConfiguration, lastRootDirectory == rootDirectory, lastWorkspaceId == workspaceId else {
+            reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
             return
         }
         setControlsVisibleInUI(true)
@@ -200,11 +234,18 @@ final class DockControlsStore: ObservableObject {
         setControlsVisibleInUI(false)
     }
 
-    func reload(rootDirectory: String?) {
+    func reload(rootDirectory: String?, workspaceId: UUID?) {
         lastRootDirectory = rootDirectory
+        lastWorkspaceId = workspaceId
         hasLoadedConfiguration = true
         errorMessage = nil
         trustRequest = nil
+
+        guard let workspaceId else {
+            replaceControls(with: [])
+            sourceLabel = String(localized: "dock.source.builtIn", defaultValue: "Built-in Dock")
+            return
+        }
 
         do {
             let resolution = try Self.resolve(rootDirectory: rootDirectory)
@@ -218,7 +259,7 @@ final class DockControlsStore: ObservableObject {
                 return
             }
             let resolvedControls = resolution.controls.map {
-                DockControlRuntime(definition: $0, baseDirectory: resolution.baseDirectory)
+                DockControlRuntime(definition: $0, baseDirectory: resolution.baseDirectory, workspaceId: workspaceId)
             }
             replaceControls(with: resolvedControls)
             sourceLabel = Self.sourceLabel(for: resolution)
@@ -233,7 +274,7 @@ final class DockControlsStore: ObservableObject {
         if let trustRequest {
             CmuxActionTrust.shared.trust(trustRequest.descriptor)
         }
-        reload(rootDirectory: lastRootDirectory)
+        reload(rootDirectory: lastRootDirectory, workspaceId: lastWorkspaceId)
     }
 
     func focusFirstControl() -> Bool {
@@ -252,6 +293,32 @@ final class DockControlsStore: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func focusControl(id: String) {
+        controls.first { $0.id == id }?.focus()
+    }
+
+    func restartControl(id: String) {
+        guard let index = controls.firstIndex(where: { $0.id == id }) else { return }
+        let oldControl = controls[index]
+        let newControl = DockControlRuntime(
+            definition: oldControl.definition,
+            baseDirectory: oldControl.baseDirectory,
+            workspaceId: oldControl.workspaceId
+        )
+        controls[index] = newControl
+        newControl.setVisibleInUI(controlsVisibleInUI)
+        oldControl.close()
+    }
+
+    func noteKeyboardFocusIntent(id: String, window: NSWindow?) {
+        guard controls.contains(where: { $0.id == id }) else { return }
+        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
+    }
+
+    func triggerFlash(id: String) {
+        controls.first { $0.id == id }?.panel.triggerFlash(reason: .debug)
     }
 
     private func replaceControls(with newControls: [DockControlRuntime]) {
@@ -444,6 +511,7 @@ final class DockControlsStore: ObservableObject {
 
 struct DockPanelView: View {
     let rootDirectory: String?
+    let workspaceId: UUID?
     @ObservedObject var store: DockControlsStore
 
     var body: some View {
@@ -453,13 +521,16 @@ struct DockPanelView: View {
             content
         }
         .onAppear {
-            store.activate(rootDirectory: rootDirectory)
+            store.activate(rootDirectory: rootDirectory, workspaceId: workspaceId)
         }
         .onDisappear {
             store.deactivate()
         }
         .onChange(of: rootDirectory) { _, newValue in
-            store.activate(rootDirectory: newValue)
+            store.activate(rootDirectory: newValue, workspaceId: workspaceId)
+        }
+        .onChange(of: workspaceId) { _, newValue in
+            store.activate(rootDirectory: rootDirectory, workspaceId: newValue)
         }
         .background(
             DockKeyboardFocusBridge(store: store)
@@ -487,7 +558,7 @@ struct DockPanelView: View {
             .accessibilityLabel(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
 
             Button {
-                store.reload(rootDirectory: rootDirectory)
+                store.reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 11, weight: .medium))
@@ -512,13 +583,23 @@ struct DockPanelView: View {
         } else if store.controls.isEmpty {
             DockEmptyView()
         } else {
-            DockControlsLayoutView(controls: store.controls)
+            DockControlsLayoutView(
+                snapshots: store.controlSnapshots,
+                onFocus: { id in store.focusControl(id: id) },
+                onRestart: { id in store.restartControl(id: id) },
+                onKeyboardFocusIntent: { id, window in store.noteKeyboardFocusIntent(id: id, window: window) },
+                onTriggerFlash: { id in store.triggerFlash(id: id) }
+            )
         }
     }
 }
 
 private struct DockControlsLayoutView: View {
-    let controls: [DockControlRuntime]
+    let snapshots: [DockControlSnapshot]
+    let onFocus: (String) -> Void
+    let onRestart: (String) -> Void
+    let onKeyboardFocusIntent: (String, NSWindow?) -> Void
+    let onTriggerFlash: (String) -> Void
 
     private let headerHeight: CGFloat = 30
     private let dividerHeight: CGFloat = 1
@@ -529,13 +610,17 @@ private struct DockControlsLayoutView: View {
             let heights = terminalHeights(availableHeight: proxy.size.height)
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(Array(controls.enumerated()), id: \.element.id) { index, runtime in
+                    ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
                         DockControlSectionView(
-                            runtime: runtime,
+                            snapshot: snapshot,
                             ordinal: index + 1,
-                            terminalHeight: heights[index]
+                            terminalHeight: heights[index],
+                            onFocus: { onFocus(snapshot.id) },
+                            onRestart: { onRestart(snapshot.id) },
+                            onKeyboardFocusIntent: { window in onKeyboardFocusIntent(snapshot.id, window) },
+                            onTriggerFlash: { onTriggerFlash(snapshot.id) }
                         )
-                        if index < controls.count - 1 {
+                        if index < snapshots.count - 1 {
                             Divider()
                                 .frame(height: dividerHeight)
                         }
@@ -548,17 +633,17 @@ private struct DockControlsLayoutView: View {
     }
 
     private func terminalHeights(availableHeight: CGFloat) -> [CGFloat] {
-        guard !controls.isEmpty else { return [] }
+        guard !snapshots.isEmpty else { return [] }
 
-        let chromeHeight = CGFloat(controls.count) * headerHeight
-            + CGFloat(max(controls.count - 1, 0)) * dividerHeight
+        let chromeHeight = CGFloat(snapshots.count) * headerHeight
+            + CGFloat(max(snapshots.count - 1, 0)) * dividerHeight
         let availableTerminalHeight = max(availableHeight - chromeHeight, 0)
-        var heights = Array(repeating: CGFloat.zero, count: controls.count)
+        var heights = Array(repeating: CGFloat.zero, count: snapshots.count)
         var flexibleIndexes: [Int] = []
         var fixedHeightTotal: CGFloat = 0
 
-        for (index, runtime) in controls.enumerated() {
-            if let requestedHeight = runtime.definition.height {
+        for (index, snapshot) in snapshots.enumerated() {
+            if let requestedHeight = snapshot.requestedHeight {
                 let fixedHeight = max(CGFloat(requestedHeight), minimumTerminalHeight)
                 heights[index] = fixedHeight
                 fixedHeightTotal += fixedHeight
@@ -570,7 +655,7 @@ private struct DockControlsLayoutView: View {
         if flexibleIndexes.isEmpty {
             let extraHeight = max(availableTerminalHeight - fixedHeightTotal, 0)
             guard extraHeight > 0 else { return heights }
-            let extraHeightPerControl = extraHeight / CGFloat(controls.count)
+            let extraHeightPerControl = extraHeight / CGFloat(snapshots.count)
             return heights.map { $0 + extraHeightPerControl }
         }
 
@@ -585,18 +670,26 @@ private struct DockControlsLayoutView: View {
 }
 
 private struct DockControlSectionView: View {
-    @ObservedObject var runtime: DockControlRuntime
+    let snapshot: DockControlSnapshot
     let ordinal: Int
     let terminalHeight: CGFloat
+    let onFocus: () -> Void
+    let onRestart: () -> Void
+    let onKeyboardFocusIntent: (NSWindow?) -> Void
+    let onTriggerFlash: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            DockTerminalView(runtime: runtime)
+            DockTerminalView(
+                snapshot: snapshot,
+                onKeyboardFocusIntent: onKeyboardFocusIntent,
+                onTriggerFlash: onTriggerFlash
+            )
                 .frame(height: terminalHeight)
                 .clipped()
         }
-        .accessibilityIdentifier("DockControl.\(runtime.id)")
+        .accessibilityIdentifier("DockControl.\(snapshot.id)")
     }
 
     private var header: some View {
@@ -605,18 +698,18 @@ private struct DockControlSectionView: View {
                 .font(.system(size: 10, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 18, alignment: .center)
-            Text(runtime.definition.title)
+            Text(snapshot.title)
                 .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(runtime.definition.command)
+            Text(snapshot.command)
                 .font(.system(size: 10, weight: .regular, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
             Button {
-                runtime.focus()
+                onFocus()
             } label: {
                 Image(systemName: "keyboard")
                     .font(.system(size: 10, weight: .medium))
@@ -626,7 +719,7 @@ private struct DockControlSectionView: View {
             .accessibilityLabel(String(localized: "dock.action.focusControl", defaultValue: "Focus Control"))
 
             Button {
-                runtime.restart()
+                onRestart()
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 10, weight: .medium))
@@ -643,28 +736,27 @@ private struct DockControlSectionView: View {
 }
 
 private struct DockTerminalView: View {
-    @ObservedObject var runtime: DockControlRuntime
+    let snapshot: DockControlSnapshot
+    let onKeyboardFocusIntent: (NSWindow?) -> Void
+    let onTriggerFlash: () -> Void
 
     var body: some View {
         GhosttyTerminalView(
-            terminalSurface: runtime.panel.surface,
-            paneId: runtime.paneId,
+            terminalSurface: snapshot.terminalSurface,
+            paneId: snapshot.paneId,
             isActive: true,
             isVisibleInUI: true,
             portalZPriority: 1,
-            searchState: runtime.panel.searchState,
-            reattachToken: runtime.panel.viewReattachToken,
+            searchState: snapshot.searchState,
+            reattachToken: snapshot.reattachToken,
             onFocus: { _ in
-                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(
-                    mode: .feed,
-                    in: runtime.panel.hostedView.window
-                )
+                onKeyboardFocusIntent(snapshot.terminalSurface.hostedView.window)
             },
             onTriggerFlash: {
-                runtime.panel.triggerFlash(reason: .debug)
+                onTriggerFlash()
             }
         )
-        .id(runtime.panel.id)
+        .id(snapshot.panelId)
         .background(Color.clear)
     }
 }

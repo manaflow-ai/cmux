@@ -2059,7 +2059,7 @@ struct CMUXCLI {
                 try runFeedClear()
                 return
             case "tui":
-                try runFeedTUI(socketPath: resolvedSocketPath)
+                try runFeedTUI(socketPath: resolvedSocketPath, socketPassword: socketPasswordArg)
                 return
             case "help", "--help", "-h":
                 print("Usage: cmux feed <tui|clear> [--yes]")
@@ -16663,6 +16663,7 @@ export default CMUXSessionRestore;
         let title: String
         let detail: String
         let defaultMode: String?
+        let questionMultiSelect: Bool
         let questionOptions: [FeedTUIOption]
 
         var isPending: Bool {
@@ -16709,6 +16710,7 @@ export default CMUXSessionRestore;
                 title: title,
                 detail: detail,
                 defaultMode: dict["default_mode"] as? String,
+                questionMultiSelect: (dict["question_multi_select"] as? Bool) ?? false,
                 questionOptions: options
             )
         }
@@ -16814,24 +16816,28 @@ export default CMUXSessionRestore;
 
     private static let openTUIFeedCoreVersion = "0.1.106"
 
-    private func runFeedTUI(socketPath: String) throws {
+    private func runFeedTUI(socketPath: String, socketPassword: String?) throws {
+        let resolvedSocketPassword = SocketPasswordResolver.resolve(
+            explicit: socketPassword,
+            socketPath: socketPath
+        )
         if ProcessInfo.processInfo.environment["CMUX_FEED_TUI_LEGACY"] == "1" {
-            try runLegacyFeedTUI(socketPath: socketPath)
+            try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
             return
         }
 
         do {
-            try runOpenTUIFeedTUI(socketPath: socketPath)
+            try runOpenTUIFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
         } catch {
             fputs(
                 "cmux feed tui: OpenTUI unavailable (\(error)); falling back to legacy TUI.\n",
                 stderr
             )
-            try runLegacyFeedTUI(socketPath: socketPath)
+            try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
         }
     }
 
-    private func runOpenTUIFeedTUI(socketPath: String) throws {
+    private func runOpenTUIFeedTUI(socketPath: String, socketPassword: String?) throws {
         guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
             throw CLIError(message: "cmux feed tui requires an interactive terminal")
         }
@@ -16847,6 +16853,9 @@ export default CMUXSessionRestore;
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SOCKET"] = socketPath
+        if let socketPassword {
+            environment["CMUX_SOCKET_PASSWORD"] = socketPassword
+        }
         environment["OTUI_USE_CONSOLE"] = environment["OTUI_USE_CONSOLE"] ?? "0"
         process.environment = environment
         process.standardInput = FileHandle.standardInput
@@ -16973,13 +16982,14 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func runLegacyFeedTUI(socketPath: String) throws {
+    private func runLegacyFeedTUI(socketPath: String, socketPassword: String?) throws {
         guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
             throw CLIError(message: "cmux feed tui requires an interactive terminal")
         }
 
         let client = SocketClient(path: socketPath)
         try client.connect()
+        try authenticateClientIfNeeded(client, explicitPassword: socketPassword, socketPath: socketPath)
 
         var rawMode = TerminalRawMode()
         guard rawMode != nil else {
@@ -16997,6 +17007,7 @@ export default CMUXSessionRestore;
         var selectedItemID: String?
         var scrollOffset = 0
         var statusLine = ""
+        var selectedQuestionOptions: [String: Set<String>] = [:]
         while true {
             let items = try feedTUIItems(client: client)
             if let selectedItemID,
@@ -17035,19 +17046,43 @@ export default CMUXSessionRestore;
                 return
             case .enter:
                 if let item = feedTUIItem(in: items, at: selectedIndex) {
-                    statusLine = try resolveFeedTUIItem(item, key: .enter, client: client, rawMode: &rawMode)
+                    statusLine = try resolveFeedTUIItem(
+                        item,
+                        key: .enter,
+                        client: client,
+                        rawMode: &rawMode,
+                        selectedQuestionOptions: &selectedQuestionOptions
+                    )
                 }
             case .deny:
                 if let item = feedTUIItem(in: items, at: selectedIndex) {
-                    statusLine = try resolveFeedTUIItem(item, key: .deny, client: client, rawMode: &rawMode)
+                    statusLine = try resolveFeedTUIItem(
+                        item,
+                        key: .deny,
+                        client: client,
+                        rawMode: &rawMode,
+                        selectedQuestionOptions: &selectedQuestionOptions
+                    )
                 }
             case .feedback:
                 if let item = feedTUIItem(in: items, at: selectedIndex) {
-                    statusLine = try resolveFeedTUIItem(item, key: .feedback, client: client, rawMode: &rawMode)
+                    statusLine = try resolveFeedTUIItem(
+                        item,
+                        key: .feedback,
+                        client: client,
+                        rawMode: &rawMode,
+                        selectedQuestionOptions: &selectedQuestionOptions
+                    )
                 }
             case .once, .always, .all, .bypass, .manual, .autoAccept, .ultraplan, .number(_):
                 if let item = feedTUIItem(in: items, at: selectedIndex) {
-                    statusLine = try resolveFeedTUIItem(item, key: key, client: client, rawMode: &rawMode)
+                    statusLine = try resolveFeedTUIItem(
+                        item,
+                        key: key,
+                        client: client,
+                        rawMode: &rawMode,
+                        selectedQuestionOptions: &selectedQuestionOptions
+                    )
                 }
             case .ignored:
                 continue
@@ -17225,7 +17260,11 @@ export default CMUXSessionRestore;
             let optionText = item.questionOptions.enumerated().map { index, option in
                 "\(index + 1)=\(option.label)"
             }.joined(separator: "  ")
-            return optionText.isEmpty ? "Question: Enter selects the first option" : "Question: \(optionText)"
+            if optionText.isEmpty {
+                return "Question: Enter sends an empty answer"
+            }
+            let suffix = item.questionMultiSelect ? "  Enter sends selected options" : ""
+            return "Question: \(optionText)\(suffix)"
         default:
             return ""
         }
@@ -17235,7 +17274,8 @@ export default CMUXSessionRestore;
         _ item: FeedTUIItem,
         key: FeedTUIKey,
         client: SocketClient,
-        rawMode: inout TerminalRawMode?
+        rawMode: inout TerminalRawMode?,
+        selectedQuestionOptions: inout [String: Set<String>]
     ) throws -> String {
         guard item.canResolve, let requestId = item.requestId else {
             return "No pending action for selected item"
@@ -17245,6 +17285,8 @@ export default CMUXSessionRestore;
         case "permissionRequest":
             let mode: String
             switch key {
+            case .enter, .once:
+                mode = "once"
             case .always:
                 mode = "always"
             case .all:
@@ -17254,7 +17296,7 @@ export default CMUXSessionRestore;
             case .deny:
                 mode = "deny"
             default:
-                mode = "once"
+                return "Key is not available for permission requests"
             }
             _ = try client.sendV2(
                 method: "feed.permission.reply",
@@ -17274,6 +17316,8 @@ export default CMUXSessionRestore;
 
             let mode: String
             switch key {
+            case .enter:
+                mode = item.defaultMode ?? "manual"
             case .autoAccept, .always:
                 mode = "autoAccept"
             case .manual:
@@ -17285,7 +17329,7 @@ export default CMUXSessionRestore;
             case .deny:
                 mode = "deny"
             default:
-                mode = item.defaultMode ?? "manual"
+                return "Key is not available for plans"
             }
             _ = try client.sendV2(
                 method: "feed.exit_plan.reply",
@@ -17293,12 +17337,54 @@ export default CMUXSessionRestore;
             )
             return "Plan \(mode) sent"
         case "question":
+            if item.questionOptions.isEmpty {
+                guard key == .enter else {
+                    return "Question has no selectable options"
+                }
+                _ = try client.sendV2(
+                    method: "feed.question.reply",
+                    params: ["request_id": requestId, "selections": [] as [String]]
+                )
+                return "Question answer sent"
+            }
+
+            if item.questionMultiSelect {
+                switch key {
+                case .number(let index):
+                    guard let option = feedTUIOption(in: item.questionOptions, at: index - 1) else {
+                        return "No option \(index)"
+                    }
+                    var selections = selectedQuestionOptions[requestId] ?? Set<String>()
+                    if selections.contains(option.id) {
+                        selections.remove(option.id)
+                        selectedQuestionOptions[requestId] = selections
+                        return "Unselected: \(option.label)"
+                    }
+                    selections.insert(option.id)
+                    selectedQuestionOptions[requestId] = selections
+                    return "Selected: \(option.label)"
+                case .enter:
+                    let selected = selectedQuestionOptions[requestId] ?? Set<String>()
+                    let selections = item.questionOptions.map(\.id).filter { selected.contains($0) }
+                    _ = try client.sendV2(
+                        method: "feed.question.reply",
+                        params: ["request_id": requestId, "selections": selections]
+                    )
+                    selectedQuestionOptions.removeValue(forKey: requestId)
+                    return selections.isEmpty ? "Question answer sent with no selections" : "Question answer sent"
+                default:
+                    return "Key is not available for questions"
+                }
+            }
+
             let option: FeedTUIOption?
             switch key {
             case .number(let index):
                 option = feedTUIOption(in: item.questionOptions, at: index - 1)
-            default:
+            case .enter:
                 option = item.questionOptions.first
+            default:
+                return "Key is not available for questions"
             }
             guard let option else {
                 return "No question option available"

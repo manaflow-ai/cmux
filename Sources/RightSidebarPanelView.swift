@@ -140,6 +140,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
+    let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
 
     @StateObject private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
@@ -260,7 +261,7 @@ struct RightSidebarPanelView: View {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
         case .feed:
-            DockPanelView(rootDirectory: sessionIndexDirectory, store: dockStore)
+            DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
         }
     }
 

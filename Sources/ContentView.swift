@@ -2636,6 +2636,7 @@ struct ContentView: View {
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
             titlebarHeight: titlebarPadding,
+            workspaceId: tabManager.selectedTabId,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             }
