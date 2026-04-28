@@ -55,15 +55,11 @@ final class FeedSidebarUITests: XCTestCase {
             "Synthetic feed.push did not start. result=\(loadFeedResult())"
         )
 
-        // Reveal the right sidebar and toggle to Dock. Uses accessibility
-        // identifiers registered on the ModeBarButton row.
-        let dockButton = app.buttons["Dock"].firstMatch
-        if !dockButton.waitForExistence(timeout: 5) {
-            // Fall back: send the right-sidebar toggle shortcut (⌘⌥B).
-            app.typeKey("b", modifierFlags: [.command, .option])
-            _ = dockButton.waitForExistence(timeout: 5)
-        }
-        XCTAssertTrue(dockButton.exists, "Dock tab not visible in right sidebar")
+        let dockButton = revealDockMode(in: app)
+        XCTAssertTrue(
+            waitForHittable(dockButton, timeout: 5),
+            "Dock tab not visible in right sidebar. dock=\(dockButton.debugDescription)"
+        )
         dockButton.click()
 
         let focusButton = app.buttons["Focus Control"].firstMatch
@@ -447,6 +443,30 @@ final class FeedSidebarUITests: XCTestCase {
             let diagnostics = self.loadDiagnostics()
             return (Int(diagnostics["portal_visible_invalid_anchor_entry_count"] ?? "") ?? 0) == 0 &&
                 (Int(diagnostics["portal_visible_orphan_terminal_subview_count"] ?? "") ?? 0) == 0
+        }
+    }
+
+    private func revealDockMode(in app: XCUIApplication) -> XCUIElement {
+        let dockButton = app.buttons["RightSidebarModeButton.feed"].firstMatch
+        if waitForHittable(dockButton, timeout: 5) {
+            return dockButton
+        }
+
+        app.activate()
+        app.typeKey("4", modifierFlags: [.control])
+        if waitForHittable(dockButton, timeout: 5) {
+            return dockButton
+        }
+
+        app.typeKey("b", modifierFlags: [.command])
+        app.typeKey("4", modifierFlags: [.control])
+        _ = waitForHittable(dockButton, timeout: 5)
+        return dockButton
+    }
+
+    private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout) {
+            element.exists && element.isHittable
         }
     }
 
