@@ -727,7 +727,34 @@ func TestCLIListPanelsUsesSurfaceList(t *testing.T) {
 	}
 }
 
-func TestCLIFocusPanelUsesSurfaceFocus(t *testing.T) {
+func TestCLIFocusSurfaceUsesSurfaceFocus(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "focus-surface", "--workspace", "ws-1", "--surface", "surface-1"})
+	if code != 0 {
+		t.Fatalf("focus-surface should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "surface.focus" {
+			t.Fatalf("expected surface.focus, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["workspace_id"]; got != "ws-1" {
+			t.Fatalf("expected workspace_id ws-1, got %v", got)
+		}
+		if got := params["surface_id"]; got != "surface-1" {
+			t.Fatalf("expected surface_id surface-1, got %v", got)
+		}
+		if _, ok := params["panel_id"]; ok {
+			t.Fatalf("did not expect panel_id in params: %v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for focus-surface request")
+	}
+}
+
+func TestCLIFocusPanelAliasUsesSurfaceFocus(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{"--socket", sockPath, "--json", "focus-panel", "--workspace", "ws-1", "--panel", "surface-1"})
 	if code != 0 {

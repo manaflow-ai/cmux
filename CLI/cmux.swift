@@ -2842,15 +2842,18 @@ struct CMUXCLI {
                 }
             }
 
-        case "focus-panel":
+        case "focus-surface", "focus-panel":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            guard let panelRaw = optionValue(commandArgs, name: "--panel") else {
-                throw CLIError(message: "focus-panel requires --panel")
+            let panelRaw = optionValue(commandArgs, name: "--panel")
+            let surfaceRaw = optionValue(commandArgs, name: "--surface")
+            let targetRaw = panelRaw ?? surfaceRaw
+            guard let raw = targetRaw else {
+                throw CLIError(message: "focus-surface requires --surface (or --panel)")
             }
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(panelRaw, client: client, workspaceHandle: wsId)
+            let sfId = try normalizeSurfaceHandle(raw, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.focus", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
@@ -9010,14 +9013,29 @@ struct CMUXCLI {
               cmux list-panels
               cmux list-panels --workspace workspace:2
             """
-        case "focus-panel":
+        case "focus-surface":
             return """
-            Usage: cmux focus-panel --panel <id|ref> [--workspace <id|ref>]
+            Usage: cmux focus-surface --surface <id|ref> [--workspace <id|ref>]
 
-            Focus a specific panel (surface).
+            Focus a specific surface.
 
             Flags:
-              --panel <id|ref>       Panel/surface to focus (required)
+              --surface <id|ref>     Surface to focus (required)
+              --panel <id|ref>       Alias for --surface
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux focus-surface --surface surface:2
+              cmux focus-surface --surface surface:5 --workspace workspace:2
+            """
+        case "focus-panel":
+            return """
+            Usage: cmux focus-panel [--panel <id|ref>] [--workspace <id|ref>]
+
+            Deprecated alias for `focus-surface`.
+
+            Flags:
+              --panel <id|ref>       Surface to focus (required)
               --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
 
             Example:
@@ -18588,6 +18606,7 @@ export default CMUXSessionRestore;
           surface-health [--workspace <id|ref>]
           trigger-flash [--workspace <id|ref>] [--surface <id|ref>]
           list-panels [--workspace <id|ref>]
+          focus-surface --surface <id|ref> [--workspace <id|ref>]
           focus-panel --panel <id|ref> [--workspace <id|ref>]
           close-workspace --workspace <id|ref>
           select-workspace --workspace <id|ref>
