@@ -2124,6 +2124,25 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
 
 @MainActor
 final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
+    func testReopenAfterStandardBrowserTabCloseFocusesReopenedBrowser() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/standard-close")) else {
+            XCTFail("Expected initial workspace and browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace.closePanel(closedBrowserId))
+        drainMainQueue()
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertTrue(isFocusedPanelBrowser(in: workspace))
+    }
+
     func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
         let manager = TabManager()
         guard let workspace1 = manager.selectedWorkspace,
