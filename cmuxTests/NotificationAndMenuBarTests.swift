@@ -710,7 +710,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .unknown, isAppActive: false))
         XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .notDetermined, isAppActive: true))
         XCTAssertEqual(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .notDetermined, isAppActive: false), false)
-        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .denied, isAppActive: false))
+        XCTAssertEqual(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .denied, isAppActive: false), false)
         XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .authorized, isAppActive: false))
         XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .provisional, isAppActive: false))
         XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .ephemeral, isAppActive: false))

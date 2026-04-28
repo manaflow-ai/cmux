@@ -11381,9 +11381,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func isLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
         cmuxIsLikelyWebInspectorResponder(responder)
     }
-
 #if DEBUG
     private func developerToolsShortcutProbeKind(event: NSEvent) -> String? {
+        guard event.type == .keyDown else { return nil }
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
             return "toggle.configured"
         }

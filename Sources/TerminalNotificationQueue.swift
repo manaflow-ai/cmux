@@ -10,195 +10,283 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let title: String
     let subtitle: String
     let body: String
-    let sequence: UInt64
-    let generation: UInt64
 }
 
-fileprivate final class TerminalNotificationIngress: @unchecked Sendable {
-    static let shared = TerminalNotificationIngress()
+fileprivate enum TerminalSocketMutation {
+    case deliverNotification(QueuedTerminalNotification)
+    case clearAllNotifications
+    case clearNotificationsForTab(UUID)
+    case perform(@MainActor () -> Void)
+}
+
+fileprivate struct TerminalSocketMutationEntry {
+    let sequence: UInt64
+    let mutation: TerminalSocketMutation
+    let notificationCoalescingKey: TerminalNotificationCoalescingKey?
+}
+
+fileprivate struct TerminalNotificationCoalescingKey: Hashable {
+    let generation: UInt64
+    let notificationKey: QueuedTerminalNotificationKey
+}
+
+final class TerminalMutationBus: @unchecked Sendable {
+    static let shared = TerminalMutationBus()
 
     private let lock = NSLock()
-    private var queuedNotifications: [QueuedTerminalNotificationKey: QueuedTerminalNotification] = [:]
-    private var scheduledGenerations = Set<UInt64>()
-    private var currentGeneration: UInt64 = 0
+    private var pending: [TerminalSocketMutationEntry] = []
+    private var drainScheduled = false
     private var nextSequence: UInt64 = 0
+    private var currentNotificationGeneration: UInt64 = 0
+    private let maxMutationsPerDrain = 16
 
-    func enqueue(
+    nonisolated func enqueueNotification(
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
         subtitle: String,
         body: String
     ) {
-        let shouldScheduleDrain: Bool
-        let generation: UInt64
-        let key = QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
-        lock.lock()
-        generation = currentGeneration
-        nextSequence &+= 1
-        queuedNotifications[key] = QueuedTerminalNotification(
-            key: key,
+        enqueueNotification(QueuedTerminalNotification(
+            key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
-            body: body,
-            sequence: nextSequence,
-            generation: generation
-        )
+            body: body
+        ))
+    }
 
-        if scheduledGenerations.contains(generation) {
-            shouldScheduleDrain = false
-        } else {
-            scheduledGenerations.insert(generation)
-            shouldScheduleDrain = true
+    nonisolated func enqueueClearAllNotifications() {
+        enqueueClear(.clearAllNotifications) { _ in true }
+    }
+
+    nonisolated func enqueueClearNotifications(forTabId tabId: UUID) {
+        enqueueClear(.clearNotificationsForTab(tabId)) { notification in
+            notification.key.tabId == tabId
+        }
+    }
+
+    nonisolated func enqueueMainActorMutation(_ mutation: @escaping @MainActor () -> Void) {
+        enqueueBarrierMutation(.perform(mutation))
+    }
+
+    nonisolated func markNotificationClearBoundary() -> UInt64 {
+        lock.lock()
+        let boundary = currentNotificationGeneration
+        currentNotificationGeneration &+= 1
+        lock.unlock()
+        return boundary
+    }
+
+    nonisolated func discardPendingNotifications(forTabId tabId: UUID, through boundary: UInt64) {
+        discardPendingNotifications { notification, generation in
+            notification.key.tabId == tabId && generation <= boundary
+        }
+    }
+
+    nonisolated func discardPendingNotifications() {
+        discardPendingNotifications(advanceGeneration: true) { _, _ in true }
+    }
+
+    nonisolated func discardPendingNotifications(forTabId tabId: UUID) {
+        discardPendingNotifications(advanceGeneration: true) { notification, _ in
+            notification.key.tabId == tabId
+        }
+    }
+
+    nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
+        discardPendingNotifications(advanceGeneration: true) { notification, _ in
+            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
+        }
+    }
+
+    private func enqueueNotification(_ notification: QueuedTerminalNotification) {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        let coalescingKey = TerminalNotificationCoalescingKey(
+            generation: currentNotificationGeneration,
+            notificationKey: notification.key
+        )
+        pending.removeAll { entry in
+            entry.notificationCoalescingKey == coalescingKey
+        }
+        nextSequence &+= 1
+        pending.append(TerminalSocketMutationEntry(
+            sequence: nextSequence,
+            mutation: .deliverNotification(notification),
+            notificationCoalescingKey: coalescingKey
+        ))
+        shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain {
+            drainScheduled = true
         }
         lock.unlock()
 
         guard shouldScheduleDrain else { return }
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                self?.drainOnMainActor(generation: generation)
+        scheduleDrain()
+    }
+
+    private func enqueueClear(
+        _ mutation: TerminalSocketMutation,
+        dropping shouldDrop: (QueuedTerminalNotification) -> Bool
+    ) {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        pending.removeAll { entry in
+            if case .deliverNotification(let notification) = entry.mutation {
+                return shouldDrop(notification)
             }
+            return false
         }
-    }
-
-    func discardAll() {
-        lock.lock()
-        queuedNotifications.removeAll(keepingCapacity: true)
-        currentGeneration &+= 1
-        lock.unlock()
-    }
-
-    func discard(tabId: UUID) {
-        lock.lock()
-        let keysToRemove = queuedNotifications.keys.filter { $0.tabId == tabId }
-        for key in keysToRemove {
-            queuedNotifications.removeValue(forKey: key)
-        }
-        currentGeneration &+= 1
-        lock.unlock()
-    }
-
-    func discard(tabId: UUID, surfaceId: UUID?) {
-        lock.lock()
-        queuedNotifications.removeValue(forKey: QueuedTerminalNotificationKey(
-            tabId: tabId,
-            surfaceId: surfaceId
+        nextSequence &+= 1
+        pending.append(TerminalSocketMutationEntry(
+            sequence: nextSequence,
+            mutation: mutation,
+            notificationCoalescingKey: nil
         ))
-        currentGeneration &+= 1
+        currentNotificationGeneration &+= 1
+        shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain {
+            drainScheduled = true
+        }
+        lock.unlock()
+
+        guard shouldScheduleDrain else { return }
+        scheduleDrain()
+    }
+
+    private func enqueueBarrierMutation(_ mutation: TerminalSocketMutation) {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        nextSequence &+= 1
+        pending.append(TerminalSocketMutationEntry(
+            sequence: nextSequence,
+            mutation: mutation,
+            notificationCoalescingKey: nil
+        ))
+        currentNotificationGeneration &+= 1
+        shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain {
+            drainScheduled = true
+        }
+        lock.unlock()
+
+        guard shouldScheduleDrain else { return }
+        scheduleDrain()
+    }
+
+    private func discardPendingNotifications(
+        advanceGeneration: Bool = false,
+        where shouldDiscard: (QueuedTerminalNotification, UInt64) -> Bool
+    ) {
+        lock.lock()
+        pending.removeAll { entry in
+            guard case .deliverNotification(let notification) = entry.mutation,
+                  let coalescingKey = entry.notificationCoalescingKey else {
+                return false
+            }
+            return shouldDiscard(notification, coalescingKey.generation)
+        }
+        if advanceGeneration {
+            currentNotificationGeneration &+= 1
+        }
         lock.unlock()
     }
 
-    func discard(tabId: UUID, throughGeneration generation: UInt64) {
-        lock.lock()
-        let keysToRemove = queuedNotifications.compactMap { key, notification in
-            key.tabId == tabId && notification.generation <= generation ? key : nil
+    private func scheduleDrain() {
+        Task { @MainActor [weak self] in
+            self?.drainOnMainActor()
         }
-        for key in keysToRemove {
-            queuedNotifications.removeValue(forKey: key)
-        }
-        lock.unlock()
-    }
-
-    func markClearBoundary() -> UInt64 {
-        lock.lock()
-        let generation = currentGeneration
-        currentGeneration &+= 1
-        lock.unlock()
-        return generation
     }
 
 #if DEBUG
     @MainActor
     func drainForTesting() {
         while true {
-            lock.lock()
-            let generations = scheduledGenerations.sorted()
-            lock.unlock()
-
-            guard let generation = generations.first else { return }
-            drainOnMainActor(generation: generation)
+            let batch = takeNextBatch()
+            guard !batch.isEmpty else {
+                markDrainCompleteIfEmpty()
+                return
+            }
+            perform(batch)
         }
     }
 #endif
 
     @MainActor
-    private func drainOnMainActor(generation: UInt64) {
-        while true {
-            lock.lock()
-            let queued = queuedNotifications.values
-                .filter { $0.generation == generation }
-                .sorted { $0.sequence < $1.sequence }
-            guard !queued.isEmpty else {
-                scheduledGenerations.remove(generation)
-                lock.unlock()
-                return
-            }
-            for notification in queued {
-                if queuedNotifications[notification.key]?.generation == generation {
-                    queuedNotifications.removeValue(forKey: notification.key)
-                }
-            }
-            lock.unlock()
+    private func drainOnMainActor() {
+        let batch = takeNextBatch()
+        guard !batch.isEmpty else {
+            markDrainCompleteIfEmpty()
+            return
+        }
 
-            TerminalNotificationStore.shared.deliverQueuedNotifications(queued)
+        perform(batch)
+
+        lock.lock()
+        let hasMore = !pending.isEmpty
+        if !hasMore {
+            drainScheduled = false
+        }
+        lock.unlock()
+
+        if hasMore {
+            scheduleDrain()
+        }
+    }
+
+    private func takeNextBatch() -> [TerminalSocketMutationEntry] {
+        lock.lock()
+        let count = min(maxMutationsPerDrain, pending.count)
+        let batch = Array(pending.prefix(count))
+        if !batch.isEmpty {
+            pending.removeFirst(count)
+        }
+        lock.unlock()
+        return batch
+    }
+
+    private func markDrainCompleteIfEmpty() {
+        lock.lock()
+        if pending.isEmpty {
+            drainScheduled = false
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
+        scheduleDrain()
+    }
+
+    @MainActor
+    private func perform(_ batch: [TerminalSocketMutationEntry]) {
+        for entry in batch {
+            switch entry.mutation {
+            case .deliverNotification(let notification):
+                TerminalNotificationStore.shared.deliverQueuedNotification(notification)
+            case .clearAllNotifications:
+                TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false)
+            case .clearNotificationsForTab(let tabId):
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: tabId,
+                    discardQueuedNotifications: false
+                )
+            case .perform(let mutation):
+                mutation()
+            }
         }
     }
 }
 
 extension TerminalNotificationStore {
-    nonisolated static func enqueueNotification(
-        tabId: UUID,
-        surfaceId: UUID?,
-        title: String,
-        subtitle: String,
-        body: String
-    ) {
-        TerminalNotificationIngress.shared.enqueue(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            title: title,
-            subtitle: subtitle,
-            body: body
+    fileprivate func deliverQueuedNotification(_ notification: QueuedTerminalNotification) {
+        guard shouldDeliverQueuedNotification(notification) else { return }
+        addNotification(
+            tabId: notification.key.tabId,
+            surfaceId: notification.key.surfaceId,
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body
         )
-    }
-
-    nonisolated static func discardAllQueuedNotifications() {
-        TerminalNotificationIngress.shared.discardAll()
-    }
-
-    nonisolated static func discardQueuedNotifications(forTabId tabId: UUID) {
-        TerminalNotificationIngress.shared.discard(tabId: tabId)
-    }
-
-    nonisolated static func discardQueuedNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
-        TerminalNotificationIngress.shared.discard(tabId: tabId, surfaceId: surfaceId)
-    }
-
-    nonisolated static func discardQueuedNotifications(forTabId tabId: UUID, throughGeneration generation: UInt64) {
-        TerminalNotificationIngress.shared.discard(tabId: tabId, throughGeneration: generation)
-    }
-
-    nonisolated static func markQueuedNotificationClearBoundary() -> UInt64 {
-        TerminalNotificationIngress.shared.markClearBoundary()
-    }
-
-#if DEBUG
-    static func drainQueuedNotificationsForTesting() {
-        TerminalNotificationIngress.shared.drainForTesting()
-    }
-#endif
-
-    fileprivate func deliverQueuedNotifications(_ queued: [QueuedTerminalNotification]) {
-        for notification in queued {
-            guard shouldDeliverQueuedNotification(notification) else { continue }
-            addNotification(
-                tabId: notification.key.tabId,
-                surfaceId: notification.key.surfaceId,
-                title: notification.title,
-                subtitle: notification.subtitle,
-                body: notification.body
-            )
-        }
     }
 
     private func shouldDeliverQueuedNotification(_ notification: QueuedTerminalNotification) -> Bool {
@@ -225,7 +313,7 @@ extension TerminalNotificationStore {
         case .authorized, .provisional, .ephemeral:
             return nil
         case .denied:
-            return nil
+            return false
         case .notDetermined:
             return isAppActive ? nil : false
         case .unknown:

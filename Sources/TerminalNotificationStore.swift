@@ -1082,7 +1082,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func clearAll(discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications {
-            Self.discardAllQueuedNotifications()
+            TerminalMutationBus.shared.discardPendingNotifications()
         }
         guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty else { return }
         let ids = notifications.map { $0.id.uuidString }
@@ -1098,7 +1098,7 @@ final class TerminalNotificationStore: ObservableObject {
         discardQueuedNotifications: Bool = true
     ) {
         if discardQueuedNotifications {
-            Self.discardQueuedNotifications(forTabId: tabId, surfaceId: surfaceId)
+            TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId)
         }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
@@ -1119,7 +1119,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications {
-            Self.discardQueuedNotifications(forTabId: tabId)
+            TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId)
         }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
@@ -1292,12 +1292,10 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func promptToEnableNotifications() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, !self.hasPromptedForSettings else { return }
-            self.logAuthorization("prompt settings shown")
-            self.hasPromptedForSettings = true
-            self.presentNotificationSettingsPrompt(attempt: 0)
-        }
+        guard !hasPromptedForSettings else { return }
+        logAuthorization("prompt settings shown")
+        hasPromptedForSettings = true
+        presentNotificationSettingsPrompt(attempt: 0)
     }
 
     private func presentNotificationSettingsPrompt(attempt: Int) {
@@ -1444,7 +1442,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
-        Self.discardAllQueuedNotifications()
+        TerminalMutationBus.shared.discardPendingNotifications()
         self.notifications = notifications
         focusedReadIndicatorByTabId.removeAll()
     }

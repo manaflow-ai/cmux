@@ -1,7 +1,6 @@
 import XCTest
 import AppKit
 import Darwin
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -103,8 +102,11 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
+        var deliveredTitles: [String] = []
         store.replaceNotificationsForTesting([])
-        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredTitles.append(notification.title)
+        }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
@@ -126,7 +128,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
             return
         }
 
-        TerminalNotificationStore.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotification(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Async",
@@ -134,10 +136,11 @@ final class TerminalNotificationQueueTests: XCTestCase {
             body: "Body"
         )
         store.clearNotifications(forTabId: workspace.id)
-        TerminalNotificationStore.drainQueuedNotificationsForTesting()
+        TerminalMutationBus.shared.drainForTesting()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
         XCTAssertFalse(store.notifications.contains { $0.tabId == workspace.id })
+        XCTAssertEqual(deliveredTitles, [])
     }
 
     func testClearNotificationsIsBoundaryForFreshNotify() async throws {
@@ -172,21 +175,15 @@ final class TerminalNotificationQueueTests: XCTestCase {
             return
         }
 
-        TerminalNotificationStore.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotification(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Stale",
             subtitle: "Before clear",
             body: "Body"
         )
-        TerminalNotificationStore.discardQueuedNotifications(forTabId: workspace.id)
-        DispatchQueue.main.async {
-            TerminalNotificationStore.shared.clearNotifications(
-                forTabId: workspace.id,
-                discardQueuedNotifications: false
-            )
-        }
-        TerminalNotificationStore.enqueueNotification(
+        TerminalMutationBus.shared.enqueueClearNotifications(forTabId: workspace.id)
+        TerminalMutationBus.shared.enqueueNotification(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Fresh",
@@ -194,18 +191,14 @@ final class TerminalNotificationQueueTests: XCTestCase {
             body: "Body"
         )
 
-        let queueDrained = expectation(description: "main queue drained")
-        DispatchQueue.main.async {
-            queueDrained.fulfill()
-        }
-        await fulfillment(of: [queueDrained], timeout: 2.0)
+        TerminalMutationBus.shared.drainForTesting()
 
         let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
         XCTAssertEqual(workspaceNotifications.map(\.title), ["Fresh"])
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
 
-    func testDeferredClearBoundaryDropsOnlyOlderQueuedNotify() throws {
+    func testQueuedClearAllDropsOnlyOlderQueuedNotify() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = appDelegate.tabManager ?? TabManager()
@@ -214,8 +207,11 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
+        var deliveredTitles: [String] = []
         store.replaceNotificationsForTesting([])
-        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredTitles.append(notification.title)
+        }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
@@ -237,30 +233,78 @@ final class TerminalNotificationQueueTests: XCTestCase {
             return
         }
 
-        TerminalNotificationStore.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotification(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Stale",
             subtitle: "Before clear",
             body: "Body"
         )
-        let clearBoundary = TerminalNotificationStore.markQueuedNotificationClearBoundary()
-        TerminalNotificationStore.enqueueNotification(
+        TerminalMutationBus.shared.enqueueClearAllNotifications()
+        TerminalMutationBus.shared.enqueueNotification(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Fresh",
             subtitle: "After clear",
             body: "Body"
         )
-        TerminalNotificationStore.discardQueuedNotifications(
-            forTabId: workspace.id,
-            throughGeneration: clearBoundary
-        )
-        TerminalNotificationStore.drainQueuedNotificationsForTesting()
+        TerminalMutationBus.shared.drainForTesting()
 
         let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
         XCTAssertEqual(workspaceNotifications.map(\.title), ["Fresh"])
+        XCTAssertEqual(deliveredTitles, ["Fresh"])
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
+    }
+
+    func testQueuedNotificationCoalescesRepeatedEventsForSameSurface() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        var deliveredTitles: [String] = []
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredTitles.append(notification.title)
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused panel")
+            return
+        }
+
+        for title in ["First", "Second"] {
+            TerminalMutationBus.shared.enqueueNotification(
+                tabId: workspace.id,
+                surfaceId: focusedPanelId,
+                title: title,
+                subtitle: "Same target",
+                body: "Body"
+            )
+        }
+        TerminalMutationBus.shared.drainForTesting()
+
+        let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
+        XCTAssertEqual(workspaceNotifications.map(\.title), ["Second"])
+        XCTAssertEqual(deliveredTitles, ["Second"])
     }
 
     func testQueuedNotificationResolvesWorkspaceInRegisteredWindowContext() throws {
@@ -300,14 +344,14 @@ final class TerminalNotificationQueueTests: XCTestCase {
             return
         }
 
-        TerminalNotificationStore.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotification(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Async",
             subtitle: "Queued",
             body: "Body"
         )
-        TerminalNotificationStore.drainQueuedNotificationsForTesting()
+        TerminalMutationBus.shared.drainForTesting()
 
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
