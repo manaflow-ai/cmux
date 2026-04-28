@@ -9557,10 +9557,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func installShortcutMonitor() {
         // Local monitor only receives events when app is active (not global)
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.keyDown, .keyUp, .flagsChanged, .systemDefined]
+            matching: [.keyDown, .keyUp, .flagsChanged]
         ) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown || event.type == .systemDefined {
+            if event.type == .keyDown {
 #if DEBUG
                 let phaseTotalStart = ProcessInfo.processInfo.systemUptime
                 let preludeStart = ProcessInfo.processInfo.systemUptime
@@ -9871,6 +9871,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
+        guard event.type == .keyDown else {
+            clearConfiguredShortcutChordState()
+            return false
+        }
+
         guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
             clearConfiguredShortcutChordState()
             return false
@@ -11364,6 +11369,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
     private func developerToolsShortcutProbeKind(event: NSEvent) -> String? {
+        guard event.type == .keyDown else { return nil }
+
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
             return "toggle.configured"
         }
@@ -11614,7 +11621,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
-        if event.type == .keyDown || event.type == .systemDefined {
+        if event.type == .keyDown {
             return handleCustomShortcut(event: event)
         }
         handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
