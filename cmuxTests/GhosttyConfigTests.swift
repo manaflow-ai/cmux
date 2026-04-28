@@ -3567,7 +3567,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
             command: """
-            _CMUX_TTY_NAME=ttys999
+            _CMUX_TTY_NAME=/dev/ttys999
             print -r -- "$(_cmux_report_tty_payload)"
             """,
             extraEnvironment: [
@@ -3577,7 +3577,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(output, "report_tty ttys999 --tab=11111111-1111-1111-1111-111111111111")
+        XCTAssertEqual(output, "report_tty /dev/ttys999 --tab=11111111-1111-1111-1111-111111111111")
     }
 
     func testShellIntegrationRelayReportTTYUsesWorkspaceIDInZsh() throws {
@@ -3604,7 +3604,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             cmuxLoadShellIntegration: true,
             command: """
             : > "\(logPath.path)"
-            _CMUX_TTY_NAME=ttys777
+            _CMUX_TTY_NAME=/dev/ttys777
             _cmux_report_tty_via_relay
             cat "\(logPath.path)"
             """,
@@ -3618,7 +3618,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            output.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys777","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            output.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"/dev/ttys777","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             output
         )
     }
@@ -3741,7 +3741,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             cmuxLoadShellIntegration: true,
             command: """
             : > "\(logPath.path)"
-            _CMUX_TTY_NAME=ttys888
+            _CMUX_TTY_NAME=/dev/ttys888
             _cmux_report_tty_via_relay
             cat "\(logPath.path)"
             """,
@@ -3755,7 +3755,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys888","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"/dev/ttys888","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             result.stdout
         )
     }
@@ -3783,7 +3783,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             cmuxLoadShellIntegration: true,
             command: """
             : > "\(logPath.path)"
-            _CMUX_TTY_NAME=ttys889
+            _CMUX_TTY_NAME=/dev/ttys889
             _CMUX_TTY_REPORTED=0
             _cmux_preexec_command "python3 -m http.server 8899"
             for _cmux_i in $(seq 1 20); do
@@ -3802,7 +3802,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys889"}"#),
+            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"/dev/ttys889"}"#),
             result.stdout
         )
         XCTAssertTrue(

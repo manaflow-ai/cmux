@@ -929,7 +929,6 @@ _cmux_preexec_command() {
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
         t="$(tty 2>/dev/null || true)"
-        t="${t##*/}"
         [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 
@@ -958,7 +957,6 @@ _cmux_prompt_command() {
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
         t="$(tty 2>/dev/null || true)"
-        t="${t##*/}"
         [[ "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 
@@ -995,7 +993,6 @@ _cmux_prompt_command() {
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
         t="$(tty 2>/dev/null || true)"
-        t="${t##*/}"
         [[ "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 

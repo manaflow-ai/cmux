@@ -481,6 +481,12 @@ class TerminalController {
         return (workspaceId, panelId)
     }
 
+    private static func portScanTTYName(from ttyName: String) -> String {
+        let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = trimmed.split(separator: "/").last.map(String.init) ?? trimmed
+        return candidate.isEmpty ? trimmed : candidate
+    }
+
     nonisolated static func normalizeReportedDirectory(_ directory: String) -> String {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return directory }
@@ -4509,7 +4515,8 @@ class TerminalController {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
             } else {
-                PortScanner.shared.registerTTY(workspaceId: workspaceId, panelId: surfaceId, ttyName: ttyName)
+                let scanTTYName = Self.portScanTTYName(from: ttyName)
+                PortScanner.shared.registerTTY(workspaceId: workspaceId, panelId: surfaceId, ttyName: scanTTYName)
             }
 
             result = .ok([
@@ -15972,7 +15979,8 @@ class TerminalController {
                     tab.syncRemotePortScanTTYs()
                     _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelId)
                 } else {
-                    PortScanner.shared.registerTTY(workspaceId: scope.workspaceId, panelId: scope.panelId, ttyName: ttyName)
+                    let scanTTYName = Self.portScanTTYName(from: ttyName)
+                    PortScanner.shared.registerTTY(workspaceId: scope.workspaceId, panelId: scope.panelId, ttyName: scanTTYName)
                 }
             }
             return "OK"
@@ -16016,7 +16024,8 @@ class TerminalController {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
             } else {
-                PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
+                let scanTTYName = Self.portScanTTYName(from: ttyName)
+                PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: scanTTYName)
             }
         }
         return result
