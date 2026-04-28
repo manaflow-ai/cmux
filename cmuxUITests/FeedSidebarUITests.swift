@@ -453,12 +453,16 @@ final class FeedSidebarUITests: XCTestCase {
         }
 
         app.activate()
-        app.typeKey("4", modifierFlags: [.control])
+        app.typeKey("e", modifierFlags: [.command, .shift])
         if waitForHittable(dockButton, timeout: 5) {
             return dockButton
         }
 
-        app.typeKey("b", modifierFlags: [.command])
+        app.typeKey("b", modifierFlags: [.command, .option])
+        if waitForHittable(dockButton, timeout: 5) {
+            return dockButton
+        }
+
         app.typeKey("4", modifierFlags: [.control])
         _ = waitForHittable(dockButton, timeout: 5)
         return dockButton
