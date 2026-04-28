@@ -221,6 +221,10 @@ struct RightSidebarPanelView: View {
         .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
+        .reportRightSidebarChromeGeometryForBonsplitUITest(
+            isVisible: true,
+            titlebarHeight: titlebarHeight
+        )
     }
 
     @ViewBuilder
