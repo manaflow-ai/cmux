@@ -365,6 +365,24 @@ enum WorkspaceTabColorSettings {
         return "#" + body.uppercased()
     }
 
+    static func resolvedWorkspaceColorHex(_ raw: String, defaults: UserDefaults = .standard) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let normalizedHex = normalizedHex(trimmed) {
+            return normalizedHex
+        }
+
+        let palette = effectivePaletteMap(defaults: defaults)
+        if let exactMatch = palette[trimmed] {
+            return exactMatch
+        }
+
+        return palette.first {
+            $0.key.caseInsensitiveCompare(trimmed) == .orderedSame
+        }?.value
+    }
+
     static func displayColor(
         hex: String,
         colorScheme: ColorScheme,

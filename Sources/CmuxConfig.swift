@@ -1606,14 +1606,14 @@ struct CmuxWorkspaceDefinition: Codable, Sendable {
         layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
 
         if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(rawColor) else {
+            guard let resolved = WorkspaceTabColorSettings.resolvedWorkspaceColorHex(rawColor) else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .color,
                     in: container,
-                    debugDescription: "Invalid color \"\(rawColor)\". Expected 6-digit hex format: #RRGGBB"
+                    debugDescription: "Invalid color \"\(rawColor)\". Expected #RRGGBB or a known workspace color name."
                 )
             }
-            color = normalized
+            color = resolved
         } else {
             color = nil
         }
