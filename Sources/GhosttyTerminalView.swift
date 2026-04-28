@@ -7080,6 +7080,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if shouldConsumeSuppressedFindEscape(event) {
             return
         }
+        if shouldBlockRealTmuxShortcut(event, surface: surface) {
+            return
+        }
 #if DEBUG
         let keyboardCopyModeStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -7172,7 +7175,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If Ghostty handled the key (action/encoding), we're done.
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
             // so the IME gets a chance to process this event.
-            if handled { return }
+        if handled { return }
         }
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -7453,6 +7456,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
+    }
+
+    private func shouldBlockRealTmuxShortcut(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.control),
+              !flags.contains(.command),
+              !flags.contains(.option),
+              !flags.contains(.shift),
+              event.keyCode == kVK_ANSI_B,
+              let located = AppDelegate.shared?.locateGhosttySurface(surface),
+              let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+              workspace.realTmuxSessionId != nil else {
+            return false
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "realTmux.key.block workspace=\(workspace.id.uuidString.prefix(5)) " +
+            "session=\(workspace.realTmuxSessionName ?? workspace.realTmuxSessionId ?? "") key=ctrl-b"
+        )
+#endif
+        return true
     }
 
     @discardableResult

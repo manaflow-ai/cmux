@@ -11998,6 +11998,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let branchLinesContainBranch: Bool
         let pullRequestRows: [PullRequestDisplay]
         let listeningPorts: [Int]
+        let isTmux: Bool
     }
 }
 
@@ -12336,6 +12337,22 @@ private struct TabItemView: View, Equatable {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
+
+                if workspaceSnapshot.isTmux {
+                    Text(String(localized: "sidebar.workspace.kind.tmux", defaultValue: "tmux"))
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(activeSecondaryColor(0.7))
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(activeSecondaryColor(0.1))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(activeSecondaryColor(0.25), lineWidth: 0.5)
+                        )
+                }
 
                 Spacer(minLength: 0)
 
@@ -13294,7 +13311,8 @@ private struct TabItemView: View, Equatable {
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
-            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : []
+            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
+            isTmux: tab.isRealTmuxWorkspace
         )
     }
     private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {

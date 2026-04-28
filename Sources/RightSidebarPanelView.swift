@@ -17,6 +17,7 @@ enum RightSidebarMode: String, CaseIterable {
     case find
     case sessions
     case feed
+    case tmux
 
     var label: String {
         switch self {
@@ -24,6 +25,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
+        case .tmux: return String(localized: "rightSidebar.mode.tmux", defaultValue: "Tmux")
         }
     }
 
@@ -33,15 +35,17 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return "magnifyingglass"
         case .sessions: return "bubble.left.and.text.bubble.right"
         case .feed: return "dot.radiowaves.left.and.right"
+        case .tmux: return "terminal"
         }
     }
 
-    var shortcutAction: KeyboardShortcutSettings.Action {
+    var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
+        case .tmux: return nil
         }
     }
 }
@@ -199,7 +203,7 @@ struct RightSidebarPanelView: View {
                     mode: mode,
                     isSelected: fileExplorerState.mode == mode,
                     badgeCount: mode == .feed ? feedPendingCount : 0,
-                    shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
+                    shortcutHint: mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) },
                     showsShortcutHint: showsModeShortcutHints
                 ) {
                     if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -255,6 +259,8 @@ struct RightSidebarPanelView: View {
                 }
         case .feed:
             FeedPanelView()
+        case .tmux:
+            TmuxSessionListView()
         }
     }
 
@@ -371,7 +377,7 @@ private struct ModeBarButton: View {
     let mode: RightSidebarMode
     let isSelected: Bool
     var badgeCount: Int = 0
-    let shortcutHint: StoredShortcut
+    let shortcutHint: StoredShortcut?
     let showsShortcutHint: Bool
     let action: () -> Void
 
@@ -398,7 +404,7 @@ private struct ModeBarButton: View {
                     .fill(backgroundColor)
             )
             .overlay(alignment: .trailing) {
-                if showsShortcutHint {
+                if showsShortcutHint, let shortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
                         .offset(x: 5)
                         .shortcutHintTransition()
@@ -453,5 +459,303 @@ private struct ModeBarButton: View {
             )
             .fixedSize(horizontal: true, vertical: true)
             .layoutPriority(2)
+    }
+}
+
+// MARK: - Tmux Session List
+
+struct TmuxSessionSnapshot: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let workspaceId: UUID
+    let workspaceTitle: String
+    let isCurrent: Bool
+}
+
+struct TmuxSessionListView: View {
+    @EnvironmentObject private var tabManager: TabManager
+    @State private var sessions: [TmuxSessionSnapshot] = []
+    @State private var isRefreshing = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(String(localized: "tmux.sessions.title", defaultValue: "Tmux Sessions"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button {
+                    refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshing)
+                .help(String(localized: "tmux.sessions.refresh", defaultValue: "Refresh Sessions"))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(sessions) { session in
+                        TmuxSessionRowView(
+                            session: session,
+                            onSelect: {
+                                tabManager.selectedTabId = session.workspaceId
+                            },
+                            onKill: {
+                                killRealTmuxSession(session.name)
+                                if let workspace = tabManager.tabs.first(where: { $0.id == session.workspaceId }) {
+                                    _ = tabManager.closeWorkspaceWithConfirmation(workspace)
+                                }
+                            }
+                        )
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .onAppear {
+            refresh()
+        }
+        .onChange(of: tabManager.selectedTabId) { _ in
+            refresh()
+        }
+        .onChange(of: tabManager.tabs.count) { _ in
+            refresh()
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        refresh()
+                    }
+                }
+            }
+        }
+    }
+
+    private func refresh() {
+        isRefreshing = true
+
+        let realSessions = listRealTmuxSessions()
+        var store = loadRealTmuxStore()
+        let liveSessionIds = Set(realSessions.map(\.id))
+        let liveWorkspaceIds = Set(tabManager.tabs.map { $0.id.uuidString })
+        store.sessionIdToWorkspaceId = store.sessionIdToWorkspaceId.filter {
+            liveSessionIds.contains($0.key) && liveWorkspaceIds.contains($0.value)
+        }
+
+        for session in realSessions where store.sessionIdToWorkspaceId[session.id] == nil {
+            if let existing = tabManager.tabs.first(where: { $0.title == session.name }) {
+                store.sessionIdToWorkspaceId[session.id] = existing.id.uuidString
+                continue
+            }
+            let workspace = tabManager.addWorkspace(
+                title: session.name,
+                initialTerminalInput: realTmuxAttachInput(for: session),
+                select: false,
+                autoWelcomeIfNeeded: false
+            )
+            workspace.realTmuxSessionId = session.id
+            workspace.realTmuxSessionName = session.name
+            store.sessionIdToWorkspaceId[session.id] = workspace.id.uuidString
+        }
+
+        var newSessions: [TmuxSessionSnapshot] = []
+        for session in realSessions {
+            guard let workspaceIdString = store.sessionIdToWorkspaceId[session.id],
+                  let workspaceId = UUID(uuidString: workspaceIdString),
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                continue
+            }
+            if workspace.title != session.name {
+                workspace.setCustomTitle(session.name)
+            }
+            workspace.realTmuxSessionId = session.id
+            workspace.realTmuxSessionName = session.name
+            newSessions.append(TmuxSessionSnapshot(
+                id: session.id,
+                name: session.name,
+                workspaceId: workspaceId,
+                workspaceTitle: workspace.title,
+                isCurrent: workspaceId == tabManager.selectedTabId
+            ))
+        }
+
+        saveRealTmuxStore(store)
+
+        let sortedNewSessions = newSessions.sorted { $0.name < $1.name }
+        if sessions != sortedNewSessions {
+            sessions = sortedNewSessions
+        }
+        isRefreshing = false
+    }
+
+    private struct RealTmuxSession: Equatable {
+        let id: String
+        let name: String
+    }
+
+    private struct RealTmuxStore: Codable {
+        var sessionIdToWorkspaceId: [String: String] = [:]
+    }
+
+    private var realTmuxStoreURL: URL {
+        let bundleKey = (Bundle.main.bundleIdentifier ?? "cmux")
+            .replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "-", options: .regularExpression)
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxterm")
+            .appendingPathComponent("real-tmux-store-\(bundleKey).json")
+    }
+
+    private func listRealTmuxSessions() -> [RealTmuxSession] {
+        guard let tmuxPath = realTmuxExecutablePath() else { return [] }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = ["list-sessions", "-F", "#{session_id}\t#{session_name}"]
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return []
+        }
+        guard process.terminationStatus == 0 else { return [] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        return output.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
+            guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+            return RealTmuxSession(id: parts[0], name: parts[1])
+        }
+    }
+
+    private func realTmuxExecutablePath() -> String? {
+        ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    private func realTmuxAttachInput(for session: RealTmuxSession) -> String? {
+        guard let tmuxPath = realTmuxExecutablePath() else { return nil }
+        return "exec \(shellQuoted(tmuxPath)) attach-session -t \(shellQuoted(session.name))\r"
+    }
+
+    private func loadRealTmuxStore() -> RealTmuxStore {
+        guard let data = try? Data(contentsOf: realTmuxStoreURL),
+              let store = try? JSONDecoder().decode(RealTmuxStore.self, from: data) else {
+            return RealTmuxStore()
+        }
+        return store
+    }
+
+    private func saveRealTmuxStore(_ store: RealTmuxStore) {
+        guard let data = try? JSONEncoder().encode(store) else { return }
+        try? FileManager.default.createDirectory(
+            at: realTmuxStoreURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: realTmuxStoreURL, options: .atomic)
+    }
+
+    private func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private func killRealTmuxSession(_ sessionName: String) {
+        guard let tmuxPath = realTmuxExecutablePath() else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = ["kill-session", "-t", sessionName]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try? process.run()
+        process.waitUntilExit()
+    }
+}
+
+struct TmuxSessionRowView: View {
+    let session: TmuxSessionSnapshot
+    let onSelect: () -> Void
+    let onKill: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(session.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(session.isCurrent ? .primary : .primary.opacity(0.8))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    if session.isCurrent {
+                        Text(String(localized: "tmux.session.current", defaultValue: "Current"))
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.blue.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                }
+
+                Text(session.workspaceTitle)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 0)
+
+            if isHovered {
+                HStack(spacing: 4) {
+                    Button(action: onSelect) {
+                        Image(systemName: "arrow.right.square")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .frame(width: 20, height: 20)
+                            .background(Color.primary.opacity(0.05))
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(localized: "tmux.session.attach", defaultValue: "Attach Session"))
+
+                    Button(action: onKill) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .frame(width: 20, height: 20)
+                            .background(Color.primary.opacity(0.05))
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(localized: "tmux.session.kill", defaultValue: "Kill Session"))
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(session.isCurrent ? Color.primary.opacity(0.08) : (isHovered ? Color.primary.opacity(0.04) : Color.clear))
+        )
+        .padding(.horizontal, 6)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture {
+            onSelect()
+        }
     }
 }
