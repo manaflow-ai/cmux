@@ -1298,6 +1298,7 @@ private final class SettingsAboutTitlebarDebugStore: ObservableObject {
     }
 
     func applyToOpenWindows(for kind: SettingsAboutWindowKind) {
+        guard kind != .settings else { return }
         for window in NSApp.windows where window.identifier?.rawValue == kind.windowIdentifier {
             apply(options(for: kind), to: window, for: kind)
         }
@@ -1309,6 +1310,7 @@ private final class SettingsAboutTitlebarDebugStore: ObservableObject {
     }
 
     func applyCurrentOptions(to window: NSWindow, for kind: SettingsAboutWindowKind) {
+        guard kind != .settings else { return }
         apply(options(for: kind), to: window, for: kind)
     }
 
@@ -2460,16 +2462,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private init() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 620),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
+        window.title = String(localized: "settings.title", defaultValue: "Settings")
         window.center()
-        window.contentView = NSHostingView(rootView: SettingsRootView())
-        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
-        AppDelegate.shared?.applyWindowDecorations(to: window)
+        window.contentViewController = NSHostingController(rootView: SettingsRootView())
         super.init(window: window)
         window.delegate = self
     }
@@ -2484,7 +2485,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 #if DEBUG
         cmuxDebugLog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
-        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
         if !window.isVisible {
             window.center()
         }
@@ -2699,6 +2699,14 @@ enum SettingsNavigationRequest {
     static func target(from notification: Notification) -> SettingsNavigationTarget? {
         guard let rawValue = notification.userInfo?[targetKey] as? String else { return nil }
         return SettingsNavigationTarget(rawValue: rawValue)
+    }
+}
+
+private enum SettingsResetRequest {
+    static let notificationName = Notification.Name("cmux.settings.reset")
+
+    static func post() {
+        NotificationCenter.default.post(name: notificationName, object: nil)
     }
 }
 
@@ -7373,6 +7381,9 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reloadWorkspaceTabColorSettings()
         }
+        .onReceive(NotificationCenter.default.publisher(for: SettingsResetRequest.notificationName)) { _ in
+            resetAllSettings()
+        }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let target = SettingsNavigationRequest.target(from: notification) else { return }
             DispatchQueue.main.async {
@@ -8368,22 +8379,24 @@ private struct SettingsRootView: View {
             }
             .listStyle(.sidebar)
             .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
-            .searchable(text: $searchText, placement: .sidebar)
+            .searchable(
+                text: $searchText,
+                placement: .sidebar,
+                prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search Settings"))
+            )
         } detail: {
             SettingsView()
                 .navigationTitle(selectedSection.title)
                 .toolbar {
                     ToolbarItem {
                         Button {
-                            openCmuxSettingsFileInTextEdit()
+                            SettingsResetRequest.post()
                         } label: {
                             Label(
-                                String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json"),
-                                systemImage: "doc.text"
+                                String(localized: "settings.section.reset", defaultValue: "Reset"),
+                                systemImage: "arrow.counterclockwise"
                             )
                         }
-                        .accessibilityIdentifier("SettingsFileOpenButton")
-                        .help(KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath())
                     }
                 }
         }
@@ -8402,8 +8415,10 @@ private struct SettingsRootView: View {
 
     private func configureSettingsWindow(_ window: NSWindow) {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
-        window.minSize = NSSize(width: 820, height: 540)
-        applyCurrentSettingsWindowStyle(to: window)
+        window.title = String(localized: "settings.title", defaultValue: "Settings")
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = false
 
         let accessories = window.titlebarAccessoryViewControllers
         for index in accessories.indices.reversed() {
@@ -8411,10 +8426,5 @@ private struct SettingsRootView: View {
             guard identifier.hasPrefix("cmux.") else { continue }
             window.removeTitlebarAccessoryViewController(at: index)
         }
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-    }
-
-    private func applyCurrentSettingsWindowStyle(to window: NSWindow) {
-        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
     }
 }
