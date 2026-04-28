@@ -13,11 +13,11 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on April 28, 2026.
-Current cmux pinned fork head: `d3117e03e`, merged into fork `main` via
-`manaflow-ai/ghostty` PR https://github.com/manaflow-ai/ghostty/pull/48
-(`xcframework-f7880c47313a8697ee7f58969564772cb70eb6e9-300-gd3117e03e`).
-This head merges upstream `659019666` and preserves the previous cmux pin
-`465a9a621`.
+Current cmux pinned fork head: `04ec69173`, merged into fork `main` via
+`manaflow-ai/ghostty` PR https://github.com/manaflow-ai/ghostty/pull/50
+(`xcframework-d3117e03ea19665bc83a28f7e0428c63937e6140-8-g04ec69173`).
+This head restores the cmux theme picker hooks on top of `d3117e03e`, which
+merged upstream `659019666` and preserved the previous cmux pin `465a9a621`.
 
 ### 1) macOS display link restart on display changes
 
@@ -63,13 +63,14 @@ tend to conflict together during rebases.
 ### 4) cmux theme picker helper hooks
 
 - Commits:
-  - `1da7281fd` (Add cmux theme picker helper hooks)
-  - `ea482b73e` (Fix cmux theme picker preview writes)
-  - `c7ab66056` (Improve cmux theme picker footer contrast)
-  - `c49f69f7b` (Respect system theme in cmux picker)
-  - `599b0ff43` (Skip theme detection in cmux picker)
-  - `b75388d95` (Match Ghostty theme picker startup)
-  - `f985d2d04` (Harden cmux theme override writes)
+  - `66ff6ec4d` (Add cmux theme picker helper hooks)
+  - `aa650937d` (Fix cmux theme picker preview writes)
+  - `89d3612c9` (Improve cmux theme picker footer contrast)
+  - `0dc979889` (Respect system theme in cmux picker)
+  - `d9e0ab512` (Skip theme detection in cmux picker)
+  - `042cbaaab` (Match Ghostty theme picker startup)
+  - `eb34bcdd6` (Harden cmux theme override writes)
+  - `04ec69173` (Apply highlighted cmux theme on Enter)
 - Files:
   - `build.zig`
   - `src/cli/list_themes.zig`
@@ -78,6 +79,7 @@ tend to conflict together during rebases.
   - Adds a `zig build cli-helper` step so cmux can bundle Ghostty's CLI helper binary on macOS.
   - Lets `+list-themes` switch into a cmux-managed mode via env vars, writing the cmux theme override file and posting the existing cmux reload notification for live app-wide preview.
   - Keeps the preview UI readable in light mode, matches upstream picker startup behavior, and hardens writes to the cmux-managed theme override file.
+  - Restores Enter as the cmux apply action by writing the currently highlighted theme before the picker exits.
 
 ### 5) Color scheme mode 2031 reporting
 
@@ -141,7 +143,7 @@ tend to conflict together during rebases.
 
 The current cmux pin is the head listed above. It is reachable from the
 `manaflow-ai/ghostty` fork `main` branch and has a matching prebuilt release
-tag `xcframework-d3117e03ea19665bc83a28f7e0428c63937e6140`.
+tag `xcframework-04ec69173f8f5ac5a2568afca0faf8e4a74b2dc2`.
 
 ## Upstreamed fork changes
 
@@ -175,6 +177,15 @@ These files change frequently upstream; be careful when rebasing the fork:
   - Package GhosttyKit archives with `COPYFILE_DISABLE=1`; the archive validator rejects
     macOS AppleDouble entries such as `._GhosttyKit.xcframework`.
 
+- April 28, 2026, theme picker restore:
+  - Reapplied the section 4 cmux picker hooks on top of `d3117e03e`.
+  - Enter in cmux mode must call the same selection-apply path used by keyboard/mouse navigation
+    before setting the picker outcome to apply.
+  - Verified with `zig build cli-helper -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Doptimize=ReleaseFast`.
+  - Verified Enter writes `theme = light:0x96f,dark:0x96f` in a PTY temp-config run.
+  - Published `xcframework-04ec69173f8f5ac5a2568afca0faf8e4a74b2dc2` and pinned
+    its archive checksum in `scripts/ghosttykit-checksums.txt`.
+
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser and keep
     the newer `capture`/`captureTrailing()` API usage intact.
@@ -186,10 +197,16 @@ These files change frequently upstream; be careful when rebasing the fork:
   - cmux now relies on the upstream picker UI plus local env-driven hooks for live preview and restore.
     If upstream reorganizes the preview loop or key handling, re-check the cmux mode path and keep the
     stock Ghostty behavior unchanged when the cmux env vars are absent.
+  - The April 28, 2026 restore requires Enter in cmux mode to call the same selection-apply path
+    used by keyboard/mouse navigation before setting the picker outcome to apply.
 
 - `build.zig`
   - Upstream's new wasm/libghostty work touched the same build graph. Keep the cmux-only `cli-helper`
     step wired in without regressing the upstream `lib-vt` or wasm build paths.
+
+- `src/main_ghostty.zig`
+  - The April 28, 2026 restore only conflicted on stdout writer API usage. Keep the current
+    `std.fs.File.stdout().writer(&buf)` API plus explicit flush.
 
 - `include/ghostty.h`, `src/Surface.zig`, `src/apprt/embedded.zig`
   - Upstream removed cmux-used selection exports. Preserve the re-exported
