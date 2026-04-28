@@ -104,12 +104,15 @@ struct SessionEntry: Identifiable, Hashable {
 
     private var claudeConfigDirectoryForResume: String? {
         guard agent == .claude,
-              let fileURL,
-              let projectsIndex = fileURL.pathComponents.firstIndex(of: "projects"),
+              let fileURL else {
+            return nil
+        }
+        let pathComponents = fileURL.standardizedFileURL.pathComponents
+        guard let projectsIndex = pathComponents.lastIndex(of: "projects"),
               projectsIndex > 0 else {
             return nil
         }
-        let configComponents = Array(fileURL.pathComponents[..<projectsIndex])
+        let configComponents = Array(pathComponents[..<projectsIndex])
         let configDir = NSString.path(withComponents: configComponents)
         return configDir.isEmpty ? nil : configDir
     }
@@ -159,24 +162,39 @@ struct SessionEntry: Identifiable, Hashable {
     static func claudeDisplayTitle(from raw: String, isMeta: Bool = false) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        if let commandTitle = claudeSlashCommandTitle(from: trimmed) {
-            return commandTitle
-        }
         if isMeta || isClaudeSyntheticEnvelope(trimmed) {
             return nil
+        }
+        if let commandTitle = claudeSlashCommandTitle(from: trimmed) {
+            return commandTitle
         }
         return trimmed
     }
 
     private static func claudeSlashCommandTitle(from raw: String) -> String? {
-        guard let command = claudeTagValue("command-name", in: raw)
-            ?? claudeTagValue("command-message", in: raw) else {
-            return nil
+        let commandName = claudeTagValue("command-name", in: raw)
+        let commandMessage = claudeTagValue("command-message", in: raw)
+        var parts: [String] = []
+        if let commandName {
+            parts.append(commandName)
+        }
+        if let commandMessage,
+           !isDuplicateClaudeCommandMessage(commandMessage, commandName: commandName) {
+            parts.append(commandMessage)
         }
         if let args = claudeTagValue("command-args", in: raw) {
-            return "\(command) \(args)"
+            parts.append(args)
         }
-        return command
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    private static func isDuplicateClaudeCommandMessage(_ message: String, commandName: String?) -> Bool {
+        guard let commandName else { return false }
+        let commandWithoutSlash = commandName.hasPrefix("/")
+            ? String(commandName.dropFirst())
+            : commandName
+        return message.caseInsensitiveCompare(commandName) == .orderedSame
+            || message.caseInsensitiveCompare(commandWithoutSlash) == .orderedSame
     }
 
     private static func claudeTagValue(_ tag: String, in raw: String) -> String? {
@@ -746,6 +764,13 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
+    private struct ClaudeSessionCandidate: Sendable {
+        let url: URL
+        let mtime: Date
+        let dirName: String
+        let prefilteredByRipgrep: Bool
+    }
+
     nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
         let fm = FileManager.default
         var roots: [String] = []
@@ -930,6 +955,54 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func encodeClaudeProjectDir(_ path: String) -> String {
         // "/Users/x/y" -> "-Users-x-y"
         return path.replacingOccurrences(of: "/", with: "-")
+    }
+
+    nonisolated private static func enumerateClaudeJSONLCandidates(
+        root: ClaudeSessionRoot,
+        cwdFilter: String?,
+        prefilteredByRipgrep: Bool
+    ) -> [ClaudeSessionCandidate] {
+        let fm = FileManager.default
+        var candidates: [ClaudeSessionCandidate] = []
+
+        func appendJSONLFiles(in dirPath: String, dirName: String) {
+            guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { return }
+            for name in contents where name.hasSuffix(".jsonl") {
+                let filePath = (dirPath as NSString).appendingPathComponent(name)
+                let url = URL(fileURLWithPath: filePath)
+                guard let attrs = try? fm.attributesOfItem(atPath: filePath),
+                      let mtime = attrs[.modificationDate] as? Date else { continue }
+                candidates.append(
+                    ClaudeSessionCandidate(
+                        url: url,
+                        mtime: mtime,
+                        dirName: dirName,
+                        prefilteredByRipgrep: prefilteredByRipgrep
+                    )
+                )
+            }
+        }
+
+        if let cwdFilter {
+            let dirName = encodeClaudeProjectDir(cwdFilter)
+            let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
+                appendJSONLFiles(in: dirPath, dirName: dirName)
+            }
+            return candidates
+        }
+
+        guard let projectDirs = try? fm.contentsOfDirectory(atPath: root.projectsRoot) else {
+            return candidates
+        }
+        for dirName in projectDirs {
+            let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
+            appendJSONLFiles(in: dirPath, dirName: dirName)
+        }
+        return candidates
     }
 
     // MARK: Codex
@@ -1315,8 +1388,7 @@ final class SessionIndexStore: ObservableObject {
         // Pre-filter via rg when we have a needle — rg is parallel, mmaps the
         // file, and scans the WHOLE file (not just our 128 KB head), so it both
         // speeds the scan up and finds matches deeper in long transcripts.
-        var rgFiltered = false
-        var candidates: [(URL, Date, String)] = []
+        var candidates: [ClaudeSessionCandidate] = []
         if !needle.isEmpty {
             for root in roots {
                 guard let rgPaths = await ripgrepMatchingPaths(
@@ -1324,53 +1396,53 @@ final class SessionIndexStore: ObservableObject {
                     root: root.projectsRoot,
                     fileGlob: "*.jsonl"
                 ) else {
+                    candidates.append(
+                        contentsOf: enumerateClaudeJSONLCandidates(
+                            root: root,
+                            cwdFilter: cwdFilter,
+                            prefilteredByRipgrep: false
+                        )
+                    )
                     continue
                 }
-                rgFiltered = true
                 for url in rgPaths {
                     guard let attrs = try? fm.attributesOfItem(atPath: url.path),
                           let mtime = attrs[.modificationDate] as? Date else { continue }
                     let dirName = claudeProjectDirName(for: url, projectsRoot: root.projectsRoot)
-                    candidates.append((url, mtime, dirName))
+                    candidates.append(
+                        ClaudeSessionCandidate(
+                            url: url,
+                            mtime: mtime,
+                            dirName: dirName,
+                            prefilteredByRipgrep: true
+                        )
+                    )
                 }
             }
         } else if let cwdFilter {
             // Fast path: the project directory name encodes the cwd. We can skip
             // enumerating every other project entirely.
-            let dirName = encodeClaudeProjectDir(cwdFilter)
             for root in roots {
-                let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
-                var isDir: ObjCBool = false
-                if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue,
-                   let contents = try? fm.contentsOfDirectory(atPath: dirPath) {
-                    for name in contents where name.hasSuffix(".jsonl") {
-                        let filePath = (dirPath as NSString).appendingPathComponent(name)
-                        let url = URL(fileURLWithPath: filePath)
-                        guard let attrs = try? fm.attributesOfItem(atPath: filePath),
-                              let mtime = attrs[.modificationDate] as? Date else { continue }
-                        candidates.append((url, mtime, dirName))
-                    }
-                }
+                candidates.append(
+                    contentsOf: enumerateClaudeJSONLCandidates(
+                        root: root,
+                        cwdFilter: cwdFilter,
+                        prefilteredByRipgrep: false
+                    )
+                )
             }
         } else {
             for root in roots {
-                guard let projectDirs = try? fm.contentsOfDirectory(atPath: root.projectsRoot) else { continue }
-                for dirName in projectDirs {
-                    let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
-                    var isDir: ObjCBool = false
-                    guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
-                    guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { continue }
-                    for name in contents where name.hasSuffix(".jsonl") {
-                        let filePath = (dirPath as NSString).appendingPathComponent(name)
-                        let url = URL(fileURLWithPath: filePath)
-                        guard let attrs = try? fm.attributesOfItem(atPath: filePath),
-                              let mtime = attrs[.modificationDate] as? Date else { continue }
-                        candidates.append((url, mtime, dirName))
-                    }
-                }
+                candidates.append(
+                    contentsOf: enumerateClaudeJSONLCandidates(
+                        root: root,
+                        cwdFilter: nil,
+                        prefilteredByRipgrep: false
+                    )
+                )
             }
         }
-        candidates.sort { $0.1 > $1.1 }
+        candidates.sort { $0.mtime > $1.mtime }
 
         // Take a generous window of candidates to inspect in parallel. We need
         // enough to cover both targets and skipped files; we'll trim to
@@ -1390,38 +1462,46 @@ final class SessionIndexStore: ObservableObject {
             of: (Int, SessionEntry?, Bool).self
         ) { group in
             for (idx, candidate) in workCandidates.enumerated() {
-                let (url, mtime, dirName) = candidate
                 group.addTask {
                     // Cache hit
-                    if let cached = ClaudeMetadataCache.shared.get(url: url, mtime: mtime) {
+                    let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
+                    if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
                         return (idx, cached, true)
                     }
-                    let head = readFileHead(url: url, byteCap: headByteCap)
-                    let tail = readFileTail(url: url, byteCap: tailByteCap)
-                    if !needle.isEmpty && !rgFiltered {
+                    let head = readFileHead(url: candidate.url, byteCap: headByteCap)
+                    let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
+                    if !needle.isEmpty && !candidate.prefilteredByRipgrep {
                         let combined = head + "\n" + tail
                         if combined.range(of: needle, options: [.caseInsensitive, .literal]) == nil {
                             return (idx, nil, false)
                         }
                     }
-                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: dirName)
+                    if let cached {
+                        if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
+                        return (idx, cached, true)
+                    }
+                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
-                    let sid = url.deletingPathExtension().lastPathComponent
+                    let sid = candidate.url.deletingPathExtension().lastPathComponent
                     let entry = SessionEntry(
-                        id: "claude:" + url.path,
+                        id: "claude:" + candidate.url.path,
                         agent: .claude,
                         sessionId: sid,
                         title: parsed.title,
                         cwd: parsed.cwd,
                         gitBranch: parsed.branch,
                         pullRequest: parsed.pr,
-                        modified: mtime,
-                        fileURL: url,
+                        modified: candidate.mtime,
+                        fileURL: candidate.url,
                         specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
                     )
                     if needle.isEmpty {
-                        ClaudeMetadataCache.shared.put(url: url, mtime: mtime, entry: entry)
+                        ClaudeMetadataCache.shared.put(
+                            url: candidate.url,
+                            mtime: candidate.mtime,
+                            entry: entry
+                        )
                     }
                     return (idx, entry, false)
                 }
