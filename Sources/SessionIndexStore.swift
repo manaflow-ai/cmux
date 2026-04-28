@@ -71,7 +71,10 @@ struct SessionEntry: Identifiable, Hashable {
             if let permissionMode, !permissionMode.isEmpty {
                 parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
             }
-            return parts.joined(separator: " ")
+            return Self.withShellEnvironment(
+                claudeConfigDirectoryForResume.map { ["CLAUDE_CONFIG_DIR": $0] } ?? [:],
+                command: parts.joined(separator: " ")
+            )
         case let .codex(model, approval, sandbox, effort):
             var parts = ["codex resume \(sessionId)"]
             if let model, !model.isEmpty {
@@ -97,6 +100,32 @@ struct SessionEntry: Identifiable, Hashable {
             }
             return parts.joined(separator: " ")
         }
+    }
+
+    private var claudeConfigDirectoryForResume: String? {
+        guard agent == .claude,
+              let fileURL,
+              let projectsIndex = fileURL.pathComponents.firstIndex(of: "projects"),
+              projectsIndex > 0 else {
+            return nil
+        }
+        let configComponents = Array(fileURL.pathComponents[..<projectsIndex])
+        let configDir = NSString.path(withComponents: configComponents)
+        return configDir.isEmpty ? nil : configDir
+    }
+
+    private static func withShellEnvironment(
+        _ environment: [String: String],
+        command: String
+    ) -> String {
+        let assignments = environment
+            .filter { key, _ in
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+            }
+            .sorted { $0.key < $1.key }
+            .map { key, value in "\(key)=\(shellQuote(value))" }
+        guard !assignments.isEmpty else { return command }
+        return "env \(assignments.joined(separator: " ")) \(command)"
     }
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
@@ -709,6 +738,70 @@ final class SessionIndexStore: ObservableObject {
         var permissionMode: String?
     }
 
+    private struct ClaudeSessionRoot: Hashable {
+        let configDir: String
+
+        var projectsRoot: String {
+            (configDir as NSString).appendingPathComponent("projects")
+        }
+    }
+
+    nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
+        let fm = FileManager.default
+        var roots: [String] = []
+        var seen: Set<String> = []
+
+        func appendRoot(_ rawPath: String?, requireConfigured: Bool) {
+            guard let rawPath else { return }
+            let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            let configDir = (trimmed as NSString).expandingTildeInPath
+            let standardized = (configDir as NSString).standardizingPath
+            let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return
+            }
+            if requireConfigured, !isLikelyConfiguredClaudeRoot(standardized) {
+                return
+            }
+            guard seen.insert(standardized).inserted else { return }
+            roots.append(standardized)
+        }
+
+        let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
+        appendRoot(environmentConfigDir, requireConfigured: false)
+
+        let accountRoot = ("~/.codex-accounts/claude" as NSString).expandingTildeInPath
+        if let accountDirs = try? fm.contentsOfDirectory(atPath: accountRoot) {
+            for accountDir in accountDirs.sorted() {
+                appendRoot(
+                    (accountRoot as NSString).appendingPathComponent(accountDir),
+                    requireConfigured: true
+                )
+            }
+        }
+
+        appendRoot(
+            ("~/.claude" as NSString).expandingTildeInPath,
+            requireConfigured: !roots.isEmpty
+        )
+
+        return roots.map(ClaudeSessionRoot.init(configDir:))
+    }
+
+    nonisolated private static func isLikelyConfiguredClaudeRoot(_ configDir: String) -> Bool {
+        let configPath = (configDir as NSString).appendingPathComponent(".claude.json")
+        guard let data = FileManager.default.contents(atPath: configPath),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return obj["oauthAccount"] != nil
+            || obj["primaryApiKey"] != nil
+            || obj["apiKey"] != nil
+    }
+
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
         var out = ClaudeParsed()
         out.cwd = decodeClaudeProjectDir(projectDir)
@@ -820,6 +913,16 @@ final class SessionIndexStore: ObservableObject {
             return nil
         }
         return candidate
+    }
+
+    nonisolated private static func claudeProjectDirName(for url: URL, projectsRoot: String) -> String {
+        let root = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
+        guard url.path.hasPrefix(root) else {
+            return url.deletingLastPathComponent().lastPathComponent
+        }
+        let relative = String(url.path.dropFirst(root.count))
+        return relative.split(separator: "/", maxSplits: 1).first.map(String.init)
+            ?? url.deletingLastPathComponent().lastPathComponent
     }
 
     /// Inverse of `decodeClaudeProjectDir`. Used as a fast path: when filtering
@@ -1196,8 +1299,8 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Returns Claude session entries paginated by mtime desc.
-    /// - When `needle` is empty: fast path. Skips rg, enumerates `~/.claude/projects`,
-    ///   takes the top `offset+limit` by mtime, parses metadata, returns the slice.
+    /// - When `needle` is empty: fast path. Skips rg, enumerates configured Claude
+    ///   roots, takes the top `offset+limit` by mtime, parses metadata, returns the slice.
     /// - When `needle` is non-empty and rg is on PATH: rg pre-filters the candidate
     ///   set; we only parse files that actually contain the needle.
     /// - When `needle` is non-empty and rg is missing/failed: falls back to the
@@ -1205,7 +1308,8 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func loadClaudeEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
-        let projectsRoot = ("~/.claude/projects" as NSString).expandingTildeInPath
+        let roots = claudeSessionRoots()
+        guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
 
         // Pre-filter via rg when we have a needle — rg is parallel, mmaps the
@@ -1213,44 +1317,56 @@ final class SessionIndexStore: ObservableObject {
         // speeds the scan up and finds matches deeper in long transcripts.
         var rgFiltered = false
         var candidates: [(URL, Date, String)] = []
-        if !needle.isEmpty,
-           let rgPaths = await ripgrepMatchingPaths(needle: needle, root: projectsRoot, fileGlob: "*.jsonl") {
-            rgFiltered = true
-            for url in rgPaths {
-                guard let attrs = try? fm.attributesOfItem(atPath: url.path),
-                      let mtime = attrs[.modificationDate] as? Date else { continue }
-                let dirName = url.deletingLastPathComponent().lastPathComponent
-                candidates.append((url, mtime, dirName))
+        if !needle.isEmpty {
+            for root in roots {
+                guard let rgPaths = await ripgrepMatchingPaths(
+                    needle: needle,
+                    root: root.projectsRoot,
+                    fileGlob: "*.jsonl"
+                ) else {
+                    continue
+                }
+                rgFiltered = true
+                for url in rgPaths {
+                    guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+                          let mtime = attrs[.modificationDate] as? Date else { continue }
+                    let dirName = claudeProjectDirName(for: url, projectsRoot: root.projectsRoot)
+                    candidates.append((url, mtime, dirName))
+                }
             }
         } else if let cwdFilter {
             // Fast path: the project directory name encodes the cwd. We can skip
             // enumerating every other project entirely.
             let dirName = encodeClaudeProjectDir(cwdFilter)
-            let dirPath = (projectsRoot as NSString).appendingPathComponent(dirName)
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue,
-               let contents = try? fm.contentsOfDirectory(atPath: dirPath) {
-                for name in contents where name.hasSuffix(".jsonl") {
-                    let filePath = (dirPath as NSString).appendingPathComponent(name)
-                    let url = URL(fileURLWithPath: filePath)
-                    guard let attrs = try? fm.attributesOfItem(atPath: filePath),
-                          let mtime = attrs[.modificationDate] as? Date else { continue }
-                    candidates.append((url, mtime, dirName))
+            for root in roots {
+                let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
+                var isDir: ObjCBool = false
+                if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue,
+                   let contents = try? fm.contentsOfDirectory(atPath: dirPath) {
+                    for name in contents where name.hasSuffix(".jsonl") {
+                        let filePath = (dirPath as NSString).appendingPathComponent(name)
+                        let url = URL(fileURLWithPath: filePath)
+                        guard let attrs = try? fm.attributesOfItem(atPath: filePath),
+                              let mtime = attrs[.modificationDate] as? Date else { continue }
+                        candidates.append((url, mtime, dirName))
+                    }
                 }
             }
         } else {
-            guard let projectDirs = try? fm.contentsOfDirectory(atPath: projectsRoot) else { return [] }
-            for dirName in projectDirs {
-                let dirPath = (projectsRoot as NSString).appendingPathComponent(dirName)
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
-                guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { continue }
-                for name in contents where name.hasSuffix(".jsonl") {
-                    let filePath = (dirPath as NSString).appendingPathComponent(name)
-                    let url = URL(fileURLWithPath: filePath)
-                    guard let attrs = try? fm.attributesOfItem(atPath: filePath),
-                          let mtime = attrs[.modificationDate] as? Date else { continue }
-                    candidates.append((url, mtime, dirName))
+            for root in roots {
+                guard let projectDirs = try? fm.contentsOfDirectory(atPath: root.projectsRoot) else { continue }
+                for dirName in projectDirs {
+                    let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
+                    var isDir: ObjCBool = false
+                    guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
+                    guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { continue }
+                    for name in contents where name.hasSuffix(".jsonl") {
+                        let filePath = (dirPath as NSString).appendingPathComponent(name)
+                        let url = URL(fileURLWithPath: filePath)
+                        guard let attrs = try? fm.attributesOfItem(atPath: filePath),
+                              let mtime = attrs[.modificationDate] as? Date else { continue }
+                        candidates.append((url, mtime, dirName))
+                    }
                 }
             }
         }
