@@ -3,7 +3,7 @@ import XCTest
 
 /// Exercises the right-sidebar Feed end-to-end: boot the app with a
 /// dedicated socket, inject a synthetic permission request over the
-/// socket's `feed.push` V2 verb, toggle the sidebar to Feed mode, tap
+/// socket's `feed.push` V2 verb, toggle the sidebar to Dock mode, tap
 /// Allow Once, and assert the hook-side socket response carries the
 /// resolved decision.
 final class FeedSidebarUITests: XCTestCase {
@@ -44,16 +44,16 @@ final class FeedSidebarUITests: XCTestCase {
         }
         wait(for: [socketExists], timeout: 12)
 
-        // Reveal the right sidebar and toggle to Feed. Uses accessibility
+        // Reveal the right sidebar and toggle to Dock. Uses accessibility
         // identifiers registered on the ModeBarButton row.
-        let feedButton = app.buttons["Feed"].firstMatch
-        if !feedButton.waitForExistence(timeout: 5) {
+        let dockButton = app.buttons["Dock"].firstMatch
+        if !dockButton.waitForExistence(timeout: 5) {
             // Fall back: send the right-sidebar toggle shortcut (⌘⌥B).
             app.typeKey("b", modifierFlags: [.command, .option])
-            _ = feedButton.waitForExistence(timeout: 5)
+            _ = dockButton.waitForExistence(timeout: 5)
         }
-        XCTAssertTrue(feedButton.exists, "Feed tab not visible in right sidebar")
-        feedButton.click()
+        XCTAssertTrue(dockButton.exists, "Dock tab not visible in right sidebar")
+        dockButton.click()
 
         // Push a synthetic permission request via the socket.
         let requestId = "uitest-\(UUID().uuidString)"
@@ -64,7 +64,7 @@ final class FeedSidebarUITests: XCTestCase {
         let allowButton = app.buttons["Once"].firstMatch
         XCTAssertTrue(
             allowButton.waitForExistence(timeout: 10),
-            "Allow Once button did not appear in Feed"
+            "Allow Once button did not appear in Dock"
         )
         allowButton.click()
 
