@@ -147,6 +147,7 @@ struct RightSidebarPanelView: View {
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
     @StateObject private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @StateObject private var dockStore = DockControlsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
@@ -259,7 +260,7 @@ struct RightSidebarPanelView: View {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
         case .feed:
-            DockPanelView(rootDirectory: sessionIndexDirectory)
+            DockPanelView(rootDirectory: sessionIndexDirectory, store: dockStore)
         }
     }
 

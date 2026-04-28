@@ -130,6 +130,20 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         panel.close()
     }
 
+    func setVisibleInUI(_ visible: Bool) {
+        if visible {
+            panel.hostedView.setVisibleInUI(true)
+            TerminalWindowPortalRegistry.updateEntryVisibility(
+                for: panel.hostedView,
+                visibleInUI: true
+            )
+        } else {
+            panel.unfocus()
+            panel.hostedView.setVisibleInUI(false)
+            TerminalWindowPortalRegistry.hideHostedView(panel.hostedView)
+        }
+    }
+
     private static func makePanel(
         definition: DockControlDefinition,
         baseDirectory: String
@@ -169,9 +183,26 @@ final class DockControlsStore: ObservableObject {
     @Published private(set) var trustRequest: DockTrustRequest?
 
     private var lastRootDirectory: String?
+    private var hasLoadedConfiguration = false
+    private var controlsVisibleInUI = false
+
+    func activate(rootDirectory: String?) {
+        controlsVisibleInUI = true
+        guard hasLoadedConfiguration, lastRootDirectory == rootDirectory else {
+            reload(rootDirectory: rootDirectory)
+            return
+        }
+        setControlsVisibleInUI(true)
+    }
+
+    func deactivate() {
+        controlsVisibleInUI = false
+        setControlsVisibleInUI(false)
+    }
 
     func reload(rootDirectory: String?) {
         lastRootDirectory = rootDirectory
+        hasLoadedConfiguration = true
         errorMessage = nil
         trustRequest = nil
 
@@ -226,7 +257,12 @@ final class DockControlsStore: ObservableObject {
     private func replaceControls(with newControls: [DockControlRuntime]) {
         let oldControls = controls
         controls = newControls
+        newControls.forEach { $0.setVisibleInUI(controlsVisibleInUI) }
         oldControls.forEach { $0.close() }
+    }
+
+    private func setControlsVisibleInUI(_ visible: Bool) {
+        controls.forEach { $0.setVisibleInUI(visible) }
     }
 
     private func trustRequestIfNeeded(for resolution: DockConfigResolution) -> DockTrustRequest? {
@@ -408,7 +444,7 @@ final class DockControlsStore: ObservableObject {
 
 struct DockPanelView: View {
     let rootDirectory: String?
-    @StateObject private var store = DockControlsStore()
+    @ObservedObject var store: DockControlsStore
 
     var body: some View {
         VStack(spacing: 0) {
@@ -417,10 +453,13 @@ struct DockPanelView: View {
             content
         }
         .onAppear {
-            store.reload(rootDirectory: rootDirectory)
+            store.activate(rootDirectory: rootDirectory)
+        }
+        .onDisappear {
+            store.deactivate()
         }
         .onChange(of: rootDirectory) { newValue in
-            store.reload(rootDirectory: newValue)
+            store.activate(rootDirectory: newValue)
         }
         .background(
             DockKeyboardFocusBridge(store: store)

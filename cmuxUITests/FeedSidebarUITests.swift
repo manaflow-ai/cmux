@@ -70,6 +70,16 @@ final class FeedSidebarUITests: XCTestCase {
         )
         XCTAssertEqual(result.mode, "once")
 
+        app.typeKey("3", modifierFlags: [.control])
+        XCTAssertTrue(
+            app.buttons["RightSidebarModeButton.sessions"].firstMatch.waitForExistence(timeout: 5),
+            "Sessions mode button disappeared after Ctrl-3"
+        )
+        XCTAssertTrue(
+            waitForDockPortalToLeaveVisibleSidebar(timeout: 5),
+            "Dock terminal portal stayed visible after switching from Ctrl-4 Dock to Ctrl-3 Sessions"
+        )
+
         app.terminate()
     }
 
@@ -201,6 +211,51 @@ final class FeedSidebarUITests: XCTestCase {
             object: NSObject()
         )
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForDockPortalToLeaveVisibleSidebar(timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard let totals = try? self.portalStatsTotals() else { return false }
+                return self.integerValue(in: totals, key: "visible_invalid_anchor_entry_count") == 0 &&
+                    self.integerValue(in: totals, key: "visible_orphan_terminal_subview_count") == 0
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func portalStatsTotals() throws -> [String: Any] {
+        let frame: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": "debug.portal.stats",
+            "params": [:],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: frame)
+        let line = (String(data: data, encoding: .utf8) ?? "{}") + "\n"
+        let response = try sendLine(line)
+        guard let respData = response.data(using: .utf8),
+              let respObj = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              (respObj["ok"] as? Bool) == true,
+              let result = respObj["result"] as? [String: Any],
+              let totals = result["totals"] as? [String: Any] else {
+            throw NSError(
+                domain: "FeedSidebarUITests",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "invalid portal stats response: \(response)"]
+            )
+        }
+        return totals
+    }
+
+    private func integerValue(in dictionary: [String: Any], key: String) -> Int {
+        if let value = dictionary[key] as? Int {
+            return value
+        }
+        if let value = dictionary[key] as? NSNumber {
+            return value.intValue
+        }
+        return Int(dictionary[key] as? String ?? "") ?? 0
     }
 
     private func launchAndEnsureUsable(_ app: XCUIApplication) {
