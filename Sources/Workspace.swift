@@ -7562,7 +7562,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         if sharesWindowBackdrop {
             return .init(
-                backgroundHex: "#00000000",
+                backgroundHex: surfaceHex,
                 tabBarBackgroundHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
@@ -7615,7 +7615,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         if sharesWindowBackdrop {
             return .init(
-                backgroundHex: "#00000000",
+                backgroundHex: backgroundHex,
                 tabBarBackgroundHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",

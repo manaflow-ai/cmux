@@ -1652,6 +1652,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testWindowChromeTitlebarHeightClampsToSharedRange() {
+        XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(12), 28)
+        XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(32), 32)
+        XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(96), 72)
+    }
+
     func testMinimalModeCollapsedSidebarResyncsTrafficLightInsetAfterNewWorkspaceCreation() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

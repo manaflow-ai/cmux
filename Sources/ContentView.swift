@@ -2450,6 +2450,7 @@ struct ContentView: View {
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
             onSendFeedback: presentFeedbackComposer,
+            titlebarHeight: titlebarPadding,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
@@ -2460,7 +2461,7 @@ struct ContentView: View {
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
     /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
-    @State private var titlebarPadding: CGFloat = 32
+    @State private var titlebarPadding: CGFloat = WindowChromeMetrics.defaultTitlebarHeight
     /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
     /// main windows use MainWindowHostingView and report zero.
     @State private var hostingSafeAreaTop: CGFloat = 0
@@ -2633,6 +2634,7 @@ struct ContentView: View {
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
+            titlebarHeight: titlebarPadding,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             }
@@ -3644,7 +3646,7 @@ struct ContentView: View {
             let shouldApplyWindowGlass = appearance.windowGlassSettings.shouldApply()
             let shouldForceTransparentHosting = appearance.shouldUseTransparentHosting()
             let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
-            let nextPadding = max(28, min(72, computedTitlebarHeight))
+            let nextPadding = WindowChromeMetrics.clampedTitlebarHeight(computedTitlebarHeight)
             let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
             if abs(titlebarPadding - nextPadding) > 0.5 {
                 DispatchQueue.main.async {
@@ -9519,6 +9521,7 @@ struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
+    let titlebarHeight: CGFloat
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @Binding var selection: SidebarSelection
@@ -9540,13 +9543,11 @@ struct VerticalTabsSidebar: View {
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
 
-    /// Space at top of sidebar for traffic light buttons
-    private let trafficLightPadding: CGFloat = 28
     private let tabRowSpacing: CGFloat = 2
     private let hiddenTitlebarControlsLeadingInset: CGFloat = 72
 
     private var workspaceScrollTopVisibilityInset: CGFloat {
-        trafficLightPadding + 8
+        titlebarHeight + 8
     }
 
     private var isMinimalMode: Bool {
@@ -9753,14 +9754,14 @@ struct VerticalTabsSidebar: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
-                    SidebarTopScrim(height: trafficLightPadding + 20)
+                    SidebarTopScrim(height: titlebarHeight + 20)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
                     // Match native titlebar behavior in the sidebar top strip:
                     // drag-to-move and double-click action (zoom/minimize).
                     WindowDragHandleView()
-                        .frame(height: trafficLightPadding)
+                        .frame(height: titlebarHeight)
                         .background(TitlebarDoubleClickMonitorView())
                 }
                 .overlay(alignment: .topLeading) {
@@ -15371,6 +15372,16 @@ enum WindowChromeSeparatorColor {
 
     static func current() -> NSColor {
         color(forChromeBackground: GhosttyBackgroundTheme.currentColor())
+    }
+}
+
+enum WindowChromeMetrics {
+    static let minimumTitlebarHeight: CGFloat = 28
+    static let maximumTitlebarHeight: CGFloat = 72
+    static let defaultTitlebarHeight: CGFloat = 32
+
+    static func clampedTitlebarHeight(_ height: CGFloat) -> CGFloat {
+        max(minimumTitlebarHeight, min(maximumTitlebarHeight, height))
     }
 }
 
