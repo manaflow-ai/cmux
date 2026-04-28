@@ -31,11 +31,7 @@ final class FeedSidebarUITests: XCTestCase {
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launch()
-        XCTAssertTrue(
-            app.wait(for: .runningForeground, timeout: 15),
-            "cmux failed to launch for Feed UI test"
-        )
+        launchAndEnsureUsable(app)
 
         XCTAssertTrue(waitForSocketPong(timeout: 20), "Expected control socket at \(socketPath)")
 
@@ -205,6 +201,22 @@ final class FeedSidebarUITests: XCTestCase {
             object: NSObject()
         )
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func launchAndEnsureUsable(_ app: XCUIApplication) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+
+        if app.state == .runningForeground || app.state == .runningBackground {
+            return
+        }
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: 15),
+            "cmux failed to launch for Feed UI test. state=\(app.state.rawValue)"
+        )
     }
 
     private func removeSocketFile() {
