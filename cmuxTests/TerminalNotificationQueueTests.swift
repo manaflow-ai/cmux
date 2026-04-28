@@ -312,6 +312,40 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
 
+    func testUnregisterMainWindowContextForTestingRepointsActiveContext() {
+        let appDelegate = AppDelegate()
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        let windowAId = appDelegate.registerMainWindowContextForTesting(tabManager: managerA)
+        let windowBId = appDelegate.registerMainWindowContextForTesting(tabManager: managerB)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowAId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowBId)
+            appDelegate.tabManager = nil
+            appDelegate.sidebarState = nil
+            appDelegate.sidebarSelectionState = nil
+            appDelegate.fileExplorerState = nil
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        appDelegate.tabManager = managerA
+        TerminalController.shared.setActiveTabManager(managerA)
+
+        appDelegate.unregisterMainWindowContextForTesting(windowId: windowAId)
+
+        XCTAssertTrue(appDelegate.tabManager === managerB)
+        XCTAssertNotNil(appDelegate.sidebarState)
+        XCTAssertNotNil(appDelegate.sidebarSelectionState)
+
+        appDelegate.unregisterMainWindowContextForTesting(windowId: windowBId)
+
+        XCTAssertNil(appDelegate.tabManager)
+        XCTAssertNil(appDelegate.sidebarState)
+        XCTAssertNil(appDelegate.sidebarSelectionState)
+        XCTAssertNil(appDelegate.fileExplorerState)
+    }
+
     private func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())

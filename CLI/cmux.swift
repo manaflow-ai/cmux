@@ -3086,7 +3086,7 @@ struct CMUXCLI {
                 )
             }()
 
-            let payload = "\(title)|\(subtitle)|\(body)"
+            let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
             let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
             print(response)
 
@@ -14169,9 +14169,7 @@ struct CMUXCLI {
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    let subtitle = sanitizeNotificationField(completion.subtitle)
-                    let body = sanitizeNotificationField(completion.body)
-                    let payload = "\(title)|\(subtitle)|\(body)"
+                    let payload = notificationPayload(title: title, subtitle: completion.subtitle, body: completion.body)
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
                 print("OK")
@@ -14229,9 +14227,7 @@ struct CMUXCLI {
                 localized: "cli.claude-hook.notification.title",
                 defaultValue: "Claude Code"
             )
-            let subtitle = sanitizeNotificationField(summary.subtitle)
-            let body = sanitizeNotificationField(summary.body)
-            let payload = "\(title)|\(subtitle)|\(body)"
+            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -15037,6 +15033,10 @@ struct CMUXCLI {
     private func sanitizeNotificationField(_ value: String) -> String {
         return normalizedSingleLine(value)
             .replacingOccurrences(of: "|", with: "¦")
+    }
+
+    private func notificationPayload(title: String, subtitle: String, body: String) -> String {
+        "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
     }
 
     private func redactClaudeSensitiveSpans(_ value: String) -> String {
@@ -16744,12 +16744,10 @@ export default CMUXSessionRestore;
 
                 var subtitle = "Completed"
                 if let projectName, !projectName.isEmpty { subtitle = "Completed in \(projectName)" }
-                let body = sanitizeNotificationField(
-                    lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
-                        ?? "\(def.displayName) session completed"
-                )
+                let body = lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                    ?? "\(def.displayName) session completed"
                 _ = try? sendV1Command("set_status \(def.statusKey) Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)", client: client)
-                let payload = "\(def.displayName)|\(sanitizeNotificationField(subtitle))|\(body)"
+                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
