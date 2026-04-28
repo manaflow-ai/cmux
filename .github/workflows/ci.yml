@@ -41,6 +41,12 @@ jobs:
       - name: Validate Swift warning budget guard
         run: ./tests/test_ci_swift_warning_budget.sh
 
+      - name: Validate Swift file length budget guard
+        run: ./tests/test_ci_swift_file_length_budget.sh
+
+      - name: Validate Swift file length budget
+        run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
+
   remote-daemon-tests:
     runs-on: ubuntu-latest
     steps:
