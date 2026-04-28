@@ -26,6 +26,10 @@ try {
       "CMUX_DB_SSL_CA_PEM(_BASE64) is set. Current Vercel Aurora RDS certs chain to Amazon Root CA 1, so Node's default trust store should be used. Remove the override, redeploy, then retry. Set CMUX_ALLOW_DB_CA_OVERRIDE=1 only for a verified private CA.",
     );
   }
+  const pgPort = Number(env.PGPORT);
+  if (!Number.isInteger(pgPort) || pgPort <= 0 || pgPort > 65535) {
+    throw new Error(`invalid PGPORT for ${project.projectName} migration: ${env.PGPORT}`);
+  }
 
   const authToken = execFileSync(process.env.AWS_CLI ?? "aws", [
     "rds",
@@ -33,7 +37,7 @@ try {
     "--hostname",
     env.PGHOST,
     "--port",
-    env.PGPORT,
+    String(pgPort),
     "--region",
     env.AWS_REGION,
     "--username",
@@ -42,7 +46,7 @@ try {
 
   const pool = new Pool({
     host: env.PGHOST,
-    port: Number(env.PGPORT),
+    port: pgPort,
     user: env.PGUSER,
     database: env.PGDATABASE,
     password: authToken,

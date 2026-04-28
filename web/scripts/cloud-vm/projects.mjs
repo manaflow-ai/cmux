@@ -94,10 +94,10 @@ export function parseWebDirAndTarget(args, usage) {
 
 export function resolveWebDir(input) {
   let webDir = path.resolve(input);
-  if (!existsPackageJson(webDir) && existsPackageJson(path.join(webDir, "web"))) {
-    webDir = path.join(webDir, "web");
-  }
-  if (!existsPackageJson(webDir)) {
+  const nestedWebDir = path.join(webDir, "web");
+  if (existsPackageJson(nestedWebDir)) {
+    webDir = nestedWebDir;
+  } else if (!existsPackageJson(webDir)) {
     console.error("Could not find web/package.json. Pass the web directory as the first argument.");
     process.exit(2);
   }

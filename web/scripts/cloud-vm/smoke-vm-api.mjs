@@ -15,6 +15,7 @@ const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
 const provider = optionValue(rest, "--provider") ?? "e2b";
+const REQUEST_TIMEOUT_MS = 45_000;
 
 if (shouldCreate && provider !== "e2b" && provider !== "freestyle") {
   console.error("--provider must be e2b or freestyle");
@@ -28,6 +29,16 @@ const { StackServerApp } = stackModule;
 let user;
 let vmId;
 let authHeaders;
+
+async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 try {
   const env = loadTargetEnv(project);
@@ -58,10 +69,10 @@ try {
     "x-stack-refresh-token": tokens.refreshToken,
   };
 
-  const unauth = await fetch(`${project.url}/api/vm`);
+  const unauth = await fetchWithTimeout(`${project.url}/api/vm`);
   if (unauth.status !== 401) throw new Error(`unauthenticated GET /api/vm expected 401, got ${unauth.status}`);
 
-  const authed = await fetch(`${project.url}/api/vm`, { headers: authHeaders });
+  const authed = await fetchWithTimeout(`${project.url}/api/vm`, { headers: authHeaders });
   const authedText = await authed.text();
   if (authed.status !== 200) throw new Error(`authenticated GET /api/vm expected 200, got ${authed.status}: ${authedText}`);
   const authedJson = JSON.parse(authedText);
@@ -76,7 +87,7 @@ try {
   };
 
   if (shouldCreate) {
-    const create = await fetch(`${project.url}/api/vm`, {
+    const create = await fetchWithTimeout(`${project.url}/api/vm`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `smoke-${suffix}` },
       body: JSON.stringify({ provider }),
@@ -87,7 +98,7 @@ try {
     if (!created.id) throw new Error("create response missing id");
     vmId = created.id;
 
-    const attach = await fetch(`${project.url}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
+    const attach = await fetchWithTimeout(`${project.url}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json" },
       body: JSON.stringify({ requireDaemon: true }),
@@ -97,7 +108,7 @@ try {
     const attached = JSON.parse(attachText);
     if (attached.transport !== "websocket") throw new Error(`expected websocket attach, got ${attached.transport}`);
 
-    const destroy = await fetch(`${project.url}/api/vm/${encodeURIComponent(vmId)}`, {
+    const destroy = await fetchWithTimeout(`${project.url}/api/vm/${encodeURIComponent(vmId)}`, {
       method: "DELETE",
       headers: authHeaders,
     });
@@ -117,7 +128,7 @@ try {
 } catch (error) {
   if (vmId && authHeaders) {
     try {
-      const destroy = await fetch(`${project.url}/api/vm/${encodeURIComponent(vmId)}`, {
+      const destroy = await fetchWithTimeout(`${project.url}/api/vm/${encodeURIComponent(vmId)}`, {
         method: "DELETE",
         headers: authHeaders,
       });

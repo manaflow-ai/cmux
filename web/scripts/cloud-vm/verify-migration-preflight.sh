@@ -70,14 +70,26 @@ port_in_use() {
 }
 
 choose_cmux_port() {
+  local dev_offset="${CMUX_DB_PORT_OFFSET:-10000}"
+  local test_offset="${CMUX_TEST_DB_PORT_OFFSET:-30000}"
+  local max_offset="$test_offset"
+  if (( dev_offset > max_offset )); then
+    max_offset="$dev_offset"
+  fi
+  local min_candidate=30000
+  local max_candidate=$((65535 - max_offset))
+  if (( max_candidate < min_candidate )); then
+    echo "invalid CMUX_*_PORT_OFFSET values for port selection" >&2
+    exit 1
+  fi
   if [[ -n "${CMUX_MIGRATION_PREFLIGHT_PORT:-}" ]]; then
     printf '%s\n' "$CMUX_MIGRATION_PREFLIGHT_PORT"
     return
   fi
   for _ in $(seq 1 100); do
-    local candidate=$((30000 + RANDOM % 10000))
-    local dev_db=$((candidate + 10000))
-    local test_db=$((candidate + 11000))
+    local candidate=$((min_candidate + RANDOM % (max_candidate - min_candidate + 1)))
+    local dev_db=$((candidate + dev_offset))
+    local test_db=$((candidate + test_offset))
     if ! port_in_use "$candidate" && ! port_in_use "$dev_db" && ! port_in_use "$test_db"; then
       printf '%s\n' "$candidate"
       return
@@ -93,7 +105,7 @@ echo "using isolated CMUX_PORT=$CMUX_PORT for migration preflight"
 cleanup_test_db() {
   env \
     CMUX_DB_KIND=test \
-    CMUX_DB_PORT_OFFSET="${CMUX_TEST_DB_PORT_OFFSET:-11000}" \
+    CMUX_DB_PORT_OFFSET="${CMUX_TEST_DB_PORT_OFFSET:-30000}" \
     CMUX_DB_NAME="${CMUX_TEST_DB_NAME:-cmux_test}" \
     bash scripts/db-local.sh down >/dev/null 2>&1 || true
   docker volume ls --format '{{.Name}}' \

@@ -3,10 +3,6 @@ name: Cloud VM DB migration
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: Branch or SHA to migrate from
-        required: false
-        default: ""
       target:
         description: Migration target
         required: true
@@ -34,7 +30,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: refs/heads/main
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
@@ -57,6 +53,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
       AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATION_ROLE_ARN }}
       CMUX_CLOUD_VM_ENV_SOURCE: process
+      CMUX_DB_DRIVER: aws-rds-iam
       CMUX_DB_SSL_REJECT_UNAUTHORIZED: ${{ vars.CMUX_DB_SSL_REJECT_UNAUTHORIZED || 'true' }}
       PGDATABASE: ${{ vars.PGDATABASE }}
       PGHOST: ${{ vars.PGHOST }}
@@ -66,7 +63,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: refs/heads/main
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
@@ -113,6 +110,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
       AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATION_ROLE_ARN }}
       CMUX_CLOUD_VM_ENV_SOURCE: process
+      CMUX_DB_DRIVER: aws-rds-iam
       CMUX_DB_SSL_REJECT_UNAUTHORIZED: ${{ vars.CMUX_DB_SSL_REJECT_UNAUTHORIZED || 'true' }}
       PGDATABASE: ${{ vars.PGDATABASE }}
       PGHOST: ${{ vars.PGHOST }}
@@ -122,7 +120,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: refs/heads/main
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
