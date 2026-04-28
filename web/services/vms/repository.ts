@@ -131,6 +131,15 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             }
 
             await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.billingTeamId}, 0))`);
+            if (idempotencyKey) {
+              const [existing] = await tx
+                .select()
+                .from(cloudVms)
+                .where(and(eq(cloudVms.userId, input.userId), eq(cloudVms.idempotencyKey, idempotencyKey)))
+                .limit(1);
+              if (existing) return { inserted: false as const, vm: existing };
+            }
+
             const [active] = await tx
               .select({ total: count() })
               .from(cloudVms)

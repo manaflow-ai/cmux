@@ -18,6 +18,9 @@ const VM_ENV_KEYS = [
   "CMUX_VM_ALLOW_UNMANIFESTED_IMAGES",
   "E2B_CMUXD_WS_TEMPLATE",
   "FREESTYLE_SANDBOX_SNAPSHOT",
+  "CMUX_VM_FREE_MAX_ACTIVE_VMS",
+  "CMUX_VM_PAID_MAX_ACTIVE_VMS",
+  "CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS",
   "VERCEL",
   "VERCEL_ENV",
 ] as const;
@@ -156,6 +159,33 @@ describe("VM REST auth", () => {
       idempotencyKey: "idem-1",
     });
     expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test("passes configured plan active VM limits into the create workflow", async () => {
+    process.env.CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS = "25";
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-plan-limit",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      billingTeamId: "team-1",
+      billingPlanId: "pro",
+      maxActiveVms: 25,
+    }));
   });
 
   test("blocks authenticated cookie mutations from cross-site origins before workflow", async () => {
