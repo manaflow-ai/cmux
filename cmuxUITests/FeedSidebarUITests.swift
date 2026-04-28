@@ -266,7 +266,6 @@ final class FeedSidebarUITests: XCTestCase {
                 userInfo: [NSLocalizedDescriptionKey: "write() failed errno=\(errno)"]
             )
         }
-        _ = shutdown(sockFd, SHUT_WR)
 
         // Read until newline or EOF.
         var buffer = Data()
