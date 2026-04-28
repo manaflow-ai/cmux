@@ -1477,23 +1477,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        isTerminatingApp = true
+        // Precautionary save; final save with sync refresh happens in applicationWillTerminate
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
+            isTerminatingApp = true
             return .terminateNow
         }
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog
         // (handleQuitShortcutWarning), skip the check to avoid a second alert.
         if isQuitWarningConfirmed {
+            isTerminatingApp = true
             return .terminateNow
         }
 
         // Respect the "Warn Before Quit" setting even when Cmd+Q arrives via
         // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
         guard QuitWarningSettings.isEnabled() else {
+            isTerminatingApp = true
             return .terminateNow
         }
 
@@ -1517,6 +1520,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldQuit = response == .alertFirstButtonReturn
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
+                self.isTerminatingApp = true
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
@@ -3291,6 +3295,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
+        // Refresh foreground process cache before building snapshot.
+        // - Quit saves: block with timeout to get fresh data (user expects accurate state)
+        // - Autosaves: fire-and-forget refresh for next save; current save uses last cached values
+        //   (intentional one-save lag to avoid blocking UI during periodic autosaves)
+        if isTerminatingApp {
+            refreshForegroundProcessCacheSync()
+        } else {
+            refreshForegroundProcessCacheAsync()
+        }
+
         guard let snapshot = buildSessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex
@@ -3622,6 +3636,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             createdAt: Date().timeIntervalSince1970,
             windows: windows
         )
+    }
+
+    /// Refresh the foreground process cache for all terminal panels (async, non-blocking).
+    private func refreshForegroundProcessCacheAsync() {
+        // Dedupe TTY names to avoid redundant ps scans
+        let allTTYNames = Set(mainWindowContexts.values.flatMap { context in
+            context.tabManager.allTerminalTTYNames()
+        })
+        SessionForegroundProcessCache.shared.refresh(ttyNames: Array(allTTYNames))
+    }
+
+    /// Refresh the foreground process cache for all terminal panels (blocking, for quit).
+    private func refreshForegroundProcessCacheSync() {
+        // Dedupe TTY names to avoid redundant ps scans
+        let allTTYNames = Set(mainWindowContexts.values.flatMap { context in
+            context.tabManager.allTerminalTTYNames()
+        })
+        SessionForegroundProcessCache.shared.refreshSync(ttyNames: Array(allTTYNames))
     }
 
 #if DEBUG

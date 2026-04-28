@@ -4192,7 +4192,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let workingDirectory: String?
     let initialCommand: String?
     let tmuxStartCommand: String?
-    let initialInput: String?
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
@@ -4283,6 +4282,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var lastSearchNeedle = ""
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
+
+    /// Text to send to the shell after it starts (used for session restore commands).
+    /// Unlike `initialCommand`, this doesn't replace the shell - it types into it.
+    /// Cleared after first successful surface creation to prevent replay on recreation.
+    /// `private(set)` exposes the post-normalization value to `@testable` consumers (tests
+    /// can read but not mutate); only this class is allowed to clear/replace it.
+    private(set) var initialInput: String?
+
     init(
         tabId: UUID,
         context: ghostty_surface_context_e,
@@ -4308,8 +4315,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
         let trimmedTmuxStartCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.tmuxStartCommand = (trimmedTmuxStartCommand?.isEmpty == false) ? trimmedTmuxStartCommand : nil
-        let trimmedInput = initialInput?.isEmpty == false ? initialInput : nil
-        self.initialInput = trimmedInput
+        self.initialInput = Self.normalizedInitialInput(initialInput)
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
@@ -4348,6 +4354,46 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
         return merged
     }
+
+    /// Normalize `initialInput` received from callers into a newline-free command token, or nil.
+    ///
+    /// Codebase convention: callers are free to append a single trailing `\n` (most do, e.g.
+    /// `RestorableAgentSession.resumeStartupInput`, `CmuxConfigExecutor.prepareShellInputIfAuthorized`,
+    /// `handleSessionDrop`) or pass a bare command (e.g. session-restore auto-detected commands).
+    /// We accept either form, strip at most one trailing `\n`, and reject anything with
+    /// embedded `\n`/`\r` as a defense-in-depth against command-injection. `createSurface`
+    /// is the single place that appends the terminating newline passed to ghostty.
+    static func normalizedInitialInput(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        var candidate = raw
+        if candidate.hasSuffix("\n") {
+            candidate.removeLast()
+        }
+        if candidate.contains("\n") || candidate.contains("\r") {
+            return nil
+        }
+        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Resolve the bytes that ghostty consumes as `surface_config.initial_input` at
+    /// surface creation time.
+    ///
+    /// Contract:
+    /// - Explicit `initialInput` (already passed through `normalizedInitialInput`) wins
+    ///   and gets exactly one trailing `\n` appended so the shell executes the command.
+    /// - Otherwise, `baseConfigInitialInput` (raw bytes from Ghostty's own config layer)
+    ///   is returned BYTE-FOR-BYTE — no trimming, no newline checks. This honors the
+    ///   contract documented in PR #2545: ghostty's startup-input is raw-bytes and any
+    ///   newlines/whitespace in `baseConfig.initialInput` are intentional.
+    static func resolveInitialInput(explicit: String?, baseConfigInitialInput: String?) -> String? {
+        if let explicit, !explicit.isEmpty {
+            return explicit + "\n"
+        }
+        guard let base = baseConfigInitialInput, !base.isEmpty else { return nil }
+        return base
+    }
+
 
     func isAttached(to view: GhosttyNSView) -> Bool {
         attachedView === view && surface != nil
@@ -5046,12 +5092,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
             return baseConfig.command
         }()
-        let resolvedInitialInput: String? = {
-            if let initialInput, !initialInput.isEmpty {
-                return initialInput
-            }
-            return baseConfig.initialInput
-        }()
+        let resolvedInitialInput = Self.resolveInitialInput(
+            explicit: initialInput,
+            baseConfigInitialInput: baseConfig.initialInput
+        )
+#if DEBUG
+        if resolvedInitialInput != nil {
+            cmuxDebugLog("surface.createSurface surface=\(id.uuidString.prefix(5)) hasInitialInput=1")
+        }
+#endif
         func withOptionalCString<T>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {
             guard let value else {
                 return body(nil)
@@ -5095,6 +5144,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
         guard let createdSurface = surface else { return }
+
+        // Clear initialInput after first successful use to prevent replay on surface recreation
+        initialInput = nil
+
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(createdSurface, ownerId: id)
         recordRuntimeSurfaceCreation()
 

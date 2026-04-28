@@ -7211,6 +7211,11 @@ extension TabManager {
         return hasher.finalize()
     }
 
+    /// Returns all TTY names across all workspaces for cache refresh.
+    func allTerminalTTYNames() -> [String] {
+        tabs.flatMap { $0.allTerminalTTYNames() }
+    }
+
     nonisolated static func restorableAgentSnapshotFingerprint(
         _ snapshot: SessionRestorableAgentSnapshot?
     ) -> Int {

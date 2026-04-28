@@ -4588,3 +4588,77 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 }
+
+// MARK: - TerminalSurface.normalizedInitialInput
+//
+// Guards the contract introduced when merging #2545 (auto-restore commands) with main
+// (restorable-agent resume). Both callers funnel into `TerminalSurface.init(initialInput:)`
+// but use different newline conventions; the normalizer unifies them without losing the
+// injection-prevention goal.
+
+final class TerminalSurfaceNormalizedInitialInputTests: XCTestCase {
+    func testBareCommandPassesThrough() {
+        XCTAssertEqual(TerminalSurface.normalizedInitialInput("opencode"), "opencode")
+    }
+
+    func testSingleTrailingNewlineIsStripped() {
+        // Matches `RestorableAgentSession.resumeStartupInput()` which always returns "<cmd>\n".
+        XCTAssertEqual(TerminalSurface.normalizedInitialInput("claude --resume abc\n"), "claude --resume abc")
+    }
+
+    func testEmbeddedNewlineIsRejected() {
+        // Defense-in-depth: block multi-line injection even though
+        // `SessionRestoreCommandSettings.validatedRestoreCommand` is the primary gate.
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("ls\nrm -rf /"))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("ls\nrm -rf /\n"))
+    }
+
+    func testCarriageReturnIsRejected() {
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("ls\r"))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("ls\r\n"))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("foo\rbar"))
+    }
+
+    func testEmptyInputsReturnNil() {
+        XCTAssertNil(TerminalSurface.normalizedInitialInput(nil))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput(""))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("\n"))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("   "))
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("   \n"))
+    }
+
+    func testSurroundingWhitespaceIsTrimmed() {
+        XCTAssertEqual(TerminalSurface.normalizedInitialInput("  opencode  "), "opencode")
+        XCTAssertEqual(TerminalSurface.normalizedInitialInput("  opencode  \n"), "opencode")
+    }
+
+    func testOnlyOneTrailingNewlineIsStripped() {
+        // Two trailing \n means at least one is internal -> reject.
+        XCTAssertNil(TerminalSurface.normalizedInitialInput("opencode\n\n"))
+    }
+
+    func testAgentResumeCommandShapeIsAccepted() {
+        // Shape produced by `RestorableAgentSession.resumeStartupInput()` for Claude/Codex resume.
+        let resumeLike = "cd '/home/user/proj' && claude --resume 'abc-123'\n"
+        XCTAssertEqual(
+            TerminalSurface.normalizedInitialInput(resumeLike),
+            "cd '/home/user/proj' && claude --resume 'abc-123'"
+        )
+    }
+
+    func testScriptLauncherShapeIsAccepted() {
+        // Shape produced by `resumeStartupInput()` fallback when the inline command exceeds
+        // `maxInlineStartupInputBytes`.
+        let scriptLike = "/bin/zsh '/tmp/cmux-agent-resume/launch-xyz.sh'\n"
+        XCTAssertEqual(
+            TerminalSurface.normalizedInitialInput(scriptLike),
+            "/bin/zsh '/tmp/cmux-agent-resume/launch-xyz.sh'"
+        )
+    }
+
+    func testBareSessionRestoreCommandShapeIsAccepted() {
+        // Shape produced by `SessionRestoreCommandSettings.validatedRestoreCommand()`:
+        // bare command, no trailing newline. `createSurface` appends the \n.
+        XCTAssertEqual(TerminalSurface.normalizedInitialInput("npm run dev"), "npm run dev")
+    }
+}

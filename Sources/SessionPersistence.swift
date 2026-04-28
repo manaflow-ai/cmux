@@ -224,6 +224,14 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
+    /// Command auto-detected from foreground process when session was saved.
+    /// Used to restore the command on next app launch if it passes allowlist validation.
+    var detectedCommand: String?
+    /// Whether this terminal was remote-backed (SSH) when saved.
+    /// Used to restore local terminals correctly in a remote-configured workspace.
+    var isRemoteBacked: Bool?
+    /// Restorable agent session (Claude Code / Codex) attached to this terminal.
+    /// When present, takes precedence over `detectedCommand` on restore.
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
 }
@@ -537,5 +545,833 @@ enum SessionScrollbackReplayStore {
         } catch {
             return nil
         }
+    }
+}
+
+// MARK: - Session Restore Command Settings
+
+enum SessionRestoreCommandSettings {
+    static let enabledKey = "sessionRestoreCommandsEnabled"
+    static let allowlistKey = "sessionRestoreCommandAllowlist"
+    static let defaultEnabled = true
+
+    /// Default allowlist of commands safe to auto-restore.
+    /// Use `*` suffix for prefix matching (command + any arguments).
+    static let defaultAllowlistPatterns = [
+        // Coding agents
+        "opencode *",
+        "claude *",
+        "codex *",
+        "aider *",
+        // Dev servers
+        "npm run dev *",
+        "npm start *",
+        "yarn dev *",
+        "pnpm dev *",
+        "bun dev *",
+        "bun run dev *",
+        // Rust
+        "cargo run *",
+        // Python
+        "uvicorn *",
+        "flask run *",
+        // Watchers/logs
+        "tail -f *",
+        // Remote sessions
+        "ssh *",
+        "mosh *",
+    ]
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func normalizedAllowlistPatterns(defaults: UserDefaults = .standard) -> [String] {
+        normalizedAllowlistPatterns(rawValue: defaults.string(forKey: allowlistKey))
+    }
+
+    static func normalizedAllowlistPatterns(rawValue: String?) -> [String] {
+        // If user provided an explicit value (even if empty/whitespace-only), respect it.
+        // Only fall back to defaults when rawValue is nil (not set at all).
+        guard let rawValue else {
+            return defaultAllowlistPatterns
+        }
+        let parsed = parsePatterns(from: rawValue)
+        // If user explicitly cleared the allowlist, return empty (disables all restores)
+        return parsed
+    }
+
+    private static func parsePatterns(from text: String) -> [String] {
+        text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+    }
+
+    // MARK: - Hardcoded Denylist (Safety Net)
+
+    // MARK: - Denylist Configuration
+    //
+    // Defense-in-depth: These lists block dangerous commands from being auto-restored.
+    // The primary security boundary is the user's allowlist, but these patterns catch
+    // catastrophic mistakes even if the allowlist is too permissive.
+    //
+    // Philosophy: Start aggressive, loosen as needed. False positives are safer than
+    // allowing destructive commands to auto-restore.
+
+    /// Dangerous executables blocked anywhere in a command (word-boundary aware).
+    /// Matches: "sudo rm", "cd /tmp && sudo", "/usr/bin/sudo", "$(curl ...)", etc.
+    /// Does NOT match: "sudoku", "rm-old-files" (no word boundary).
+    /// Uses Set for O(1) lookup.
+    private static let dangerousExecutables: Set<String> = [
+        // Privilege escalation
+        "sudo", "doas", "su", "pkexec", "runas",
+        // Destructive file operations
+        "rm", "rmdir", "shred", "srm", "unlink", "mv",
+        // Disk/partition operations
+        "dd", "mkfs", "newfs", "fdisk", "parted", "diskutil", "hdparm", "badblocks",
+        // System control
+        "reboot", "shutdown", "halt", "poweroff", "init",
+        // Permission/ownership changes
+        "chmod", "chown", "chgrp", "chattr", "setfacl",
+        // Process control
+        "kill", "killall", "pkill", "xkill",
+        // Remote code execution vectors
+        "curl", "wget",
+        // Filesystem check (can destroy encrypted volumes)
+        "fsck",
+        // Database admin
+        "dropdb", "dropuser", "createdb", "createuser",
+        // Cron/scheduler
+        "crontab",
+        // macOS system integrity
+        "csrutil", "nvram", "bless",
+        // Network/firewall
+        "iptables", "pfctl", "networksetup",
+        // Dangerous archivers (can overwrite system files as root)
+        "tar",
+        // Kernel module manipulation
+        "modprobe", "insmod", "rmmod", "modinfo",
+        // User/group manipulation
+        "useradd", "userdel", "usermod", "groupadd", "groupdel", "groupmod",
+        "chpasswd", "passwd",
+        // Additional archiver with dangerous options
+        "rsync",
+        // Command execution helpers
+        "xargs", "find",
+        // Netcat - reverse shell vector
+        "nc", "ncat", "netcat",
+        // Package managers (install-only, no run/script capability)
+        // These modify system state and have no legitimate auto-restore use case.
+        // Note: npm/yarn/pnpm/bun are NOT here because they have `run`/`dev` scripts.
+        "apt", "apt-get", "dpkg", "aptitude",
+        "yum", "dnf", "rpm",
+        "brew", "port",
+        "pacman", "yay", "paru", "makepkg",
+        "zypper",
+        "apk",
+        "snap", "flatpak",
+        "pip", "pip3", "pipx",
+        "gem",
+        "cpan", "cpanm",
+        // "go install" downloads + installs arbitrary binaries; "go" itself is not
+        // blocked because users may add "go run *" or "go test *" to their allowlist.
+    ]
+
+    /// Substrings that block a command if found anywhere.
+    /// Used for: credentials, destructive operations, sensitive file access.
+    private static let denylistContains = [
+        // API keys and tokens
+        "--api-key=", "--api-key ",
+        "--apikey=", "--apikey ",
+        "--token=", "--token ",
+        "--access-token=", "--access-token ",
+        "--auth-token=", "--auth-token ",
+        "--bearer=", "--bearer ",
+        "--secret=", "--secret ",
+        "--client-secret=", "--client-secret ",
+        // Passwords (long flags only; MySQL -p handled separately)
+        "--password=", "--password ",
+        "--passwd=", "--passwd ",
+        // AWS credentials
+        "--aws-access-key-id=", "--aws-secret-access-key=",
+        "AWS_ACCESS_KEY_ID=", "AWS_SECRET_ACCESS_KEY=",
+        // SSH/auth keys
+        "--private-key=", "--private-key ",
+        "--ssh-key=", "--ssh-key ",
+        // SSH password wrappers and inline credentials
+        "sshpass ",
+        ":@",  // user:pass@host syntax
+        // SSH options that execute local helpers or replace the local transport.
+        // Without these, an allowlisted "ssh *" can smuggle arbitrary code via
+        // -o LocalCommand=... or -o ProxyCommand=... and have it re-run on restore.
+        // `permitlocalcommand=...` is caught implicitly by the `localcommand=` substring.
+        "localcommand=", "localcommand ",
+        "proxycommand=", "proxycommand ",
+        // Generic auth
+        "--credentials=", "--credentials ",
+        "--auth=", "--auth ",
+        // Database connection strings
+        "mongodb://", "mongodb+srv://",
+        "postgresql://", "postgres://",
+        "mysql://", "redis://", "amqp://", "rediss://",
+        // Git destructive
+        "git push --force", "git push -f",
+        "git reset --hard",
+        "git clean -f",
+        "git checkout --force",
+        // Database destructive
+        "drop database", "drop table", "drop schema", "drop index",
+        "truncate table", "truncate ",
+        "delete from",
+        // System services
+        "systemctl stop", "systemctl disable", "systemctl mask",
+        "launchctl unload", "launchctl bootout", "launchctl remove",
+        "service stop",
+        // Container destructive
+        "docker system prune",
+        "docker rm -f", "docker container rm -f",
+        "docker volume rm", "docker volume prune",
+        "docker image prune", "docker container prune",
+        "podman system prune", "podman rm -f",
+        // Kubernetes destructive
+        "kubectl delete namespace", "kubectl delete ns",
+        "kubectl delete --all",
+        "kubectl drain", "kubectl cordon",
+        // Environment manipulation
+        "unset PATH",
+        "export PATH=",
+        // Piped shell execution
+        "| sh", "| bash", "| zsh", "| ksh", "| fish",
+        "| /bin/sh", "| /bin/bash", "| /bin/zsh",
+        // History replay
+        "history | sh", "history | bash", "history | zsh",
+        "fc -s",
+        // Command injection via embedded newlines/carriage returns
+        // Defense-in-depth: also blocked at initialInput validation layer
+        "\n", "\r",
+        // Fork bomb
+        ":(){ :|:& };:",
+        // Disk write targets
+        "of=/dev/sd", "of=/dev/nvme", "of=/dev/disk",
+        "> /dev/sd", "> /dev/nvme",
+        // Sensitive file access
+        "/etc/shadow",
+        ".ssh/id_rsa", ".ssh/id_ed25519", ".ssh/id_ecdsa", ".ssh/id_dsa",
+        ".ssh/authorized_keys",
+        ".aws/credentials",
+        ".kube/config",
+        ".npmrc",
+        ".netrc",
+        ".git-credentials",
+        ".docker/config.json",
+        // npm/yarn destructive
+        "npm unpublish",
+        "npm deprecate",
+        // Homebrew destructive (macOS)
+        "brew uninstall --force",
+        "brew remove --force",
+        "brew unlink --force",
+        // SysRq magic key - instant reboot/crash
+        "/proc/sysrq-trigger",
+        "echo b > /proc/sysrq",
+        "echo o > /proc/sysrq",
+        "echo c > /proc/sysrq",
+        // Shell exec redirect - silences shell
+        "exec >",
+        "exec 2>",
+        "exec &>",
+        // Additional disk device targets
+        "of=/dev/hd", "of=/dev/vd", "of=/dev/xvd",
+        "> /dev/hd", "> /dev/vd",
+
+        // Additional fork bomb variants
+        ".() { .|.& };.",
+        "bomb() { bomb | bomb & }; bomb",
+        // Infinite loops that fill disk
+        "while true; do",
+        "for (( ; ; )); do",
+        "while :; do",
+        // LD_PRELOAD injection
+        "LD_PRELOAD=",
+        "LD_LIBRARY_PATH=",
+    ]
+
+    /// Check if a command matches the allowlist.
+    /// - Exact match: "opencode" matches only "opencode"
+    /// - Prefix match: "opencode *" matches "opencode", "opencode --flag", etc.
+    /// - Commands matching the hardcoded denylist are NEVER allowed.
+    /// - Returns false immediately if sessionRestoreCommandsEnabled is disabled.
+    static func isCommandAllowed(_ command: String, defaults: UserDefaults = .standard) -> Bool {
+        guard isEnabled(defaults: defaults) else { return false }
+        return isCommandAllowed(command, rawAllowlist: defaults.string(forKey: allowlistKey))
+    }
+
+    static func isCommandAllowed(_ command: String, rawAllowlist: String?) -> Bool {
+        let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedCommand.isEmpty else { return false }
+
+        // Safety net: hardcoded denylist always blocks, regardless of user allowlist
+        if isCommandDenied(normalizedCommand) {
+            return false
+        }
+
+        let patterns = normalizedAllowlistPatterns(rawValue: rawAllowlist)
+        return patterns.contains { pattern in
+            commandMatchesPattern(normalizedCommand, pattern: pattern)
+        }
+    }
+
+    /// Normalize and validate a restore command in one step.
+    /// Returns the trimmed command if allowed, nil otherwise.
+    /// Use this helper to avoid duplicating trim + allowlist check logic.
+    static func validatedRestoreCommand(_ command: String?) -> String? {
+        guard let command, !command.isEmpty else { return nil }
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, isCommandAllowed(trimmed) else { return nil }
+        return trimmed
+    }
+
+    /// Check if command matches the hardcoded denylist (case-insensitive for safety)
+    private static func isCommandDenied(_ command: String) -> Bool {
+        let lowercased = command.lowercased()
+
+        // Check if any dangerous executable appears anywhere in the command.
+        // This catches: "sudo rm", "cd /tmp && sudo rm", "echo | rm -rf", "/usr/bin/sudo", etc.
+        if containsDangerousExecutable(lowercased) {
+            return true
+        }
+
+        // Check substring matches (credentials, destructive patterns, sensitive files)
+        for substring in denylistContains {
+            // Special handling for control characters: Swift treats CRLF (\r\n) as a single
+            // grapheme cluster, so `str.contains("\r")` returns false for a CRLF string.
+            // Check at the Unicode scalar level for single control characters.
+            if substring.count == 1, let scalar = substring.unicodeScalars.first,
+               scalar == "\r" || scalar == "\n" {
+                if lowercased.unicodeScalars.contains(scalar) {
+                    return true
+                }
+            } else if lowercased.contains(substring.lowercased()) {
+                return true
+            }
+        }
+
+        // Check MySQL-family commands with -p flag (password)
+        // These tools use -p for password, unlike cargo/flask/npm which use it for port/package
+        // Note: Must check original command because -p (password) vs -P (port) are case-sensitive
+        if isMySQLPasswordCommand(command, lowercasedCommand: lowercased) {
+            return true
+        }
+
+        // SSH agent forwarding (-A enables, -a disables — must be case-sensitive)
+        if isSSHWithAgentForwarding(command) {
+            return true
+        }
+
+        return false
+    }
+
+    /// Check if command is an SSH-family invocation with `-A` (agent forwarding).
+    /// SSH's `-a` (lowercase) DISABLES forwarding (safe), so this match must be case-sensitive
+    /// and we must not consult the lowercased copy used elsewhere in `isCommandDenied`.
+    private static func isSSHWithAgentForwarding(_ command: String) -> Bool {
+        let trimmed = command.trimmingCharacters(in: .whitespaces)
+        let basename = parseLeadingExecutableBasename(trimmed)
+        guard basename == "ssh" || basename == "scp" || basename == "sftp" else { return false }
+        return command.contains(" -A ") || command.contains(" -A\t") || command.hasSuffix(" -A")
+    }
+
+    /// Check if a dangerous executable appears anywhere in the command.
+    /// Looks for word boundaries: start of string, space, /, |, ;, &, `, $(
+    /// This catches both direct invocations and shell-chained commands.
+    private static func containsDangerousExecutable(_ lowercasedCommand: String) -> Bool {
+        // Characters that can precede an executable name. Includes both quote styles
+        // so that `ssh user@host 'rm -rf /'` and equivalents trip the boundary scan.
+        let boundaryChars: Set<Character> = [" ", "\t", "\n", "\r", "/", "|", ";", "&", "`", "(", "'", "\""]
+        // Characters that can follow an executable name (word boundary)
+        let trailingBoundaryChars: Set<Character> = [" ", "\t", ";", "|", "&", ")", "\n", "\"", "'", "`", "$"]
+
+        func hasValidTrailingBoundary(_ index: String.Index) -> Bool {
+            index == lowercasedCommand.endIndex || trailingBoundaryChars.contains(lowercasedCommand[index])
+        }
+
+        for executable in dangerousExecutables {
+            // Check if command starts with the executable (e.g., "rm -rf", "rm;", "rm|")
+            if lowercasedCommand.hasPrefix(executable) {
+                let afterIndex = lowercasedCommand.index(
+                    lowercasedCommand.startIndex,
+                    offsetBy: executable.count,
+                    limitedBy: lowercasedCommand.endIndex
+                ) ?? lowercasedCommand.endIndex
+                if hasValidTrailingBoundary(afterIndex) {
+                    return true
+                }
+            }
+
+            // Check if executable appears after a boundary character
+            // Scan ALL occurrences, not just the first (handles "echo sudoers && sudo rm")
+            for boundary in boundaryChars {
+                let pattern = String(boundary) + executable
+                var searchStart = lowercasedCommand.startIndex
+                while let range = lowercasedCommand.range(
+                    of: pattern,
+                    range: searchStart..<lowercasedCommand.endIndex
+                ) {
+                    // Verify it's followed by end of string or another boundary
+                    let afterIndex = range.upperBound
+                    if hasValidTrailingBoundary(afterIndex) {
+                        return true
+                    }
+                    // Move past this match to find subsequent occurrences
+                    searchStart = lowercasedCommand.index(after: range.lowerBound)
+                }
+            }
+        }
+        return false
+    }
+
+    /// Check if a command is a MySQL-family tool with -p password flag
+    /// MySQL, MariaDB, mysqldump, mysqladmin all use -p for password (case-sensitive: -P is port)
+    private static func isMySQLPasswordCommand(_ command: String, lowercasedCommand: String) -> Bool {
+        let mysqlTools: Set<String> = ["mysql", "mariadb", "mysqldump", "mysqladmin"]
+
+        // Parse the leading shell token (handles quoted paths like '/My App/mysql')
+        let toolName = parseLeadingExecutableBasename(lowercasedCommand)
+        guard mysqlTools.contains(toolName) else { return false }
+
+        // Check if -p flag is present (case-sensitive: -p is password, -P is port)
+        // Must check original command, not lowercased, to preserve case distinction
+        // Matches: -p, -pPASSWORD, -p PASSWORD, -p=PASSWORD
+        return command.contains(" -p") || command.contains(" -p=")
+    }
+
+    /// Parse the leading executable token from a command line, handling shell quoting.
+    /// Returns the basename of the executable (e.g., "mysql" from "'/My App/mysql' --flag")
+    private static func parseLeadingExecutableBasename(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return "" }
+
+        var executablePath: String
+        let firstChar = trimmed.first!
+
+        if firstChar == "'" {
+            // Single-quoted: find closing quote, handle escaped quotes
+            if let closeIndex = findClosingSingleQuote(trimmed, startAfter: trimmed.startIndex) {
+                let start = trimmed.index(after: trimmed.startIndex)
+                executablePath = String(trimmed[start..<closeIndex])
+                // Unescape '\'' sequences
+                executablePath = executablePath.replacingOccurrences(of: "'\\''", with: "'")
+            } else {
+                // Unclosed quote, take whole thing minus opening quote
+                executablePath = String(trimmed.dropFirst())
+            }
+        } else if firstChar == "\"" {
+            // Double-quoted: find closing quote
+            if let closeIndex = findClosingDoubleQuote(trimmed, startAfter: trimmed.startIndex) {
+                let start = trimmed.index(after: trimmed.startIndex)
+                executablePath = String(trimmed[start..<closeIndex])
+                // Unescape basic sequences
+                executablePath = executablePath.replacingOccurrences(of: "\\\"", with: "\"")
+                executablePath = executablePath.replacingOccurrences(of: "\\\\", with: "\\")
+            } else {
+                executablePath = String(trimmed.dropFirst())
+            }
+        } else {
+            // Unquoted: take until first whitespace
+            if let spaceIndex = trimmed.firstIndex(where: { $0.isWhitespace }) {
+                executablePath = String(trimmed[..<spaceIndex])
+            } else {
+                executablePath = trimmed
+            }
+        }
+
+        // Extract basename
+        return URL(fileURLWithPath: executablePath).lastPathComponent
+    }
+
+    /// Find closing single quote, handling '\'' escape sequences
+    private static func findClosingSingleQuote(_ s: String, startAfter: String.Index) -> String.Index? {
+        var i = s.index(after: startAfter)
+        while i < s.endIndex {
+            if s[i] == "'" {
+                // Check if this is start of '\'' escape sequence
+                let remaining = s[i...]
+                if remaining.hasPrefix("'\\''") {
+                    // Skip the escape sequence
+                    i = s.index(i, offsetBy: 4, limitedBy: s.endIndex) ?? s.endIndex
+                } else {
+                    return i
+                }
+            } else {
+                i = s.index(after: i)
+            }
+        }
+        return nil
+    }
+
+    /// Find closing double quote, handling backslash escapes
+    private static func findClosingDoubleQuote(_ s: String, startAfter: String.Index) -> String.Index? {
+        var i = s.index(after: startAfter)
+        while i < s.endIndex {
+            if s[i] == "\\" {
+                // Skip next character (escaped)
+                i = s.index(after: i)
+                if i < s.endIndex {
+                    i = s.index(after: i)
+                }
+            } else if s[i] == "\"" {
+                return i
+            } else {
+                i = s.index(after: i)
+            }
+        }
+        return nil
+    }
+
+    private static func commandMatchesPattern(_ command: String, pattern: String) -> Bool {
+        let trimmedPattern = pattern.trimmingCharacters(in: .whitespaces)
+
+        // Extract command basename for matching (handles quoted paths like '/My App/opencode')
+        let commandBasename = parseLeadingExecutableBasename(command)
+        // Reconstruct command with basename: find where args start after the executable
+        let commandWithBasename: String = {
+            let trimmed = command.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return commandBasename }
+            let firstChar = trimmed.first!
+            var afterExec: String.Index?
+            if firstChar == "'" {
+                if let close = findClosingSingleQuote(trimmed, startAfter: trimmed.startIndex) {
+                    afterExec = trimmed.index(after: close)
+                }
+            } else if firstChar == "\"" {
+                if let close = findClosingDoubleQuote(trimmed, startAfter: trimmed.startIndex) {
+                    afterExec = trimmed.index(after: close)
+                }
+            } else if let space = trimmed.firstIndex(where: { $0.isWhitespace }) {
+                afterExec = space
+            }
+            if let afterExec, afterExec < trimmed.endIndex {
+                let rest = trimmed[afterExec...].trimmingCharacters(in: .whitespaces)
+                return rest.isEmpty ? commandBasename : "\(commandBasename) \(rest)"
+            }
+            return commandBasename
+        }()
+
+        // Prefix match: "opencode *" matches "opencode", "/usr/bin/opencode --flag", etc.
+        // Also handles tab as argument separator for robustness
+        if trimmedPattern.hasSuffix(" *") {
+            let prefix = String(trimmedPattern.dropLast(2))
+            // Match against both full path command and basename-only version
+            // Check for space or tab as argument separator
+            return command == prefix ||
+                   command.hasPrefix(prefix + " ") || command.hasPrefix(prefix + "\t") ||
+                   commandWithBasename == prefix ||
+                   commandWithBasename.hasPrefix(prefix + " ") || commandWithBasename.hasPrefix(prefix + "\t")
+        }
+
+        // Exact match (also check basename version)
+        return command == trimmedPattern || commandWithBasename == trimmedPattern
+    }
+}
+
+// MARK: - Foreground Process Detection Cache
+
+/// Cache for foreground process detection results to avoid blocking main thread.
+/// Call `refresh(ttyNames:)` periodically from a background queue, then read
+/// cached values synchronously via `cachedCommandLine(forTTY:)`.
+final class SessionForegroundProcessCache {
+    static let shared = SessionForegroundProcessCache()
+
+    private let queue = DispatchQueue(label: "com.cmux.foreground-process-cache", qos: .utility)
+    private var cache: [String: String] = [:]  // ttyName -> commandLine
+    private var unfairLock = os_unfair_lock()
+
+    private init() {}
+
+    /// Refresh cache for the given TTY names. Runs on internal background queue.
+    /// Only caches commands that pass the allowlist to avoid persisting secrets.
+    func refresh(ttyNames: [String]) {
+        queue.async { [self] in
+            var newCache: [String: String] = [:]
+            for ttyName in ttyNames {
+                let normalizedTTY = Self.normalizeTTYName(ttyName)
+                if let detected = SessionForegroundProcessDetector.detect(forTTY: normalizedTTY),
+                   let commandLine = detected.commandLine {
+                    let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
+                        newCache[normalizedTTY] = trimmed
+                    }
+                }
+            }
+            os_unfair_lock_lock(&unfairLock)
+            cache = newCache
+            os_unfair_lock_unlock(&unfairLock)
+        }
+    }
+
+    /// Refresh cache synchronously with timeout. Falls back to existing cache if timeout exceeded.
+    /// Uses a bounded wait to prevent quit from stalling indefinitely on slow ps/sysctl calls.
+    func refreshSync(ttyNames: [String], timeout: TimeInterval = 2.0) {
+        let semaphore = DispatchSemaphore(value: 0)
+        queue.async { [self] in
+            defer { semaphore.signal() }
+            var newCache: [String: String] = [:]
+            for ttyName in ttyNames {
+                let normalizedTTY = Self.normalizeTTYName(ttyName)
+                if let detected = SessionForegroundProcessDetector.detect(forTTY: normalizedTTY),
+                   let commandLine = detected.commandLine {
+                    let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
+                        newCache[normalizedTTY] = trimmed
+                    }
+                }
+            }
+            os_unfair_lock_lock(&unfairLock)
+            cache = newCache
+            os_unfair_lock_unlock(&unfairLock)
+        }
+        // Wait with timeout; if exceeded, we use whatever was in cache before
+        _ = semaphore.wait(timeout: .now() + timeout)
+    }
+
+    /// Get cached command line for a TTY. Safe to call from main thread.
+    func cachedCommandLine(forTTY ttyName: String) -> String? {
+        let normalizedTTY = Self.normalizeTTYName(ttyName)
+        os_unfair_lock_lock(&unfairLock)
+        defer { os_unfair_lock_unlock(&unfairLock) }
+        return cache[normalizedTTY]
+    }
+
+    #if DEBUG
+    /// Test-only seam: replace the cache contents directly, bypassing process detection.
+    /// Lets unit tests exercise the snapshot's remote-skip branch without spawning `ps`.
+    func _testReplaceCache(_ entries: [String: String]) {
+        let normalized = Dictionary(uniqueKeysWithValues: entries.map {
+            (Self.normalizeTTYName($0.key), $0.value)
+        })
+        os_unfair_lock_lock(&unfairLock)
+        cache = normalized
+        os_unfair_lock_unlock(&unfairLock)
+    }
+    #endif
+
+    /// Normalize TTY name for consistent cache keying (strips /dev/ prefix)
+    private static func normalizeTTYName(_ ttyName: String) -> String {
+        let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("/dev/") {
+            return String(trimmed.dropFirst(5))
+        }
+        return trimmed
+    }
+}
+
+// MARK: - Foreground Process Detection
+
+enum SessionForegroundProcessDetector {
+    private static let psPath = "/bin/ps"
+
+    struct ForegroundProcess {
+        let pid: Int32
+        let executableName: String
+        let commandLine: String?
+    }
+
+    /// Detect the foreground process running in a TTY.
+    /// Returns nil if no foreground process or only shell is running.
+    static func detect(forTTY ttyName: String) -> ForegroundProcess? {
+        let normalizedTTY = normalizeTTYName(ttyName)
+        guard !normalizedTTY.isEmpty else { return nil }
+
+        let processes = processSnapshots(forTTY: normalizedTTY)
+        guard let foreground = processes.first(where: { isForegroundProcess($0, ttyName: normalizedTTY) }) else {
+            return nil
+        }
+
+        // Skip if foreground is just a shell
+        let shellNames = [
+            "zsh", "bash", "sh", "fish", "tcsh", "ksh", "dash",  // POSIX-ish shells
+            "csh",                                               // C shell
+            "pwsh", "powershell",                                // PowerShell
+            "nu", "nushell",                                     // Nushell
+            "elvish", "xonsh", "oil", "osh",                     // Alternative shells
+            "rc", "es",                                          // Plan 9 shells
+        ]
+        if shellNames.contains(foreground.executableName) {
+            return nil
+        }
+
+        let commandLine = commandLineString(forPID: foreground.pid)
+
+        return ForegroundProcess(
+            pid: foreground.pid,
+            executableName: foreground.executableName,
+            commandLine: commandLine
+        )
+    }
+
+    private struct ProcessSnapshot {
+        let pid: Int32
+        let pgid: Int32
+        let tpgid: Int32
+        let tty: String
+        let executableName: String
+    }
+
+    private static func normalizeTTYName(_ ttyName: String) -> String {
+        let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("/dev/") {
+            return String(trimmed.dropFirst(5))
+        }
+        return trimmed
+    }
+
+    private static func isForegroundProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+        normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
+            process.tpgid > 0 &&
+            process.pgid == process.tpgid
+    }
+
+    private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: psPath)
+        process.arguments = ["-ww", "-t", ttyName, "-o", "pid=,pgid=,tpgid=,tty=,ucomm="]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return []
+        }
+
+        // Drain stdout off-thread so ps cannot deadlock on a full pipe buffer.
+        // ps output for one TTY is far under the OS pipe buffer in practice, but
+        // the synchronous read-then-wait pattern would hang waitUntilExit if it
+        // ever grew, so we drain concurrently.
+        let outputBox = ProcessOutputBox()
+        let readSemaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            defer { readSemaphore.signal() }
+            outputBox.data = pipe.fileHandleForReading.readDataToEndOfFile()
+        }
+        process.waitUntilExit()
+        readSemaphore.wait()
+
+        guard process.terminationStatus == 0,
+              let output = String(data: outputBox.data, encoding: .utf8) else {
+            return []
+        }
+
+        return output
+            .split(separator: "\n")
+            .compactMap(parseProcessSnapshot)
+    }
+
+    private final class ProcessOutputBox: @unchecked Sendable {
+        var data = Data()
+    }
+
+    private static func parseProcessSnapshot(_ line: Substring) -> ProcessSnapshot? {
+        let parts = line.split(maxSplits: 4, whereSeparator: \.isWhitespace)
+        guard parts.count == 5,
+              let pid = Int32(parts[0]),
+              let pgid = Int32(parts[1]),
+              let tpgid = Int32(parts[2]) else {
+            return nil
+        }
+
+        return ProcessSnapshot(
+            pid: pid,
+            pgid: pgid,
+            tpgid: tpgid,
+            tty: String(parts[3]),
+            executableName: String(parts[4]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )
+    }
+
+    private static func commandLineString(forPID pid: Int32) -> String? {
+        var mib = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size: size_t = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0, size > 4 else {
+            return nil
+        }
+
+        var buffer = [UInt8](repeating: 0, count: size)
+        let success = buffer.withUnsafeMutableBytes { rawBuffer in
+            sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0) == 0
+        }
+        guard success else { return nil }
+
+        // KERN_PROCARGS2 layout: argc (4 bytes), exec path, null-terminated argv strings
+        let argc = buffer.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
+        guard argc > 0 else { return nil }
+
+        // Skip argc and find first null (end of exec path)
+        var offset = 4
+        while offset < buffer.count && buffer[offset] != 0 {
+            offset += 1
+        }
+        // Skip nulls between exec path and argv[0]
+        while offset < buffer.count && buffer[offset] == 0 {
+            offset += 1
+        }
+
+        // Extract argv strings by finding null-separated byte runs and decoding as UTF-8
+        // IMPORTANT: Count ALL arguments including empty strings to avoid scanning past argv
+        // into environment variables. An empty argv entry (two consecutive nulls) must still
+        // be counted toward argc.
+        // If any argument fails UTF-8 decoding, abort entirely to avoid restoring a
+        // materially different command (e.g., "tool <bad-bytes> --flag" → "tool --flag").
+        var args: [String] = []
+        var argCount = 0
+        var start = offset
+        for i in offset...buffer.count {
+            let byte: UInt8 = i < buffer.count ? buffer[i] : 0
+            if byte == 0 {
+                // Always count this as an argument, even if empty
+                argCount += 1
+                if i > start {
+                    let slice = Array(buffer[start..<i])
+                    guard let s = String(bytes: slice, encoding: .utf8) else {
+                        // Abort on first UTF-8 decode failure
+                        return nil
+                    }
+                    args.append(s)
+                }
+                // Empty strings (i == start) are counted but not added to args
+                if argCount >= Int(argc) { break }
+                start = i + 1
+            }
+        }
+
+        guard !args.isEmpty else { return nil }
+
+        // Keep full path to preserve exact executable location (e.g., /opt/mycompany/tool)
+        // Shell-quote arguments that contain spaces, quotes, or special chars
+        let quotedArgs = args.map { shellQuoteIfNeeded($0) }
+        return quotedArgs.joined(separator: " ")
+    }
+
+    /// Shell-quote a string if it contains spaces, quotes, or shell metacharacters.
+    /// Uses single quotes with escaped single quotes for safety.
+    private static func shellQuoteIfNeeded(_ s: String) -> String {
+        // Characters that require quoting in shell
+        let needsQuoting = s.contains { c in
+            c.isWhitespace || c == "'" || c == "\"" || c == "\\" ||
+            c == "$" || c == "`" || c == "!" || c == "*" || c == "?" ||
+            c == "[" || c == "]" || c == "(" || c == ")" || c == "{" ||
+            c == "}" || c == "<" || c == ">" || c == "|" || c == "&" ||
+            c == ";" || c == "#" || c == "~"
+        }
+        guard needsQuoting else { return s }
+        // Use single quotes, escaping any embedded single quotes as '\''
+        let escaped = s.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
     }
 }

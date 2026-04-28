@@ -160,6 +160,19 @@ extension Workspace {
         )
     }
 
+    private func isRemoteBackedForSessionSnapshot(_ panelId: UUID) -> Bool {
+        isRemoteTerminalSurface(panelId) ||
+        transferredRemoteCleanupConfigurationsByPanelId[panelId] != nil ||
+        pendingRemoteTerminalChildExitSurfaceIds.contains(panelId)
+    }
+
+    func allTerminalTTYNames() -> [String] {
+        panels.compactMap { panelId, panel in
+            guard panel is TerminalPanel, !isRemoteBackedForSessionSnapshot(panelId) else { return nil }
+            return surfaceTTYNames[panelId]
+        }
+    }
+
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
@@ -399,12 +412,9 @@ extension Workspace {
         let branchSnapshot = panelGitBranches[panelId].map {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
-        let listeningPorts: [Int]
-        if remoteDetectedSurfaceIds.contains(panelId) || isRemoteTerminalSurface(panelId) {
-            listeningPorts = []
-        } else {
-            listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
-        }
+        let isRemoteBackedTerminal = isRemoteBackedForSessionSnapshot(panelId)
+        let hasRemoteDetectedPorts = remoteDetectedSurfaceIds.contains(panelId)
+        let listeningPorts = (isRemoteBackedTerminal || hasRemoteDetectedPorts) ? [] : (surfaceListeningPorts[panelId] ?? []).sorted()
         let ttyName = surfaceTTYNames[panelId]
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
@@ -442,9 +452,15 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback
             )
+            let detectedCommand: String? = {
+                guard !isRemoteBackedTerminal, let ttyName else { return nil }
+                return SessionForegroundProcessCache.shared.cachedCommandLine(forTTY: ttyName)
+            }()
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
                 scrollback: resolvedScrollback,
+                detectedCommand: detectedCommand,
+                isRemoteBacked: isRemoteBackedTerminal,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand
             )
@@ -737,7 +753,11 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand
             )
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
-            let restoredAgentResumeInput = autoResumeAgentSessions
+            let panelWasRemoteBacked = snapshot.terminal?.isRemoteBacked ?? false
+            // Drop agent resume input when:
+            // 1. User disabled auto-resume in settings
+            // 2. Panel was remote-backed at snapshot time (resume command targets the wrong shell)
+            let restoredAgentResumeInput: String? = (autoResumeAgentSessions && !panelWasRemoteBacked)
                 ? restorableAgent?.resumeStartupInput()
                 : nil
 #if DEBUG
@@ -757,13 +777,28 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
             )
+            let commandToRestore: String? = {
+                guard SessionRestoreCommandSettings.isEnabled(), !panelWasRemoteBacked else { return nil }
+                return SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.detectedCommand)
+            }()
+            // Precedence: a restorable agent (Claude Code/Codex) resume takes priority over
+            // an auto-detected foreground command. If neither applies, we pass nil and the
+            // shell starts normally. `restoredAgentResumeInput` is already newline-terminated;
+            // `commandToRestore` is a bare command (TerminalSurface will append the newline).
+            let combinedInitialInput: String? = restoredAgentResumeInput ?? commandToRestore
+            // The per-panel `panelWasRemoteBacked` gate above already nilled
+            // `combinedInitialInput` for remote-backed panels. For panels saved as local
+            // inside a workspace that is currently remote-configured, opt out of
+            // `newTerminalSurface`'s default drop so the restored input is honored.
+            let allowInitialInputDespiteRemote = !panelWasRemoteBacked && combinedInitialInput != nil
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: workingDirectory,
                 initialCommand: restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                initialInput: restoredAgentResumeInput,
+                initialInput: combinedInitialInput,
+                allowInitialInputWithRemoteStartupCommand: allowInitialInputDespiteRemote,
                 startupEnvironment: replayEnvironment
             ) else {
                 return nil
@@ -852,14 +887,9 @@ extension Workspace {
             panelGitBranches.removeValue(forKey: panelId)
         }
 
-        surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
-
-        if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
-            surfaceTTYNames[panelId] = ttyName
-        } else {
-            surfaceTTYNames.removeValue(forKey: panelId)
-        }
-        syncRemotePortScanTTYs()
+        let isRemoteBackedTerminal = snapshot.terminal?.isRemoteBacked ?? false
+        surfaceListeningPorts[panelId] = isRemoteBackedTerminal ? [] : Array(Set(snapshot.listeningPorts)).sorted()
+        // Don't restore ttyName - stale from dead session; new terminal reports its own TTY
 
         if let browserSnapshot = snapshot.browser,
            let browserPanel = browserPanel(for: panelId) {
@@ -9263,6 +9293,9 @@ final class Workspace: Identifiable, ObservableObject {
             panel is TerminalPanel ? panelId : nil
         }
         guard terminalIds.count == 1, let initialPanelId = terminalIds.first else { return }
+        // Clear stale local metadata - this existing terminal is being upgraded to remote
+        surfaceTTYNames.removeValue(forKey: initialPanelId)
+        surfaceListeningPorts.removeValue(forKey: initialPanelId)
         trackRemoteTerminalSurface(initialPanelId)
     }
 
@@ -10016,6 +10049,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
+        allowInitialInputWithRemoteStartupCommand: Bool = false,
         startupEnvironment: [String: String] = [:]
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
@@ -10035,6 +10069,17 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
+        let safeInitialInput: String?
+        if remoteTerminalStartupCommand != nil && !allowInitialInputWithRemoteStartupCommand {
+            #if DEBUG
+            if let dropped = initialInput, !dropped.isEmpty {
+                cmuxDebugLog("surface.create dropping initialInput due to remoteTerminalStartupCommand bytes=\(dropped.count)")
+            }
+            #endif
+            safeInitialInput = nil
+        } else {
+            safeInitialInput = initialInput
+        }
 
         // Create new terminal panel
         let newPanel = TerminalPanel(
@@ -10045,7 +10090,7 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
-            initialInput: initialInput,
+            initialInput: safeInitialInput,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)
