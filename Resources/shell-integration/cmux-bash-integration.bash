@@ -413,6 +413,15 @@ _cmux_report_shell_activity_state() {
 # precmd-equivalent paths have their own throttle (`>= 10s elapsed`) and are
 # unaffected.
 _cmux_ports_kick_for_command() {
+    # `_CMUX_PORTS_LAST_RUN == 0` means we haven't kicked in this shell yet.
+    # Always let the first kick through — never throttle into silence. This
+    # also avoids a false-throttle when `_cmux_now` falls back to $SECONDS
+    # (e.g., bash 3.2 on macOS without EPOCHSECONDS) and the shell is younger
+    # than 3s.
+    if (( _CMUX_PORTS_LAST_RUN == 0 )); then
+        _cmux_ports_kick command
+        return
+    fi
     local now
     now="$(_cmux_now)"
     if (( now - _CMUX_PORTS_LAST_RUN >= 3 )); then
