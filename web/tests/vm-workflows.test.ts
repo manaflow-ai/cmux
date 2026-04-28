@@ -229,6 +229,7 @@ describe("VM Effect workflows", () => {
 
   dbTest("returns in-progress for concurrent same-key creates before active limit checks", async () => {
     if (!sql) throw new Error("test database not initialized");
+    const testSql = sql;
     await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     let createCalls = 0;
@@ -292,7 +293,7 @@ describe("VM Effect workflows", () => {
             Effect.provide(layer),
           ),
         );
-        await waitForBlockedAdvisoryLock(sql);
+        await waitForBlockedAdvisoryLock(testSql, input.billingTeamId);
       });
     } finally {
       await locker.end();
@@ -307,6 +308,69 @@ describe("VM Effect workflows", () => {
       where user_id = 'user-workflow-concurrent-idem'
     `;
     expect(vmCount).toBe("1");
+  });
+
+  dbTest("allows a new create after destroy releases the active team slot", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-reuse-slot', 'team-workflow-reuse-slot', 'free', 'e2b', 'provider-vm-reuse-old', 'cmuxd-ws:test', 'running')
+    `;
+
+    let createCalls = 0;
+    let destroyCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "e2b" as const,
+            providerVmId: "provider-vm-reuse-new",
+            status: "running" as const,
+            image: "cmuxd-ws:test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () =>
+        Effect.sync(() => {
+          destroyCalls += 1;
+        }),
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = providerLayer(provider);
+
+    await Effect.runPromise(
+      destroyVm({ userId: "user-workflow-reuse-slot", providerVmId: "provider-vm-reuse-old" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-reuse-slot",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-reuse-slot",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "e2b",
+        image: "cmuxd-ws:test",
+        idempotencyKey: "reuse-slot-new",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-reuse-new");
+    expect(destroyCalls).toBe(1);
+    expect(createCalls).toBe(1);
+
+    const [{ runningCount }] = await sql<{ runningCount: string }[]>`
+      select count(*)::text as "runningCount"
+      from cloud_vms
+      where billing_team_id = 'team-workflow-reuse-slot' and status = 'running'
+    `;
+    expect(runningCount).toBe("1");
   });
 
   dbTest("reserves Stack Auth credits only once per new idempotency key", async () => {
@@ -638,12 +702,20 @@ describe("VM Effect workflows", () => {
   });
 });
 
-async function waitForBlockedAdvisoryLock(sql: Sql): Promise<void> {
+async function waitForBlockedAdvisoryLock(sql: Sql, billingTeamId: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const [{ blocked }] = await sql<{ blocked: string }[]>`
+      with target as (
+        select
+          (((hashtextextended(${billingTeamId}, 0) >> 32) & 4294967295)::bigint)::oid as classid,
+          ((hashtextextended(${billingTeamId}, 0) & 4294967295)::bigint)::oid as objid
+      )
       select count(*)::text as "blocked"
-      from pg_locks
-      where locktype = 'advisory' and not granted
+      from pg_locks l
+      join target t on l.classid = t.classid and l.objid = t.objid
+      where l.locktype = 'advisory'
+        and l.objsubid = 1
+        and not l.granted
     `;
     if (Number(blocked) > 0) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
