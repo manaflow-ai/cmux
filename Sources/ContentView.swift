@@ -15,6 +15,53 @@ enum RightSidebarChromeMetrics {
     static let titlebarHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 
+#if DEBUG
+private struct RightSidebarChromeGeometry: Equatable {
+    var frame: CGRect
+    var isVisible: Bool
+    var titlebarHeight: CGFloat
+}
+
+private struct RightSidebarChromeGeometryPreferenceKey: PreferenceKey {
+    static var defaultValue = RightSidebarChromeGeometry(
+        frame: .zero,
+        isVisible: false,
+        titlebarHeight: 0
+    )
+
+    static func reduce(value: inout RightSidebarChromeGeometry, nextValue: () -> RightSidebarChromeGeometry) {
+        value = nextValue()
+    }
+}
+
+private extension View {
+    func reportRightSidebarChromeGeometryForBonsplitUITest(
+        isVisible: Bool,
+        titlebarHeight: CGFloat
+    ) -> some View {
+        background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: RightSidebarChromeGeometryPreferenceKey.self,
+                    value: RightSidebarChromeGeometry(
+                        frame: proxy.frame(in: .global),
+                        isVisible: isVisible,
+                        titlebarHeight: titlebarHeight
+                    )
+                )
+            }
+        }
+        .onPreferenceChange(RightSidebarChromeGeometryPreferenceKey.self) { geometry in
+            AppDelegate.shared?.recordRightSidebarChromeGeometryForBonsplitUITest(
+                containerFrame: geometry.frame,
+                isVisible: geometry.isVisible,
+                titlebarHeight: geometry.titlebarHeight
+            )
+        }
+    }
+}
+#endif
+
 enum SidebarWorkspaceListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
     static let rowVerticalPadding: CGFloat = 8
@@ -2676,7 +2723,7 @@ struct ContentView: View {
     }
 
     private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
+        let panel = sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
             rightSidebarPanel
         }
         .overlay(alignment: .leading) {
@@ -2684,6 +2731,15 @@ struct ContentView: View {
                 WindowChromeBorder(orientation: .vertical)
             }
         }
+
+#if DEBUG
+        return panel.reportRightSidebarChromeGeometryForBonsplitUITest(
+            isVisible: rightSidebarVisible,
+            titlebarHeight: RightSidebarChromeMetrics.titlebarHeight
+        )
+#else
+        return panel
+#endif
     }
 
     private var rightSidebarPanel: some View {

@@ -8123,17 +8123,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
     }
 
-    func recordRightSidebarModeBarGeometryForBonsplitUITest(frame: CGRect, titlebarHeight: CGFloat) {
+    func recordRightSidebarChromeGeometryForBonsplitUITest(
+        containerFrame: CGRect,
+        isVisible: Bool,
+        titlebarHeight: CGFloat
+    ) {
         guard bonsplitTabDragUITestDataPath() != nil,
-              frame.height > 0 else {
+              isVisible,
+              containerFrame.width > 1,
+              titlebarHeight > 0 else {
             return
         }
 
+        let modeBarMaxY = containerFrame.minY + titlebarHeight
         writeBonsplitTabDragUITestData([
-            "rightSidebarModeBarMinY": String(format: "%.3f", Double(frame.minY)),
-            "rightSidebarModeBarMaxY": String(format: "%.3f", Double(frame.maxY)),
-            "rightSidebarModeBarWidth": String(format: "%.3f", Double(frame.width)),
-            "rightSidebarModeBarHeight": String(format: "%.3f", Double(frame.height)),
+            "rightSidebarModeBarMinY": String(format: "%.3f", Double(containerFrame.minY)),
+            "rightSidebarModeBarMaxY": String(format: "%.3f", Double(modeBarMaxY)),
+            "rightSidebarModeBarWidth": String(format: "%.3f", Double(containerFrame.width)),
+            "rightSidebarModeBarHeight": String(format: "%.3f", Double(titlebarHeight)),
             "rightSidebarTitlebarHeight": String(format: "%.3f", Double(titlebarHeight)),
         ])
     }
