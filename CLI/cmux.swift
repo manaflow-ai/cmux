@@ -14247,7 +14247,7 @@ struct CMUXCLI {
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
-            let response = try client.send(command: "notify_target_async \(workspaceId) \(surfaceId) \(payload)")
+            let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
 
         case "session-end":
