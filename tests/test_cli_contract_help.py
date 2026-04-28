@@ -15,13 +15,17 @@ import re
 import shlex
 import shutil
 import subprocess
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
 
 START_MARKER = "<!-- cli-contract-help-probes:start -->"
 END_MARKER = "<!-- cli-contract-help-probes:end -->"
+NEGATIVE_START_MARKER = "<!-- cli-contract-negative-help-probes:start -->"
+NEGATIVE_END_MARKER = "<!-- cli-contract-negative-help-probes:end -->"
 PROBE_RE = re.compile(r"^- `(?P<command>cmux(?: [^`]+)?)` -> `(?P<needle>[^`]+)`$")
+NEGATIVE_PROBE_RE = re.compile(r"^- `(?P<command>cmux(?: [^`]+)?)` !> `(?P<needle>[^`]+)`$")
 
 
 @dataclass(frozen=True)
@@ -55,16 +59,30 @@ def resolve_cmux_cli() -> str:
 
 
 def load_help_probes() -> list[HelpProbe]:
+    probes = load_probes(START_MARKER, END_MARKER, PROBE_RE)
+    if not probes:
+        raise RuntimeError("No CLI help probes found in docs/cli-contract.md")
+    return probes
+
+
+def load_negative_help_probes() -> list[HelpProbe]:
+    probes = load_probes(NEGATIVE_START_MARKER, NEGATIVE_END_MARKER, NEGATIVE_PROBE_RE)
+    if not probes:
+        raise RuntimeError("No negative CLI help probes found in docs/cli-contract.md")
+    return probes
+
+
+def load_probes(start_marker: str, end_marker: str, pattern: re.Pattern[str]) -> list[HelpProbe]:
     contract_path = repo_root() / "docs" / "cli-contract.md"
     lines = contract_path.read_text(encoding="utf-8").splitlines()
 
     in_block = False
     probes: list[HelpProbe] = []
     for line in lines:
-        if line.strip() == START_MARKER:
+        if line.strip() == start_marker:
             in_block = True
             continue
-        if line.strip() == END_MARKER:
+        if line.strip() == end_marker:
             in_block = False
             break
         if not in_block:
@@ -73,15 +91,13 @@ def load_help_probes() -> list[HelpProbe]:
         stripped = line.strip()
         if not stripped:
             continue
-        match = PROBE_RE.match(stripped)
+        match = pattern.match(stripped)
         if match is None:
-            raise RuntimeError(f"Malformed help probe line: {line}")
+            raise RuntimeError(f"Malformed probe line: {line}")
         probes.append(HelpProbe(command=match.group("command"), needle=match.group("needle")))
 
     if in_block:
-        raise RuntimeError(f"Missing end marker: {END_MARKER}")
-    if not probes:
-        raise RuntimeError("No CLI help probes found in docs/cli-contract.md")
+        raise RuntimeError(f"Missing end marker: {end_marker}")
     return probes
 
 
@@ -92,13 +108,15 @@ def run_probe(cli_path: str, probe: HelpProbe) -> tuple[int, str, str]:
 
     env = dict(os.environ)
     for key in [
-        "CMUX_SOCKET_PATH",
-        "CMUX_SOCKET",
+        "CMUX_SOCKET_PASSWORD",
         "CMUX_WORKSPACE_ID",
         "CMUX_SURFACE_ID",
         "CMUX_TAB_ID",
     ]:
         env.pop(key, None)
+    no_socket = f"/tmp/cmux-no-socket-{uuid.uuid4().hex}.sock"
+    env["CMUX_SOCKET_PATH"] = no_socket
+    env["CMUX_SOCKET"] = no_socket
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
@@ -117,6 +135,7 @@ def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
         probes = load_help_probes()
+        negative_probes = load_negative_help_probes()
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
@@ -143,6 +162,22 @@ def main() -> int:
                 f"{probe.command}: missing expected text {probe.needle!r}\nstdout={stdout!r}\nstderr={stderr!r}"
             )
 
+    for probe in negative_probes:
+        try:
+            _code, stdout, stderr = run_probe(cli_path, probe)
+        except subprocess.TimeoutExpired:
+            failures.append(f"{probe.command}: timed out")
+            continue
+        except Exception as exc:
+            failures.append(f"{probe.command}: {exc}")
+            continue
+
+        merged = f"{stdout}\n{stderr}".strip()
+        if probe.needle in merged:
+            failures.append(
+                f"{probe.command}: unexpected help text {probe.needle!r}\nstdout={stdout!r}\nstderr={stderr!r}"
+            )
+
     if failures:
         print("FAIL: CLI help contract probes failed")
         for failure in failures:
@@ -150,7 +185,7 @@ def main() -> int:
             print(failure)
         return 1
 
-    print(f"PASS: {len(probes)} CLI help contract probes passed")
+    print(f"PASS: {len(probes)} CLI help contract probes and {len(negative_probes)} negative probes passed")
     return 0
 
 

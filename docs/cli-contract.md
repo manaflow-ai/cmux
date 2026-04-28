@@ -38,8 +38,8 @@ Global options:
 | `--socket <path>` | Override the socket path for this invocation. |
 | `--password <value>` | Use an explicit socket password. Takes precedence over `CMUX_SOCKET_PASSWORD`. |
 | `--json` | Prefer machine-readable JSON output for commands that support it. |
-| `--id-format <refs|uuids|both>` | Select handle format in JSON and supported text output. |
-| `--window <id|ref|index>` | Route the command through a specific window when supported. |
+| `--id-format <refs\|uuids\|both>` | Select handle format in JSON and supported text output. |
+| `--window <id\|ref\|index>` | Route the command through a specific window when supported. |
 
 Environment:
 
@@ -399,6 +399,15 @@ the expected text without connecting to a cmux socket.
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
 - `cmux markdown --help` -> `Usage: cmux markdown open <path>`
 <!-- cli-contract-help-probes:end -->
+
+## No-Socket Negative Help Probes
+
+The following probes must not print help. They protect argument forwarding after
+`--`, where a forwarded `--help` token belongs to the command payload.
+
+<!-- cli-contract-negative-help-probes:start -->
+- `cmux vm exec demo -- --help` !> `Usage: cmux vm`
+<!-- cli-contract-negative-help-probes:end -->
 
 ## Current Help Caveats
 
