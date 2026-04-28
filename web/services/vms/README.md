@@ -121,7 +121,7 @@ Set these Vercel environment variables per production/staging environment:
 
 Local development keeps using Docker Postgres through `DATABASE_URL`, derived from `CMUX_PORT`.
 
-Run production/staging migrations explicitly, never during Vercel build or route startup. The operator and CI path pulls the deployed Vercel env, generates an RDS IAM auth token, and applies Drizzle migrations:
+Run production/staging migrations explicitly, never during Vercel build or route startup. The local operator path pulls deployed Vercel env. The GitHub Actions path uses the minimal DB metadata copied into protected GitHub environments, generates an RDS IAM auth token, and applies Drizzle migrations:
 
 ```bash
 bun run cloud-vm:migrate -- staging
@@ -147,6 +147,9 @@ bun run cloud-vm:env:audit -- staging --strict
 bun run cloud-vm:env:audit -- production --strict
 ```
 
+This audit is a local operator command. It intentionally does not run in GitHub Actions because
+reading all Vercel env values from Actions would require a broad Vercel env-read token.
+
 Smoke deployed API auth/list behavior without creating production VMs:
 
 ```bash
@@ -166,7 +169,6 @@ Cloud VM migrations and smoke checks are exposed as manual GitHub Actions:
 
 - `Cloud VM DB migration`
 - `Cloud VM smoke`
-- `Cloud VM env audit`
 
 They use these GitHub Environments:
 
@@ -176,7 +178,10 @@ They use these GitHub Environments:
 Each environment needs:
 
 - variable `AWS_REGION`, usually `us-west-2`
-- secret `VERCEL_TOKEN`
+- variables `PGHOST`, `PGPORT`, `PGUSER`, and `PGDATABASE`
+- variable `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, usually `true`
+- variables `NEXT_PUBLIC_STACK_PROJECT_ID` and `NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY`
+- secret `STACK_SECRET_SERVER_KEY` for smoke workflows
 - secret `AWS_MIGRATION_ROLE_ARN` for migration workflows
 
 Production migration runs staging migration first on the same commit, then waits on the protected production environment approval.

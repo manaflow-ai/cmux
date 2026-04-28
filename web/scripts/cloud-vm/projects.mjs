@@ -126,6 +126,18 @@ export function pullProductionEnv(project) {
   });
 }
 
+export function loadTargetEnv(project) {
+  const source = process.env.CMUX_CLOUD_VM_ENV_SOURCE ?? "vercel";
+  if (source === "vercel") return pullProductionEnv(project);
+  if (source === "process") return processEnvObject();
+  throw new Error(`Unknown CMUX_CLOUD_VM_ENV_SOURCE ${source}`);
+}
+
+export function requireEnvKeys(env, keys, label) {
+  const missing = keys.filter((key) => !env[key]);
+  if (missing.length > 0) throw new Error(`${label} missing env keys: ${missing.join(", ")}`);
+}
+
 export function runVercel(args, options = {}) {
   const stdio = options.stdio ?? "inherit";
   const env = { ...process.env, ...options.env };
@@ -179,4 +191,12 @@ function existsPackageJson(dir) {
   } catch {
     return false;
   }
+}
+
+function processEnvObject() {
+  const env = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
 }

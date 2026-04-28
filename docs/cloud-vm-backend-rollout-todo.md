@@ -22,10 +22,19 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 
 ## Current Blockers
 
-- [ ] Add GitHub Environment secret `VERCEL_TOKEN` to both `cloud-vm-staging` and `cloud-vm-production`.
 - [ ] Create AWS IAM migration roles trusted by GitHub OIDC for the two Cloud VM environments.
 - [ ] Add GitHub Environment secret `AWS_MIGRATION_ROLE_ARN` to both `cloud-vm-staging` and `cloud-vm-production`.
-- [ ] Add Axiom/OpenTelemetry env to both Vercel projects:
+- [x] Copy minimal DB migration variables from Vercel into both GitHub Cloud VM environments:
+  - `PGHOST`
+  - `PGPORT`
+  - `PGUSER`
+  - `PGDATABASE`
+  - `CMUX_DB_SSL_REJECT_UNAUTHORIZED`
+- [x] Copy Stack smoke variables from Vercel into both GitHub Cloud VM environments:
+  - `NEXT_PUBLIC_STACK_PROJECT_ID`
+  - `NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY`
+  - `STACK_SECRET_SERVER_KEY`
+- [x] Add Axiom/OpenTelemetry env to both Vercel projects:
   - `OTEL_SERVICE_NAME`
   - `OTEL_EXPORTER_OTLP_ENDPOINT`
   - `OTEL_EXPORTER_OTLP_HEADERS`
@@ -43,6 +52,8 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 - [x] Freestyle creates are disabled in staging and production with `CMUX_VM_FREESTYLE_ENABLED=0`.
 - [x] Staging E2B create, WebSocket attach, and destroy smoke passed.
 - [x] Production auth/list smoke passed without creating a production VM.
+- [x] Axiom/OpenTelemetry env is set and redeployed in staging and production.
+- [x] GitHub Cloud VM smoke workflows no longer require `VERCEL_TOKEN`.
 
 ## Existing Vercel Env Vars
 

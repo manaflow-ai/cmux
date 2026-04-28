@@ -56,7 +56,12 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
       AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATION_ROLE_ARN }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      CMUX_CLOUD_VM_ENV_SOURCE: process
+      CMUX_DB_SSL_REJECT_UNAUTHORIZED: ${{ vars.CMUX_DB_SSL_REJECT_UNAUTHORIZED || 'true' }}
+      PGDATABASE: ${{ vars.PGDATABASE }}
+      PGHOST: ${{ vars.PGHOST }}
+      PGPORT: ${{ vars.PGPORT || '5432' }}
+      PGUSER: ${{ vars.PGUSER }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -76,10 +81,12 @@ jobs:
             echo "::error::Missing cloud-vm-staging secret AWS_MIGRATION_ROLE_ARN"
             exit 1
           fi
-          if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "::error::Missing cloud-vm-staging secret VERCEL_TOKEN"
-            exit 1
-          fi
+          for key in PGHOST PGPORT PGUSER PGDATABASE AWS_REGION; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing cloud-vm-staging variable $key"
+              exit 1
+            fi
+          done
           token_file="$RUNNER_TEMP/aws-web-identity-token"
           curl -fsSL \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
@@ -90,9 +97,6 @@ jobs:
           echo "AWS_REGION=$AWS_REGION" >> "$GITHUB_ENV"
           export AWS_WEB_IDENTITY_TOKEN_FILE="$token_file"
           aws sts get-caller-identity --no-cli-pager >/dev/null
-
-      - name: Audit staging env
-        run: bun run cloud-vm:env:audit -- staging --strict
 
       - name: Apply staging migration
         run: bun run cloud-vm:migrate -- staging
@@ -108,7 +112,12 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
       AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATION_ROLE_ARN }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      CMUX_CLOUD_VM_ENV_SOURCE: process
+      CMUX_DB_SSL_REJECT_UNAUTHORIZED: ${{ vars.CMUX_DB_SSL_REJECT_UNAUTHORIZED || 'true' }}
+      PGDATABASE: ${{ vars.PGDATABASE }}
+      PGHOST: ${{ vars.PGHOST }}
+      PGPORT: ${{ vars.PGPORT || '5432' }}
+      PGUSER: ${{ vars.PGUSER }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -128,10 +137,12 @@ jobs:
             echo "::error::Missing cloud-vm-production secret AWS_MIGRATION_ROLE_ARN"
             exit 1
           fi
-          if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "::error::Missing cloud-vm-production secret VERCEL_TOKEN"
-            exit 1
-          fi
+          for key in PGHOST PGPORT PGUSER PGDATABASE AWS_REGION; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing cloud-vm-production variable $key"
+              exit 1
+            fi
+          done
           token_file="$RUNNER_TEMP/aws-web-identity-token"
           curl -fsSL \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
@@ -142,9 +153,6 @@ jobs:
           echo "AWS_REGION=$AWS_REGION" >> "$GITHUB_ENV"
           export AWS_WEB_IDENTITY_TOKEN_FILE="$token_file"
           aws sts get-caller-identity --no-cli-pager >/dev/null
-
-      - name: Audit production env
-        run: bun run cloud-vm:env:audit -- production --strict
 
       - name: Apply production migration
         run: bun run cloud-vm:migrate -- production

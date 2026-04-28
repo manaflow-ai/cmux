@@ -3,9 +3,10 @@ import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import {
+  loadTargetEnv,
   parseBoolean,
   parseWebDirAndTarget,
-  pullProductionEnv,
+  requireEnvKeys,
 } from "./projects.mjs";
 
 const usage = "Usage: migrate-vercel-aurora-iam.mjs [web-dir] <staging|production>";
@@ -18,10 +19,8 @@ const { drizzle } = requireFromWeb("drizzle-orm/node-postgres");
 const { migrate } = requireFromWeb("drizzle-orm/node-postgres/migrator");
 
 try {
-  const env = pullProductionEnv(project);
-  for (const key of ["AWS_REGION", "PGHOST", "PGPORT", "PGUSER", "PGDATABASE"]) {
-    if (!env[key]) throw new Error(`missing ${key} in ${project.projectName} production env`);
-  }
+  const env = loadTargetEnv(project);
+  requireEnvKeys(env, ["AWS_REGION", "PGHOST", "PGPORT", "PGUSER", "PGDATABASE"], `${project.projectName} migration`);
   if ((env.CMUX_DB_SSL_CA_PEM || env.CMUX_DB_SSL_CA_PEM_BASE64) && process.env.CMUX_ALLOW_DB_CA_OVERRIDE !== "1") {
     throw new Error(
       "CMUX_DB_SSL_CA_PEM(_BASE64) is set. Current Vercel Aurora RDS certs chain to Amazon Root CA 1, so Node's default trust store should be used. Remove the override, redeploy, then retry. Set CMUX_ALLOW_DB_CA_OVERRIDE=1 only for a verified private CA.",

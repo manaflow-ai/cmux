@@ -4,9 +4,10 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  loadTargetEnv,
   optionValue,
   parseWebDirAndTarget,
-  pullProductionEnv,
+  requireEnvKeys,
 } from "./projects.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle]";
@@ -29,13 +30,15 @@ let vmId;
 let authHeaders;
 
 try {
-  const env = pullProductionEnv(project);
+  const env = loadTargetEnv(project);
+  requireEnvKeys(env, [
+    "NEXT_PUBLIC_STACK_PROJECT_ID",
+    "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
+    "STACK_SECRET_SERVER_KEY",
+  ], `${project.projectName} smoke`);
   const projectId = env.NEXT_PUBLIC_STACK_PROJECT_ID;
   const publishableClientKey = env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
   const secretServerKey = env.STACK_SECRET_SERVER_KEY;
-  if (!projectId || !publishableClientKey || !secretServerKey) {
-    throw new Error(`${project.projectName} Stack env is incomplete`);
-  }
 
   const app = new StackServerApp({ projectId, publishableClientKey, secretServerKey });
   const suffix = `${Date.now()}-${randomBytes(3).toString("hex")}`;

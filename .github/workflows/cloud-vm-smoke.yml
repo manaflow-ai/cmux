@@ -49,7 +49,10 @@ jobs:
       run:
         working-directory: web
     env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      CMUX_CLOUD_VM_ENV_SOURCE: process
+      NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+      NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+      STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -65,17 +68,16 @@ jobs:
       - name: Guard smoke settings
         run: |
           set -euo pipefail
-          if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "::error::Missing cloud-vm-${{ inputs.target }} secret VERCEL_TOKEN"
-            exit 1
-          fi
+          for key in NEXT_PUBLIC_STACK_PROJECT_ID NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY STACK_SECRET_SERVER_KEY; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing cloud-vm-${{ inputs.target }} env $key"
+              exit 1
+            fi
+          done
           if [ "${{ inputs.target }}" = "production" ] && [ "${{ inputs.create_vm }}" = "true" ] && [ "${{ inputs.confirm_production_create }}" != "true" ]; then
             echo "::error::Production VM creation smoke requires confirm_production_create=true"
             exit 1
           fi
-
-      - name: Audit target env
-        run: bun run cloud-vm:env:audit -- ${{ inputs.target }} --strict
 
       - name: Smoke target
         run: |
