@@ -22,8 +22,8 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 
 ## Current Blockers
 
-- [ ] Create AWS IAM migration roles trusted by GitHub OIDC for the two Cloud VM environments.
-- [ ] Add GitHub Environment secret `AWS_MIGRATION_ROLE_ARN` to both `cloud-vm-staging` and `cloud-vm-production`.
+- [x] Create AWS IAM migration roles trusted by GitHub OIDC for the two Cloud VM environments.
+- [x] Add GitHub Environment secret `AWS_MIGRATION_ROLE_ARN` to both `cloud-vm-staging` and `cloud-vm-production`.
 - [x] Copy minimal DB migration variables from Vercel into both GitHub Cloud VM environments:
   - `PGHOST`
   - `PGPORT`
@@ -48,6 +48,9 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 
 - [x] GitHub environments `cloud-vm-staging` and `cloud-vm-production` exist.
 - [x] GitHub environment variable `AWS_REGION=us-west-2` is set for both Cloud VM environments.
+- [x] GitHub OIDC provider `token.actions.githubusercontent.com` exists in AWS.
+- [x] Staging migration role is scoped to `repo:manaflow-ai/cmux:environment:cloud-vm-staging` and the staging Aurora cluster resource id.
+- [x] Production migration role is scoped to `repo:manaflow-ai/cmux:environment:cloud-vm-production` and the production Aurora cluster resource id.
 - [x] Staging and production Cloud VM default provider are set to E2B.
 - [x] Freestyle creates are disabled in staging and production with `CMUX_VM_FREESTYLE_ENABLED=0`.
 - [x] Staging E2B create, WebSocket attach, and destroy smoke passed.
