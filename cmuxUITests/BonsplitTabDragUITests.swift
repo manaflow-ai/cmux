@@ -122,7 +122,7 @@ final class BonsplitTabDragUITests: XCTestCase {
     }
 
     func testRightSidebarModeBarKeepsFixedHeightAcrossPresentationModes() {
-        let expectedModeBarHeight: CGFloat = 30
+        let expectedModeBarHeight: CGFloat = 28
         var referenceTopInset: CGFloat?
 
         for presentationMode in [WorkspacePresentationMode.minimal, .standard] {

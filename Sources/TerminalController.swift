@@ -124,7 +124,7 @@ class TerminalController {
         case failure(path: String, stage: String, errnoCode: Int32)
     }
 
-    private static let focusIntentV1Commands: Set<String> = [
+    private nonisolated static let focusIntentV1Commands: Set<String> = [
         "focus_window",
         "select_workspace",
         "focus_surface",
@@ -135,7 +135,7 @@ class TerminalController {
         "activate_app"
     ]
 
-    private static let focusIntentV2Methods: Set<String> = [
+    private nonisolated static let focusIntentV2Methods: Set<String> = [
         "window.focus",
         "workspace.select",
         "workspace.next",
@@ -3294,11 +3294,13 @@ class TerminalController {
         return NSNull()
     }
 
-    private nonisolated func v2MainSync<T>(_ body: () -> T) -> T {
+    private nonisolated func v2MainSync<T>(_ body: @MainActor () -> T) -> T {
         if Thread.isMainThread {
-            return body()
+            return MainActor.assumeIsolated { body() }
         }
-        return DispatchQueue.main.sync(execute: body)
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated { body() }
+        }
     }
 
     private nonisolated func v2Ok(id: Any?, result: Any) -> String {

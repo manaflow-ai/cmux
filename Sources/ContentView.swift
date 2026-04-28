@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 import WebKit
 
 enum MinimalModeChromeMetrics {
-    static let titlebarHeight: CGFloat = 30
+    static let titlebarHeight: CGFloat = WindowChromeMetrics.minimumTitlebarHeight
 }
 
 enum RightSidebarChromeMetrics {
