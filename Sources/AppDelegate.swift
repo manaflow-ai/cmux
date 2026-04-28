@@ -4889,6 +4889,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return contextForMainTerminalWindow(window)
     }
 
+    private func liveMainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
+        for context in Array(mainWindowContexts.values) where context.tabManager === tabManager {
+            if resolvedWindow(for: context) != nil {
+                return context
+            }
+        }
+        return nil
+    }
+
     func activeTabManagerForCommands(preferredWindow: NSWindow? = nil) -> TabManager? {
         if let context = contextForMainWindow(preferredWindow) {
             return context.tabManager
@@ -4899,8 +4908,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let context = contextForMainWindow(NSApp.mainWindow) {
             return context.tabManager
         }
-        if let activeManager = tabManager {
-            return activeManager
+        if let activeManager = tabManager,
+           let activeContext = liveMainWindowContext(for: activeManager) {
+            return activeContext.tabManager
         }
         return mainWindowContexts.values.first?.tabManager
     }
