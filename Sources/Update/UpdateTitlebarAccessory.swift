@@ -361,7 +361,12 @@ struct TitlebarControlsView: View {
                 #if DEBUG
                 cmuxDebugLog("titlebar.toggleSidebar")
                 #endif
-                onToggleSidebar()
+                // Defer the sidebar mutation until the click/cursor-update cycle
+                // finishes. Older macOS versions can crash if SwiftUI tears down
+                // sidebar hover/tracking views during the same event turn.
+                DispatchQueue.main.async {
+                    onToggleSidebar()
+                }
             }) {
                 iconLabel(systemName: "sidebar.left", config: config)
             }
@@ -807,6 +812,16 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
 
         super.init(nibName: nil, bundle: nil)
+
+        hostingView.rootView = TitlebarControlsView(
+            notificationStore: notificationStore,
+            viewModel: viewModel,
+            onToggleSidebar: { [weak self] in
+                _ = AppDelegate.shared?.toggleSidebar(in: self?.view.window)
+            },
+            onToggleNotifications: toggleNotifications,
+            onNewTab: newTab
+        )
 
         view = containerView
         containerView.translatesAutoresizingMaskIntoConstraints = true
