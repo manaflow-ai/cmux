@@ -139,7 +139,7 @@ final class FeedSidebarUITests: XCTestCase {
                 ]
                 let data = try JSONSerialization.data(withJSONObject: frame)
                 let line = (String(data: data, encoding: .utf8) ?? "{}") + "\n"
-                let response = try self.sendLine(line)
+                let response = try self.sendLine(line, responseTimeout: waitSeconds + 5)
                 guard let respData = response.data(using: .utf8),
                       let respObj = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
                       (respObj["ok"] as? Bool) == true,
@@ -161,7 +161,7 @@ final class FeedSidebarUITests: XCTestCase {
         return future
     }
 
-    private func sendLine(_ line: String) throws -> String {
+    private func sendLine(_ line: String, responseTimeout: TimeInterval = 2.0) throws -> String {
         let sockFd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard sockFd != -1 else {
             throw NSError(
@@ -172,17 +172,65 @@ final class FeedSidebarUITests: XCTestCase {
         }
         defer { close(sockFd) }
 
+        var socketTimeout = timeval(
+            tv_sec: Int(responseTimeout.rounded(.down)),
+            tv_usec: Int32(((responseTimeout - floor(responseTimeout)) * 1_000_000).rounded())
+        )
+        var noSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &noSigPipe) { ptr in
+            setsockopt(
+                sockFd,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                ptr,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
+        _ = withUnsafePointer(to: &socketTimeout) { ptr in
+            setsockopt(
+                sockFd,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                ptr,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        _ = withUnsafePointer(to: &socketTimeout) { ptr in
+            setsockopt(
+                sockFd,
+                SOL_SOCKET,
+                SO_SNDTIMEO,
+                ptr,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+
         var addr = sockaddr_un()
+        memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
         addr.sun_family = sa_family_t(AF_UNIX)
-        _ = socketPath.withCString { src in
-            withUnsafeMutableBytes(of: &addr.sun_path) { dst in
-                strlcpy(dst.baseAddress!.assumingMemoryBound(to: Int8.self), src, dst.count)
+        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+        let pathBytes = Array(socketPath.utf8CString)
+        guard pathBytes.count <= maxLen else {
+            throw NSError(
+                domain: "FeedSidebarUITests",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "socket path too long: \(socketPath)"]
+            )
+        }
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+            memset(raw, 0, maxLen)
+            for index in 0..<pathBytes.count {
+                raw[index] = pathBytes[index]
             }
         }
-        let size = socklen_t(MemoryLayout<sockaddr_un>.size)
+
+        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        let addrLen = socklen_t(pathOffset + pathBytes.count)
+        addr.sun_len = UInt8(min(Int(addrLen), 255))
         let result = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { base in
-                connect(sockFd, base, size)
+                connect(sockFd, base, addrLen)
             }
         }
         guard result == 0 else {
@@ -193,16 +241,40 @@ final class FeedSidebarUITests: XCTestCase {
             )
         }
 
-        let data = line.data(using: .utf8)!
-        _ = data.withUnsafeBytes { bytes in
-            send(sockFd, bytes.baseAddress, data.count, 0)
+        let payload = line.hasSuffix("\n") ? line : "\(line)\n"
+        let wrote = payload.withCString { cString in
+            var remaining = strlen(cString)
+            var pointer = UnsafeRawPointer(cString)
+            while remaining > 0 {
+                let written = write(sockFd, pointer, remaining)
+                if written <= 0 { return false }
+                remaining -= written
+                pointer = pointer.advanced(by: written)
+            }
+            return true
         }
+        guard wrote else {
+            throw NSError(
+                domain: "FeedSidebarUITests",
+                code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "write() failed errno=\(errno)"]
+            )
+        }
+        _ = shutdown(sockFd, SHUT_WR)
 
         // Read until newline or EOF.
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 4096)
         while true {
             let n = recv(sockFd, &chunk, chunk.count, 0)
+            if n < 0 {
+                if errno == EAGAIN || errno == EWOULDBLOCK { break }
+                throw NSError(
+                    domain: "FeedSidebarUITests",
+                    code: 6,
+                    userInfo: [NSLocalizedDescriptionKey: "recv() failed errno=\(errno)"]
+                )
+            }
             if n <= 0 { break }
             buffer.append(chunk, count: n)
             if chunk.prefix(n).contains(0x0A) { break }
