@@ -365,8 +365,13 @@ struct cmuxApp: App {
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
-                    Button("Settings/About Titlebar Debug…") {
-                        SettingsAboutTitlebarDebugWindowController.shared.show()
+                    Button(
+                        String(
+                            localized: "debug.menu.aboutTitlebarDebug",
+                            defaultValue: "About Titlebar Debug…"
+                        )
+                    ) {
+                        AboutTitlebarDebugWindowController.shared.show()
                     }
                     Button("Sidebar Debug…") {
                         SidebarDebugWindowController.shared.show()
@@ -1054,7 +1059,7 @@ struct cmuxApp: App {
     private func openAllDebugWindows() {
         BrowserImportHintDebugWindowController.shared.show()
         BrowserProfilePopoverDebugWindowController.shared.show()
-        SettingsAboutTitlebarDebugWindowController.shared.show()
+        AboutTitlebarDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
         BackgroundDebugWindowController.shared.show()
         StartupAppearanceDebugWindowController.shared.show()
@@ -1087,7 +1092,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.about",
     "cmux.licenses",
     "cmux.browser-popup",
-    "cmux.settingsAboutTitlebarDebug",
+    "cmux.aboutTitlebarDebug",
     "cmux.debugWindowControls",
     "cmux.browserImportHintDebug",
     "cmux.sidebarDebug",
@@ -1104,16 +1109,13 @@ func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
     return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
 
-private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
-    case settings
+private enum AboutWindowKind: String, CaseIterable, Identifiable {
     case about
 
     var id: String { rawValue }
 
     var displayTitle: String {
         switch self {
-        case .settings:
-            return "Settings Window"
         case .about:
             return "About Window"
         }
@@ -1121,8 +1123,6 @@ private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
 
     var windowIdentifier: String {
         switch self {
-        case .settings:
-            return "cmux.settings"
         case .about:
             return "cmux.about"
         }
@@ -1130,8 +1130,6 @@ private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
 
     var fallbackTitle: String {
         switch self {
-        case .settings:
-            return "Settings"
         case .about:
             return "About cmux"
         }
@@ -1139,8 +1137,6 @@ private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
 
     var minimumSize: NSSize {
         switch self {
-        case .settings:
-            return NSSize(width: 420, height: 360)
         case .about:
             return NSSize(width: 360, height: 520)
         }
@@ -1212,7 +1208,7 @@ private enum TitlebarToolbarStyleOption: String, CaseIterable, Identifiable {
     }
 }
 
-private struct SettingsAboutTitlebarDebugOptions: Equatable {
+private struct AboutTitlebarDebugOptions: Equatable {
     var overridesEnabled: Bool
     var windowTitle: String
     var titleVisibility: TitlebarVisibilityOption
@@ -1226,25 +1222,10 @@ private struct SettingsAboutTitlebarDebugOptions: Equatable {
     var showToolbar: Bool
     var toolbarStyle: TitlebarToolbarStyleOption
 
-    static func defaults(for kind: SettingsAboutWindowKind) -> SettingsAboutTitlebarDebugOptions {
+    static func defaults(for kind: AboutWindowKind) -> AboutTitlebarDebugOptions {
         switch kind {
-        case .settings:
-            return SettingsAboutTitlebarDebugOptions(
-                overridesEnabled: false,
-                windowTitle: "Settings",
-                titleVisibility: .hidden,
-                titlebarAppearsTransparent: true,
-                movableByWindowBackground: true,
-                titled: true,
-                closable: true,
-                miniaturizable: true,
-                resizable: true,
-                fullSizeContentView: true,
-                showToolbar: false,
-                toolbarStyle: .unifiedCompact
-            )
         case .about:
-            return SettingsAboutTitlebarDebugOptions(
+            return AboutTitlebarDebugOptions(
                 overridesEnabled: false,
                 windowTitle: "About cmux",
                 titleVisibility: .hidden,
@@ -1263,74 +1244,51 @@ private struct SettingsAboutTitlebarDebugOptions: Equatable {
 }
 
 @MainActor
-private final class SettingsAboutTitlebarDebugStore: ObservableObject {
-    static let shared = SettingsAboutTitlebarDebugStore()
+private final class AboutTitlebarDebugStore: ObservableObject {
+    static let shared = AboutTitlebarDebugStore()
 
-    @Published var settingsOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .settings) {
-        didSet { applyToOpenWindows(for: .settings) }
-    }
-    @Published var aboutOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .about) {
+    @Published var aboutOptions = AboutTitlebarDebugOptions.defaults(for: .about) {
         didSet { applyToOpenWindows(for: .about) }
     }
 
     private init() {}
 
-    func options(for kind: SettingsAboutWindowKind) -> SettingsAboutTitlebarDebugOptions {
+    func options(for kind: AboutWindowKind) -> AboutTitlebarDebugOptions {
         switch kind {
-        case .settings:
-            return settingsOptions
         case .about:
             return aboutOptions
         }
     }
 
-    func update(_ newValue: SettingsAboutTitlebarDebugOptions, for kind: SettingsAboutWindowKind) {
+    func update(_ newValue: AboutTitlebarDebugOptions, for kind: AboutWindowKind) {
         switch kind {
-        case .settings:
-            settingsOptions = newValue
         case .about:
             aboutOptions = newValue
         }
     }
 
-    func reset(_ kind: SettingsAboutWindowKind) {
-        update(SettingsAboutTitlebarDebugOptions.defaults(for: kind), for: kind)
+    func reset(_ kind: AboutWindowKind) {
+        update(AboutTitlebarDebugOptions.defaults(for: kind), for: kind)
     }
 
-    func applyToOpenWindows(for kind: SettingsAboutWindowKind) {
-        guard kind != .settings else { return }
+    func applyToOpenWindows(for kind: AboutWindowKind) {
         for window in NSApp.windows where window.identifier?.rawValue == kind.windowIdentifier {
             apply(options(for: kind), to: window, for: kind)
         }
     }
 
     func applyToOpenWindows() {
-        applyToOpenWindows(for: .settings)
         applyToOpenWindows(for: .about)
     }
 
-    func applyCurrentOptions(to window: NSWindow, for kind: SettingsAboutWindowKind) {
-        guard kind != .settings else { return }
+    func applyCurrentOptions(to window: NSWindow, for kind: AboutWindowKind) {
         apply(options(for: kind), to: window, for: kind)
     }
 
     func copyConfigToPasteboard() {
-        let settings = options(for: .settings)
         let about = options(for: .about)
         let payload = """
-        # Settings/About Titlebar Debug
-        settings.overridesEnabled=\(settings.overridesEnabled)
-        settings.title=\(settings.windowTitle)
-        settings.titleVisibility=\(settings.titleVisibility.rawValue)
-        settings.titlebarAppearsTransparent=\(settings.titlebarAppearsTransparent)
-        settings.movableByWindowBackground=\(settings.movableByWindowBackground)
-        settings.titled=\(settings.titled)
-        settings.closable=\(settings.closable)
-        settings.miniaturizable=\(settings.miniaturizable)
-        settings.resizable=\(settings.resizable)
-        settings.fullSizeContentView=\(settings.fullSizeContentView)
-        settings.showToolbar=\(settings.showToolbar)
-        settings.toolbarStyle=\(settings.toolbarStyle.rawValue)
+        # About Titlebar Debug
         about.overridesEnabled=\(about.overridesEnabled)
         about.title=\(about.windowTitle)
         about.titleVisibility=\(about.titleVisibility.rawValue)
@@ -1349,8 +1307,8 @@ private final class SettingsAboutTitlebarDebugStore: ObservableObject {
         pasteboard.setString(payload, forType: .string)
     }
 
-    private func apply(_ options: SettingsAboutTitlebarDebugOptions, to window: NSWindow, for kind: SettingsAboutWindowKind) {
-        let effective = options.overridesEnabled ? options : SettingsAboutTitlebarDebugOptions.defaults(for: kind)
+    private func apply(_ options: AboutTitlebarDebugOptions, to window: NSWindow, for kind: AboutWindowKind) {
+        let effective = options.overridesEnabled ? options : AboutTitlebarDebugOptions.defaults(for: kind)
         let resolvedTitle = effective.windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         window.title = resolvedTitle.isEmpty ? kind.fallbackTitle : resolvedTitle
         window.titleVisibility = effective.titleVisibility.windowValue
@@ -1381,7 +1339,7 @@ private final class SettingsAboutTitlebarDebugStore: ObservableObject {
         AppDelegate.shared?.applyWindowDecorations(to: window)
     }
 
-    private func ensureToolbar(on window: NSWindow, kind: SettingsAboutWindowKind) {
+    private func ensureToolbar(on window: NSWindow, kind: AboutWindowKind) {
         guard window.toolbar == nil else { return }
         let identifier = NSToolbar.Identifier("cmux.debug.titlebar.\(kind.rawValue)")
         let toolbar = NSToolbar(identifier: identifier)
@@ -1405,8 +1363,8 @@ private final class SettingsAboutTitlebarDebugStore: ObservableObject {
     }
 }
 
-private final class SettingsAboutTitlebarDebugWindowController: NSWindowController, NSWindowDelegate {
-    static let shared = SettingsAboutTitlebarDebugWindowController()
+private final class AboutTitlebarDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = AboutTitlebarDebugWindowController()
 
     private init() {
         let window = NSPanel(
@@ -1415,14 +1373,17 @@ private final class SettingsAboutTitlebarDebugWindowController: NSWindowControll
             backing: .buffered,
             defer: false
         )
-        window.title = "Settings/About Titlebar Debug"
+        window.title = String(
+            localized: "debug.aboutTitlebarDebug.title",
+            defaultValue: "About Titlebar Debug"
+        )
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.settingsAboutTitlebarDebug")
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.aboutTitlebarDebug")
         window.center()
-        window.contentView = NSHostingView(rootView: SettingsAboutTitlebarDebugView())
+        window.contentView = NSHostingView(rootView: AboutTitlebarDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
         super.init(window: window)
         window.delegate = self
@@ -1436,26 +1397,24 @@ private final class SettingsAboutTitlebarDebugWindowController: NSWindowControll
     func show() {
         window?.center()
         window?.makeKeyAndOrderFront(nil)
-        SettingsAboutTitlebarDebugStore.shared.applyToOpenWindows()
+        AboutTitlebarDebugStore.shared.applyToOpenWindows()
     }
 }
 
-private struct SettingsAboutTitlebarDebugView: View {
-    @ObservedObject private var store = SettingsAboutTitlebarDebugStore.shared
+private struct AboutTitlebarDebugView: View {
+    @ObservedObject private var store = AboutTitlebarDebugStore.shared
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Settings/About Titlebar Debug")
+                Text(String(localized: "debug.aboutTitlebarDebug.title", defaultValue: "About Titlebar Debug"))
                     .font(.headline)
 
-                editor(for: .settings)
                 editor(for: .about)
 
                 GroupBox("Actions") {
                     HStack(spacing: 10) {
                         Button("Reset All") {
-                            store.reset(.settings)
                             store.reset(.about)
                         }
                         Button("Reapply to Open Windows") {
@@ -1477,7 +1436,7 @@ private struct SettingsAboutTitlebarDebugView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func editor(for kind: SettingsAboutWindowKind) -> some View {
+    private func editor(for kind: AboutWindowKind) -> some View {
         let overridesEnabled = binding(for: kind, keyPath: \.overridesEnabled)
 
         return GroupBox(kind.displayTitle) {
@@ -1526,7 +1485,7 @@ private struct SettingsAboutTitlebarDebugView: View {
                     Toggle("Full Size Content View", isOn: binding(for: kind, keyPath: \.fullSizeContentView))
 
                     HStack(spacing: 10) {
-                        Button("Reset \(kind == .settings ? "Settings" : "About")") {
+                        Button(String(localized: "debug.aboutTitlebarDebug.resetAbout", defaultValue: "Reset About")) {
                             store.reset(kind)
                         }
                         Button("Apply Now") {
@@ -1542,8 +1501,8 @@ private struct SettingsAboutTitlebarDebugView: View {
     }
 
     private func binding<Value>(
-        for kind: SettingsAboutWindowKind,
-        keyPath: WritableKeyPath<SettingsAboutTitlebarDebugOptions, Value>
+        for kind: AboutWindowKind,
+        keyPath: WritableKeyPath<AboutTitlebarDebugOptions, Value>
     ) -> Binding<Value> {
         Binding(
             get: { store.options(for: kind)[keyPath: keyPath] },
@@ -1721,8 +1680,13 @@ private struct DebugWindowControlsView: View {
                         ) {
                             BrowserProfilePopoverDebugWindowController.shared.show()
                         }
-                        Button("Settings/About Titlebar Debug…") {
-                            SettingsAboutTitlebarDebugWindowController.shared.show()
+                        Button(
+                            String(
+                                localized: "debug.menu.aboutTitlebarDebug",
+                                defaultValue: "About Titlebar Debug…"
+                            )
+                        ) {
+                            AboutTitlebarDebugWindowController.shared.show()
                         }
                         Button("Sidebar Debug…") {
                             SidebarDebugWindowController.shared.show()
@@ -1760,7 +1724,7 @@ private struct DebugWindowControlsView: View {
                         Button("Open All Debug Windows") {
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
-                            SettingsAboutTitlebarDebugWindowController.shared.show()
+                            AboutTitlebarDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
                             BackgroundDebugWindowController.shared.show()
                             StartupAppearanceDebugWindowController.shared.show()
@@ -2385,7 +2349,7 @@ private final class AboutWindowController: NSWindowController, NSWindowDelegate 
         window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
         window.center()
         window.contentView = NSHostingView(rootView: AboutPanelView())
-        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .about)
+        AboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .about)
         AppDelegate.shared?.applyWindowDecorations(to: window)
         super.init(window: window)
         window.delegate = self
@@ -2398,7 +2362,7 @@ private final class AboutWindowController: NSWindowController, NSWindowDelegate 
 
     func show() {
         guard let window else { return }
-        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .about)
+        AboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .about)
         window.center()
         window.makeKeyAndOrderFront(nil)
     }
@@ -8407,24 +8371,6 @@ private struct SettingsRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             selectedSectionRaw = SettingsNavigationRequest.target(from: notification)?.rawValue ?? selectedSectionRaw
-        }
-        .background(WindowAccessor { window in
-            configureSettingsWindow(window)
-        })
-    }
-
-    private func configureSettingsWindow(_ window: NSWindow) {
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
-        window.title = String(localized: "settings.title", defaultValue: "Settings")
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = false
-
-        let accessories = window.titlebarAccessoryViewControllers
-        for index in accessories.indices.reversed() {
-            guard let identifier = accessories[index].view.identifier?.rawValue else { continue }
-            guard identifier.hasPrefix("cmux.") else { continue }
-            window.removeTitlebarAccessoryViewController(at: index)
         }
     }
 }

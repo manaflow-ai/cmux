@@ -1090,6 +1090,57 @@
         }
       }
     },
+    "debug.menu.aboutTitlebarDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About Titlebar Debug…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aboutタイトルバーデバッグ…"
+          }
+        }
+      }
+    },
+    "debug.aboutTitlebarDebug.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About Titlebar Debug"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aboutタイトルバーデバッグ"
+          }
+        }
+      }
+    },
+    "debug.aboutTitlebarDebug.resetAbout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset About"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aboutをリセット"
+          }
+        }
+      }
+    },
     "debug.menu.tabBarBackdropLab": {
       "extractionState": "manual",
       "localizations": {
