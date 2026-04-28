@@ -7947,11 +7947,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let showRightSidebar = env["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1"
 
         let deadline = Date().addingTimeInterval(20.0)
-        func hasMainTerminalWindow() -> Bool {
-            NSApp.windows.contains { window in
-                guard let raw = window.identifier?.rawValue else { return false }
-                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+        func mainWindowContextForUITest() -> (window: NSWindow, context: MainWindowContext)? {
+            for window in NSApp.windows {
+                guard let raw = window.identifier?.rawValue else { continue }
+                guard raw == "cmux.main" || raw.hasPrefix("cmux.main.") else { continue }
+                guard let context = self.contextForMainTerminalWindow(window),
+                      context.fileExplorerState != nil else {
+                    continue
+                }
+                return (window, context)
             }
+            return nil
         }
 
         func runSetupWhenWindowReady() {
@@ -7959,47 +7965,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 writeBonsplitTabDragUITestData(["setupError": "Timed out waiting for main window"])
                 return
             }
-            guard hasMainTerminalWindow() else {
+            guard let (mainWindow, context) = mainWindowContextForUITest() else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     runSetupWhenWindowReady()
                 }
                 return
             }
-            let mainWindow = NSApp.windows.first(where: { window in
-                guard let raw = window.identifier?.rawValue else { return false }
-                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-            })
-            if let mainWindow {
-                let screenFrame = mainWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
-                if let screenFrame {
-                    let targetSize: NSSize
-                    if let rawSize = env["CMUX_UI_TEST_BONSPLIT_WINDOW_SIZE"] {
-                        let parts = rawSize
-                            .split(separator: "x", maxSplits: 1)
-                            .compactMap { Double(String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }
-                        if parts.count == 2 {
-                            targetSize = NSSize(
-                                width: min(max(320, parts[0]), screenFrame.width - 80),
-                                height: min(max(240, parts[1]), screenFrame.height - 80)
-                            )
-                        } else {
-                            targetSize = NSSize(width: min(960, screenFrame.width - 80), height: min(720, screenFrame.height - 80))
-                        }
+
+            let screenFrame = mainWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+            if let screenFrame {
+                let targetSize: NSSize
+                if let rawSize = env["CMUX_UI_TEST_BONSPLIT_WINDOW_SIZE"] {
+                    let parts = rawSize
+                        .split(separator: "x", maxSplits: 1)
+                        .compactMap { Double(String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }
+                    if parts.count == 2 {
+                        targetSize = NSSize(
+                            width: min(max(320, parts[0]), screenFrame.width - 80),
+                            height: min(max(240, parts[1]), screenFrame.height - 80)
+                        )
                     } else {
                         targetSize = NSSize(width: min(960, screenFrame.width - 80), height: min(720, screenFrame.height - 80))
                     }
-                    let targetOrigin = NSPoint(
-                        x: screenFrame.minX + 40,
-                        y: screenFrame.maxY - 40 - targetSize.height
-                    )
-                    let targetFrame = NSRect(origin: targetOrigin, size: targetSize)
-                    if !mainWindow.frame.equalTo(targetFrame) {
-                        mainWindow.setFrame(targetFrame, display: true)
-                    }
+                } else {
+                    targetSize = NSSize(width: min(960, screenFrame.width - 80), height: min(720, screenFrame.height - 80))
+                }
+                let targetOrigin = NSPoint(
+                    x: screenFrame.minX + 40,
+                    y: screenFrame.maxY - 40 - targetSize.height
+                )
+                let targetFrame = NSRect(origin: targetOrigin, size: targetSize)
+                if !mainWindow.frame.equalTo(targetFrame) {
+                    mainWindow.setFrame(targetFrame, display: true)
                 }
             }
-            guard let tabManager = self.tabManager,
-                  let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first,
+            let tabManager = context.tabManager
+            guard let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first,
                   let alphaPanelId = workspace.focusedPanelId else {
                 self.writeBonsplitTabDragUITestData(["setupError": "Missing initial workspace or panel"])
                 return
@@ -8019,18 +8020,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
             if startWithHiddenSidebar {
-                self.sidebarState?.isVisible = false
+                context.sidebarState.isVisible = false
             }
             if showRightSidebar {
-                let windowScopedFileExplorerState = mainWindow
-                    .flatMap { self.contextForMainTerminalWindow($0)?.fileExplorerState }
-                let targetFileExplorerState = windowScopedFileExplorerState ?? self.fileExplorerState
-                targetFileExplorerState?.mode = .files
-                targetFileExplorerState?.setVisible(true)
+                guard let fileExplorerState = context.fileExplorerState else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Missing right sidebar state"])
+                    return
+                }
+                fileExplorerState.mode = .files
+                fileExplorerState.setVisible(true)
             }
             self.writeBonsplitTabDragUITestData([
                 "ready": "1",
                 "sidebarVisible": startWithHiddenSidebar ? "0" : "1",
+                "rightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
                 "workspaceId": workspace.id.uuidString,
                 "workspaceTitle": workspaceTitle,
                 "alphaTitle": alphaTitle,
