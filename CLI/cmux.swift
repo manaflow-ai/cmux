@@ -3279,6 +3279,8 @@ struct CMUXCLI {
              "set-buffer",
              "paste-buffer",
              "list-buffers",
+             "list-clients",
+             "list-sessions",
              "respawn-pane",
              "display-message":
             try runTmuxCompatCommand(
@@ -11578,6 +11580,12 @@ struct CMUXCLI {
         let canonicalWorkspaceId = try resolveWorkspaceId(workspaceId, client: client)
         var context: [String: String] = [
             "session_name": "cmux",
+            "session_attached": "1",
+            "session_id": "@\(canonicalWorkspaceId)",
+            "session_index": "",
+            "client_name": "cmux",
+            "client_attached": "1",
+            "client_tty": "",
             "window_id": "@\(canonicalWorkspaceId)",
             "window_uuid": canonicalWorkspaceId
         ]
@@ -11588,6 +11596,8 @@ struct CMUXCLI {
         }) {
             if let index = intFromAny(workspace["index"]) {
                 context["window_index"] = String(index)
+                context["session_index"] = String(index)
+                context["session_id"] = "$\(index)"
             }
             let title = ((workspace["title"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !title.isEmpty {
@@ -13229,6 +13239,16 @@ struct CMUXCLI {
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
             }
 
+        case "list-clients", "list-sessions":
+            try runTmuxCompatCommand(
+                command: command,
+                commandArgs: rawArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+
         case "rename-window", "renamew":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let title = parsed.positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13937,6 +13957,42 @@ struct CMUXCLI {
                     let size = store.buffers[key]?.count ?? 0
                     print("\(key)\t\(size)")
                 }
+            }
+
+        case "list-clients":
+            let parsed = try parseTmuxArguments(commandArgs, valueFlags: ["-F", "-t"], boolFlags: [])
+            let workspaceId = try {
+                if let target = parsed.value("-t") {
+                    return try tmuxResolveWorkspaceTarget(target, client: client)
+                }
+                if let windowOverride {
+                    return try resolveWorkspaceId(windowOverride, client: client)
+                }
+                return try resolveWorkspaceId(nil, client: client)
+            }()
+            let context = try tmuxFormatContext(workspaceId: workspaceId, client: client)
+            let fallback = [
+                context["client_name"] ?? "cmux",
+                context["session_name"] ?? "cmux",
+                context["client_attached"] ?? "1"
+            ].joined(separator: "|")
+            print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
+
+        case "list-sessions":
+            let parsed = try parseTmuxArguments(commandArgs, valueFlags: ["-F", "-t"], boolFlags: [])
+            let targetWorkspaceId: String? = try {
+                if let target = parsed.value("-t") {
+                    return try tmuxResolveWorkspaceTarget(target, client: client)
+                }
+                return nil
+            }()
+            let workspaceItems = try tmuxWorkspaceItems(client: client)
+            for item in workspaceItems {
+                guard let workspaceId = item["id"] as? String else { continue }
+                if let targetWorkspaceId, workspaceId != targetWorkspaceId { continue }
+                let context = try tmuxFormatContext(workspaceId: workspaceId, client: client)
+                let fallback = context["session_name"] ?? context["window_name"] ?? workspaceId
+                print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
             }
 
         case "paste-buffer":
