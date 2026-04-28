@@ -2580,6 +2580,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugBrowserAddressBarFocused(params: params))
         case "debug.browser.favicon":
             return v2Result(id: id, self.v2DebugBrowserFavicon(params: params))
+        case "debug.right_sidebar.focus":
+            return v2Result(id: id, self.v2DebugRightSidebarFocus(params: params))
         case "debug.sidebar.visible":
             return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
@@ -2810,6 +2812,7 @@ class TerminalController {
             "debug.command_palette.rename_input.select_all",
             "debug.browser.address_bar_focused",
             "debug.browser.favicon",
+            "debug.right_sidebar.focus",
             "debug.sidebar.visible",
             "debug.terminal.is_focused",
             "debug.terminal.read_text",
@@ -11590,6 +11593,47 @@ class TerminalController {
                 "current_url": v2OrNull(browserPanel.currentURL?.absoluteString)
             ])
         }
+    }
+
+    private func v2DebugRightSidebarFocus(params: [String: Any]) -> V2CallResult {
+        let modeName = v2String(params, "mode") ?? RightSidebarMode.feed.rawValue
+        guard let mode = RightSidebarMode(rawValue: modeName) else {
+            return .err(code: "invalid_params", message: "Invalid right sidebar mode", data: ["mode": modeName])
+        }
+        let requestedWindowId = v2UUID(params, "window_id")
+        let focusFirstItem = v2Bool(params, "focus_first_item") ?? true
+        var focused = false
+        var missingWindow = false
+
+        DispatchQueue.main.sync {
+            let preferredWindow: NSWindow?
+            if let requestedWindowId {
+                preferredWindow = AppDelegate.shared?.mainWindow(for: requestedWindowId)
+                missingWindow = preferredWindow == nil
+            } else {
+                preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            guard !missingWindow else { return }
+            focused = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: focusFirstItem,
+                preferredWindow: preferredWindow
+            ) ?? false
+        }
+
+        if missingWindow {
+            return .err(
+                code: "not_found",
+                message: "Window not found",
+                data: requestedWindowId.map { ["window_id": $0.uuidString, "window_ref": v2Ref(kind: .window, uuid: $0)] }
+            )
+        }
+        return .ok([
+            "focused": focused,
+            "mode": mode.rawValue,
+            "window_id": v2OrNull(requestedWindowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+        ])
     }
 
     private func v2DebugSidebarVisible(params: [String: Any]) -> V2CallResult {

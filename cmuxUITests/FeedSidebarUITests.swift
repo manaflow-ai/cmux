@@ -453,6 +453,11 @@ final class FeedSidebarUITests: XCTestCase {
         }
 
         app.activate()
+        _ = focusDockModeViaSocket()
+        if waitForHittable(dockButton, timeout: 5) {
+            return dockButton
+        }
+
         app.typeKey("e", modifierFlags: [.command, .shift])
         if waitForHittable(dockButton, timeout: 5) {
             return dockButton
@@ -466,6 +471,26 @@ final class FeedSidebarUITests: XCTestCase {
         app.typeKey("4", modifierFlags: [.control])
         _ = waitForHittable(dockButton, timeout: 5)
         return dockButton
+    }
+
+    private func focusDockModeViaSocket() -> Bool {
+        let frame: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": "debug.right_sidebar.focus",
+            "params": [
+                "mode": "feed",
+                "focus_first_item": false,
+            ],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: frame),
+              let line = String(data: data, encoding: .utf8),
+              let response = try? sendSocketLine("\(line)\n", responseTimeout: 3),
+              let responseData = response.data(using: .utf8),
+              let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        else {
+            return false
+        }
+        return responseObject["ok"] as? Bool == true
     }
 
     private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
