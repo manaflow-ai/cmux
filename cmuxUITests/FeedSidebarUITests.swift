@@ -57,7 +57,7 @@ final class FeedSidebarUITests: XCTestCase {
 
         XCTAssertTrue(
             revealDockMode(in: app),
-            "Dock mode did not open in the right sidebar. diagnostics=\(loadDiagnostics())"
+            "Dock mode did not open in the right sidebar. probe=\(lastSocketProbe) diagnostics=\(loadDiagnostics())"
         )
 
         let focusButton = app.buttons["Focus Control"].firstMatch
@@ -493,6 +493,7 @@ final class FeedSidebarUITests: XCTestCase {
         else {
             return false
         }
+        lastSocketProbe = "right-sidebar-focus response=\(response)"
         guard responseObject["ok"] as? Bool == true else {
             return false
         }

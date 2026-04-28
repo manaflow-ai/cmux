@@ -5470,6 +5470,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return result
     }
 
+#if DEBUG
+    func debugRevealRightSidebarInActiveMainWindow(
+        mode: RightSidebarMode,
+        focusFirstItem: Bool,
+        preferredWindow: NSWindow? = nil
+    ) -> (
+        revealed: Bool,
+        focusApplied: Bool,
+        contextFound: Bool,
+        stateFound: Bool,
+        visible: Bool,
+        activeMode: String?
+    ) {
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
+        let window = context.flatMap { $0.window ?? windowForMainWindowId($0.windowId) }
+        if let window {
+            if !window.isKeyWindow {
+                if !NSApp.isActive {
+                    NSRunningApplication.current.activate(options: [.activateAllWindows])
+                }
+                window.makeKeyAndOrderFront(nil)
+            }
+            setActiveMainWindow(window)
+        }
+
+        guard let state = context?.fileExplorerState ?? fileExplorerState else {
+            return (
+                revealed: false,
+                focusApplied: false,
+                contextFound: context != nil,
+                stateFound: false,
+                visible: false,
+                activeMode: nil
+            )
+        }
+
+        if state.mode != mode {
+            state.mode = mode
+        }
+        state.setVisible(true)
+
+        let focusApplied = context?.keyboardFocusCoordinator.focusRightSidebar(
+            mode: mode,
+            focusFirstItem: focusFirstItem
+        ) ?? false
+
+        return (
+            revealed: state.isVisible && state.mode == mode,
+            focusApplied: focusApplied,
+            contextFound: context != nil,
+            stateFound: true,
+            visible: state.isVisible,
+            activeMode: state.mode.rawValue
+        )
+    }
+#endif
+
     @discardableResult
     func focusFileSearchInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)

@@ -11603,6 +11603,11 @@ class TerminalController {
         let requestedWindowId = v2UUID(params, "window_id")
         let focusFirstItem = v2Bool(params, "focus_first_item") ?? true
         var focused = false
+        var focusApplied = false
+        var contextFound = false
+        var stateFound = false
+        var visible = false
+        var activeMode: String?
         var missingWindow = false
 
         DispatchQueue.main.sync {
@@ -11614,18 +11619,17 @@ class TerminalController {
                 preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
             }
             guard !missingWindow else { return }
-            focused = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: focusFirstItem,
                 preferredWindow: preferredWindow
-            ) ?? false
-            if !focused, let state = AppDelegate.shared?.fileExplorerState {
-                if state.mode != mode {
-                    state.mode = mode
-                }
-                state.setVisible(true)
-                focused = true
-            }
+            )
+            focused = result?.revealed ?? false
+            focusApplied = result?.focusApplied ?? false
+            contextFound = result?.contextFound ?? false
+            stateFound = result?.stateFound ?? false
+            visible = result?.visible ?? false
+            activeMode = result?.activeMode
         }
 
         if missingWindow {
@@ -11637,6 +11641,11 @@ class TerminalController {
         }
         return .ok([
             "focused": focused,
+            "focus_applied": focusApplied,
+            "context_found": contextFound,
+            "state_found": stateFound,
+            "visible": visible,
+            "active_mode": v2OrNull(activeMode),
             "mode": mode.rawValue,
             "window_id": v2OrNull(requestedWindowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
