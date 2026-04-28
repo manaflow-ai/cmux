@@ -168,11 +168,54 @@ func parseTmuxArgs(args []string, valueFlags, boolFlags []string) *tmuxParsed {
 
 var tmuxFormatVarRe = regexp.MustCompile(`#\{[^}]+\}`)
 
+var tmuxShortFormatAliases = map[byte]string{
+	'D': "pane_id",
+	'F': "window_flags",
+	'I': "window_index",
+	'P': "pane_index",
+	'S': "session_name",
+	'W': "window_name",
+}
+
+func tmuxExpandShortFormatAliases(format string, context map[string]string) string {
+	if format == "" {
+		return format
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(format))
+	for i := 0; i < len(format); i++ {
+		ch := format[i]
+		if ch != '#' || i+1 >= len(format) {
+			builder.WriteByte(ch)
+			continue
+		}
+
+		next := format[i+1]
+		if next == '#' {
+			builder.WriteString("##")
+			i++
+			continue
+		}
+		if key, ok := tmuxShortFormatAliases[next]; ok {
+			if value, exists := context[key]; exists {
+				builder.WriteString(value)
+				i++
+				continue
+			}
+		}
+
+		builder.WriteByte(ch)
+	}
+
+	return builder.String()
+}
+
 func tmuxRenderFormat(format string, context map[string]string, fallback string) string {
 	if format == "" {
 		return fallback
 	}
-	rendered := format
+	rendered := tmuxExpandShortFormatAliases(format, context)
 	for key, value := range context {
 		rendered = strings.ReplaceAll(rendered, "#{"+key+"}", value)
 	}

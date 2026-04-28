@@ -11550,13 +11550,66 @@ struct CMUXCLI {
         return nil
     }
 
+    private let tmuxShortFormatAliases: [Character: String] = [
+        "D": "pane_id",
+        "F": "window_flags",
+        "I": "window_index",
+        "P": "pane_index",
+        "S": "session_name",
+        "W": "window_name"
+    ]
+
+    private func tmuxExpandShortFormatAliases(
+        _ format: String,
+        context: [String: String]
+    ) -> String {
+        guard format.contains("#") else { return format }
+
+        var rendered = ""
+        rendered.reserveCapacity(format.count)
+        var index = format.startIndex
+        while index < format.endIndex {
+            let character = format[index]
+            guard character == "#" else {
+                rendered.append(character)
+                index = format.index(after: index)
+                continue
+            }
+
+            let nextIndex = format.index(after: index)
+            guard nextIndex < format.endIndex else {
+                rendered.append(character)
+                break
+            }
+
+            let nextCharacter = format[nextIndex]
+            if nextCharacter == "#" {
+                rendered.append("##")
+                index = format.index(after: nextIndex)
+                continue
+            }
+
+            if let key = tmuxShortFormatAliases[nextCharacter],
+               let value = context[key] {
+                rendered.append(value)
+                index = format.index(after: nextIndex)
+                continue
+            }
+
+            rendered.append(character)
+            index = nextIndex
+        }
+
+        return rendered
+    }
+
     private func tmuxRenderFormat(
         _ format: String?,
         context: [String: String],
         fallback: String
     ) -> String {
         guard let format, !format.isEmpty else { return fallback }
-        var rendered = format
+        var rendered = tmuxExpandShortFormatAliases(format, context: context)
         for (key, value) in context {
             rendered = rendered.replacingOccurrences(of: "#{\(key)}", with: value)
         }
@@ -11578,6 +11631,7 @@ struct CMUXCLI {
         let canonicalWorkspaceId = try resolveWorkspaceId(workspaceId, client: client)
         var context: [String: String] = [
             "session_name": "cmux",
+            "window_flags": "*",
             "window_id": "@\(canonicalWorkspaceId)",
             "window_uuid": canonicalWorkspaceId
         ]
