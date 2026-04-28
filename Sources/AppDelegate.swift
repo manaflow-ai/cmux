@@ -6300,6 +6300,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore.loadAll()
 
         let fileExplorerState = FileExplorerState()
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1" {
+            fileExplorerState.mode = .files
+            fileExplorerState.isVisible = true
+        }
+#endif
 
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
             .environmentObject(tabManager)
