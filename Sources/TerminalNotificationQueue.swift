@@ -225,7 +225,7 @@ extension TerminalNotificationStore {
         case .authorized, .provisional, .ephemeral:
             return true
         case .denied:
-            return false
+            return nil
         case .notDetermined:
             return isAppActive ? nil : false
         case .unknown:

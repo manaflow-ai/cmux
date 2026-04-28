@@ -930,7 +930,7 @@ final class SocketClient {
             return true
         }
 
-        if normalized.hasPrefix("{"), normalized.hasSuffix("}") {
+        if let jsonData = normalized.data(using: .utf8), (try? JSONSerialization.jsonObject(with: jsonData, options: [.fragmentsAllowed])) != nil {
             return true
         }
 
