@@ -27,6 +27,7 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
     override var safeAreaRect: NSRect { bounds }
     override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     required init(rootView: Content) {
         super.init(rootView: rootView)
@@ -1415,6 +1416,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSApp.reply(toApplicationShouldTerminate: shouldQuit)
         }
         return .terminateLater
+    }
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        let newWindowItem = NSMenuItem(
+            title: String(localized: "dock.newWindow", defaultValue: "New Window"),
+            action: #selector(openNewMainWindow(_:)),
+            keyEquivalent: ""
+        )
+        menu.addItem(newWindowItem)
+        return menu
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -6340,7 +6352,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
         window.isMovableByWindowBackground = false
-        window.isMovable = false
+        window.isMovable = true
+        window.collectionBehavior.insert(.managed)
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
