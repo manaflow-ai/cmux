@@ -9748,10 +9748,7 @@ struct VerticalTabsSidebar: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
-                    SidebarTopScrim(
-                        height: trafficLightPadding + 20,
-                        isSharingTerminalBackground: sidebarMatchTerminalBackground
-                    )
+                    SidebarTopScrim(height: trafficLightPadding + 20)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
@@ -12063,42 +12060,11 @@ private struct SidebarDevFooter: View {
 
 private struct SidebarTopScrim: View {
     let height: CGFloat
-    let isSharingTerminalBackground: Bool
 
     var body: some View {
-        if isSharingTerminalBackground {
-            Color.clear
-                .frame(height: height)
-        } else {
-            SidebarTopBlurEffect()
-                .frame(height: height)
-                .mask(
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.95),
-                            Color.black.opacity(0.75),
-                            Color.black.opacity(0.35),
-                            Color.clear
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-        }
+        Color.clear
+            .frame(height: height)
     }
-}
-
-private struct SidebarTopBlurEffect: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = .withinWindow
-        view.material = .underWindowBackground
-        view.state = .active
-        view.isEmphasized = false
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 private struct SidebarScrollViewResolver: NSViewRepresentable {
@@ -15444,7 +15410,7 @@ private struct WindowBackdropLayer: View {
             // Renderer-owned background images currently cannot be shared outside
             // the terminal Metal pass, so non-terminal roles use Ghostty's fallback
             // color/opacity until cmux grows a host image backdrop renderer.
-            Color(nsColor: color.withAlphaComponent(opacity))
+            LayerBackedBackdropColor(color: color.withAlphaComponent(opacity))
         case let .sidebarMaterial(materialPolicy):
             ZStack {
                 let usingNativeLiquidGlass = materialPolicy.preferLiquidGlass &&
@@ -15469,6 +15435,51 @@ private struct WindowBackdropLayer: View {
             }
         case .clear:
             Color.clear
+        }
+    }
+}
+
+private struct LayerBackedBackdropColor: NSViewRepresentable {
+    let color: NSColor
+
+    func makeNSView(context _: Context) -> NSView {
+        let view = NonHitTestingLayerBackedColorView()
+        view.setBackdropColor(color)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context _: Context) {
+        (nsView as? NonHitTestingLayerBackedColorView)?.setBackdropColor(color)
+    }
+
+    private final class NonHitTestingLayerBackedColorView: NSView {
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+            layer?.masksToBounds = true
+            layer?.isOpaque = false
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            wantsLayer = true
+            layer?.masksToBounds = true
+            layer?.isOpaque = false
+        }
+
+        override var isOpaque: Bool { false }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
+
+        func setBackdropColor(_ color: NSColor) {
+            wantsLayer = true
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.backgroundColor = color.cgColor
+            layer?.isOpaque = color.alphaComponent >= 1
+            CATransaction.commit()
         }
     }
 }
