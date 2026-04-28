@@ -9357,6 +9357,23 @@
         }
       }
     },
+    "command.findInDirectory.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバー"
+          }
+        }
+      }
+    },
     "browser.import.warning.additionalDataUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -41821,6 +41838,23 @@
         }
       }
     },
+    "menu.find.findInDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in Directory…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディレクトリ内を検索…"
+          }
+        }
+      }
+    },
     "menu.find.findPrevious": {
       "extractionState": "manual",
       "localizations": {
@@ -73646,6 +73680,91 @@
         }
       }
     },
+    "fileExplorer.contextMenu.copyPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスをコピー"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.copyRelativePath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Relative Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相対パスをコピー"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.openDefault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Default Editor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのエディタで開く"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.openInCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxで開く"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.revealInFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで表示"
+          }
+        }
+      }
+    },
     "fileExplorer.error.unavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -73784,6 +73903,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "rg がステータス %d で終了しました"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.rgNotInstalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ripgrep (rg) is not installed or is not on PATH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ripgrep (rg) がインストールされていないか、PATH にありません。"
           }
         }
       }

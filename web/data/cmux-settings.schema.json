@@ -569,6 +569,7 @@
               "browserZoomOut",
               "browserZoomReset",
               "find",
+              "findInDirectory",
               "findNext",
               "findPrevious",
               "hideFind",

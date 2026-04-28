@@ -6424,6 +6424,8 @@ struct ContentView: View {
             return .splitRight
         case "palette.terminalSplitDown":
             return .splitDown
+        case "palette.findInDirectory":
+            return .findInDirectory
         case "palette.terminalFind":
             return .find
         case "palette.terminalFindNext":
@@ -6432,6 +6434,8 @@ struct ContentView: View {
             return .findPrevious
         case "palette.terminalHideFind":
             return .hideFind
+        case "palette.terminalUseSelectionForFind":
+            return .useSelectionForFind
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.triggerFlash":
@@ -6472,7 +6476,7 @@ struct ContentView: View {
         case "palette.terminalFindPrevious":
             return "⌥⌘G"
         case "palette.terminalHideFind":
-            return "⌘⇧F"
+            return "⌥⌘⇧F"
         case "palette.terminalUseSelectionForFind":
             return "⌘E"
         case "palette.toggleFullScreen":
@@ -7212,6 +7216,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.findInDirectory",
+                title: constant(String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…")),
+                subtitle: constant(String(localized: "command.findInDirectory.subtitle", defaultValue: "Right Sidebar")),
+                keywords: ["files", "directory", "find", "search"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalFind",
                 title: constant(String(localized: "command.terminalFind.title", defaultValue: "Find…")),
                 subtitle: terminalPanelSubtitle,
@@ -7245,7 +7257,7 @@ struct ContentView: View {
                 commandId: "palette.terminalHideFind",
                 title: constant(String(localized: "command.terminalHideFind.title", defaultValue: "Hide Find Bar")),
                 subtitle: terminalPanelSubtitle,
-                shortcutHint: "⌘⇧F",
+                shortcutHint: "⌥⌘⇧F",
                 keywords: ["terminal", "hide", "find", "search"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
@@ -7724,6 +7736,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.browserClearHistory") {
             BrowserHistoryStore.shared.clearHistory()
+        }
+        registry.register(commandId: "palette.findInDirectory") {
+            _ = AppDelegate.shared?.focusFileSearchInActiveMainWindow(
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            )
         }
         registry.register(commandId: "palette.browserSplitRight") {
             _ = tabManager.createBrowserSplit(direction: .right)

@@ -900,10 +900,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        let directories = externalOpenDirectories(from: urls)
-        guard !directories.isEmpty else { return }
+        let fileURLs = externalOpenFileURLs(from: urls)
+        let directories = externalOpenDirectories(from: urls.filter { externalOpenURLIsDirectory($0) })
+        guard !fileURLs.isEmpty || !directories.isEmpty else { return }
 
         prepareForExplicitOpenIntentAtStartup()
+        for fileURL in fileURLs {
+            _ = openFilePreviewInPreferredMainWindow(
+                filePath: fileURL.path(percentEncoded: false),
+                debugSource: "application.openURLs"
+            )
+        }
         for directory in directories {
             openWorkspaceForExternalDirectory(
                 workingDirectory: directory,
@@ -5867,6 +5874,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func externalOpenFileURLs(from urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        var fileURLs: [URL] = []
+        for url in urls where url.isFileURL && !externalOpenURLIsDirectory(url) {
+            let standardized = url.standardizedFileURL.resolvingSymlinksInPath()
+            guard !externalOpenURLIsDescendantOfCurrentBundle(standardized) else { continue }
+            let path = standardized.path(percentEncoded: false)
+            guard seen.insert(path).inserted else { continue }
+            fileURLs.append(url.standardizedFileURL)
+        }
+        return fileURLs
+    }
+
+    private func externalOpenURLIsDirectory(_ url: URL) -> Bool {
+        guard url.isFileURL else { return false }
+        if url.hasDirectoryPath {
+            return true
+        }
+        return (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    private func externalOpenURLIsDescendantOfCurrentBundle(_ url: URL) -> Bool {
+        let pathComponents = url.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let bundleComponents = Bundle.main.bundleURL.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        guard pathComponents.count >= bundleComponents.count else { return false }
+        return Array(pathComponents.prefix(bundleComponents.count)) == bundleComponents
+    }
+
     private func openWorkspaceForExternalDirectory(
         workingDirectory: String,
         debugSource: String
@@ -5879,6 +5914,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         _ = createMainWindow(initialWorkingDirectory: workingDirectory)
+    }
+
+    @discardableResult
+    func openFilePreviewInPreferredMainWindow(
+        filePath: String,
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "unspecified"
+    ) -> Bool {
+        let parentDirectory = URL(fileURLWithPath: filePath).deletingLastPathComponent().path
+        let context: MainWindowContext? = {
+            if let existing = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) {
+                return existing
+            }
+            let windowId = createMainWindow(initialWorkingDirectory: parentDirectory)
+            return mainWindowContexts.values.first { $0.windowId == windowId }
+        }()
+        guard let context else { return false }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if let window {
+            bringToFront(window)
+            setActiveMainWindow(window)
+        }
+
+        let workspace = context.tabManager.selectedWorkspace
+            ?? context.tabManager.addWorkspace(workingDirectory: parentDirectory, select: true)
+        guard let paneId = workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first else {
+            return false
+        }
+
+#if DEBUG
+        cmuxDebugLog("file.preview.externalOpen source=\(debugSource) path=\(filePath)")
+#endif
+        _ = workspace.openOrFocusFilePreviewSurface(inPane: paneId, filePath: filePath)
+        return true
     }
 
     @discardableResult
@@ -10771,6 +10842,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return performFindShortcutInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
         }
 
+        if matchConfiguredShortcut(event: event, action: .findInDirectory) {
+            return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
+        }
+
         if matchConfiguredShortcut(event: event, action: .findNext) {
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
@@ -11496,6 +11571,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func handleBrowserSurfaceKeyEquivalentBeforeMainMenu(_ event: NSEvent) -> Bool {
         if matchConfiguredShortcut(event: event, action: .find) {
             return performFindShortcutInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
+        }
+        if matchConfiguredShortcut(event: event, action: .findInDirectory) {
+            return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
         }
         return false
     }

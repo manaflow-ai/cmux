@@ -415,6 +415,7 @@ func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
 
 private enum BrowserFindCommandEquivalent {
     case find
+    case findInDirectory
     case findNext
     case findPrevious
     case hideFind
@@ -424,7 +425,7 @@ private enum BrowserFindCommandEquivalent {
         switch self {
         case .find, .findNext, .findPrevious, .hideFind:
             return true
-        case .useSelection:
+        case .findInDirectory, .useSelection:
             return false
         }
     }
@@ -482,7 +483,7 @@ private func browserFindCommandEquivalent(for event: NSEvent) -> BrowserFindComm
         return nil
     case [.command, .shift]:
         if matches("f", keyCode: 3) { // kVK_ANSI_F
-            return .hideFind
+            return .findInDirectory
         }
         if matches("g", keyCode: 5) { // kVK_ANSI_G
             return .findPrevious
@@ -506,6 +507,10 @@ func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     }
 
     if case .find = shortcut {
+        return false
+    }
+
+    if case .findInDirectory = shortcut {
         return false
     }
 

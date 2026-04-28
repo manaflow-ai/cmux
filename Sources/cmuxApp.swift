@@ -551,6 +551,12 @@ struct cmuxApp: App {
                         )
                     }
 
+                    splitCommandButton(title: String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…"), shortcut: menuShortcut(for: .findInDirectory)) {
+                        _ = AppDelegate.shared?.focusFileSearchInActiveMainWindow(
+                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                        )
+                    }
+
                     splitCommandButton(title: String(localized: "menu.find.findNext", defaultValue: "Find Next"), shortcut: menuShortcut(for: .findNext)) {
                         restoreFindTargetFocus()
                         activeTabManager.findNext()

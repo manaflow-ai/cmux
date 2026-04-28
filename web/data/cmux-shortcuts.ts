@@ -154,9 +154,10 @@ export const shortcutCategories: ShortcutCategory[] = [
     titleKey: "find",
     shortcuts: [
       { id: "find", combos: [["⌘", "F"]], description: { en: "Find", ja: "検索" } },
+      { id: "findInDirectory", combos: [["⌘", "⇧", "F"]], description: { en: "Find in directory", ja: "ディレクトリ内を検索" } },
       { id: "findNext", combos: [["⌘", "G"]], description: { en: "Find next", ja: "次を検索" } },
       { id: "findPrevious", combos: [["⌥", "⌘", "G"]], description: { en: "Find previous", ja: "前を検索" } },
-      { id: "hideFind", combos: [["⌘", "⇧", "F"]], description: { en: "Hide find bar", ja: "検索バーを隠す" } },
+      { id: "hideFind", combos: [["⌥", "⌘", "⇧", "F"]], description: { en: "Hide find bar", ja: "検索バーを隠す" } },
       { id: "useSelectionForFind", combos: [["⌘", "E"]], description: { en: "Use selection for find", ja: "選択範囲で検索" } },
     ],
   },

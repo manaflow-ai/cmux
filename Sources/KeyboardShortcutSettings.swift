@@ -96,6 +96,7 @@ enum KeyboardShortcutSettings {
         case browserZoomOut
         case browserZoomReset
         case find
+        case findInDirectory
         case findNext
         case findPrevious
         case hideFind
@@ -165,6 +166,7 @@ enum KeyboardShortcutSettings {
             case .browserZoomOut: return String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out")
             case .browserZoomReset: return String(localized: "menu.view.actualSize", defaultValue: "Actual Size")
             case .find: return String(localized: "menu.find.find", defaultValue: "Find…")
+            case .findInDirectory: return String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…")
             case .findNext: return String(localized: "menu.find.findNext", defaultValue: "Find Next")
             case .findPrevious: return String(localized: "menu.find.findPrevious", defaultValue: "Find Previous")
             case .hideFind: return String(localized: "menu.find.hideFindBar", defaultValue: "Hide Find Bar")
@@ -311,12 +313,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
             case .find:
                 return StoredShortcut(key: "f", command: true, shift: false, option: false, control: false)
+            case .findInDirectory:
+                return StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)
             case .findNext:
                 return StoredShortcut(key: "g", command: true, shift: false, option: false, control: false)
             case .findPrevious:
                 return StoredShortcut(key: "g", command: true, shift: false, option: true, control: false)
             case .hideFind:
-                return StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)
+                return StoredShortcut(key: "f", command: true, shift: true, option: true, control: false)
             case .useSelectionForFind:
                 return StoredShortcut(key: "e", command: true, shift: false, option: false, control: false)
             case .toggleBrowserDeveloperTools:
