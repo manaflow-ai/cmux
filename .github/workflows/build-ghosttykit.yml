@@ -93,7 +93,8 @@ jobs:
           set -euo pipefail
           rm -rf GhosttyKit.xcframework
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
-          tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+          COPYFILE_DISABLE=1 tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+          python3 scripts/validate-xcframework-archive.py GhosttyKit.xcframework.tar.gz
 
       - name: Upload xcframework release
         if: steps.check-release.outputs.exists == 'false'
