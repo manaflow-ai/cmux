@@ -67,8 +67,8 @@
 631	Sources/Feed/FeedCoordinator.swift
 613	Sources/PortScanner.swift
 603	cmuxUITests/BonsplitTabDragUITests.swift
+594	cmuxUITests/FeedSidebarUITests.swift
 586	Sources/Update/UpdateViewModel.swift
-585	cmuxUITests/FeedSidebarUITests.swift
 582	cmuxTests/TerminalControllerSocketSecurityTests.swift
 573	Sources/Feed/FeedTextEditorDebugWindowController.swift
 536	Sources/SessionPersistence.swift

@@ -55,12 +55,10 @@ final class FeedSidebarUITests: XCTestCase {
             "Synthetic feed.push did not start. result=\(loadFeedResult())"
         )
 
-        let dockButton = revealDockMode(in: app)
         XCTAssertTrue(
-            waitForHittable(dockButton, timeout: 5),
-            "Dock tab not visible in right sidebar. dock=\(dockButton.debugDescription)"
+            revealDockMode(in: app),
+            "Dock mode did not open in the right sidebar. diagnostics=\(loadDiagnostics())"
         )
-        dockButton.click()
 
         let focusButton = app.buttons["Focus Control"].firstMatch
         XCTAssertTrue(
@@ -446,31 +444,36 @@ final class FeedSidebarUITests: XCTestCase {
         }
     }
 
-    private func revealDockMode(in app: XCUIApplication) -> XCUIElement {
+    private func revealDockMode(in app: XCUIApplication) -> Bool {
         let dockButton = app.buttons["RightSidebarModeButton.feed"].firstMatch
         if waitForHittable(dockButton, timeout: 5) {
-            return dockButton
+            dockButton.click()
+            return true
         }
 
         app.activate()
-        _ = focusDockModeViaSocket()
-        if waitForHittable(dockButton, timeout: 5) {
-            return dockButton
+        if focusDockModeViaSocket() {
+            return true
         }
 
         app.typeKey("e", modifierFlags: [.command, .shift])
         if waitForHittable(dockButton, timeout: 5) {
-            return dockButton
+            dockButton.click()
+            return true
         }
 
         app.typeKey("b", modifierFlags: [.command, .option])
         if waitForHittable(dockButton, timeout: 5) {
-            return dockButton
+            dockButton.click()
+            return true
         }
 
         app.typeKey("4", modifierFlags: [.control])
-        _ = waitForHittable(dockButton, timeout: 5)
-        return dockButton
+        if waitForHittable(dockButton, timeout: 5) {
+            dockButton.click()
+            return true
+        }
+        return false
     }
 
     private func focusDockModeViaSocket() -> Bool {
@@ -490,7 +493,13 @@ final class FeedSidebarUITests: XCTestCase {
         else {
             return false
         }
-        return responseObject["ok"] as? Bool == true
+        guard responseObject["ok"] as? Bool == true else {
+            return false
+        }
+        if let result = responseObject["result"] as? [String: Any] {
+            return result["focused"] as? Bool == true
+        }
+        return false
     }
 
     private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
