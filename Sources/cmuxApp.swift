@@ -2459,7 +2459,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 620),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -2587,10 +2587,74 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
-enum SettingsNavigationTarget: String {
+enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
+    case account
+    case app
+    case terminal
+    case workspaceColors
+    case sidebarAppearance
+    case automation
     case browser
     case browserImport
+    case globalHotkey
     case keyboardShortcuts
+    case reset
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .account:
+            return String(localized: "settings.section.account", defaultValue: "Account")
+        case .app:
+            return String(localized: "settings.section.app", defaultValue: "App")
+        case .terminal:
+            return String(localized: "settings.section.terminal", defaultValue: "Terminal")
+        case .workspaceColors:
+            return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
+        case .sidebarAppearance:
+            return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance")
+        case .automation:
+            return String(localized: "settings.section.automation", defaultValue: "Automation")
+        case .browser:
+            return String(localized: "settings.section.browser", defaultValue: "Browser")
+        case .browserImport:
+            return String(localized: "settings.browser.import", defaultValue: "Import Browser Data")
+        case .globalHotkey:
+            return String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")
+        case .keyboardShortcuts:
+            return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
+        case .reset:
+            return String(localized: "settings.section.reset", defaultValue: "Reset")
+        }
+    }
+
+    var searchTokens: String {
+        switch self {
+        case .account:
+            return "sign in team sync"
+        case .app:
+            return "appearance language workspace notifications menu bar telemetry"
+        case .terminal:
+            return "scrollbar"
+        case .workspaceColors:
+            return "palette tabs"
+        case .sidebarAppearance:
+            return "sidebar tint details branches badges"
+        case .automation:
+            return "socket integrations hooks ports claude cursor gemini"
+        case .browser:
+            return "search engine links history theme"
+        case .browserImport:
+            return "browser import data bookmarks history cookies"
+        case .globalHotkey:
+            return "system wide shortcut"
+        case .keyboardShortcuts:
+            return "keybindings commands chords"
+        case .reset:
+            return "defaults"
+        }
+    }
 }
 
 enum SettingsNavigationRequest {
@@ -5892,11 +5956,13 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
+                        .id(SettingsNavigationTarget.account)
                     SettingsCard {
                         AuthSettingsRow(authManager: authManager)
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
+                        .id(SettingsNavigationTarget.app)
                     SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("app.language"),
@@ -6470,6 +6536,7 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+                        .id(SettingsNavigationTarget.terminal)
                     SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("terminal.showScrollBar"),
@@ -6489,6 +6556,7 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
+                        .id(SettingsNavigationTarget.workspaceColors)
                     SettingsCard {
                         SettingsPickerRow(
                             configurationReview: .json("workspaceColors.indicatorStyle"),
@@ -6639,6 +6707,7 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance"))
+                        .id(SettingsNavigationTarget.sidebarAppearance)
                     SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
@@ -6733,6 +6802,7 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
+                        .id(SettingsNavigationTarget.automation)
                     SettingsCard {
                         SettingsPickerRow(
                             configurationReview: .json("automation.socketControlMode"),
@@ -7167,6 +7237,7 @@ struct SettingsView: View {
                     }
 
                     GlobalHotkeySection()
+                        .id(SettingsNavigationTarget.globalHotkey)
 
                     SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
                         .id(SettingsNavigationTarget.keyboardShortcuts)
@@ -7237,6 +7308,7 @@ struct SettingsView: View {
                         .accessibilityIdentifier("ShortcutRecordingHint")
 
                     SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
+                        .id(SettingsNavigationTarget.reset)
                     SettingsCard {
                         HStack {
                             Spacer(minLength: 0)
@@ -8393,15 +8465,56 @@ private struct GlobalHotkeySection: View {
 }
 
 private struct SettingsRootView: View {
+    @State private var selectedSidebarItem: SettingsNavigationTarget? = .account
+    @State private var searchText = ""
+
+    private var sidebarItems: [SettingsNavigationTarget] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return SettingsNavigationTarget.allCases }
+        return SettingsNavigationTarget.allCases.filter { item in
+            item.title.localizedStandardContains(query)
+                || item.searchTokens.localizedStandardContains(query)
+        }
+    }
+
+    private var sidebarSelection: Binding<SettingsNavigationTarget?> {
+        Binding(
+            get: { selectedSidebarItem },
+            set: { newValue in
+                selectedSidebarItem = newValue
+                guard let newValue else { return }
+                SettingsNavigationRequest.post(newValue)
+            }
+        )
+    }
+
     var body: some View {
-        SettingsView()
-            .background(WindowAccessor { window in
-                configureSettingsWindow(window)
-            })
+        NavigationSplitView {
+            List(selection: sidebarSelection) {
+                ForEach(sidebarItems) { item in
+                    Text(item.title)
+                        .tag(item)
+                }
+            }
+            .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
+            .searchable(text: $searchText)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+        } detail: {
+            SettingsView()
+        }
+        .navigationSplitViewStyle(.balanced)
+        .frame(minWidth: 860, minHeight: 540)
+        .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
+            selectedSidebarItem = SettingsNavigationRequest.target(from: notification) ?? selectedSidebarItem
+        }
+        .background(WindowAccessor { window in
+            configureSettingsWindow(window)
+        })
     }
 
     private func configureSettingsWindow(_ window: NSWindow) {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
+        window.minSize = NSSize(width: 820, height: 540)
         applyCurrentSettingsWindowStyle(to: window)
 
         let accessories = window.titlebarAccessoryViewControllers
