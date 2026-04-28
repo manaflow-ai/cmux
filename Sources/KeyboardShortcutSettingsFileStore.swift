@@ -416,6 +416,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["focusPaneOnFirstClick"]) {
             snapshot.managedUserDefaults[PaneFirstClickFocusSettings.enabledKey] = .bool(value)
         }
+        if let value = jsonBool(section["hideSidebarOnNewWindow"]) {
+            snapshot.managedUserDefaults[HideSidebarOnNewWindowSettings.key] = .bool(value)
+        }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
         }
@@ -1223,6 +1226,7 @@ final class CmuxSettingsFileStore {
                     "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
+                    "hideSidebarOnNewWindow": HideSidebarOnNewWindowSettings.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
                     "preferredEditor": "",
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,

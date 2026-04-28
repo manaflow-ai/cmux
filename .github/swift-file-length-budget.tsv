@@ -8,7 +8,7 @@
 13702	Sources/Workspace.swift
 13208	Sources/GhosttyTerminalView.swift
 10549	Sources/Panels/BrowserPanel.swift
-8419	Sources/cmuxApp.swift
+8461	Sources/cmuxApp.swift
 7490	Sources/TabManager.swift
 6811	Sources/Panels/BrowserPanelView.swift
 5139	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -32,8 +32,8 @@
 1879	Sources/SessionIndexStore.swift
 1735	Sources/SessionIndexView.swift
 1692	cmuxTests/CmuxConfigTests.swift
+1680	Sources/KeyboardShortcutSettingsFileStore.swift
 1677	cmuxTests/ShortcutAndCommandPaletteTests.swift
-1676	Sources/KeyboardShortcutSettingsFileStore.swift
 1563	cmuxTests/WindowAndDragTests.swift
 1517	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1502	Sources/Update/UpdateTitlebarAccessory.swift

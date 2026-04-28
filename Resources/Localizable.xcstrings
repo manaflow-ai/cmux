@@ -51514,6 +51514,57 @@
         }
       }
     },
+    "settings.app.hideSidebarOnNewWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Sidebar on New Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいウィンドウでサイドバーを非表示にする"
+          }
+        }
+      }
+    },
+    "settings.app.hideSidebarOnNewWindow.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New windows keep the sidebar visible by default."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいウィンドウはデフォルトでサイドバーを表示したまま開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.hideSidebarOnNewWindow.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New windows start with the sidebar hidden. Toggle Cmd+B to show it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいウィンドウはサイドバーを非表示で開始します。Cmd+B で表示できます。"
+          }
+        }
+      }
+    },
     "settings.app.paneFirstClickFocus": {
       "extractionState": "manual",
       "localizations": {

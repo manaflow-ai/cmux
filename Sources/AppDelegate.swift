@@ -6257,7 +6257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .map(SessionPersistencePolicy.sanitizedSidebarWidth)
             ?? SessionPersistencePolicy.defaultSidebarWidth
         let sidebarState = SidebarState(
-            isVisible: sessionWindowSnapshot?.sidebar.isVisible ?? true,
+            isVisible: sessionWindowSnapshot?.sidebar.isVisible ?? !HideSidebarOnNewWindowSettings.hideSidebarOnNewWindow(),
             persistedWidth: CGFloat(sidebarWidth)
         )
         let sidebarSelectionState = SidebarSelectionState(

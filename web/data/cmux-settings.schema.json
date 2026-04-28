@@ -88,6 +88,11 @@
           "default": true,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
         },
+        "hideSidebarOnNewWindow": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the sidebar when creating a new window unless a session snapshot restores it."
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",

@@ -5060,6 +5060,18 @@ enum CmdClickMarkdownRouteSettings {
     }
 }
 
+enum HideSidebarOnNewWindowSettings {
+    static let key = "hideSidebarOnNewWindow"
+    static let defaultValue = false
+
+    static func hideSidebarOnNewWindow(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum PreferredEditorSettings {
     static let key = "preferredEditorCommand"
 
@@ -5333,6 +5345,8 @@ struct SettingsView: View {
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+    @AppStorage(HideSidebarOnNewWindowSettings.key)
+    private var hideSidebarOnNewWindow = HideSidebarOnNewWindowSettings.defaultValue
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
@@ -5631,6 +5645,18 @@ struct SettingsView: View {
         default:
             return String(localized: "settings.browser.history.subtitleMany", defaultValue: "\(browserHistoryEntryCount) saved pages appear in omnibar suggestions.")
         }
+    }
+
+    private var hideSidebarOnNewWindowSubtitle: String {
+        hideSidebarOnNewWindow
+            ? String(
+                localized: "settings.app.hideSidebarOnNewWindow.subtitleOn",
+                defaultValue: "New windows start with the sidebar hidden. Toggle Cmd+B to show it."
+            )
+            : String(
+                localized: "settings.app.hideSidebarOnNewWindow.subtitleOff",
+                defaultValue: "New windows keep the sidebar visible by default."
+            )
     }
 
     private var browserImportSubtitle: String {
@@ -6003,6 +6029,21 @@ struct SettingsView: View {
                                 .controlSize(.small)
                                 .accessibilityLabel(
                                     String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.hideSidebarOnNewWindow"),
+                            String(localized: "settings.app.hideSidebarOnNewWindow", defaultValue: "Hide Sidebar On New Window"),
+                            subtitle: hideSidebarOnNewWindowSubtitle
+                        ) {
+                            Toggle("", isOn: $hideSidebarOnNewWindow)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.hideSidebarOnNewWindow", defaultValue: "Hide Sidebar On New Window")
                                 )
                         }
 
@@ -7498,6 +7539,7 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+        hideSidebarOnNewWindow = HideSidebarOnNewWindowSettings.defaultValue
         let previousShowTerminalScrollBar = showTerminalScrollBar
         showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
         if previousShowTerminalScrollBar != showTerminalScrollBar {
