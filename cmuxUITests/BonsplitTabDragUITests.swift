@@ -151,8 +151,9 @@ final class BonsplitTabDragUITests: XCTestCase {
             let alphaTab = app.buttons[alphaTitle]
             XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
 
-            guard let geometry = waitForJSONKey(
-                "rightSidebarModeBarHeight",
+            guard let geometry = waitForJSONNumber(
+                "rightSidebarModeBarWidth",
+                greaterThan: 1,
                 atPath: dataPath,
                 timeout: 5.0
             ) else {
@@ -629,15 +630,26 @@ final class BonsplitTabDragUITests: XCTestCase {
         return nil
     }
 
-    private func waitForJSONKey(_ key: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
+    private func waitForJSONNumber(
+        _ key: String,
+        greaterThan threshold: Double,
+        atPath path: String,
+        timeout: TimeInterval
+    ) -> [String: String]? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let data = loadJSON(atPath: path), data[key] != nil {
+            if let data = loadJSON(atPath: path),
+               let rawValue = data[key],
+               let value = Double(rawValue),
+               value > threshold {
                 return data
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        if let data = loadJSON(atPath: path), data[key] != nil {
+        if let data = loadJSON(atPath: path),
+           let rawValue = data[key],
+           let value = Double(rawValue),
+           value > threshold {
             return data
         }
         return nil
