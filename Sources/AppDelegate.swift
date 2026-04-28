@@ -732,6 +732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupMultiWindowNotificationsUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
+    private var didRequestFallbackUITestWindow = false
     private struct UITestRenderDiagnosticsSnapshot {
         let panelId: UUID
         let drawCount: Int
@@ -1147,6 +1148,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    // Retry launch stabilization until a delayed WindowGroup materialization produces
+    // a visible key window that XCUITest can bring to the foreground on the shared VM.
+    private func stabilizeUITestLaunchWindowAndForeground(attempt: Int = 0) {
+        let env = ProcessInfo.processInfo.environment
+        guard isRunningUnderXCTest(env) else { return }
+
+        if NSApp.windows.isEmpty, !didRequestFallbackUITestWindow {
+            didRequestFallbackUITestWindow = true
+            openNewMainWindow(nil)
+        }
+
+        moveUITestWindowToTargetDisplayIfNeeded()
+        activateUITestAppIfNeeded()
+
+        let hasWindow = !NSApp.windows.isEmpty
+        let hasVisibleWindow = NSApp.windows.contains { $0.isVisible }
+        let hasKeyWindow = NSApp.keyWindow != nil
+        let stage = attempt == 0 ? "afterForceWindow" : "afterForceWindow.retry\(attempt)"
+        writeUITestDiagnosticsIfNeeded(stage: stage)
+
+        guard attempt < 20 else { return }
+        if !hasWindow || !hasVisibleWindow || !hasKeyWindow || !NSRunningApplication.current.isActive {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.stabilizeUITestLaunchWindowAndForeground(attempt: attempt + 1)
+            }
+        }
+    }
+
+    private func activateUITestAppIfNeeded() {
+        if let window = NSApp.windows.first {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+        }
+        if #available(macOS 14.0, *) {
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
+        } else {
+            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        }
+    }
+
     private func writeUITestDiagnosticsIfNeeded(stage: String) {
         let env = ProcessInfo.processInfo.environment
         guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
