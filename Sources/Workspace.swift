@@ -13329,7 +13329,7 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+        stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
         recordPostCloseSelection()
         return true
     }

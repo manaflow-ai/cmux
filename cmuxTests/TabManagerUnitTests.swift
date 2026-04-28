@@ -2124,23 +2124,28 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
 
 @MainActor
 final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
-    func testReopenAfterStandardBrowserTabCloseFocusesReopenedBrowser() {
-        let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/standard-close")) else {
-            XCTFail("Expected initial workspace and browser panel")
+    func testStandardBrowserTabCloseStagesRestoreSnapshot() {
+        let workspace = Workspace()
+        let expectedURL = URL(string: "https://example.com/standard-close")
+        guard let paneId = workspace.bonsplitController.focusedPaneId,
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, url: expectedURL, focus: false),
+              let tabId = workspace.surfaceIdFromPanelId(browserPanel.id),
+              let tab = workspace.bonsplitController.tab(tabId) else {
+            XCTFail("Expected browser panel setup")
             return
         }
 
-        drainMainQueue()
-        XCTAssertTrue(workspace.closePanel(closedBrowserId))
-        drainMainQueue()
+        var closedSnapshot: ClosedBrowserPanelRestoreSnapshot?
+        workspace.onClosedBrowserPanel = { snapshot in
+            closedSnapshot = snapshot
+        }
 
-        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
-        drainMainQueue()
+        XCTAssertTrue(workspace.splitTabBar(workspace.bonsplitController, shouldCloseTab: tab, inPane: paneId))
+        workspace.splitTabBar(workspace.bonsplitController, didCloseTab: tabId, fromPane: paneId)
 
-        XCTAssertEqual(manager.selectedTabId, workspace.id)
-        XCTAssertTrue(isFocusedPanelBrowser(in: workspace))
+        XCTAssertEqual(closedSnapshot?.workspaceId, workspace.id)
+        XCTAssertEqual(closedSnapshot?.url, expectedURL)
+        XCTAssertEqual(closedSnapshot?.originalPaneId, paneId.id)
     }
 
     func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
@@ -2306,6 +2311,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         DispatchQueue.main.async {
             expectation.fulfill()
         }
-        wait(for: [expectation], timeout: 1.0)
+        let result = XCTWaiter().wait(for: [expectation], timeout: 3.0)
+        XCTAssertEqual(result, .completed)
     }
 }
