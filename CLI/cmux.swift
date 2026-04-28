@@ -14165,7 +14165,10 @@ struct CMUXCLI {
                     color: "#8E8E93"
                 )
                 if let completion {
-                    let title = "Claude Code"
+                    let title = String(
+                        localized: "cli.claude-hook.notification.title",
+                        defaultValue: "Claude Code"
+                    )
                     let subtitle = sanitizeNotificationField(completion.subtitle)
                     let body = sanitizeNotificationField(completion.body)
                     let payload = "\(title)|\(subtitle)|\(body)"
@@ -14222,7 +14225,10 @@ struct CMUXCLI {
                 client: client
             )
 
-            let title = "Claude Code"
+            let title = String(
+                localized: "cli.claude-hook.notification.title",
+                defaultValue: "Claude Code"
+            )
             let subtitle = sanitizeNotificationField(summary.subtitle)
             let body = sanitizeNotificationField(summary.body)
             let payload = "\(title)|\(subtitle)|\(body)"

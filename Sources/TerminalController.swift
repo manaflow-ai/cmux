@@ -335,6 +335,10 @@ class TerminalController {
             outsideAllowsFocus: Self.socketCommandAllowsInAppFocusMutations()
         )
     }
+
+    static func debugNotifyTargetQueuedResponseForTesting(_ args: String) -> String {
+        Self.shared.notifyTargetQueued(args)
+    }
 #endif
 
     nonisolated static func shouldReplaceStatusEntry(
@@ -13247,21 +13251,24 @@ class TerminalController {
     private func notifyTargetQueued(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return "ERROR: Usage: notify_target_async <workspace_id> <surface_id> <title>|<subtitle>|<body>"
+            return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
 
         let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
-        guard parts.count >= 2 else {
-            return "ERROR: Usage: notify_target_async <workspace_id> <surface_id> <title>|<subtitle>|<body>"
+        guard parts.count == 3 else {
+            return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
         guard let tabId = UUID(uuidString: parts[0]) else {
-            return "ERROR: notify_target_async requires workspace_id to be a UUID"
+            return "ERROR: notify_target_async requires workspace_uuid to be a UUID"
         }
         guard let surfaceId = UUID(uuidString: parts[1]) else {
-            return "ERROR: notify_target_async requires surface_id to be a UUID"
+            return "ERROR: notify_target_async requires surface_uuid to be a UUID"
         }
 
-        let payload = parts.count > 2 ? parts[2] : ""
+        let payload = parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty else {
+            return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
+        }
         let (title, subtitle, body) = parseNotificationPayload(payload)
         TerminalNotificationStore.enqueueNotification(
             tabId: tabId,
@@ -13289,8 +13296,9 @@ class TerminalController {
     private func clearNotifications(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
+            TerminalNotificationStore.discardAllQueuedNotifications()
             DispatchQueue.main.async {
-                TerminalNotificationStore.shared.clearAll()
+                TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false)
             }
             return "OK"
         }
@@ -13303,8 +13311,14 @@ class TerminalController {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: Tab not found"
         }
+        if case .workspace(let tabId) = target {
+            TerminalNotificationStore.discardQueuedNotifications(forTabId: tabId)
+        }
         scheduleSidebarMutation(target: target) { _, tab in
-            TerminalNotificationStore.shared.clearNotifications(forTabId: tab.id)
+            TerminalNotificationStore.shared.clearNotifications(
+                forTabId: tab.id,
+                discardQueuedNotifications: false
+            )
         }
         return "OK"
     }

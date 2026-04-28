@@ -677,13 +677,16 @@ private struct QueuedTerminalNotification: Sendable {
     let subtitle: String
     let body: String
     let sequence: UInt64
+    let generation: UInt64
 }
 
-private actor TerminalNotificationIngress {
+private final class TerminalNotificationIngress: @unchecked Sendable {
     static let shared = TerminalNotificationIngress()
 
+    private let lock = NSLock()
     private var queuedNotifications: [QueuedTerminalNotificationKey: QueuedTerminalNotification] = [:]
-    private var drainScheduled = false
+    private var scheduledGenerations = Set<UInt64>()
+    private var currentGeneration: UInt64 = 0
     private var nextSequence: UInt64 = 0
 
     func enqueue(
@@ -693,35 +696,98 @@ private actor TerminalNotificationIngress {
         subtitle: String,
         body: String
     ) {
+        let shouldScheduleDrain: Bool
+        let generation: UInt64
         let key = QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
+        lock.lock()
+        generation = currentGeneration
         nextSequence &+= 1
         queuedNotifications[key] = QueuedTerminalNotification(
             key: key,
             title: title,
             subtitle: subtitle,
             body: body,
-            sequence: nextSequence
+            sequence: nextSequence,
+            generation: generation
         )
 
-        guard !drainScheduled else { return }
-        drainScheduled = true
-        Task {
-            await self.drainLoop()
+        if scheduledGenerations.contains(generation) {
+            shouldScheduleDrain = false
+        } else {
+            scheduledGenerations.insert(generation)
+            shouldScheduleDrain = true
+        }
+        lock.unlock()
+
+        guard shouldScheduleDrain else { return }
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.drainOnMainActor(generation: generation)
+            }
         }
     }
 
-    private func drainLoop() async {
+    func discardAll() {
+        lock.lock()
+        queuedNotifications.removeAll(keepingCapacity: true)
+        currentGeneration &+= 1
+        lock.unlock()
+    }
+
+    func discard(tabId: UUID) {
+        lock.lock()
+        let keysToRemove = queuedNotifications.keys.filter { $0.tabId == tabId }
+        for key in keysToRemove {
+            queuedNotifications.removeValue(forKey: key)
+        }
+        currentGeneration &+= 1
+        lock.unlock()
+    }
+
+    func discard(tabId: UUID, surfaceId: UUID?) {
+        lock.lock()
+        queuedNotifications.removeValue(forKey: QueuedTerminalNotificationKey(
+            tabId: tabId,
+            surfaceId: surfaceId
+        ))
+        currentGeneration &+= 1
+        lock.unlock()
+    }
+
+#if DEBUG
+    @MainActor
+    func drainForTesting() {
         while true {
-            let queued = queuedNotifications.values.sorted { $0.sequence < $1.sequence }
+            lock.lock()
+            let generations = scheduledGenerations.sorted()
+            lock.unlock()
+
+            guard let generation = generations.first else { return }
+            drainOnMainActor(generation: generation)
+        }
+    }
+#endif
+
+    @MainActor
+    private func drainOnMainActor(generation: UInt64) {
+        while true {
+            lock.lock()
+            let queued = queuedNotifications.values
+                .filter { $0.generation == generation }
+                .sorted { $0.sequence < $1.sequence }
             guard !queued.isEmpty else {
-                drainScheduled = false
+                scheduledGenerations.remove(generation)
+                lock.unlock()
                 return
             }
-            queuedNotifications.removeAll(keepingCapacity: true)
-
-            await MainActor.run {
-                TerminalNotificationStore.shared.deliverQueuedNotifications(queued)
+            for notification in queued {
+                if queuedNotifications[notification.key]?.generation == generation {
+                    queuedNotifications.removeValue(forKey: notification.key)
+                }
             }
+            lock.unlock()
+
+            TerminalNotificationStore.shared.deliverQueuedNotifications(queued)
         }
     }
 }
@@ -821,16 +887,32 @@ final class TerminalNotificationStore: ObservableObject {
         subtitle: String,
         body: String
     ) {
-        Task {
-            await TerminalNotificationIngress.shared.enqueue(
-                tabId: tabId,
-                surfaceId: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body
-            )
-        }
+        TerminalNotificationIngress.shared.enqueue(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
     }
+
+    nonisolated static func discardAllQueuedNotifications() {
+        TerminalNotificationIngress.shared.discardAll()
+    }
+
+    nonisolated static func discardQueuedNotifications(forTabId tabId: UUID) {
+        TerminalNotificationIngress.shared.discard(tabId: tabId)
+    }
+
+    nonisolated static func discardQueuedNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
+        TerminalNotificationIngress.shared.discard(tabId: tabId, surfaceId: surfaceId)
+    }
+
+#if DEBUG
+    static func drainQueuedNotificationsForTesting() {
+        TerminalNotificationIngress.shared.drainForTesting()
+    }
+#endif
 
     fileprivate func deliverQueuedNotifications(_ queued: [QueuedTerminalNotification]) {
         for notification in queued {
@@ -846,12 +928,19 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func shouldDeliverQueuedNotification(_ notification: QueuedTerminalNotification) -> Bool {
-        guard let tabManager = AppDelegate.shared?.tabManager else { return true }
-        guard let tab = tabManager.tabs.first(where: { $0.id == notification.key.tabId }) else {
+        guard let appDelegate = AppDelegate.shared else { return false }
+        guard let surfaceId = notification.key.surfaceId else {
+            let tabManager = appDelegate.tabManagerFor(tabId: notification.key.tabId) ?? appDelegate.tabManager
+            return tabManager?.tabs.contains(where: { $0.id == notification.key.tabId }) == true
+        }
+
+        guard let target = appDelegate.workspaceContainingPanel(
+            panelId: surfaceId,
+            preferredWorkspaceId: notification.key.tabId
+        ) else {
             return false
         }
-        guard let surfaceId = notification.key.surfaceId else { return true }
-        return tab.panels[surfaceId] != nil
+        return target.workspace.id == notification.key.tabId
     }
 
     deinit {
@@ -1180,7 +1269,10 @@ final class TerminalNotificationStore: ObservableObject {
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
-    func clearAll() {
+    func clearAll(discardQueuedNotifications: Bool = true) {
+        if discardQueuedNotifications {
+            Self.discardAllQueuedNotifications()
+        }
         guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty else { return }
         let ids = notifications.map { $0.id.uuidString }
         notifications.removeAll()
@@ -1189,7 +1281,14 @@ final class TerminalNotificationStore: ObservableObject {
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
     }
 
-    func clearNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
+    func clearNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID?,
+        discardQueuedNotifications: Bool = true
+    ) {
+        if discardQueuedNotifications {
+            Self.discardQueuedNotifications(forTabId: tabId, surfaceId: surfaceId)
+        }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1207,7 +1306,10 @@ final class TerminalNotificationStore: ObservableObject {
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }
 
-    func clearNotifications(forTabId tabId: UUID) {
+    func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {
+        if discardQueuedNotifications {
+            Self.discardQueuedNotifications(forTabId: tabId)
+        }
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1547,6 +1649,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
+        Self.discardAllQueuedNotifications()
         self.notifications = notifications
         focusedReadIndicatorByTabId.removeAll()
     }

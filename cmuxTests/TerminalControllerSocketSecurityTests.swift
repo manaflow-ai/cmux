@@ -308,6 +308,176 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
 
+    func testNotifyTargetAsyncRequiresPayload() {
+        let args = "\(UUID().uuidString) \(UUID().uuidString)"
+        let response = TerminalController.debugNotifyTargetQueuedResponseForTesting(args)
+
+        XCTAssertEqual(
+            response,
+            "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
+        )
+    }
+
+    func testClearNotificationsDropsQueuedNotifyBeforeDrain() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused panel")
+            return
+        }
+
+        TerminalNotificationStore.enqueueNotification(
+            tabId: workspace.id,
+            surfaceId: focusedPanelId,
+            title: "Async",
+            subtitle: "Queued",
+            body: "Body"
+        )
+        store.clearNotifications(forTabId: workspace.id)
+        TerminalNotificationStore.drainQueuedNotificationsForTesting()
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
+        XCTAssertFalse(store.notifications.contains { $0.tabId == workspace.id })
+    }
+
+    func testClearNotificationsIsBoundaryForFreshNotify() async throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused panel")
+            return
+        }
+
+        TerminalNotificationStore.enqueueNotification(
+            tabId: workspace.id,
+            surfaceId: focusedPanelId,
+            title: "Stale",
+            subtitle: "Before clear",
+            body: "Body"
+        )
+        TerminalNotificationStore.discardQueuedNotifications(forTabId: workspace.id)
+        DispatchQueue.main.async {
+            TerminalNotificationStore.shared.clearNotifications(
+                forTabId: workspace.id,
+                discardQueuedNotifications: false
+            )
+        }
+        TerminalNotificationStore.enqueueNotification(
+            tabId: workspace.id,
+            surfaceId: focusedPanelId,
+            title: "Fresh",
+            subtitle: "After clear",
+            body: "Body"
+        )
+
+        let queueDrained = expectation(description: "main queue drained")
+        DispatchQueue.main.async {
+            queueDrained.fulfill()
+        }
+        await fulfillment(of: [queueDrained], timeout: 2.0)
+
+        let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
+        XCTAssertEqual(workspaceNotifications.map(\.title), ["Fresh"])
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
+    }
+
+    func testQueuedNotificationResolvesWorkspaceInRegisteredWindowContext() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let activeManager = TabManager()
+        let targetManager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        appDelegate.tabManager = activeManager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: targetManager)
+        let workspace = targetManager.addWorkspace(select: true)
+        defer {
+            if targetManager.tabs.contains(where: { $0.id == workspace.id }) {
+                targetManager.closeWorkspace(workspace)
+            }
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused panel")
+            return
+        }
+
+        TerminalNotificationStore.enqueueNotification(
+            tabId: workspace.id,
+            surfaceId: focusedPanelId,
+            title: "Async",
+            subtitle: "Queued",
+            body: "Body"
+        )
+        TerminalNotificationStore.drainQueuedNotificationsForTesting()
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
+    }
+
     func testSurfaceRelayRPCsReturnResolvedFocusedSurfaceWhenSurfaceIDOmitted() async throws {
         let socketPath = makeSocketPath("relay-fallback")
         let manager = TabManager()

@@ -3434,6 +3434,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+#if DEBUG
+    @discardableResult
+    func registerMainWindowContextForTesting(
+        windowId: UUID = UUID(),
+        tabManager: TabManager
+    ) -> UUID {
+        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: nil,
+            cmuxConfigStore: nil,
+            window: nil
+        )
+        notifyMainWindowContextsDidChange()
+        return windowId
+    }
+
+    func unregisterMainWindowContextForTesting(windowId: UUID) {
+        let keys = mainWindowContexts.compactMap { key, context in
+            context.windowId == windowId ? key : nil
+        }
+        for key in keys {
+            mainWindowContexts.removeValue(forKey: key)
+        }
+        notifyMainWindowContextsDidChange()
+    }
+#endif
+
     struct MainWindowSummary {
         let windowId: UUID
         let isKeyWindow: Bool
