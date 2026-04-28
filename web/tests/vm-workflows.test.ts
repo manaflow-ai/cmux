@@ -12,6 +12,7 @@ import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/
 import { VmRepositoryLive } from "../services/vms/repository";
 import {
   VmCreateCreditsInsufficientError,
+  VmCreateInProgressError,
   VmLimitExceededError,
   VmNotFoundError,
 } from "../services/vms/errors";
@@ -224,6 +225,88 @@ describe("VM Effect workflows", () => {
 
     expect(error).toBeInstanceOf(VmLimitExceededError);
     expect(createCalls).toBe(0);
+  });
+
+  dbTest("returns in-progress for concurrent same-key creates before active limit checks", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "e2b" as const,
+            providerVmId: "provider-vm-concurrent-idem",
+            status: "running" as const,
+            image: "cmuxd-ws:test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = providerLayer(provider);
+    const input = {
+      userId: "user-workflow-concurrent-idem",
+      billingCustomerType: "team" as const,
+      billingTeamId: "team-workflow-concurrent-idem",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "e2b" as const,
+      image: "cmuxd-ws:test",
+      idempotencyKey: "concurrent-idem-1",
+    };
+    const locker = postgres(databaseURL(), { max: 1 });
+    let retry: Promise<unknown> | null = null;
+    try {
+      await locker.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock(hashtextextended(${input.billingTeamId}, 0))`;
+        await tx`
+          insert into cloud_vms (
+            user_id,
+            billing_team_id,
+            billing_plan_id,
+            provider,
+            image_id,
+            status,
+            idempotency_key
+          )
+          values (
+            ${input.userId},
+            ${input.billingTeamId},
+            ${input.billingPlanId},
+            ${input.provider},
+            ${input.image},
+            'provisioning',
+            ${input.idempotencyKey}
+          )
+        `;
+        retry = Effect.runPromise(
+          createVm(input).pipe(
+            Effect.flip,
+            Effect.provide(layer),
+          ),
+        );
+        await waitForBlockedAdvisoryLock(sql);
+      });
+    } finally {
+      await locker.end();
+    }
+    const secondError = await retry;
+
+    expect(secondError).toBeInstanceOf(VmCreateInProgressError);
+    expect(createCalls).toBe(0);
+
+    const [{ vmCount }] = await sql<{ vmCount: string }[]>`
+      select count(*)::text as "vmCount" from cloud_vms
+      where user_id = 'user-workflow-concurrent-idem'
+    `;
+    expect(vmCount).toBe("1");
   });
 
   dbTest("reserves Stack Auth credits only once per new idempotency key", async () => {
@@ -554,3 +637,16 @@ describe("VM Effect workflows", () => {
     ]);
   });
 });
+
+async function waitForBlockedAdvisoryLock(sql: Sql): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const [{ blocked }] = await sql<{ blocked: string }[]>`
+      select count(*)::text as "blocked"
+      from pg_locks
+      where locktype = 'advisory' and not granted
+    `;
+    if (Number(blocked) > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("timed out waiting for blocked advisory lock");
+}
