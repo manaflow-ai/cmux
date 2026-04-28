@@ -9,6 +9,7 @@ import XCTest
 final class FeedSidebarUITests: XCTestCase {
     private var socketPath = ""
     private var diagnosticsPath = ""
+    private var lastSocketProbe = ""
     private let modeKey = "socketControlMode"
     private let launchTag = "ui-tests-feed-sidebar"
 
@@ -40,7 +41,7 @@ final class FeedSidebarUITests: XCTestCase {
 
         XCTAssertTrue(
             waitForSocketPong(timeout: 75),
-            "Expected control socket at \(socketPath). diagnostics=\(loadDiagnostics())"
+            "Expected control socket at \(socketPath). probe=\(lastSocketProbe) diagnostics=\(loadDiagnostics())"
         )
 
         // Reveal the right sidebar and toggle to Dock. Uses accessibility
@@ -139,7 +140,7 @@ final class FeedSidebarUITests: XCTestCase {
                 ]
                 let data = try JSONSerialization.data(withJSONObject: frame)
                 let line = (String(data: data, encoding: .utf8) ?? "{}") + "\n"
-                let response = try self.sendLine(line, responseTimeout: waitSeconds + 5)
+                let response = try self.sendSocketLine(line, responseTimeout: waitSeconds + 5)
                 guard let respData = response.data(using: .utf8),
                       let respObj = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
                       (respObj["ok"] as? Bool) == true,
@@ -283,25 +284,40 @@ final class FeedSidebarUITests: XCTestCase {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+    private func sendSocketLine(_ line: String, responseTimeout: TimeInterval = 2.0) throws -> String {
+        do {
+            return try sendLine(line, responseTimeout: responseTimeout)
+        } catch {
+            if let response = socketCommandViaNetcat(line, responseTimeout: responseTimeout) {
+                return response
+            }
+            throw NSError(
+                domain: "FeedSidebarUITests",
+                code: 7,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "socket command failed at \(socketPath): \(error.localizedDescription)"
+                ]
+            )
+        }
+    }
+
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
         var resolvedPath: String?
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                let originalPath = self.socketPath
-                for candidate in self.socketCandidates() {
-                    guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                    self.socketPath = candidate
-                    if (try? self.sendLine("ping\n")) == "PONG" {
-                        resolvedPath = candidate
-                        return true
-                    }
-                    self.socketPath = originalPath
+        let completed = pollUntil(timeout: timeout) {
+            let originalPath = self.socketPath
+            for candidate in self.socketCandidates() {
+                guard FileManager.default.fileExists(atPath: candidate) else { continue }
+                self.socketPath = candidate
+                let response = try? self.sendSocketLine("ping", responseTimeout: 2)
+                self.lastSocketProbe = "candidate=\(candidate) response=\(response ?? "nil")"
+                if response == "PONG" {
+                    resolvedPath = candidate
+                    return true
                 }
-                return false
-            },
-            object: NSObject()
-        )
-        let completed = XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+                self.socketPath = originalPath
+            }
+            return false
+        }
         if let resolvedPath {
             socketPath = resolvedPath
         }
@@ -326,16 +342,45 @@ final class FeedSidebarUITests: XCTestCase {
         return "/tmp/cmux-debug-\(slug).sock"
     }
 
+    private func socketCommandViaNetcat(_ line: String, responseTimeout: TimeInterval = 2.0) -> String? {
+        let nc = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
+        let payload = line.trimmingCharacters(in: CharacterSet(charactersIn: "\r\n"))
+        let script = "printf '%s\\n' \(shellSingleQuote(payload)) | \(nc) -U \(shellSingleQuote(socketPath)) -w \(timeoutSeconds) 2>/dev/null"
+        proc.arguments = ["-lc", script]
+
+        let outPipe = Pipe()
+        proc.standardOutput = outPipe
+
+        do {
+            try proc.run()
+        } catch {
+            return nil
+        }
+
+        proc.waitUntilExit()
+
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let outStr = String(data: outData, encoding: .utf8) else { return nil }
+        let trimmed = outStr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
     private func waitForDockPortalToLeaveVisibleSidebar(timeout: TimeInterval) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                guard let totals = try? self.portalStatsTotals() else { return false }
-                return self.integerValue(in: totals, key: "visible_invalid_anchor_entry_count") == 0 &&
-                    self.integerValue(in: totals, key: "visible_orphan_terminal_subview_count") == 0
-            },
-            object: NSObject()
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+        pollUntil(timeout: timeout) {
+            guard let totals = try? self.portalStatsTotals() else { return false }
+            return self.integerValue(in: totals, key: "visible_invalid_anchor_entry_count") == 0 &&
+                self.integerValue(in: totals, key: "visible_orphan_terminal_subview_count") == 0
+        }
     }
 
     private func portalStatsTotals() throws -> [String: Any] {
@@ -346,7 +391,7 @@ final class FeedSidebarUITests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: frame)
         let line = (String(data: data, encoding: .utf8) ?? "{}") + "\n"
-        let response = try sendLine(line)
+        let response = try sendSocketLine(line)
         guard let respData = response.data(using: .utf8),
               let respObj = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
               (respObj["ok"] as? Bool) == true,
@@ -398,5 +443,16 @@ final class FeedSidebarUITests: XCTestCase {
             return [:]
         }
         return object
+    }
+
+    private func pollUntil(timeout: TimeInterval, interval: TimeInterval = 0.1, _ predicate: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() {
+                return true
+            }
+            Thread.sleep(forTimeInterval: interval)
+        }
+        return predicate()
     }
 }
