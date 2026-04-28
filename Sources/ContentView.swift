@@ -12574,6 +12574,14 @@ private struct TabItemView: View, Equatable {
         pasteboard.setString(text, forType: .string)
     }
 
+    private func copyWorkspaceIdsToPasteboard(_ ids: [UUID]) {
+        let refs = TerminalController.shared.v2WorkspaceRefs(for: ids)
+        let workspaces = ids.map { id in
+            (id: id, ref: refs[id])
+        }
+        copyTextToPasteboard(WorkspaceSurfaceIdentifierClipboardText.make(workspaces: workspaces))
+    }
+
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
         settings.visibleAuxiliaryDetails
     }
@@ -13080,6 +13088,10 @@ private struct TabItemView: View, Equatable {
             multi: String(localized: "contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
             single: String(localized: "contextMenu.clearLatestNotification", defaultValue: "Clear Latest Notification"),
             isMulti: isMulti)
+        let copyWorkspaceIDLabel = contextMenuLabel(
+            multi: String(localized: "contextMenu.copyWorkspaceIDs", defaultValue: "Copy Workspace IDs"),
+            single: String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID"),
+            isMulti: isMulti)
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
@@ -13286,6 +13298,13 @@ private struct TabItemView: View, Equatable {
             clearLatestNotifications(targetIds)
         }
         .disabled(!hasLatestNotifications(in: targetIds))
+
+        Divider()
+
+        Button(copyWorkspaceIDLabel) {
+            copyWorkspaceIdsToPasteboard(targetIds)
+        }
+        .disabled(targetIds.isEmpty)
     }
 
     private var backgroundColor: Color {

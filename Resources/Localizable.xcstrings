@@ -33551,6 +33551,52 @@
         }
       }
     },
+    "contextMenu.copyWorkspaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Workspace ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースIDをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 ID 복사"
+          }
+        }
+      }
+    },
+    "contextMenu.copyWorkspaceIDs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Workspace IDs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースIDをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 ID 복사"
+          }
+        }
+      }
+    },
     "contextMenu.moveDown": {
       "extractionState": "manual",
       "localizations": {
@@ -90483,6 +90529,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "복사"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.copyIdentifiers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy IDs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IDをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID 복사"
           }
         }
       }

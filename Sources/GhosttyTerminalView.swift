@@ -6582,6 +6582,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("copy_to_clipboard")
     }
 
+    @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
+        guard let terminalSurface else { return }
+        let paneId = terminalSurface.owningWorkspace()?.paneId(forPanelId: terminalSurface.id)?.id
+        let refs = TerminalController.shared.v2WorkspacePaneAndSurfaceRefs(
+            workspaceId: terminalSurface.tabId,
+            paneId: paneId,
+            surfaceId: terminalSurface.id
+        )
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(
+            WorkspaceSurfaceIdentifierClipboardText.make(
+                workspaceId: terminalSurface.tabId,
+                paneId: paneId,
+                surfaceId: terminalSurface.id,
+                workspaceRef: refs.workspaceRef,
+                paneRef: refs.paneRef,
+                surfaceRef: refs.surfaceRef
+            ),
+            forType: .string
+        )
+    }
+
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
@@ -6607,6 +6630,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
             return canSplitCurrentSurface()
+        case #selector(copyWorkspaceAndSurfaceIdentifiers(_:)):
+            return terminalSurface != nil
         default:
             return true
         }
@@ -8619,6 +8644,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
+        if terminalSurface != nil {
+            menu.addItem(.separator())
+            let identifiersItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.copyIdentifiers", defaultValue: "Copy IDs"),
+                action: #selector(copyWorkspaceAndSurfaceIdentifiers(_:)),
+                keyEquivalent: ""
+            )
+            identifiersItem.target = self
+        }
         return menu
     }
 
