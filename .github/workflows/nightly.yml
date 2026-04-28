@@ -35,7 +35,7 @@ jobs:
     steps:
       - name: Decide whether a nightly build is needed
         id: decide
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
         with:
@@ -104,7 +104,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout build ref
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: recursive
@@ -175,16 +175,17 @@ jobs:
 
       - name: Cache Swift packages
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
           key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
       - name: Setup Go
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: daemon/remote/go.mod
+          cache-dependency-path: daemon/remote/go.sum
 
       - name: Derive Sparkle public key from private key
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
@@ -208,6 +209,13 @@ jobs:
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+
+      - name: Run bundled Ghostty theme picker helper regression
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
+        run: |
+          set -euo pipefail
+          CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
+            ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Verify nightly binary architectures
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
@@ -549,7 +557,7 @@ jobs:
 
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-${{ needs.decide.outputs.short_sha }}
           path: |
@@ -582,7 +590,7 @@ jobs:
 
       - name: Publish nightly release assets
         if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           tag_name: nightly
           name: Nightly

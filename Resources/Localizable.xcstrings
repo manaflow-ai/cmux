@@ -93101,6 +93101,23 @@
         }
       }
     },
+    "sessionIndex.localCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルコマンド"
+          }
+        }
+      }
+    },
     "sessionIndex.scope.thisFolder": {
       "extractionState": "manual",
       "localizations": {
