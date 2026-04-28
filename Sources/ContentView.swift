@@ -33,13 +33,66 @@ private struct RightSidebarChromeGeometryPreferenceKey: PreferenceKey {
     }
 }
 
+private enum RightSidebarChromeUITestRecorder {
+    static func shouldRecord() -> Bool {
+#if DEBUG
+        dataPath() != nil
+#else
+        false
+#endif
+    }
+
+    static func record(geometry: RightSidebarChromeGeometry) {
+#if DEBUG
+        guard let path = dataPath(),
+              geometry.isVisible,
+              geometry.frame.width > 1,
+              geometry.titlebarHeight > 0 else {
+            return
+        }
+
+        var payload = loadPayload(at: path)
+        payload["rightSidebarModeBarMinY"] = String(format: "%.3f", Double(geometry.frame.minY))
+        payload["rightSidebarModeBarMaxY"] = String(format: "%.3f", Double(geometry.frame.minY + geometry.titlebarHeight))
+        payload["rightSidebarModeBarWidth"] = String(format: "%.3f", Double(geometry.frame.width))
+        payload["rightSidebarModeBarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
+        payload["rightSidebarTitlebarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
+
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+#else
+        _ = geometry
+#endif
+    }
+
+#if DEBUG
+    private static func dataPath() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1",
+              let path = env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"],
+              !path.isEmpty else {
+            return nil
+        }
+        return path
+    }
+
+    private static func loadPayload(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+#endif
+}
+
 private extension View {
     @ViewBuilder
     func reportRightSidebarChromeGeometryForBonsplitUITest(
         isVisible: Bool,
         titlebarHeight: CGFloat
     ) -> some View {
-        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
+        if RightSidebarChromeUITestRecorder.shouldRecord() {
             background {
                 GeometryReader { proxy in
                     Color.clear.preference(
@@ -53,11 +106,7 @@ private extension View {
                 }
             }
             .onPreferenceChange(RightSidebarChromeGeometryPreferenceKey.self) { geometry in
-                AppDelegate.shared?.recordRightSidebarChromeGeometryForBonsplitUITest(
-                    containerFrame: geometry.frame,
-                    isVisible: geometry.isVisible,
-                    titlebarHeight: geometry.titlebarHeight
-                )
+                RightSidebarChromeUITestRecorder.record(geometry: geometry)
             }
         } else {
             self

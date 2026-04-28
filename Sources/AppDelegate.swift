@@ -8123,28 +8123,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
     }
 
-    func recordRightSidebarChromeGeometryForBonsplitUITest(
-        containerFrame: CGRect,
-        isVisible: Bool,
-        titlebarHeight: CGFloat
-    ) {
-        guard bonsplitTabDragUITestDataPath() != nil,
-              isVisible,
-              containerFrame.width > 1,
-              titlebarHeight > 0 else {
-            return
-        }
-
-        let modeBarMaxY = containerFrame.minY + titlebarHeight
-        writeBonsplitTabDragUITestData([
-            "rightSidebarModeBarMinY": String(format: "%.3f", Double(containerFrame.minY)),
-            "rightSidebarModeBarMaxY": String(format: "%.3f", Double(modeBarMaxY)),
-            "rightSidebarModeBarWidth": String(format: "%.3f", Double(containerFrame.width)),
-            "rightSidebarModeBarHeight": String(format: "%.3f", Double(titlebarHeight)),
-            "rightSidebarTitlebarHeight": String(format: "%.3f", Double(titlebarHeight)),
-        ])
-    }
-
     private func writeBonsplitTabDragUITestData(_ updates: [String: String]) {
         guard let path = bonsplitTabDragUITestDataPath() else { return }
         var payload = loadBonsplitTabDragUITestData(at: path)
