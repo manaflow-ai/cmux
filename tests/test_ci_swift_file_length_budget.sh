@@ -63,6 +63,26 @@ python3 scripts/swift_file_length_budget.py \
   --budget "$BUDGET" \
   --threshold 5
 
+mkdir -p "$FIXTURE/.github"
+(
+  cd "$TMP_DIR"
+  python3 "$ROOT_DIR/scripts/swift_file_length_budget.py" \
+    --repo-root "$FIXTURE" \
+    --budget .github/relative-budget.tsv \
+    --threshold 5 \
+    --write-budget
+)
+
+if [ ! -f "$FIXTURE/.github/relative-budget.tsv" ]; then
+  echo "expected relative budget path to resolve inside repo root" >&2
+  exit 1
+fi
+
+if [ -f "$TMP_DIR/.github/relative-budget.tsv" ]; then
+  echo "relative budget path should not resolve from current directory" >&2
+  exit 1
+fi
+
 python3 - "$FIXTURE/Sources/NewLarge.swift" <<'PY'
 import pathlib
 import sys
@@ -133,5 +153,20 @@ fi
 if grep -Fq 'Traceback' "$TMP_DIR/bad.out"; then
   echo "malformed budget should not print a traceback" >&2
   cat "$TMP_DIR/bad.out" >&2
+  exit 1
+fi
+
+printf '5\tSources/Big.swift\n6\tSources/Big.swift\n' >"$TMP_DIR/duplicate-budget.tsv"
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$TMP_DIR/duplicate-budget.tsv" \
+  --threshold 5 >"$TMP_DIR/duplicate.out" 2>&1; then
+  echo "expected duplicate budget failure" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'duplicate entry' "$TMP_DIR/duplicate.out"; then
+  echo "expected duplicate budget error output" >&2
+  cat "$TMP_DIR/duplicate.out" >&2
   exit 1
 fi

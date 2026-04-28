@@ -75,6 +75,8 @@ def load_budget(path: pathlib.Path) -> FileLengthBudget:
 
             if count < 0:
                 raise ValueError(f"{path}:{line_number}: line count must be non-negative")
+            if rel_path in budget:
+                raise ValueError(f"{path}:{line_number}: duplicate entry for {rel_path!r}")
             budget[rel_path] = count
     return budget
 
@@ -188,22 +190,23 @@ def main(argv: list[str]) -> int:
         return 2
 
     repo_root = args.repo_root.resolve(strict=False)
+    budget_path = args.budget if args.budget.is_absolute() else repo_root / args.budget
     file_lengths = collect_file_lengths(repo_root, tuple(args.roots))
     actual = tracked_file_lengths(file_lengths, args.threshold)
     print_file_summary("All scanned cmux-owned Swift files", file_lengths)
     print_file_summary(f"Tracked Swift files >= {args.threshold} lines", actual)
 
     if args.write_budget:
-        write_budget(args.budget, actual)
-        print(f"Wrote {args.budget}")
+        write_budget(budget_path, actual)
+        print(f"Wrote {budget_path}")
         return 0
 
-    if not args.budget.exists():
-        print(f"Missing Swift file length budget: {args.budget}", file=sys.stderr)
+    if not budget_path.exists():
+        print(f"Missing Swift file length budget: {budget_path}", file=sys.stderr)
         return 2
 
     try:
-        allowed = load_budget(args.budget)
+        allowed = load_budget(budget_path)
     except ValueError as exc:
         print(f"Error reading Swift file length budget: {exc}", file=sys.stderr)
         return 2
