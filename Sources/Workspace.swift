@@ -6644,6 +6644,11 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    @Published var realTmuxSessionId: String?
+    @Published var realTmuxSessionName: String?
+    var isRealTmuxWorkspace: Bool {
+        realTmuxSessionId != nil || realTmuxSessionName != nil
+    }
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String
     @Published private(set) var surfaceTabBarDirectory: String?
@@ -9099,6 +9104,15 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         focus: Bool = true
     ) -> TerminalPanel? {
+        guard !isRealTmuxWorkspace else {
+#if DEBUG
+            cmuxDebugLog(
+                "realTmux.split.blockCmux workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) orientation=\(orientation.rawValue)"
+            )
+#endif
+            return nil
+        }
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -9315,6 +9329,15 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         focus: Bool = true
     ) -> BrowserPanel? {
+        guard !isRealTmuxWorkspace else {
+#if DEBUG
+            cmuxDebugLog(
+                "realTmux.browserSplit.blockCmux workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) orientation=\(orientation.rawValue)"
+            )
+#endif
+            return nil
+        }
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -9403,6 +9426,15 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel? {
+        guard !isRealTmuxWorkspace else {
+#if DEBUG
+            cmuxDebugLog(
+                "realTmux.browserSurface.blockCmux workspace=\(id.uuidString.prefix(5)) " +
+                "pane=\(paneId.id.uuidString.prefix(5))"
+            )
+#endif
+            return nil
+        }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -12381,6 +12413,16 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+        guard isRealTmuxWorkspace else { return true }
+        let direction: SplitDirection = orientation == .horizontal ? .right : .down
+        let sourcePanelId = controller.selectedTab(inPane: pane).flatMap { panelIdFromSurfaceId($0.id) }
+            ?? focusedPanelId
+        guard let sourcePanelId else { return false }
+        _ = owningTabManager?.createSplit(tabId: id, surfaceId: sourcePanelId, direction: direction)
+        return false
+    }
+
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
         // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
@@ -12673,6 +12715,19 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
+        if isRealTmuxWorkspace {
+            switch kind {
+            case "terminal":
+                let sourcePanelId = controller.selectedTab(inPane: pane).flatMap { panelIdFromSurfaceId($0.id) }
+                    ?? focusedPanelId
+                if let sourcePanelId {
+                    _ = owningTabManager?.createSplit(tabId: id, surfaceId: sourcePanelId, direction: .right)
+                }
+            default:
+                NSSound.beep()
+            }
+            return
+        }
         switch kind {
         case "terminal":
             _ = newTerminalSurface(inPane: pane)

@@ -1042,6 +1042,7 @@ class TabManager: ObservableObject {
     private var agentPIDSweepTimer: DispatchSourceTimer?
     private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
     private var selectedWorkspaceGitMetadataPollTimer: DispatchSourceTimer?
+    private var realTmuxSessionSyncTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -1090,6 +1091,7 @@ class TabManager: ObservableObject {
         startAgentPIDSweepTimer()
         startWorkspaceGitMetadataPollTimer()
         startSelectedWorkspaceGitMetadataPollTimer()
+        startRealTmuxSessionSyncTimer()
         updateWorkspacePullRequestPollTimer()
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
@@ -1104,6 +1106,7 @@ class TabManager: ObservableObject {
         agentPIDSweepTimer?.cancel()
         workspaceGitMetadataPollTimer?.cancel()
         selectedWorkspaceGitMetadataPollTimer?.cancel()
+        realTmuxSessionSyncTimer?.cancel()
         workspacePullRequestPollTimer?.cancel()
         workspacePullRequestRefreshTask?.cancel()
     }
@@ -1161,6 +1164,293 @@ class TabManager: ObservableObject {
         }
         timer.resume()
         selectedWorkspaceGitMetadataPollTimer = timer
+    }
+
+    private struct RealTmuxSession: Equatable {
+        let id: String
+        let name: String
+    }
+
+    private struct RealTmuxStore: Codable {
+        var sessionIdToWorkspaceId: [String: String] = [:]
+    }
+
+    private static var realTmuxStoreURL: URL {
+        let bundleKey = (Bundle.main.bundleIdentifier ?? "cmux")
+            .replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "-", options: .regularExpression)
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxterm")
+            .appendingPathComponent("real-tmux-store-\(bundleKey).json")
+    }
+
+    private func startRealTmuxSessionSyncTimer() {
+        guard realTmuxSessionSyncTimer == nil else { return }
+        syncRealTmuxSessions()
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + 2, repeating: 2)
+        timer.setEventHandler { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                self?.syncRealTmuxSessions()
+            }
+        }
+        timer.resume()
+        realTmuxSessionSyncTimer = timer
+    }
+
+    func syncRealTmuxSessions() {
+        let realSessions = Self.listRealTmuxSessions()
+        var store = Self.loadRealTmuxStore()
+        let liveSessionIds = Set(realSessions.map(\.id))
+        let liveWorkspaceIds = AppDelegate.shared?.mainWindowWorkspaceIdStrings()
+            ?? Set(tabs.map { $0.id.uuidString })
+
+        for (sessionId, workspaceId) in store.sessionIdToWorkspaceId {
+            if !liveSessionIds.contains(sessionId),
+               let uuid = UUID(uuidString: workspaceId),
+               let workspace = tabs.first(where: { $0.id == uuid }) {
+                closeWorkspace(workspace, killRealTmuxSession: false)
+            }
+        }
+
+        let refreshedWorkspaceIds = Set(tabs.map { $0.id.uuidString })
+        store.sessionIdToWorkspaceId = store.sessionIdToWorkspaceId.filter {
+            liveSessionIds.contains($0.key) && refreshedWorkspaceIds.contains($0.value)
+        }
+
+        for session in realSessions where store.sessionIdToWorkspaceId[session.id] == nil {
+            if let existing = AppDelegate.shared?.mainWindowWorkspaceForRealTmuxSession(
+                id: session.id,
+                name: session.name
+            ) ?? tabs.first(where: { $0.realTmuxSessionId == session.id || $0.title == session.name }) {
+                store.sessionIdToWorkspaceId[session.id] = existing.id.uuidString
+                existing.realTmuxSessionId = session.id
+                existing.realTmuxSessionName = session.name
+                continue
+            }
+            let sessionCurrentPath = Self.realTmuxCurrentPath(for: session)
+            let workspace = addWorkspace(
+                title: session.name,
+                workingDirectory: sessionCurrentPath,
+                initialTerminalInput: Self.realTmuxAttachInput(for: session),
+                select: false,
+                autoWelcomeIfNeeded: false
+            )
+            workspace.realTmuxSessionId = session.id
+            workspace.realTmuxSessionName = session.name
+            store.sessionIdToWorkspaceId[session.id] = workspace.id.uuidString
+        }
+
+        for session in realSessions {
+            guard let workspaceId = store.sessionIdToWorkspaceId[session.id],
+                  let uuid = UUID(uuidString: workspaceId),
+                  let workspace = AppDelegate.shared?.mainWindowWorkspace(id: uuid)
+                    ?? tabs.first(where: { $0.id == uuid }) else {
+                continue
+            }
+            if workspace.title != session.name {
+                workspace.setCustomTitle(session.name)
+            }
+            workspace.realTmuxSessionId = session.id
+            workspace.realTmuxSessionName = session.name
+            if let sessionCurrentPath = Self.realTmuxCurrentPath(for: session),
+               workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines) == FileManager.default.homeDirectoryForCurrentUser.path {
+                workspace.currentDirectory = sessionCurrentPath
+            }
+        }
+
+        Self.saveRealTmuxStore(store)
+    }
+
+    private static func listRealTmuxSessions() -> [RealTmuxSession] {
+        guard let tmuxPath = realTmuxExecutablePath() else { return [] }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = ["list-sessions", "-F", "#{session_id}\t#{session_name}"]
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return []
+        }
+        guard process.terminationStatus == 0 else { return [] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        return output.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
+            guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+            return RealTmuxSession(id: parts[0], name: parts[1])
+        }
+    }
+
+    private static func realTmuxExecutablePath() -> String? {
+        ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    private static func realTmuxAttachInput(for session: RealTmuxSession) -> String? {
+        guard let tmuxPath = realTmuxExecutablePath() else { return nil }
+        return "exec \(shellQuoted(tmuxPath)) attach-session -t \(shellQuoted(session.name))\r"
+    }
+
+    private static func killRealTmuxSession(id sessionId: String, name sessionName: String?) {
+        guard let tmuxPath = realTmuxExecutablePath() else { return }
+        if runRealTmux(arguments: ["kill-session", "-t", sessionId]) == false,
+           let sessionName,
+           sessionName.isEmpty == false {
+            _ = runRealTmux(arguments: ["kill-session", "-t", sessionName])
+        }
+    }
+
+    @discardableResult
+    private static func runRealTmux(arguments: [String]) -> Bool {
+        guard let tmuxPath = realTmuxExecutablePath() else { return false }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = arguments
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return false
+        }
+        return process.terminationStatus == 0
+    }
+
+    private static func runRealTmuxOutput(arguments: [String]) -> String? {
+        guard let tmuxPath = realTmuxExecutablePath() else { return nil }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+        guard process.terminationStatus == 0 else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func realTmuxTarget(for workspace: Workspace) -> String? {
+        if let sessionId = workspace.realTmuxSessionId, sessionId.isEmpty == false {
+            return sessionId
+        }
+        if let sessionName = workspace.realTmuxSessionName, sessionName.isEmpty == false {
+            return sessionName
+        }
+        return nil
+    }
+
+    private static func realTmuxCurrentPath(for session: RealTmuxSession) -> String? {
+        realTmuxCurrentPath(target: session.id) ?? realTmuxCurrentPath(target: session.name)
+    }
+
+    private static func realTmuxCurrentPath(target: String) -> String? {
+        normalizedRealTmuxWorkingDirectory(
+            runRealTmuxOutput(arguments: ["display-message", "-p", "-t", target, "#{pane_current_path}"])
+        )
+    }
+
+    private static func normalizedRealTmuxWorkingDirectory(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return nil }
+        return trimmed
+    }
+
+    private static func splitWorkingDirectory(in workspace: Workspace, sourcePanelId: UUID?, target: String) -> String? {
+        let cmuxDirectory: String? = {
+            if let sourcePanelId,
+               let panelDirectory = normalizedRealTmuxWorkingDirectory(workspace.panelDirectories[sourcePanelId]) {
+                return panelDirectory
+            }
+            if let sourcePanelId,
+               let requestedWorkingDirectory = normalizedRealTmuxWorkingDirectory(
+                workspace.terminalPanel(for: sourcePanelId)?.requestedWorkingDirectory
+               ) {
+                return requestedWorkingDirectory
+            }
+            return normalizedRealTmuxWorkingDirectory(workspace.currentDirectory)
+        }()
+        let tmuxDirectory = realTmuxCurrentPath(target: target)
+        if let tmuxDirectory, tmuxDirectory != "/" {
+            return tmuxDirectory
+        }
+        return cmuxDirectory ?? tmuxDirectory
+    }
+
+    private static func splitRealTmuxPane(in workspace: Workspace, from sourcePanelId: UUID?, direction: SplitDirection) -> Bool {
+        guard let target = realTmuxTarget(for: workspace) else { return false }
+        var arguments = ["split-window", "-t", target]
+        if let workingDirectory = splitWorkingDirectory(in: workspace, sourcePanelId: sourcePanelId, target: target) {
+            arguments.append(contentsOf: ["-c", workingDirectory])
+        }
+        arguments.append(direction.isHorizontal ? "-h" : "-v")
+        if direction.insertFirst {
+            arguments.append("-b")
+        }
+        let didSplit = runRealTmux(arguments: arguments)
+#if DEBUG
+        cmuxDebugLog(
+            "realTmux.split command=split-window target=\(target) " +
+            "direction=\(String(describing: direction)) cwd=\(arguments.dropFirst().joined(separator: " ")) ok=\(didSplit ? 1 : 0)"
+        )
+#endif
+        return didSplit
+    }
+
+    private static func killRealTmuxPane(in workspace: Workspace) -> Bool {
+        guard let target = realTmuxTarget(for: workspace) else { return false }
+        return runRealTmux(arguments: ["kill-pane", "-t", target])
+    }
+
+    private static func selectRealTmuxPane(in workspace: Workspace, direction: NavigationDirection) -> Bool {
+        guard let target = realTmuxTarget(for: workspace) else { return false }
+        let flag: String
+        switch direction {
+        case .left:
+            flag = "-L"
+        case .right:
+            flag = "-R"
+        case .up:
+            flag = "-U"
+        case .down:
+            flag = "-D"
+        }
+        return runRealTmux(arguments: ["select-pane", "-t", target, flag])
+    }
+
+    private static func loadRealTmuxStore() -> RealTmuxStore {
+        guard let data = try? Data(contentsOf: realTmuxStoreURL),
+              let store = try? JSONDecoder().decode(RealTmuxStore.self, from: data) else {
+            return RealTmuxStore()
+        }
+        return store
+    }
+
+    private static func saveRealTmuxStore(_ store: RealTmuxStore) {
+        guard let data = try? JSONEncoder().encode(store) else { return }
+        try? FileManager.default.createDirectory(
+            at: realTmuxStoreURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: realTmuxStoreURL, options: .atomic)
+    }
+
+    private static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func updateWorkspacePullRequestPollTimer() {
@@ -4100,9 +4390,17 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
-    func closeWorkspace(_ workspace: Workspace) {
+    func closeWorkspace(_ workspace: Workspace, killRealTmuxSession: Bool = true) {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+        if let realTmuxSessionId = workspace.realTmuxSessionId {
+            var store = Self.loadRealTmuxStore()
+            store.sessionIdToWorkspaceId = store.sessionIdToWorkspaceId.filter { $0.value != workspace.id.uuidString }
+            Self.saveRealTmuxStore(store)
+            if killRealTmuxSession {
+                Self.killRealTmuxSession(id: realTmuxSessionId, name: workspace.realTmuxSessionName)
+            }
+        }
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         clearWorkspacePullRequestTracking(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
@@ -4538,6 +4836,11 @@ class TabManager: ObservableObject {
                 "panel=\(panelId.uuidString.prefix(5)) reason=missingPanel"
             )
 #endif
+            return
+        }
+
+        if tab.isRealTmuxWorkspace {
+            _ = Self.killRealTmuxPane(in: tab)
             return
         }
 
@@ -5113,6 +5416,9 @@ class TabManager: ObservableObject {
 
     func focusSurface(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        if tab.isRealTmuxWorkspace {
+            return
+        }
         tab.focusPanel(surfaceId)
     }
 
@@ -5289,13 +5595,25 @@ class TabManager: ObservableObject {
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
         // Cmd+T should always focus the newly created surface.
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        guard let workspace = selectedWorkspace else { return }
+        if workspace.isRealTmuxWorkspace,
+           let focusedPanelId = workspace.focusedPanelId {
+            _ = createSplit(tabId: workspace.id, surfaceId: focusedPanelId, direction: .right)
+            return
+        }
+        workspace.clearSplitZoom()
+        workspace.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
     func newSurface(initialInput: String) {
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+        guard let workspace = selectedWorkspace else { return }
+        if workspace.isRealTmuxWorkspace,
+           let focusedPanelId = workspace.focusedPanelId {
+            _ = createSplit(tabId: workspace.id, surfaceId: focusedPanelId, direction: .right)
+            return
+        }
+        workspace.clearSplitZoom()
+        workspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
     }
 
     // MARK: - Split Creation
@@ -5366,6 +5684,10 @@ class TabManager: ObservableObject {
     func movePaneFocus(direction: NavigationDirection) {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
+        if tab.isRealTmuxWorkspace {
+            _ = Self.selectRealTmuxPane(in: tab, direction: direction)
+            return
+        }
         tab.moveFocus(direction: direction)
     }
 
@@ -5451,6 +5773,9 @@ class TabManager: ObservableObject {
     /// Returns the new panel's ID (which is also the surface ID for terminals)
     func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
+        if tab.isRealTmuxWorkspace {
+            return Self.splitRealTmuxPane(in: tab, from: surfaceId, direction: direction) ? surfaceId : nil
+        }
         return tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
@@ -5462,6 +5787,9 @@ class TabManager: ObservableObject {
     /// Move focus in the specified direction
     func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: NavigationDirection) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        if tab.isRealTmuxWorkspace {
+            return Self.selectRealTmuxPane(in: tab, direction: direction)
+        }
         tab.moveFocus(direction: direction)
         return true
     }
@@ -5633,6 +5961,9 @@ class TabManager: ObservableObject {
         // A stale callback must never affect unrelated panels/workspaces.
         guard tab.panels[surfaceId] != nil,
               tab.surfaceIdFromPanelId(surfaceId) != nil else { return false }
+        if tab.isRealTmuxWorkspace {
+            return Self.killRealTmuxPane(in: tab)
+        }
         tab.closePanel(surfaceId)
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tabId, surfaceId: surfaceId)
         return true

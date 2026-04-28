@@ -3899,6 +3899,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    func mainWindowWorkspaceIdStrings() -> Set<String> {
+        Set(mainWindowContexts.values.flatMap { context in
+            context.tabManager.tabs.map { $0.id.uuidString }
+        })
+    }
+
+    func mainWindowWorkspace(id workspaceId: UUID) -> Workspace? {
+        for context in mainWindowContexts.values {
+            if let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }) {
+                return workspace
+            }
+        }
+        return nil
+    }
+
+    func mainWindowWorkspaceForRealTmuxSession(id sessionId: String, name sessionName: String) -> Workspace? {
+        for context in mainWindowContexts.values {
+            if let workspace = context.tabManager.tabs.first(where: {
+                $0.realTmuxSessionId == sessionId || $0.title == sessionName
+            }) {
+                return workspace
+            }
+        }
+        return nil
+    }
+
     func scriptableMainWindows() -> [ScriptableMainWindowState] {
         var results: [ScriptableMainWindowState] = []
         var seen: Set<UUID> = []
