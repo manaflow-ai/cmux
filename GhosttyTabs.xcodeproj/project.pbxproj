@@ -125,6 +125,8 @@
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
+		B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */; };
+		B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */; };
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 		FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F008 /* FeedSidebarUITests.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
@@ -369,6 +371,8 @@
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
 		B9000001A1B2C3D4E5F60719 /* cmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
+		B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Themes.swift"; sourceTree = "<group>"; };
+		B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ThemeSupport.swift"; sourceTree = "<group>"; };
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F008 /* FeedSidebarUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSidebarUITests.swift; sourceTree = "<group>"; };
 		B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
@@ -673,6 +677,8 @@
 			isa = PBXGroup;
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
+				B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */,
+				B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -1053,6 +1059,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
+				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
+				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
