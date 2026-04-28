@@ -38,6 +38,9 @@ jobs:
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
+      - name: Validate Swift warning budget guard
+        run: ./tests/test_ci_swift_warning_budget.sh
+
   remote-daemon-tests:
     runs-on: ubuntu-latest
     steps:
@@ -405,7 +408,10 @@ jobs:
           xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
-            -destination "platform=macOS" build
+            -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
+
+      - name: Validate Swift warning budget
+        run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
 
       - name: Create virtual display
         run: |
