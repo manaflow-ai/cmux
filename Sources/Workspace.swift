@@ -10531,18 +10531,21 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func openOrFocusFilePreviewSurface(
         inPane paneId: PaneID,
-        filePath: String
+        filePath: String,
+        focus: Bool = true
     ) -> FilePreviewPanel? {
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let preview = panel as? FilePreviewPanel else { continue }
             if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
-                focusPanel(existingId)
+                if focus {
+                    focusPanel(existingId)
+                }
                 return preview
             }
         }
 
-        return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: true)
+        return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
     }
 
     @discardableResult
@@ -12583,12 +12586,12 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> Bool {
         switch destination {
         case .insert(let paneId, let index):
-            return newFilePreviewSurface(
+            return !openFilePreviewSurfaces(
                 inPane: paneId,
-                filePath: entry.filePath,
+                filePaths: [entry.filePath],
                 focus: true,
                 targetIndex: index
-            ) != nil
+            ).isEmpty
         case .split(let paneId, let orientation, let insertFirst):
             return splitPaneWithFilePreview(
                 targetPane: paneId,
@@ -12612,23 +12615,12 @@ final class Workspace: Identifiable, ObservableObject {
 
         switch request.destination {
         case .insert(let paneId, let index):
-            var nextIndex = index
-            var openedAny = false
-            for entry in entries {
-                guard newFilePreviewSurface(
-                    inPane: paneId,
-                    filePath: entry.filePath,
-                    focus: true,
-                    targetIndex: nextIndex
-                ) != nil else {
-                    continue
-                }
-                openedAny = true
-                if let index = nextIndex {
-                    nextIndex = index + 1
-                }
-            }
-            return openedAny
+            return !openFilePreviewSurfaces(
+                inPane: paneId,
+                filePaths: entries.map(\.filePath),
+                focus: true,
+                targetIndex: index
+            ).isEmpty
 
         case .split(let sourcePaneId, let orientation, let insertFirst):
             guard let first = entries.first,
@@ -12643,15 +12635,12 @@ final class Workspace: Identifiable, ObservableObject {
 
             let targetPane = paneId(forPanelId: firstPanel.id) ?? sourcePaneId
             var openedAny = true
-            for entry in entries.dropFirst() {
-                if newFilePreviewSurface(
-                    inPane: targetPane,
-                    filePath: entry.filePath,
-                    focus: true
-                ) != nil {
-                    openedAny = true
-                }
-            }
+            let rest = openFilePreviewSurfaces(
+                inPane: targetPane,
+                filePaths: entries.dropFirst().map(\.filePath),
+                focus: true
+            )
+            openedAny = openedAny || !rest.isEmpty
             return openedAny
         }
     }

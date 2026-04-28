@@ -52,6 +52,37 @@ enum FilePreviewPDFViewportAnchor {
     case top
 }
 
+enum FilePreviewPDFVisiblePageResolver {
+    static func topVisiblePage(in pdfView: PDFView, scrollView: NSScrollView?) -> PDFPage? {
+        guard let scrollView else { return pdfView.currentPage }
+        let clipView = scrollView.contentView
+        let clipBounds = clipView.bounds
+        guard clipBounds.width > 1, clipBounds.height > 1 else { return pdfView.currentPage }
+
+        let insetCandidates = [
+            CGFloat(8),
+            CGFloat(24),
+            CGFloat(48),
+            min(clipBounds.height * 0.25, 160),
+            clipBounds.height * 0.5,
+        ]
+        for inset in insetCandidates where inset > 0 && inset < clipBounds.height {
+            let y = clipView.isFlipped
+                ? clipBounds.minY + inset
+                : clipBounds.maxY - inset
+            let pointInPDFView = pdfView.convert(CGPoint(x: clipBounds.midX, y: y), from: clipView)
+            if let page = pdfView.page(for: pointInPDFView, nearest: false) {
+                return page
+            }
+        }
+
+        let fallbackY = clipView.isFlipped ? clipBounds.minY + 8 : clipBounds.maxY - 8
+        let fallbackPoint = CGPoint(x: clipBounds.midX, y: fallbackY)
+        return pdfView.page(for: pdfView.convert(fallbackPoint, from: clipView), nearest: true)
+            ?? pdfView.currentPage
+    }
+}
+
 struct FilePreviewPDFViewportSnapshot {
     private let page: PDFPage?
     private let pagePoint: CGPoint?

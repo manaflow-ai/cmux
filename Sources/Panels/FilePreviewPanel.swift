@@ -839,15 +839,15 @@ struct FilePreviewPanelView: View {
         } else {
             switch panel.previewMode {
             case .text:
-                FilePreviewTextEditor(panel: panel)
+                FilePreviewTextEditor(panel: panel, isVisibleInUI: isVisibleInUI)
             case .pdf:
-                FilePreviewPDFView(panel: panel)
+                FilePreviewPDFView(panel: panel, isVisibleInUI: isVisibleInUI)
             case .image:
-                FilePreviewImageView(panel: panel)
+                FilePreviewImageView(panel: panel, isVisibleInUI: isVisibleInUI)
             case .media:
-                FilePreviewMediaView(panel: panel)
+                FilePreviewMediaView(panel: panel, isVisibleInUI: isVisibleInUI)
             case .quickLook:
-                QuickLookPreviewView(panel: panel)
+                QuickLookPreviewView(panel: panel, isVisibleInUI: isVisibleInUI)
             }
         }
     }
@@ -900,6 +900,7 @@ struct FilePreviewPanelView: View {
 
 private struct FilePreviewTextEditor: NSViewRepresentable {
     @ObservedObject var panel: FilePreviewPanel
+    let isVisibleInUI: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -907,6 +908,7 @@ private struct FilePreviewTextEditor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
+        scrollView.isHidden = !isVisibleInUI
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
@@ -947,6 +949,7 @@ private struct FilePreviewTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.panel = panel
+        scrollView.isHidden = !isVisibleInUI
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
@@ -1052,15 +1055,18 @@ final class SavingTextView: NSTextView {
 
 private struct FilePreviewPDFView: NSViewRepresentable {
     let panel: FilePreviewPanel
+    let isVisibleInUI: Bool
 
     func makeNSView(context: Context) -> FilePreviewPDFContainerView {
         let view = FilePreviewPDFContainerView()
+        view.isHidden = !isVisibleInUI
         view.setPanel(panel)
         view.setURL(panel.fileURL)
         return view
     }
 
     func updateNSView(_ nsView: FilePreviewPDFContainerView, context: Context) {
+        nsView.isHidden = !isVisibleInUI
         nsView.setPanel(panel)
         nsView.setURL(panel.fileURL)
     }
@@ -1655,6 +1661,9 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
         collectionView.onPageNavigation = { [weak self] delta in
             self?.onPageNavigation?(delta)
         }
+        collectionView.onPrimaryClickItem = { [weak self] pageIndex in
+            self?.selectPageFromPrimaryClick(at: pageIndex)
+        }
         collectionView.isSelectable = true
         collectionView.allowsMultipleSelection = false
         collectionView.register(
@@ -1741,59 +1750,16 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
     ) -> NSSize {
         thumbnailItemSize(width: thumbnailItemWidth())
     }
-}
 
-private final class FilePreviewPDFThumbnailCollectionView: NSCollectionView {
-    var onFocusChanged: ((Bool) -> Void)?
-    var onPageNavigation: ((Int) -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
-    override var canBecomeKeyView: Bool { true }
-
-    override func becomeFirstResponder() -> Bool {
-        let accepted = super.becomeFirstResponder()
-        if accepted {
-            onFocusChanged?(true)
-        }
-        return accepted
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let resigned = super.resignFirstResponder()
-        if resigned {
-            onFocusChanged?(false)
-        }
-        return resigned
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        super.mouseDown(with: event)
-    }
-
-    override func keyDown(with event: NSEvent) {
-        if handlePageNavigation(event) {
-            return
-        }
-        super.keyDown(with: event)
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if handlePageNavigation(event) {
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-
-    private func handlePageNavigation(_ event: NSEvent) -> Bool {
-        guard case .navigatePage(let delta) = FilePreviewPDFKeyboardRouting.action(
-            for: event,
-            region: .pdfThumbnails
-        ), let onPageNavigation else {
-            return false
-        }
-        onPageNavigation(delta)
-        return true
+    private func selectPageFromPrimaryClick(at pageIndex: Int) {
+        guard let document,
+              pageIndex >= 0,
+              pageIndex < document.pageCount,
+              let page = document.page(at: pageIndex) else { return }
+        window?.makeFirstResponder(collectionView)
+        setSelectionActive(true)
+        selectPage(at: pageIndex, scrollToVisible: false)
+        onSelectPage?(page)
     }
 }
 
@@ -2118,6 +2084,9 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         pdfView.onScrollZoom = { [weak self] event in
             self?.zoomPDF(with: event, factor: FilePreviewInteraction.zoomFactor(forScroll: event))
         }
+        pdfView.onScroll = { [weak self] in
+            self?.updatePageControls()
+        }
         pdfView.onSmartMagnify = { [weak self] in
             self?.togglePDFSmartZoom()
         }
@@ -2168,8 +2137,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
         thumbnailView.onSelectPage = { [weak self] page in
             self?.setActivePDFRegion(.pdfThumbnails)
-            self?.pdfView.go(to: page)
-            self?.updatePageControls()
+            self?.goToPDFPage(page, scrollThumbnailToVisible: false)
         }
         thumbnailView.onFocusChanged = { [weak self] isActive in
             self?.setActivePDFRegion(isActive ? .pdfThumbnails : nil)
@@ -2413,7 +2381,10 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         updateChromeRootViews()
     }
 
-    private func updatePageControls(scrollThumbnailToVisible: Bool = true) {
+    private func updatePageControls(
+        pageIndexOverride: Int? = nil,
+        scrollThumbnailToVisible: Bool = true
+    ) {
         guard let document = pdfView.document, document.pageCount > 0 else {
             pageLabel.stringValue = ""
             logPDFResizeProbe("updatePageControls emptyDoc scrollThumb=\(scrollThumbnailToVisible ? 1 : 0)")
@@ -2421,7 +2392,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         }
 
         let pageIndex: Int
-        if let visiblePageIndex = visiblePDFPageIndex(for: document) {
+        if let pageIndexOverride,
+           pageIndexOverride >= 0,
+           pageIndexOverride < document.pageCount {
+            pageIndex = pageIndexOverride
+        } else if let visiblePageIndex = visiblePDFPageIndex(for: document) {
             pageIndex = visiblePageIndex
         } else {
             pageIndex = 0
@@ -2429,9 +2404,10 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         let format = String(localized: "filePreview.pdf.pageCount", defaultValue: "Page %d of %d")
         pageLabel.stringValue = String.localizedStringWithFormat(format, pageIndex + 1, document.pageCount)
         thumbnailView.selectPage(at: pageIndex, scrollToVisible: scrollThumbnailToVisible)
+        let explicit = pageIndexOverride == nil ? 0 : 1
         logPDFResizeProbe(
             "updatePageControls page=\(pageIndex + 1)/\(document.pageCount) " +
-            "scrollThumb=\(scrollThumbnailToVisible ? 1 : 0) \(pdfDebugState())"
+            "explicit=\(explicit) scrollThumb=\(scrollThumbnailToVisible ? 1 : 0) \(pdfDebugState())"
         )
     }
 
@@ -2446,14 +2422,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     private func topVisiblePDFPage() -> PDFPage? {
-        guard let scrollView = pdfScrollView() else { return pdfView.currentPage }
-        let clipView = scrollView.contentView
-        let clipBounds = clipView.bounds
-        guard clipBounds.width > 1, clipBounds.height > 1 else { return pdfView.currentPage }
-        let topY = clipView.isFlipped ? clipBounds.minY : clipBounds.maxY
-        let topPoint = CGPoint(x: clipBounds.midX, y: topY)
-        let pointInPDFView = pdfView.convert(topPoint, from: clipView)
-        return pdfView.page(for: pointInPDFView, nearest: true) ?? pdfView.currentPage
+        FilePreviewPDFVisiblePageResolver.topVisiblePage(in: pdfView, scrollView: pdfScrollView())
     }
 
     private func updateSidebarVisibility() {
@@ -2737,8 +2706,20 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         let nextPageIndex = min(max(currentPageIndex + delta, 0), document.pageCount - 1)
         guard nextPageIndex != currentPageIndex,
               let page = document.page(at: nextPageIndex) else { return }
-        pdfView.go(to: page)
-        updatePageControls()
+        goToPDFPage(page)
+    }
+
+    private func goToPDFPage(_ page: PDFPage, scrollThumbnailToVisible: Bool = true) {
+        guard let document = pdfView.document else { return }
+        let pageIndex = document.index(for: page)
+        guard pageIndex >= 0, pageIndex < document.pageCount else { return }
+        withSuppressedPDFPageChangeNotifications {
+            pdfView.go(to: page)
+        }
+        updatePageControls(
+            pageIndexOverride: pageIndex,
+            scrollThumbnailToVisible: scrollThumbnailToVisible
+        )
     }
 
     private func rotateCurrentPDFPage(by degrees: Int) {
@@ -2973,9 +2954,9 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         let selectedRow = outlineView.selectedRow
         guard selectedRow >= 0,
               let outline = outlineView.item(atRow: selectedRow) as? PDFOutline,
-              let destination = outline.destination else { return }
-        pdfView.go(to: destination)
-        updatePageControls()
+              let destination = outline.destination,
+              let page = destination.page else { return }
+        goToPDFPage(page)
     }
 
     private func makeOutlineCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
@@ -2998,6 +2979,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 private final class FilePreviewMagnifyingPDFView: PDFView {
     var onMagnify: ((NSEvent) -> Void)?
     var onScrollZoom: ((NSEvent) -> Void)?
+    var onScroll: (() -> Void)?
     var onSmartMagnify: (() -> Void)?
     var onRotate: ((NSEvent) -> Void)?
     var onSwipe: ((NSEvent) -> Void)?
@@ -3039,6 +3021,7 @@ private final class FilePreviewMagnifyingPDFView: PDFView {
             onScrollZoom(event)
         } else {
             super.scrollWheel(with: event)
+            onScroll?()
         }
     }
 
@@ -3070,15 +3053,18 @@ private final class FilePreviewMagnifyingPDFView: PDFView {
 
 private struct FilePreviewImageView: NSViewRepresentable {
     let panel: FilePreviewPanel
+    let isVisibleInUI: Bool
 
     func makeNSView(context: Context) -> FilePreviewImageContainerView {
         let view = FilePreviewImageContainerView()
+        view.isHidden = !isVisibleInUI
         view.setPanel(panel)
         view.setURL(panel.fileURL)
         return view
     }
 
     func updateNSView(_ nsView: FilePreviewImageContainerView, context: Context) {
+        nsView.isHidden = !isVisibleInUI
         nsView.setPanel(panel)
         nsView.setURL(panel.fileURL)
     }
@@ -3777,6 +3763,7 @@ private final class FilePreviewMagnifyingImageView: NSImageView {
 
 private struct FilePreviewMediaView: NSViewRepresentable {
     let panel: FilePreviewPanel
+    let isVisibleInUI: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -3784,6 +3771,7 @@ private struct FilePreviewMediaView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> AVPlayerView {
         let playerView = AVPlayerView()
+        playerView.isHidden = !isVisibleInUI
         playerView.controlsStyle = .floating
         playerView.showsFullScreenToggleButton = true
         playerView.videoGravity = .resizeAspect
@@ -3793,6 +3781,7 @@ private struct FilePreviewMediaView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        nsView.isHidden = !isVisibleInUI
         panel.attachPreviewFocus(root: nsView, primaryResponder: nsView, intent: .mediaPlayer)
         context.coordinator.update(playerView: nsView, url: panel.fileURL)
     }
@@ -3818,11 +3807,15 @@ private struct FilePreviewMediaView: NSViewRepresentable {
 
 private struct QuickLookPreviewView: NSViewRepresentable {
     let panel: FilePreviewPanel
+    let isVisibleInUI: Bool
 
     func makeNSView(context: Context) -> NSView {
         guard let previewView = QLPreviewView(frame: .zero, style: .normal) else {
-            return NSView()
+            let view = NSView()
+            view.isHidden = !isVisibleInUI
+            return view
         }
+        previewView.isHidden = !isVisibleInUI
         previewView.autostarts = true
         panel.attachPreviewFocus(root: previewView, primaryResponder: previewView, intent: .quickLook)
         previewView.previewItem = context.coordinator.item(for: panel.fileURL, title: panel.displayTitle)
@@ -3830,6 +3823,7 @@ private struct QuickLookPreviewView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.isHidden = !isVisibleInUI
         guard let previewView = nsView as? QLPreviewView else { return }
         panel.attachPreviewFocus(root: previewView, primaryResponder: previewView, intent: .quickLook)
         previewView.previewItem = context.coordinator.item(for: panel.fileURL, title: panel.displayTitle)

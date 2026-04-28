@@ -1867,7 +1867,6 @@ struct CMUXCLI {
             printWelcome()
             return
         }
-
         if command == "shortcuts" {
             try runShortcuts(
                 commandArgs: commandArgs,
@@ -1877,7 +1876,7 @@ struct CMUXCLI {
             )
             return
         }
-
+        if command == "open" { try runOpenCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "restore-session" {
             try runRestoreSession(
                 commandArgs: commandArgs,
@@ -3339,7 +3338,7 @@ struct CMUXCLI {
         }
     }
 
-    private func resolvePath(_ path: String) -> String {
+    func resolvePath(_ path: String) -> String {
         let expanded = NSString(string: path).expandingTildeInPath
         if expanded.hasPrefix("/") { return expanded }
         let cwd = FileManager.default.currentDirectoryPath
@@ -3663,7 +3662,7 @@ struct CMUXCLI {
         }
     }
 
-    private func connectClient(
+    func connectClient(
         socketPath: String,
         explicitPassword: String?,
         launchIfNeeded: Bool
@@ -3739,7 +3738,7 @@ struct CMUXCLI {
         return response
     }
 
-    private func formatIDs(_ object: Any, mode: CLIIDFormat) -> Any {
+    func formatIDs(_ object: Any, mode: CLIIDFormat) -> Any {
         switch object {
         case let dict as [String: Any]:
             var out: [String: Any] = [:]
@@ -3810,7 +3809,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func parseBoolString(_ raw: String) -> Bool? {
+    func parseBoolString(_ raw: String) -> Bool? {
         switch raw.lowercased() {
         case "1", "true", "yes", "on":
             return true
@@ -3837,7 +3836,7 @@ struct CMUXCLI {
         return Int(String(pieces[1])) != nil
     }
 
-    private func normalizeWindowHandle(_ raw: String?, client: SocketClient, allowCurrent: Bool = false) throws -> String? {
+    func normalizeWindowHandle(_ raw: String?, client: SocketClient, allowCurrent: Bool = false) throws -> String? {
         guard let raw else {
             if !allowCurrent { return nil }
             let current = try client.sendV2(method: "window.current")
@@ -3861,7 +3860,7 @@ struct CMUXCLI {
         throw CLIError(message: "Window index not found")
     }
 
-    private func normalizeWorkspaceHandle(
+    func normalizeWorkspaceHandle(
         _ raw: String?,
         client: SocketClient,
         windowHandle: String? = nil,
@@ -3894,7 +3893,7 @@ struct CMUXCLI {
         throw CLIError(message: "Workspace index not found")
     }
 
-    private func normalizePaneHandle(
+    func normalizePaneHandle(
         _ raw: String?,
         client: SocketClient,
         workspaceHandle: String? = nil,
@@ -3928,7 +3927,7 @@ struct CMUXCLI {
         throw CLIError(message: "Pane index not found")
     }
 
-    private func normalizeSurfaceHandle(
+    func normalizeSurfaceHandle(
         _ raw: String?,
         client: SocketClient,
         workspaceHandle: String? = nil,
@@ -4009,7 +4008,7 @@ struct CMUXCLI {
         return "tab:\(ordinal)"
     }
 
-    private func formatHandle(_ payload: [String: Any], kind: String, idFormat: CLIIDFormat) -> String? {
+    func formatHandle(_ payload: [String: Any], kind: String, idFormat: CLIIDFormat) -> String? {
         let id = payload["\(kind)_id"] as? String
         let ref = payload["\(kind)_ref"] as? String
         switch idFormat {
@@ -9625,6 +9624,7 @@ struct CMUXCLI {
             return "Legacy alias for 'cmux browser focus-webview'. Run 'cmux browser --help' for details."
         case "is-webview-focused":
             return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
+        case "open": return openSubcommandUsage()
         case "markdown":
             return """
             Usage: cmux markdown open <path> [options]
@@ -10390,7 +10390,7 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\r", with: "\\r")
         return "\"\(escaped)\""
     }
-    private func parseOption(_ args: [String], name: String) -> (String?, [String]) {
+    func parseOption(_ args: [String], name: String) -> (String?, [String]) {
         var remaining: [String] = []
         var value: String?
         var skipNext = false
@@ -10445,7 +10445,7 @@ struct CMUXCLI {
         return args[index + 1]
     }
 
-    private func hasFlag(_ args: [String], name: String) -> Bool {
+    func hasFlag(_ args: [String], name: String) -> Bool {
         args.contains(name)
     }
 
@@ -11078,7 +11078,7 @@ struct CMUXCLI {
         return UUID(uuidString: value) != nil
     }
 
-    private func jsonString(_ object: Any) -> String {
+    func jsonString(_ object: Any) -> String {
         var options: JSONSerialization.WritingOptions = [.prettyPrinted]
         options.insert(.withoutEscapingSlashes)
         guard JSONSerialization.isValidJSONObject(object),
