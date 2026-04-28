@@ -1745,6 +1745,9 @@ class TerminalController {
         case "notify_target":
             return notifyTarget(args)
 
+        case "notify_target_async":
+            return notifyTargetQueued(args)
+
         case "list_notifications":
             return listNotifications()
 
@@ -11922,6 +11925,7 @@ class TerminalController {
           notify <title>|<subtitle>|<body>   - Notify focused panel
           notify_surface <id|idx> <payload>  - Notify a specific surface
           notify_target <workspace_id> <surface_id> <payload> - Notify by workspace+surface
+          notify_target_async <workspace_uuid> <surface_uuid> <payload> - Queue notification by workspace+surface
           list_notifications              - List all notifications
           clear_notifications [--tab=X]    - Clear notifications (all or per-tab)
           set_app_focus <active|inactive|clear> - Override app focus state
@@ -13238,6 +13242,35 @@ class TerminalController {
             )
         }
         return result
+    }
+
+    private func notifyTargetQueued(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "ERROR: Usage: notify_target_async <workspace_id> <surface_id> <title>|<subtitle>|<body>"
+        }
+
+        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
+        guard parts.count >= 2 else {
+            return "ERROR: Usage: notify_target_async <workspace_id> <surface_id> <title>|<subtitle>|<body>"
+        }
+        guard let tabId = UUID(uuidString: parts[0]) else {
+            return "ERROR: notify_target_async requires workspace_id to be a UUID"
+        }
+        guard let surfaceId = UUID(uuidString: parts[1]) else {
+            return "ERROR: notify_target_async requires surface_id to be a UUID"
+        }
+
+        let payload = parts.count > 2 ? parts[2] : ""
+        let (title, subtitle, body) = parseNotificationPayload(payload)
+        TerminalNotificationStore.enqueueNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
+        return "OK"
     }
 
     private func listNotifications() -> String {

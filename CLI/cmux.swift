@@ -18,6 +18,11 @@ struct CLIError: Error, CustomStringConvertible {
 }
 
 private final class CLISocketSentryTelemetry {
+    private struct PendingBreadcrumb {
+        let message: String
+        let data: [String: Any]
+    }
+
     private let command: String
     private let subcommand: String
     private let socketPath: String
@@ -25,6 +30,7 @@ private final class CLISocketSentryTelemetry {
     private let workspaceId: String?
     private let surfaceId: String?
     private let disabledByEnv: Bool
+    private var pendingBreadcrumbs: [PendingBreadcrumb] = []
 
 #if canImport(Sentry)
     private static let startupLock = NSLock()
@@ -143,15 +149,7 @@ private final class CLISocketSentryTelemetry {
     func breadcrumb(_ message: String, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
 #if canImport(Sentry)
-        Self.ensureStarted()
-        var payload = baseContext()
-        for (key, value) in data {
-            payload[key] = value
-        }
-        let crumb = Breadcrumb(level: .info, category: "cmux.cli")
-        crumb.message = message
-        crumb.data = payload
-        SentrySDK.addBreadcrumb(crumb)
+        pendingBreadcrumbs.append(PendingBreadcrumb(message: message, data: data))
 #endif
     }
 
@@ -159,6 +157,7 @@ private final class CLISocketSentryTelemetry {
         guard shouldEmit else { return }
 #if canImport(Sentry)
         Self.ensureStarted()
+        flushPendingBreadcrumbs()
         var context = baseContext()
         context["stage"] = stage
         context["error"] = String(describing: error)
@@ -181,6 +180,26 @@ private final class CLISocketSentryTelemetry {
     private var shouldEmit: Bool {
         !disabledByEnv
     }
+
+#if canImport(Sentry)
+    private func flushPendingBreadcrumbs() {
+        for pending in pendingBreadcrumbs {
+            addBreadcrumb(message: pending.message, data: pending.data)
+        }
+        pendingBreadcrumbs.removeAll()
+    }
+
+    private func addBreadcrumb(message: String, data: [String: Any]) {
+        var payload = baseContext()
+        for (key, value) in data {
+            payload[key] = value
+        }
+        let crumb = Breadcrumb(level: .info, category: "cmux.cli")
+        crumb.message = message
+        crumb.data = payload
+        SentrySDK.addBreadcrumb(crumb)
+    }
+#endif
 
     private func baseContext() -> [String: Any] {
         var context: [String: Any] = [
@@ -894,6 +913,30 @@ final class SocketClient {
         return defaultResponseTimeoutSeconds
     }()
 
+    private static func isCompleteSingleLineResponse(_ data: Data) -> Bool {
+        guard data.contains(UInt8(0x0A)),
+              let response = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        let normalized = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !normalized.contains("\n") else {
+            return false
+        }
+
+        if normalized == "OK" ||
+            normalized == "PONG" ||
+            normalized.hasPrefix("OK ") ||
+            normalized.hasPrefix("ERROR:") {
+            return true
+        }
+
+        if normalized.hasPrefix("{"), normalized.hasSuffix("}") {
+            return true
+        }
+
+        return false
+    }
+
     init(path: String) {
         self.path = path
     }
@@ -988,6 +1031,9 @@ final class SocketClient {
             data.append(buffer, count: count)
             if data.contains(UInt8(0x0A)) {
                 sawNewline = true
+                if Self.isCompleteSingleLineResponse(data) {
+                    break
+                }
             }
         }
 
@@ -14017,15 +14063,14 @@ struct CMUXCLI {
             ]
         )
 
-        // Fire-and-forget Feed telemetry push so the Feed's "All" view
-        // shows Claude session/prompt/stop activity even when there's
-        // no actionable permission/plan/question event.
-        sendFeedTelemetry(
-            client: client,
-            source: "claude",
-            subcommand: subcommand,
-            parsedInput: parsedInput
-        )
+        defer {
+            sendFeedTelemetry(
+                client: client,
+                source: "claude",
+                subcommand: subcommand,
+                parsedInput: parsedInput
+            )
+        }
 
         switch subcommand {
         case "session-start", "active":
@@ -14112,14 +14157,6 @@ struct CMUXCLI {
                     )
                 }
 
-                if let completion {
-                    let title = "Claude Code"
-                    let subtitle = sanitizeNotificationField(completion.subtitle)
-                    let body = sanitizeNotificationField(completion.body)
-                    let payload = "\(title)|\(subtitle)|\(body)"
-                    _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-                }
-
                 try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
@@ -14127,6 +14164,13 @@ struct CMUXCLI {
                     icon: "pause.circle.fill",
                     color: "#8E8E93"
                 )
+                if let completion {
+                    let title = "Claude Code"
+                    let subtitle = sanitizeNotificationField(completion.subtitle)
+                    let body = sanitizeNotificationField(completion.body)
+                    let payload = "\(title)|\(subtitle)|\(body)"
+                    _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                }
                 print("OK")
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
@@ -14194,7 +14238,6 @@ struct CMUXCLI {
                 )
             }
 
-            let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -14202,6 +14245,7 @@ struct CMUXCLI {
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
+            let response = try client.send(command: "notify_target_async \(workspaceId) \(surfaceId) \(payload)")
             print(response)
 
         case "session-end":
@@ -16591,14 +16635,14 @@ export default CMUXSessionRestore;
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
 
-        // Feed telemetry so session events from every agent show up in
-        // the Feed "All" view.
-        sendFeedTelemetry(
-            client: client,
-            source: def.name,
-            subcommand: subcommand,
-            parsedInput: input
-        )
+        defer {
+            sendFeedTelemetry(
+                client: client,
+                source: def.name,
+                subcommand: subcommand,
+                parsedInput: input
+            )
+        }
 
         let store = ClaudeHookSessionStore(
             processEnv: env.merging(
@@ -16698,9 +16742,9 @@ export default CMUXSessionRestore;
                     lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                         ?? "\(def.displayName) session completed"
                 )
-                let payload = "\(def.displayName)|\(sanitizeNotificationField(subtitle))|\(body)"
-                _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
                 _ = try? sendV1Command("set_status \(def.statusKey) Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)", client: client)
+                let payload = "\(def.displayName)|\(sanitizeNotificationField(subtitle))|\(body)"
+                _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
                     telemetry.breadcrumb("\(def.name)-hook.stop.ignored", data: ["error": String(describing: error)])
@@ -16926,10 +16970,10 @@ export default CMUXSessionRestore;
 
     // MARK: - Feed telemetry helper
 
-    /// Non-blocking `feed.push` call used by the per-agent hook handlers
+    /// Best-effort `feed.push` call used by the per-agent hook handlers
     /// so session-start / prompt-submit / stop events show up in Feed's
     /// "All" view even when no permission/plan/question event fires.
-    /// Failures are swallowed — telemetry is best-effort.
+    /// Failures are swallowed.
     private func sendFeedTelemetry(
         client: SocketClient,
         source: String,

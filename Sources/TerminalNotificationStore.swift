@@ -666,6 +666,66 @@ struct TerminalNotification: Identifiable, Hashable {
     var isRead: Bool
 }
 
+private struct QueuedTerminalNotificationKey: Hashable, Sendable {
+    let tabId: UUID
+    let surfaceId: UUID?
+}
+
+private struct QueuedTerminalNotification: Sendable {
+    let key: QueuedTerminalNotificationKey
+    let title: String
+    let subtitle: String
+    let body: String
+    let sequence: UInt64
+}
+
+private actor TerminalNotificationIngress {
+    static let shared = TerminalNotificationIngress()
+
+    private var queuedNotifications: [QueuedTerminalNotificationKey: QueuedTerminalNotification] = [:]
+    private var drainScheduled = false
+    private var nextSequence: UInt64 = 0
+
+    func enqueue(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String
+    ) {
+        let key = QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
+        nextSequence &+= 1
+        queuedNotifications[key] = QueuedTerminalNotification(
+            key: key,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            sequence: nextSequence
+        )
+
+        guard !drainScheduled else { return }
+        drainScheduled = true
+        Task {
+            await self.drainLoop()
+        }
+    }
+
+    private func drainLoop() async {
+        while true {
+            let queued = queuedNotifications.values.sorted { $0.sequence < $1.sequence }
+            guard !queued.isEmpty else {
+                drainScheduled = false
+                return
+            }
+            queuedNotifications.removeAll(keepingCapacity: true)
+
+            await MainActor.run {
+                TerminalNotificationStore.shared.deliverQueuedNotifications(queued)
+            }
+        }
+    }
+}
+
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -694,9 +754,14 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
+            let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: notifications)
+            if notificationMenuSnapshot != nextMenuSnapshot {
+                notificationMenuSnapshot = nextMenuSnapshot
+            }
             refreshDockBadge()
         }
     }
+    @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
 
@@ -747,6 +812,46 @@ final class TerminalNotificationStore: ObservableObject {
         }
         refreshDockBadge()
         refreshAuthorizationStatus()
+    }
+
+    nonisolated static func enqueueNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String
+    ) {
+        Task {
+            await TerminalNotificationIngress.shared.enqueue(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+        }
+    }
+
+    fileprivate func deliverQueuedNotifications(_ queued: [QueuedTerminalNotification]) {
+        for notification in queued {
+            guard shouldDeliverQueuedNotification(notification) else { continue }
+            addNotification(
+                tabId: notification.key.tabId,
+                surfaceId: notification.key.surfaceId,
+                title: notification.title,
+                subtitle: notification.subtitle,
+                body: notification.body
+            )
+        }
+    }
+
+    private func shouldDeliverQueuedNotification(_ notification: QueuedTerminalNotification) -> Bool {
+        guard let tabManager = AppDelegate.shared?.tabManager else { return true }
+        guard let tab = tabManager.tabs.first(where: { $0.id == notification.key.tabId }) else {
+            return false
+        }
+        guard let surfaceId = notification.key.surfaceId else { return true }
+        return tab.panels[surfaceId] != nil
     }
 
     deinit {
@@ -1178,6 +1283,25 @@ final class TerminalNotificationStore: ObservableObject {
         origin: AuthorizationRequestOrigin,
         _ completion: @escaping (Bool) -> Void
     ) {
+        if origin == .notificationDelivery,
+           let cachedDecision = Self.cachedDeliveryAuthorizationDecision(
+               for: authorizationState,
+               isAppActive: AppFocusState.isAppActive()
+           ) {
+            if !cachedDecision {
+                switch authorizationState {
+                case .denied:
+                    promptToEnableNotifications()
+                case .notDetermined:
+                    hasDeferredAuthorizationRequest = true
+                case .unknown, .authorized, .provisional, .ephemeral:
+                    break
+                }
+            }
+            completion(cachedDecision)
+            return
+        }
+
         logAuthorization("ensure start origin=\(origin.rawValue)")
         center.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
@@ -1320,6 +1444,22 @@ final class TerminalNotificationStore: ObservableObject {
     ) -> Bool {
         guard isAutomaticRequest else { return true }
         return !hasRequestedAutomaticAuthorization
+    }
+
+    static func cachedDeliveryAuthorizationDecision(
+        for state: NotificationAuthorizationState,
+        isAppActive: Bool
+    ) -> Bool? {
+        switch state {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .denied:
+            return false
+        case .notDetermined:
+            return isAppActive ? nil : false
+        case .unknown:
+            return nil
+        }
     }
 
     private static func shouldDeferAutomaticAuthorizationRequest(
