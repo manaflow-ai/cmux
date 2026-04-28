@@ -1741,9 +1741,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 titlebarPadding: 32,
                 hostingSafeAreaTop: 0
             ),
-            32,
+            WindowChromeMetrics.appTitlebarHeight,
             accuracy: 0.5,
-            "Standard mode should keep reserving titlebar space above terminal content"
+            "Standard mode should use the shared app chrome height instead of the native titlebar measurement"
         )
 
         XCTAssertEqual(

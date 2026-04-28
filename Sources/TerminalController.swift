@@ -305,7 +305,7 @@ class TerminalController {
         return focusIntentV1Commands.contains(commandKey)
     }
 
-    private nonisolated func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, _ body: () -> T) -> T {
+    nonisolated func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, _ body: () -> T) -> T {
         let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(commandKey: commandKey, isV2: isV2)
         Self.socketCommandPolicyLock.lock()
         Self.socketCommandPolicyDepth += 1
@@ -1766,6 +1766,9 @@ class TerminalController {
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
         if let response = socketWorkerAuthResponseIfNeeded(for: command) {
+            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        }
+        if let response = socketWorkerCloudVMResponseIfNeeded(for: command) {
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
 
@@ -3314,7 +3317,7 @@ class TerminalController {
     /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
     /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
     /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
-    private func v2VmCall(
+    nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval = 17 * 60,
         _ work: @escaping () async throws -> [String: Any]
@@ -3355,7 +3358,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2Error(id: Any?, code: String, message: String, data: Any? = nil) -> String {
+    nonisolated func v2Error(id: Any?, code: String, message: String, data: Any? = nil) -> String {
         var err: [String: Any] = ["code": code, "message": message]
         if let data {
             err["data"] = data
@@ -13716,6 +13719,7 @@ class TerminalController {
                 paneFrames[pane.paneId] = pane.frame
             }
 
+            @MainActor
             func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
                 if view.isHidden { return true }
                 var current = view.superview
@@ -13726,6 +13730,7 @@ class TerminalController {
                 return false
             }
 
+            @MainActor
             func windowFrame(for view: NSView) -> CGRect? {
                 guard view.window != nil else { return nil }
                 // Prefer the view's frame as laid out by its superview. Some AppKit views
@@ -13736,6 +13741,7 @@ class TerminalController {
                 return view.convert(view.bounds, to: nil)
             }
 
+            @MainActor
             func splitViewInfos(for view: NSView) -> [LayoutDebugSplitView] {
                 var infos: [LayoutDebugSplitView] = []
                 var current: NSView? = view

@@ -218,6 +218,7 @@ struct RightSidebarPanelView: View {
         .padding(.trailing, 6)
         .padding(.vertical, 4)
         .frame(height: titlebarHeight)
+        .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
     }

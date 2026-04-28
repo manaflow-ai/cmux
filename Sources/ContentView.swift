@@ -2615,8 +2615,8 @@ struct ContentView: View {
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// Space at top of content area for the titlebar. This must be at least the actual titlebar
-    /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
+    /// Native titlebar inset reported by AppKit. Minimal WindowGroup hosts can still need this
+    /// cancelled, but app-owned chrome stays at the shared fixed height below.
     @State private var titlebarPadding: CGFloat = WindowChromeMetrics.defaultTitlebarHeight
     /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
     /// main windows use MainWindowHostingView and report zero.
@@ -2643,7 +2643,7 @@ struct ContentView: View {
         titlebarPadding: CGFloat,
         hostingSafeAreaTop: CGFloat
     ) -> CGFloat {
-        guard isMinimalMode else { return titlebarPadding }
+        guard isMinimalMode else { return WindowChromeMetrics.appTitlebarHeight }
         guard !isFullScreen else { return 0 }
         return -max(0, min(titlebarPadding, hostingSafeAreaTop))
     }
@@ -2895,7 +2895,8 @@ struct ContentView: View {
     }
 
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
-        ZStack {
+        let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
+        return ZStack {
             // Enable window dragging from the titlebar strip without making the entire content
             // view draggable (which breaks drag gestures like tab reordering).
             WindowDragHandleView()
@@ -2923,12 +2924,12 @@ struct ContentView: View {
                 Spacer()
 
             }
-            .frame(height: 28)
+            .frame(height: titlebarContentHeight)
             .padding(.top, 2)
             .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset + CGFloat(debugTitlebarLeadingExtra)))
             .padding(.trailing, 8)
         }
-        .frame(height: titlebarPadding)
+        .frame(height: WindowChromeMetrics.appTitlebarHeight)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
@@ -15594,9 +15595,10 @@ enum WindowChromeSeparatorColor {
 }
 
 enum WindowChromeMetrics {
-    static let minimumTitlebarHeight: CGFloat = 28
+    static let appTitlebarHeight: CGFloat = 28
+    static let minimumTitlebarHeight: CGFloat = appTitlebarHeight
     static let maximumTitlebarHeight: CGFloat = 72
-    static let defaultTitlebarHeight: CGFloat = 32
+    static let defaultTitlebarHeight: CGFloat = appTitlebarHeight
 
     static func clampedTitlebarHeight(_ height: CGFloat) -> CGFloat {
         max(minimumTitlebarHeight, min(maximumTitlebarHeight, height))
