@@ -7302,13 +7302,13 @@ class TerminalController {
         let shouldActivate = v2FocusAllowed(requested: v2Bool(params, "activate") ?? true)
 
         let navigationTarget: SettingsNavigationTarget?
-        switch targetRaw {
-        case nil:
+        if let targetRaw {
+            guard let target = SettingsNavigationTarget(rawValue: targetRaw) else {
+                return .err(code: "invalid_params", message: "Unknown settings target", data: ["target": targetRaw])
+            }
+            navigationTarget = target
+        } else {
             navigationTarget = nil
-        case SettingsNavigationTarget.keyboardShortcuts.rawValue:
-            navigationTarget = .keyboardShortcuts
-        default:
-            return .err(code: "invalid_params", message: "Unknown settings target", data: ["target": targetRaw ?? ""])
         }
 
         DispatchQueue.main.async {

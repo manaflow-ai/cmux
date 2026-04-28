@@ -2629,30 +2629,57 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         }
     }
 
-    var searchTokens: String {
+    var symbolName: String {
         switch self {
         case .account:
-            return "sign in team sync"
+            return "person.crop.circle"
         case .app:
-            return "appearance language workspace notifications menu bar telemetry"
+            return "gearshape"
         case .terminal:
-            return "scrollbar"
+            return "terminal"
         case .workspaceColors:
-            return "palette tabs"
+            return "paintpalette"
         case .sidebarAppearance:
-            return "sidebar tint details branches badges"
+            return "sidebar.left"
         case .automation:
-            return "socket integrations hooks ports claude cursor gemini"
+            return "bolt.horizontal"
         case .browser:
-            return "search engine links history theme"
+            return "globe"
         case .browserImport:
-            return "browser import data bookmarks history cookies"
+            return "square.and.arrow.down"
         case .globalHotkey:
-            return "system wide shortcut"
+            return "keyboard.badge.ellipsis"
         case .keyboardShortcuts:
-            return "keybindings commands chords"
+            return "keyboard"
         case .reset:
-            return "defaults"
+            return "arrow.counterclockwise"
+        }
+    }
+
+    var searchText: String {
+        switch self {
+        case .account:
+            return "\(title) sign in team sync"
+        case .app:
+            return "\(title) appearance language workspace notifications menu bar telemetry"
+        case .terminal:
+            return "\(title) scrollbar"
+        case .workspaceColors:
+            return "\(title) palette tabs"
+        case .sidebarAppearance:
+            return "\(title) sidebar tint details branches badges"
+        case .automation:
+            return "\(title) socket integrations hooks ports claude cursor gemini"
+        case .browser:
+            return "\(title) search engine links history theme"
+        case .browserImport:
+            return "\(title) browser import data bookmarks history cookies"
+        case .globalHotkey:
+            return "\(title) system wide shortcut"
+        case .keyboardShortcuts:
+            return "\(title) keybindings commands chords"
+        case .reset:
+            return "\(title) defaults"
         }
     }
 }
@@ -5336,7 +5363,6 @@ private func openCmuxSettingsFileInTextEdit() {
 }
 
 struct SettingsView: View {
-    private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
@@ -5434,9 +5460,6 @@ struct SettingsView: View {
     @ObservedObject private var authManager = AuthManager.shared
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var shortcutResetToken = UUID()
-    @State private var topBlurOpacity: Double = 0
-    @State private var topBlurBaselineOffset: CGFloat?
-    @State private var settingsTitleLeadingInset: CGFloat = 92
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var showOpenAccessConfirmation = false
     @State private var pendingOpenAccessMode: SocketControlMode?
@@ -5780,12 +5803,6 @@ struct SettingsView: View {
         }
     }
 
-    private func blurOpacity(forContentOffset offset: CGFloat) -> Double {
-        guard let baseline = topBlurBaselineOffset else { return 0 }
-        let reveal = (baseline - offset) / 24
-        return Double(min(max(reveal, 0), 1))
-    }
-
     private func previewNotificationSound() {
         if notificationSound == NotificationSoundSettings.customFileValue {
             NotificationSoundSettings.playCustomFileSound(path: notificationSoundCustomFilePath)
@@ -5952,7 +5969,6 @@ struct SettingsView: View {
         let _ = keyboardShortcutSettingsObserver.revision
         let _ = Self.validateBypassedSettingsConfigurationReviews()
         ScrollViewReader { proxy in
-            ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
@@ -7325,87 +7341,8 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
-                .padding(.top, contentTopInset)
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: SettingsTopOffsetPreferenceKey.self,
-                            value: proxy.frame(in: .named("SettingsScrollArea")).minY
-                        )
-                    }
-                )
+                .padding(.top, 20)
             }
-            .coordinateSpace(name: "SettingsScrollArea")
-            .onPreferenceChange(SettingsTopOffsetPreferenceKey.self) { value in
-                if topBlurBaselineOffset == nil {
-                    topBlurBaselineOffset = value
-                }
-                topBlurOpacity = blurOpacity(forContentOffset: value)
-            }
-
-            ZStack(alignment: .top) {
-                SettingsTitleLeadingInsetReader(inset: $settingsTitleLeadingInset)
-                    .frame(width: 0, height: 0)
-
-                AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
-                    .mask(
-                        LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.9),
-                                Color.black.opacity(0.64),
-                                Color.black.opacity(0.36),
-                                Color.clear
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .opacity(0.52)
-
-                AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
-                    .mask(
-                        LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.98),
-                                Color.black.opacity(0.78),
-                                Color.black.opacity(0.42),
-                                Color.clear
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .opacity(0.14 + (topBlurOpacity * 0.86))
-
-                HStack {
-                    Text(String(localized: "settings.title", defaultValue: "Settings"))
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.primary.opacity(0.92))
-                    Spacer(minLength: 0)
-                    HStack(spacing: 6) {
-                        SettingsHeaderActionButton(
-                            title: String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json"),
-                            helpText: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath(),
-                            accessibilityIdentifier: "SettingsFileOpenButton",
-                            action: openCmuxSettingsFileInTextEdit
-                        )
-                    }
-                }
-                .padding(.leading, settingsTitleLeadingInset)
-                .padding(.trailing, 20)
-                .padding(.top, 12)
-            }
-                .frame(height: 62)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .ignoresSafeArea(.container, edges: .top)
-                .overlay(
-                    Rectangle()
-                        .fill(Color(nsColor: .separatorColor).opacity(0.07))
-                        .frame(height: 1),
-                    alignment: .bottom
-                )
-        }
-        .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .toggleStyle(.switch)
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
@@ -7655,37 +7592,6 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsTopOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct SettingsTitleLeadingInsetReader: NSViewRepresentable {
-    @Binding var inset: CGFloat
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            guard let window = nsView.window else { return }
-            let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-            let maxX = buttons
-                .compactMap { window.standardWindowButton($0)?.frame.maxX }
-                .max() ?? 78
-            let nextInset = maxX + 14
-            if abs(nextInset - inset) > 0.5 {
-                inset = nextInset
-            }
-        }
-    }
-}
-
 private struct SettingsSectionHeader: View {
     let title: String
 
@@ -7795,35 +7701,6 @@ private struct SettingsCard<Content: View>: View {
                         .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.5), lineWidth: 1)
                 )
         )
-    }
-}
-
-private struct SettingsHeaderActionButton: View {
-    let title: String
-    let helpText: String
-    let accessibilityIdentifier: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.34))
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.22), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .controlSize(.small)
-        .help(helpText)
-        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
@@ -8465,47 +8342,58 @@ private struct GlobalHotkeySection: View {
 }
 
 private struct SettingsRootView: View {
-    @State private var selectedSidebarItem: SettingsNavigationTarget? = .account
+    @SceneStorage("selectedSettingsSection") private var selectedSectionRaw = SettingsNavigationTarget.account.rawValue
     @State private var searchText = ""
 
-    private var sidebarItems: [SettingsNavigationTarget] {
+    private var selectedSection: SettingsNavigationTarget {
+        SettingsNavigationTarget(rawValue: selectedSectionRaw) ?? .account
+    }
+
+    private var filteredSections: [SettingsNavigationTarget] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return SettingsNavigationTarget.allCases }
         return SettingsNavigationTarget.allCases.filter { item in
             item.title.localizedStandardContains(query)
-                || item.searchTokens.localizedStandardContains(query)
+                || item.searchText.localizedStandardContains(query)
         }
-    }
-
-    private var sidebarSelection: Binding<SettingsNavigationTarget?> {
-        Binding(
-            get: { selectedSidebarItem },
-            set: { newValue in
-                selectedSidebarItem = newValue
-                guard let newValue else { return }
-                SettingsNavigationRequest.post(newValue)
-            }
-        )
     }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: sidebarSelection) {
-                ForEach(sidebarItems) { item in
-                    Text(item.title)
-                        .tag(item)
+            List(selection: $selectedSectionRaw) {
+                ForEach(filteredSections) { item in
+                    Label(item.title, systemImage: item.symbolName)
+                        .tag(item.rawValue)
                 }
             }
+            .listStyle(.sidebar)
             .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
-            .searchable(text: $searchText)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+            .searchable(text: $searchText, placement: .sidebar)
         } detail: {
             SettingsView()
+                .navigationTitle(selectedSection.title)
+                .toolbar {
+                    ToolbarItem {
+                        Button {
+                            openCmuxSettingsFileInTextEdit()
+                        } label: {
+                            Label(
+                                String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json"),
+                                systemImage: "doc.text"
+                            )
+                        }
+                        .accessibilityIdentifier("SettingsFileOpenButton")
+                        .help(KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath())
+                    }
+                }
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 860, minHeight: 540)
+        .onChange(of: selectedSectionRaw) { _, newValue in
+            guard let target = SettingsNavigationTarget(rawValue: newValue) else { return }
+            SettingsNavigationRequest.post(target)
+        }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
-            selectedSidebarItem = SettingsNavigationRequest.target(from: notification) ?? selectedSidebarItem
+            selectedSectionRaw = SettingsNavigationRequest.target(from: notification)?.rawValue ?? selectedSectionRaw
         }
         .background(WindowAccessor { window in
             configureSettingsWindow(window)
