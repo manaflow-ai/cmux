@@ -110,10 +110,69 @@ struct SessionEntry: Identifiable, Hashable {
 
     var displayTitle: String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if agent == .claude {
+            if let title = Self.claudeDisplayTitle(from: trimmed) {
+                return title
+            }
+            if Self.isClaudeLocalCommandEnvelope(trimmed) {
+                return String(localized: "sessionIndex.localCommand", defaultValue: "Local command")
+            }
+            if Self.isClaudeSyntheticEnvelope(trimmed) {
+                return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
+            }
+        }
         if trimmed.isEmpty {
             return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
         }
         return trimmed
+    }
+
+    static func claudeDisplayTitle(from raw: String, isMeta: Bool = false) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let commandTitle = claudeSlashCommandTitle(from: trimmed) {
+            return commandTitle
+        }
+        if isMeta || isClaudeSyntheticEnvelope(trimmed) {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func claudeSlashCommandTitle(from raw: String) -> String? {
+        guard let command = claudeTagValue("command-name", in: raw)
+            ?? claudeTagValue("command-message", in: raw) else {
+            return nil
+        }
+        if let args = claudeTagValue("command-args", in: raw) {
+            return "\(command) \(args)"
+        }
+        return command
+    }
+
+    private static func claudeTagValue(_ tag: String, in raw: String) -> String? {
+        let open = "<\(tag)>"
+        let close = "</\(tag)>"
+        guard let start = raw.range(of: open),
+              let end = raw.range(of: close, range: start.upperBound..<raw.endIndex) else {
+            return nil
+        }
+        let value = String(raw[start.upperBound..<end.lowerBound])
+        let collapsed = collapseWhitespace(value)
+        return collapsed.isEmpty ? nil : collapsed
+    }
+
+    private static func isClaudeSyntheticEnvelope(_ raw: String) -> Bool {
+        isClaudeLocalCommandEnvelope(raw)
+            || raw.hasPrefix("<system-reminder>")
+    }
+
+    private static func isClaudeLocalCommandEnvelope(_ raw: String) -> Bool {
+        raw.hasPrefix("<local-command-")
+    }
+
+    private static func collapseWhitespace(_ value: String) -> String {
+        value.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 
     var cwdLabel: String? {
@@ -657,6 +716,7 @@ final class SessionIndexStore: ObservableObject {
         for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            let isMeta = (obj["isMeta"] as? Bool) ?? false
             if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
                 out.cwd = cwdField
             }
@@ -675,13 +735,15 @@ final class SessionIndexStore: ObservableObject {
                (obj["type"] as? String) == "user",
                let message = obj["message"] as? [String: Any],
                (message["role"] as? String) == "user" {
-                if let content = message["content"] as? String, !content.isEmpty {
-                    out.title = content
+                if let content = message["content"] as? String,
+                   let title = SessionEntry.claudeDisplayTitle(from: content, isMeta: isMeta) {
+                    out.title = title
                 } else if let parts = message["content"] as? [[String: Any]] {
                     for part in parts {
                         if (part["type"] as? String) == "text",
-                           let text = part["text"] as? String, !text.isEmpty {
-                            out.title = text
+                           let text = part["text"] as? String,
+                           let title = SessionEntry.claudeDisplayTitle(from: text, isMeta: isMeta) {
+                            out.title = title
                             break
                         }
                     }
