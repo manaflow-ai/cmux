@@ -55397,6 +55397,91 @@
         }
       }
     },
+    "settings.app.sidebarBranchDirectoryStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch Directory Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチディレクトリの表示形式"
+          }
+        }
+      }
+    },
+    "settings.app.sidebarBranchDirectoryStyle.fullPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルパス"
+          }
+        }
+      }
+    },
+    "settings.app.sidebarBranchDirectoryStyle.repoName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリ名"
+          }
+        }
+      }
+    },
+    "settings.app.sidebarBranchDirectoryStyle.subtitleFullPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the full working-directory path (home abbreviated as ~)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業ディレクトリの完全なパスを表示します（ホームは ~ で省略）。"
+          }
+        }
+      }
+    },
+    "settings.app.sidebarBranchDirectoryStyle.subtitleRepoName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the repository name, or the final directory if not in a repo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git リポジトリ内ではリポジトリ名を、そうでない場合は最後のディレクトリ名を表示します。"
+          }
+        }
+      }
+    },
     "settings.app.telemetry": {
       "extractionState": "manual",
       "localizations": {

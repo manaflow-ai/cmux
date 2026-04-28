@@ -41,6 +41,58 @@ final class SidebarPathFormatterTests: XCTestCase {
             "/tmp/cmux"
         )
     }
+
+    func testDisplayPathUsesShortenedPathForFullPathStyle() {
+        XCTAssertEqual(
+            SidebarPathFormatter.displayPath(
+                "/Users/example/projects/cmux",
+                style: .fullPath,
+                homeDirectoryPath: "/Users/example"
+            ),
+            "~/projects/cmux"
+        )
+    }
+
+    func testDisplayPathUsesLastComponentForRepoNameStyle() {
+        XCTAssertEqual(
+            SidebarPathFormatter.displayPath(
+                "/Users/example/projects/cmux",
+                style: .repoName,
+                homeDirectoryPath: "/Users/example"
+            ),
+            "cmux"
+        )
+    }
+
+    func testDisplayPathKeepsRootForRepoNameStyle() {
+        XCTAssertEqual(
+            SidebarPathFormatter.displayPath(
+                "/",
+                style: .repoName,
+                homeDirectoryPath: "/Users/example"
+            ),
+            "/"
+        )
+    }
+
+    func testDisplayPathUsesRepositoryRootForRepoNameStyle() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repoRoot = tempRoot.appendingPathComponent("cmux")
+        let nestedDirectory = repoRoot.appendingPathComponent("Sources/App")
+
+        try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        XCTAssertEqual(
+            SidebarPathFormatter.displayPath(
+                nestedDirectory.path,
+                style: .repoName,
+                homeDirectoryPath: "/Users/example"
+            ),
+            "cmux"
+        )
+    }
 }
 
 final class GhosttyConfigTests: XCTestCase {

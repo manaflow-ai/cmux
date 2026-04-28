@@ -9408,6 +9408,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     let alwaysShowShortcutHints: Bool
     let showsGitBranch: Bool
     let usesVerticalBranchLayout: Bool
+    let branchDirectoryStyle: SidebarBranchDirectoryStyle
     let showsGitBranchIcon: Bool
     let showsSSH: Bool
     let openPullRequestLinksInCmuxBrowser: Bool
@@ -9436,6 +9437,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
         )
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
+        branchDirectoryStyle = SidebarBranchDirectoryStyleSettings.current(defaults: defaults)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
         showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: true)
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
@@ -12183,6 +12185,19 @@ private struct SidebarEmptyArea: View {
 enum SidebarPathFormatter {
     static let homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
 
+    static func displayPath(
+        _ path: String,
+        style: SidebarBranchDirectoryStyle,
+        homeDirectoryPath: String = Self.homeDirectoryPath
+    ) -> String {
+        switch style {
+        case .fullPath:
+            return shortenedPath(path, homeDirectoryPath: homeDirectoryPath)
+        case .repoName:
+            return repositoryRootName(for: path) ?? lastPathComponent(path)
+        }
+    }
+
     static func shortenedPath(
         _ path: String,
         homeDirectoryPath: String = Self.homeDirectoryPath
@@ -12196,6 +12211,39 @@ enum SidebarPathFormatter {
             return "~" + trimmed.dropFirst(homeDirectoryPath.count)
         }
         return trimmed
+    }
+
+    private static func lastPathComponent(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return path }
+        let component = (trimmed as NSString).lastPathComponent
+        return component.isEmpty ? trimmed : component
+    }
+
+    private static func repositoryRootName(for path: String) -> String? {
+        guard let gitRoot = gitRootPath(for: path) else { return nil }
+        let component = (gitRoot as NSString).lastPathComponent
+        return component.isEmpty ? gitRoot : component
+    }
+
+    private static func gitRootPath(for path: String) -> String? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let fileManager = FileManager.default
+        var current = trimmed
+        while true {
+            let gitPath = (current as NSString).appendingPathComponent(".git")
+            if fileManager.fileExists(atPath: gitPath) {
+                return current
+            }
+
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current { break }
+            current = parent
+        }
+
+        return nil
     }
 }
 
@@ -12403,6 +12451,10 @@ private struct TabItemView: View, Equatable {
 
     private var sidebarBranchVerticalLayout: Bool {
         settings.usesVerticalBranchLayout
+    }
+
+    private var sidebarBranchDirectoryStyle: SidebarBranchDirectoryStyle {
+        settings.branchDirectoryStyle
     }
 
     private var sidebarShowGitBranchIcon: Bool {
@@ -13716,8 +13768,12 @@ private struct TabItemView: View, Equatable {
 
             let directoryText: String? = {
                 guard let directory = entry.directory else { return nil }
-                let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
-                return shortened.isEmpty ? nil : shortened
+                let displayPath = SidebarPathFormatter.displayPath(
+                    directory,
+                    style: sidebarBranchDirectoryStyle,
+                    homeDirectoryPath: home
+                )
+                return displayPath.isEmpty ? nil : displayPath
             }()
 
             switch (branchText, directoryText) {
@@ -13736,8 +13792,12 @@ private struct TabItemView: View, Equatable {
     private func directorySummaryText(orderedPanelIds: [UUID]) -> String? {
         let home = SidebarPathFormatter.homeDirectoryPath
         let entries = tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds).compactMap { directory in
-            let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
-            return shortened.isEmpty ? nil : shortened
+            let displayPath = SidebarPathFormatter.displayPath(
+                directory,
+                style: sidebarBranchDirectoryStyle,
+                homeDirectoryPath: home
+            )
+            return displayPath.isEmpty ? nil : displayPath
         }
         return entries.isEmpty ? nil : entries.joined(separator: " | ")
     }
