@@ -7683,7 +7683,9 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.newWindow") {
-            AppDelegate.shared?.openNewMainWindow(nil)
+            AppDelegate.shared?.openNewMainWindow(
+                preferredWindow: AppDelegate.shared?.mainWindow(for: windowId)
+            )
         }
         registry.register(commandId: "palette.installCLI") {
             AppDelegate.shared?.installCmuxCLIInPath(nil)
