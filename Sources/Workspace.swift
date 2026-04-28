@@ -7544,7 +7544,6 @@ final class Workspace: Identifiable, ObservableObject {
         BonsplitConfiguration.SplitButtonTooltips(
             newTerminal: KeyboardShortcutSettings.Action.newSurface.tooltip("New Terminal"),
             newBrowser: KeyboardShortcutSettings.Action.openBrowser.tooltip("New Browser"),
-            newEditor: String(localized: "editor.new.tooltip", defaultValue: "New Editor"),
             splitRight: KeyboardShortcutSettings.Action.splitRight.tooltip("Split Right"),
             splitDown: KeyboardShortcutSettings.Action.splitDown.tooltip("Split Down")
         )
@@ -14113,6 +14112,23 @@ extension Workspace: BonsplitDelegate {
     }
 
     private func executeSurfaceTabBarCommandButton(identifier: String, inPane pane: PaneID) {
+        if CmuxSurfaceTabBarBuiltInAction(configID: identifier) == .newEditor {
+            let directory = normalizedSidebarDirectory(currentDirectory)
+                ?? FileManager.default.homeDirectoryForCurrentUser.path
+            if let sourcePanelId = effectiveSelectedPanelId(inPane: pane) ?? focusedPanelId {
+                _ = newEditorSplit(
+                    from: sourcePanelId,
+                    orientation: .horizontal,
+                    insertFirst: false,
+                    workspaceRootDirectory: directory,
+                    focus: true
+                )
+            } else {
+                _ = newEditorSurface(inPane: pane, workspaceRootDirectory: directory)
+            }
+            return
+        }
+
         guard let executable = surfaceTabBarCommandButtons[identifier],
               let globalConfigPath = surfaceTabBarButtonGlobalConfigPath else {
             return

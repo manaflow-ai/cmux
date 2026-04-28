@@ -174,7 +174,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .newBrowser:
             return .newBrowser
         case .newEditor:
-            return .newEditor
+            return .custom(configID)
         case .splitRight:
             return .splitRight
         case .splitDown:
