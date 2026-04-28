@@ -13311,10 +13311,20 @@ class TerminalController {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: Tab not found"
         }
+        let clearBoundary: UInt64?
         if case .workspace(let tabId) = target {
             TerminalNotificationStore.discardQueuedNotifications(forTabId: tabId)
+            clearBoundary = nil
+        } else {
+            clearBoundary = TerminalNotificationStore.markQueuedNotificationClearBoundary()
         }
         scheduleSidebarMutation(target: target) { _, tab in
+            if let clearBoundary {
+                TerminalNotificationStore.discardQueuedNotifications(
+                    forTabId: tab.id,
+                    throughGeneration: clearBoundary
+                )
+            }
             TerminalNotificationStore.shared.clearNotifications(
                 forTabId: tab.id,
                 discardQueuedNotifications: false

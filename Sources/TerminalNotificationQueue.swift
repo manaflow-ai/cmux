@@ -88,6 +88,25 @@ fileprivate final class TerminalNotificationIngress: @unchecked Sendable {
         lock.unlock()
     }
 
+    func discard(tabId: UUID, throughGeneration generation: UInt64) {
+        lock.lock()
+        let keysToRemove = queuedNotifications.compactMap { key, notification in
+            key.tabId == tabId && notification.generation <= generation ? key : nil
+        }
+        for key in keysToRemove {
+            queuedNotifications.removeValue(forKey: key)
+        }
+        lock.unlock()
+    }
+
+    func markClearBoundary() -> UInt64 {
+        lock.lock()
+        let generation = currentGeneration
+        currentGeneration &+= 1
+        lock.unlock()
+        return generation
+    }
+
 #if DEBUG
     @MainActor
     func drainForTesting() {
@@ -153,6 +172,14 @@ extension TerminalNotificationStore {
 
     nonisolated static func discardQueuedNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
         TerminalNotificationIngress.shared.discard(tabId: tabId, surfaceId: surfaceId)
+    }
+
+    nonisolated static func discardQueuedNotifications(forTabId tabId: UUID, throughGeneration generation: UInt64) {
+        TerminalNotificationIngress.shared.discard(tabId: tabId, throughGeneration: generation)
+    }
+
+    nonisolated static func markQueuedNotificationClearBoundary() -> UInt64 {
+        TerminalNotificationIngress.shared.markClearBoundary()
     }
 
 #if DEBUG
