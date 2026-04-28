@@ -223,7 +223,7 @@ extension TerminalNotificationStore {
     ) -> Bool? {
         switch state {
         case .authorized, .provisional, .ephemeral:
-            return true
+            return nil
         case .denied:
             return nil
         case .notDetermined:
