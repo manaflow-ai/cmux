@@ -27,6 +27,9 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
     override var safeAreaRect: NSRect { bounds }
     override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
+    // Minimal mode pulls pane tabs into the titlebar band; keep the root host
+    // non-draggable so left-clicks stay routed to interactive SwiftUI content.
+    override var mouseDownCanMoveWindow: Bool { false }
 
     required init(rootView: Content) {
         super.init(rootView: rootView)
