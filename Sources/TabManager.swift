@@ -309,6 +309,19 @@ enum WorkspaceTabColorSettings {
         persistPaletteMap(palette, defaults: defaults)
     }
 
+    static func nextAutoAssignColor(
+        existingColors: Set<String>,
+        defaults: UserDefaults = .standard
+    ) -> String? {
+        let available = palette(defaults: defaults)
+        for entry in available {
+            if let hex = normalizedHex(entry.hex), !existingColors.contains(hex) {
+                return hex
+            }
+        }
+        return nil
+    }
+
     static func removeColor(named name: String, defaults: UserDefaults = .standard) {
         guard let normalizedName = normalizedColorName(name) else { return }
         var palette = editablePaletteMap(defaults: defaults)
@@ -2127,6 +2140,14 @@ class TabManager: ObservableObject {
                 newWorkspace.setCustomTitle(title)
             }
             wireClosedBrowserTracking(for: newWorkspace)
+            if AutoAssignWorkspaceColorSettings.isEnabled() && newWorkspace.customColor == nil {
+                let existingColors = Set(tabs.compactMap { $0.customColor })
+                if let autoColor = WorkspaceTabColorSettings.nextAutoAssignColor(
+                    existingColors: existingColors
+                ) {
+                    newWorkspace.setCustomColor(autoColor)
+                }
+            }
             if eagerLoadTerminal && !select {
                 requestBackgroundWorkspaceLoad(for: newWorkspace.id)
             }
