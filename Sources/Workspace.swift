@@ -337,6 +337,15 @@ extension Workspace {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
+#if DEBUG
+        let restoreStartedAt = ProcessInfo.processInfo.systemUptime
+        let snapshotScrollbackChars = snapshot.panels.reduce(0) { total, panel in
+            total + (panel.terminal?.scrollback?.count ?? 0)
+        }
+        cmuxDebugLog(
+            "activation.session.workspaceRestore.begin workspace=\(id.uuidString.prefix(8)) panels=\(snapshot.panels.count) scrollbackChars=\(snapshotScrollbackChars) currentDir=\(snapshot.currentDirectory.isEmpty ? "nil" : "set")"
+        )
+#endif
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
         restoredAgentAutoResumePendingPanelIds.removeAll(keepingCapacity: false)
@@ -349,6 +358,11 @@ extension Workspace {
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries = restoreSessionLayout(snapshot.layout)
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.workspaceRestore.phase stage=layout elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - restoreStartedAt) * 1000.0))) workspace=\(id.uuidString.prefix(8)) leaves=\(leafEntries.count) panels=\(snapshot.panels.count)"
+        )
+#endif
         var oldToNewPanelIds: [UUID: UUID] = [:]
 
         for entry in leafEntries {
@@ -359,6 +373,11 @@ extension Workspace {
                 oldToNewPanelIds: &oldToNewPanelIds
             )
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.workspaceRestore.phase stage=panesRestored elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - restoreStartedAt) * 1000.0))) workspace=\(id.uuidString.prefix(8)) mappedPanels=\(oldToNewPanelIds.count)"
+        )
+#endif
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
@@ -398,6 +417,11 @@ extension Workspace {
         } else {
             scheduleFocusReconcile()
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.workspaceRestore.end elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - restoreStartedAt) * 1000.0))) workspace=\(id.uuidString.prefix(8)) panels=\(panels.count)"
+        )
+#endif
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -654,6 +678,9 @@ extension Workspace {
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
         oldToNewPanelIds: inout [UUID: UUID]
     ) {
+#if DEBUG
+        let restorePaneStartedAt = ProcessInfo.processInfo.systemUptime
+#endif
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
             .compactMap { panelIdFromSurfaceId($0.id) }
@@ -689,9 +716,21 @@ extension Workspace {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(selectedTabId)
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.restorePane.end elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - restorePaneStartedAt) * 1000.0))) workspace=\(id.uuidString.prefix(8)) pane=\(String(describing: paneId).prefix(8)) desired=\(desiredOldPanelIds.count) created=\(createdPanelIds.count) existing=\(existingPanelIds.count)"
+        )
+#endif
     }
 
     private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
+#if DEBUG
+        let createPanelStartedAt = ProcessInfo.processInfo.systemUptime
+        let snapshotScrollbackChars = snapshot.terminal?.scrollback?.count ?? 0
+        cmuxDebugLog(
+            "activation.session.restorePanel.begin type=\(snapshot.type.rawValue) oldPanel=\(snapshot.id.uuidString.prefix(8)) workspace=\(id.uuidString.prefix(8)) pane=\(String(describing: paneId).prefix(8)) scrollbackChars=\(snapshotScrollbackChars)"
+        )
+#endif
         switch snapshot.type {
         case .terminal:
             let workingDirectory =
@@ -720,6 +759,11 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
             )
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.restorePanel.phase stage=replayEnvironment elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - createPanelStartedAt) * 1000.0))) type=terminal oldPanel=\(snapshot.id.uuidString.prefix(8)) env=\(replayEnvironment.isEmpty ? 0 : 1) scrollbackChars=\(snapshotScrollbackChars)"
+            )
+#endif
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -751,6 +795,11 @@ extension Workspace {
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
             }
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.restorePanel.end type=terminal result=1 elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - createPanelStartedAt) * 1000.0))) oldPanel=\(snapshot.id.uuidString.prefix(8)) newPanel=\(terminalPanel.id.uuidString.prefix(8)) scrollbackChars=\(snapshotScrollbackChars)"
+            )
+#endif
             return terminalPanel.id
         case .browser:
             guard let browserPanel = newBrowserSurface(
@@ -759,20 +808,40 @@ extension Workspace {
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID
             ) else {
+#if DEBUG
+                cmuxDebugLog(
+                    "activation.session.restorePanel.end type=browser result=0 elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - createPanelStartedAt) * 1000.0))) oldPanel=\(snapshot.id.uuidString.prefix(8))"
+                )
+#endif
                 return nil
             }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.restorePanel.end type=browser result=1 elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - createPanelStartedAt) * 1000.0))) oldPanel=\(snapshot.id.uuidString.prefix(8)) newPanel=\(browserPanel.id.uuidString.prefix(8))"
+            )
+#endif
             return browserPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
                   let markdownPanel = newMarkdownSurface(
                     inPane: paneId,
                     filePath: filePath,
-                    focus: false
+                      focus: false
                   ) else {
+#if DEBUG
+                cmuxDebugLog(
+                    "activation.session.restorePanel.end type=markdown result=0 elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - createPanelStartedAt) * 1000.0))) oldPanel=\(snapshot.id.uuidString.prefix(8))"
+                )
+#endif
                 return nil
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.restorePanel.end type=markdown result=1 elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - createPanelStartedAt) * 1000.0))) oldPanel=\(snapshot.id.uuidString.prefix(8)) newPanel=\(markdownPanel.id.uuidString.prefix(8))"
+            )
+#endif
             return markdownPanel.id
         }
     }

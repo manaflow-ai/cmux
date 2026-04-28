@@ -837,6 +837,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    private func debugActivationNow() -> TimeInterval {
+        ProcessInfo.processInfo.systemUptime
+    }
+
+    private func debugActivationElapsedMs(_ startedAt: TimeInterval) -> String {
+        String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0))
+    }
+
+    private func debugActivationState() -> String {
+        let windows = NSApp.windows
+        let keyWindow = NSApp.keyWindow
+        let mainWindow = NSApp.mainWindow
+        let active = NSApp.isActive ? 1 : 0
+        let key = keyWindow.map { debugWindowToken($0) } ?? "nil"
+        let main = mainWindow.map { debugWindowToken($0) } ?? "nil"
+        let visibleCount = windows.filter { $0.isVisible }.count
+        let miniCount = windows.filter { $0.isMiniaturized }.count
+        let contextCount = mainWindowContexts.count
+        let activeManager = debugManagerToken(tabManager)
+        let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(8)) } ?? "nil"
+        return "appActive=\(active) windows=\(windows.count) visible=\(visibleCount) mini=\(miniCount) contexts=\(contextCount) key={\(key)} main={\(main)} activeMgr=\(activeManager) selected=\(selected)"
+    }
+
+    private func debugSessionSnapshotSummary(_ snapshot: AppSessionSnapshot?) -> String {
+        guard let snapshot else { return "snapshot=nil" }
+        let workspaces = snapshot.windows.reduce(0) { $0 + $1.tabManager.workspaces.count }
+        let panels = snapshot.windows.reduce(0) { total, window in
+            total + window.tabManager.workspaces.reduce(0) { $0 + $1.panels.count }
+        }
+        let terminals = snapshot.windows.reduce(0) { total, window in
+            total + window.tabManager.workspaces.reduce(0) { workspaceTotal, workspace in
+                workspaceTotal + workspace.panels.filter { $0.type == .terminal }.count
+            }
+        }
+        let browsers = snapshot.windows.reduce(0) { total, window in
+            total + window.tabManager.workspaces.reduce(0) { workspaceTotal, workspace in
+                workspaceTotal + workspace.panels.filter { $0.type == .browser }.count
+            }
+        }
+        let scrollbackChars = snapshot.windows.reduce(0) { total, window in
+            total + window.tabManager.workspaces.reduce(0) { workspaceTotal, workspace in
+                workspaceTotal + workspace.panels.reduce(0) { panelTotal, panel in
+                    panelTotal + (panel.terminal?.scrollback?.count ?? 0)
+                }
+            }
+        }
+        return "snapshotWindows=\(snapshot.windows.count) snapshotWorkspaces=\(workspaces) snapshotPanels=\(panels) snapshotTerminals=\(terminals) snapshotBrowsers=\(browsers) scrollbackChars=\(scrollbackChars)"
+    }
+
     private func pointerString(_ object: AnyObject?) -> String {
         guard let object else { return "nil" }
         return String(describing: Unmanaged.passUnretained(object).toOpaque())
@@ -889,6 +938,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog(
+            "activation.openURLs.begin urlCount=\(urls.count) \(debugActivationState())"
+        )
+#endif
         let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
         for url in authCallbacks {
             Task { @MainActor in
@@ -901,7 +956,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let directories = externalOpenDirectories(from: urls)
-        guard !directories.isEmpty else { return }
+        guard !directories.isEmpty else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.openURLs.end reason=noDirectories authCount=\(authCallbacks.count) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+            )
+#endif
+            return
+        }
 
         prepareForExplicitOpenIntentAtStartup()
         for directory in directories {
@@ -910,18 +972,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 debugSource: "application.openURLs"
             )
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.openURLs.end authCount=\(authCallbacks.count) directoryCount=\(directories.count) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog(
+            "activation.reopen.begin hasVisibleWindows=\(flag ? 1 : 0) \(debugActivationState())"
+        )
+#endif
         if hasVisibleMainTerminalWindow() {
             _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+#if DEBUG
+            cmuxDebugLog(
+                "activation.reopen.end route=visibleMainWindow elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+            )
+#endif
             return true
         }
         ensureInitialMainWindowIfNeeded()
+#if DEBUG
+        cmuxDebugLog(
+            "activation.reopen.end route=ensureInitialWindow elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
         return true
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog("activation.launch.begin \(debugActivationState())")
+#endif
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
@@ -929,6 +1016,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         syncActivationPolicy()
 
         claimAuthCallbackURLSchemes()
+#if DEBUG
+        cmuxDebugLog(
+            "activation.launch.phase stage=basicSetup elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) telemetry=\(telemetryEnabled ? 1 : 0) xctest=\(isRunningUnderXCTest ? 1 : 0) \(debugActivationState())"
+        )
+#endif
 
         // Install the Feed (workstream) store. Separate from the transport
         // wiring: the store is a plain singleton here, and the socket
@@ -943,6 +1035,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.launch.phase stage=feedInstalled elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
 
         DistributedNotificationCenter.default().addObserver(
             self,
@@ -969,6 +1066,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: .feedRequestSendText,
             object: nil
         )
+#if DEBUG
+        cmuxDebugLog(
+            "activation.launch.phase stage=observersInstalled elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -1020,6 +1122,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.enableCaptureFailedRequests = false
             }
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.launch.phase stage=telemetryStarted elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
 
         if telemetryEnabled && !isRunningUnderXCTest {
             PostHogAnalytics.shared.startIfNeeded()
@@ -1068,6 +1175,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.servicesProvider = self
 
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+#if DEBUG
+        cmuxDebugLog(
+            "activation.launch.end elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
         if env["CMUX_UI_TEST_MODE"] == "1" {
@@ -1346,6 +1458,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     func applicationDidBecomeActive(_ notification: Notification) {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog("activation.didBecomeActive.begin \(debugActivationState())")
+#endif
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0
         ])
@@ -1353,18 +1469,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
 
-        guard let notificationStore else { return }
+        guard let notificationStore else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.didBecomeActive.end reason=noNotificationStore elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+            )
+#endif
+            return
+        }
         notificationStore.handleApplicationDidBecomeActive()
-        guard let tabManager else { return }
-        guard let tabId = tabManager.selectedTabId else { return }
+        guard let tabManager else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.didBecomeActive.end reason=noTabManager elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+            )
+#endif
+            return
+        }
+        guard let tabId = tabManager.selectedTabId else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.didBecomeActive.end reason=noSelectedWorkspace elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+            )
+#endif
+            return
+        }
         let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
+        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.didBecomeActive.end unread=0 surface=\(surfaceId.map { String($0.uuidString.prefix(8)) } ?? "nil") elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+            )
+#endif
+            return
+        }
 
         if let surfaceId,
            let tab = tabManager.tabs.first(where: { $0.id == tabId }) {
             tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+#if DEBUG
+        cmuxDebugLog(
+            "activation.didBecomeActive.end unread=1 surface=\(surfaceId.map { String($0.uuidString.prefix(8)) } ?? "nil") elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -1432,9 +1581,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillResignActive(_ notification: Notification) {
-        guard !isTerminatingApp else { return }
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog("activation.willResignActive.begin \(debugActivationState())")
+#endif
+        guard !isTerminatingApp else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.willResignActive.end reason=terminating elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+            )
+#endif
+            return
+        }
         clearConfiguredShortcutChordState()
         _ = saveSessionSnapshot(includeScrollback: false)
+#if DEBUG
+        cmuxDebugLog(
+            "activation.willResignActive.end elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
     }
 
     func persistSessionForUpdateRelaunch() {
@@ -2180,12 +2345,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func prepareStartupSessionSnapshotIfNeeded() {
-        guard !didPrepareStartupSessionSnapshot else { return }
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog("activation.session.prepare.begin didPrepare=\(didPrepareStartupSessionSnapshot ? 1 : 0)")
+#endif
+        guard !didPrepareStartupSessionSnapshot else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.prepare.end reason=alreadyPrepared elapsedMs=\(debugActivationElapsedMs(activationStartedAt))"
+            )
+#endif
+            return
+        }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
         SessionPersistenceStore.syncManualRestoreSnapshotCache()
-        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        guard SessionRestorePolicy.shouldAttemptRestore() else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.prepare.end restore=0 elapsedMs=\(debugActivationElapsedMs(activationStartedAt))"
+            )
+#endif
+            return
+        }
         startupSessionSnapshot = SessionPersistenceStore.load()
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.prepare.end restore=1 elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugSessionSnapshotSummary(startupSessionSnapshot))"
+        )
+#endif
     }
 
     private func persistedWindowGeometry(
@@ -2271,10 +2459,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
-        guard !didAttemptStartupSessionRestore else { return }
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog(
+            "activation.session.restoreAttempt.begin didAttempt=\(didAttemptStartupSessionRestore ? 1 : 0) explicitOpen=\(didHandleExplicitOpenIntentAtStartup ? 1 : 0) primary={\(debugWindowToken(primaryWindow))} \(debugSessionSnapshotSummary(startupSessionSnapshot))"
+        )
+#endif
+        guard !didAttemptStartupSessionRestore else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.restoreAttempt.end reason=alreadyAttempted elapsedMs=\(debugActivationElapsedMs(activationStartedAt))"
+            )
+#endif
+            return
+        }
         didAttemptStartupSessionRestore = true
-        guard !didHandleExplicitOpenIntentAtStartup else { return }
-        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return }
+        guard !didHandleExplicitOpenIntentAtStartup else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.restoreAttempt.end reason=explicitOpen elapsedMs=\(debugActivationElapsedMs(activationStartedAt))"
+            )
+#endif
+            return
+        }
+        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.restoreAttempt.end reason=noPrimaryContext elapsedMs=\(debugActivationElapsedMs(activationStartedAt))"
+            )
+#endif
+            return
+        }
 
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
@@ -2292,6 +2507,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: primaryContext,
                 window: primaryWindow
             )
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.restoreAttempt.phase stage=primaryApplied elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+            )
+#endif
         } else {
             let displays = currentDisplayGeometries()
             let fallbackGeometry = persistedWindowGeometry()
@@ -2323,23 +2543,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !additionalWindows.isEmpty {
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
+#if DEBUG
+                    let additionalStartedAt = self.debugActivationNow()
+                    cmuxDebugLog(
+                        "activation.session.restoreAdditional.begin count=\(additionalWindows.count) \(self.debugActivationState())"
+                    )
+#endif
                     for windowSnapshot in additionalWindows {
                         _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
                     }
                     self.completeSessionRestoreOperation(isManualReopen: false)
+#if DEBUG
+                    cmuxDebugLog(
+                        "activation.session.restoreAdditional.end count=\(additionalWindows.count) elapsedMs=\(self.debugActivationElapsedMs(additionalStartedAt)) \(self.debugActivationState())"
+                    )
+#endif
                 }
             } else {
                 completeSessionRestoreOperation(isManualReopen: false)
             }
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.restoreAttempt.end elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
     }
 
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog("activation.session.restoreComplete.begin manual=\(isManualReopen ? 1 : 0)")
+#endif
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             _ = saveSessionSnapshot(includeScrollback: false)
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.restoreComplete.end manual=\(isManualReopen ? 1 : 0) elapsedMs=\(debugActivationElapsedMs(activationStartedAt))"
+        )
+#endif
     }
 
     nonisolated static func shouldSaveSessionSnapshotOnRestoreCompletion(
@@ -2418,6 +2663,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window: NSWindow?
     ) {
 #if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog(
+            "activation.session.apply.begin window=\(String(context.windowId.uuidString.prefix(8))) workspaceCount=\(snapshot.tabManager.workspaces.count) panelCount=\(snapshot.tabManager.workspaces.reduce(0) { $0 + $1.panels.count }) liveWin={\(debugWindowToken(window))}"
+        )
+#endif
+#if DEBUG
         cmuxDebugLog(
             "session.restore.apply window=\(context.windowId.uuidString.prefix(8)) " +
                 "liveWin=\(window?.windowNumber ?? -1) " +
@@ -2441,6 +2692,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.apply.end window=\(String(context.windowId.uuidString.prefix(8))) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
     }
 
     private func resolvedWindowFrame(from snapshot: SessionWindowSnapshot?) -> NSRect? {
@@ -2958,12 +3214,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> Bool {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog(
+            "activation.session.save.begin includeScrollback=\(includeScrollback ? 1 : 0) removeWhenEmpty=\(removeWhenEmpty ? 1 : 0) contextCount=\(mainWindowContexts.count) \(debugActivationState())"
+        )
+#endif
         if Self.shouldSkipSessionSaveDuringRestore(
             isApplyingSessionRestore: isApplyingSessionRestore,
             includeScrollback: includeScrollback
         ) {
 #if DEBUG
             cmuxDebugLog("session.save.skipped reason=session_restore_in_progress includeScrollback=0")
+            cmuxDebugLog(
+                "activation.session.save.end saved=0 reason=restoreInProgress elapsedMs=\(debugActivationElapsedMs(activationStartedAt))"
+            )
 #endif
             return false
         }
@@ -2987,14 +3252,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex
         ) else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.save.phase stage=buildNil elapsedMs=\(debugActivationElapsedMs(activationStartedAt))"
+            )
+#endif
             persistSessionSnapshot(
                 nil,
                 removeWhenEmpty: removeWhenEmpty,
                 persistedGeometryData: nil,
                 synchronously: writeSynchronously
             )
+#if DEBUG
+            cmuxDebugLog(
+                "activation.session.save.end saved=0 reason=noSnapshot elapsedMs=\(debugActivationElapsedMs(activationStartedAt))"
+            )
+#endif
             return false
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.save.phase stage=built elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugSessionSnapshotSummary(snapshot))"
+        )
+#endif
 
         let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
             Self.encodedPersistedWindowGeometryData(
@@ -3012,6 +3292,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistedGeometryData: persistedGeometryData,
             synchronously: writeSynchronously
         )
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.save.end saved=1 sync=\(writeSynchronously ? 1 : 0) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugSessionSnapshotSummary(snapshot))"
+        )
+#endif
         return true
     }
 
@@ -3340,6 +3625,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         fileExplorerState: FileExplorerState? = nil,
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog(
+            "activation.mainWindow.register.begin windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))} existingByWindow=\(mainWindowContexts[ObjectIdentifier(window)] == nil ? 0 : 1) \(debugActivationState())"
+        )
+#endif
         let key = ObjectIdentifier(window)
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
@@ -3377,6 +3668,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 window.orderOut(nil)
                 window.close()
+#if DEBUG
+                cmuxDebugLog(
+                    "activation.mainWindow.register.end reason=duplicateIgnored windowId=\(String(windowId.uuidString.prefix(8))) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+                )
+#endif
                 return
             }
             tabManager.window = window
@@ -3432,6 +3728,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isTerminatingApp {
             _ = saveSessionSnapshot(includeScrollback: false)
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.mainWindow.register.end windowId=\(String(windowId.uuidString.prefix(8))) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
     }
 
     struct MainWindowSummary {
@@ -5473,10 +5774,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func openNewMainWindow(_ sender: Any?) {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog("activation.openNewMainWindow.begin \(debugActivationState())")
+#endif
         _ = createMainWindow()
+#if DEBUG
+        cmuxDebugLog(
+            "activation.openNewMainWindow.end elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
     }
 
     func scheduleInitialMainWindowBootstrap(debugSource: String) {
+#if DEBUG
+        cmuxDebugLog(
+            "activation.bootstrap.schedule source=\(debugSource) already=\(didScheduleInitialMainWindowBootstrap ? 1 : 0) \(debugActivationState())"
+        )
+#endif
         guard !didScheduleInitialMainWindowBootstrap else { return }
         didScheduleInitialMainWindowBootstrap = true
         DispatchQueue.main.async { [weak self] in
@@ -5486,24 +5801,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func bootstrapInitialMainWindowIfNeeded(debugSource: String, shouldActivate: Bool = true) -> UUID {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog(
+            "activation.bootstrap.begin source=\(debugSource) shouldActivate=\(shouldActivate ? 1 : 0) didBootstrap=\(didBootstrapInitialMainWindow ? 1 : 0) \(debugActivationState())"
+        )
+#endif
         let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: shouldActivate)
+#if DEBUG
+        let socketStartedAt = debugActivationNow()
+#endif
         if let manager = tabManagerFor(windowId: windowId) {
             startSocketListenerIfEnabled(
                 tabManager: manager,
                 source: "bootstrapInitialMainWindow.\(debugSource)"
             )
         }
-        guard !didBootstrapInitialMainWindow else { return windowId }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.bootstrap.phase stage=socketStart elapsedMs=\(debugActivationElapsedMs(socketStartedAt)) windowId=\(String(windowId.uuidString.prefix(8)))"
+        )
+#endif
+        guard !didBootstrapInitialMainWindow else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.bootstrap.end reason=alreadyBootstrapped windowId=\(String(windowId.uuidString.prefix(8))) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+            )
+#endif
+            return windowId
+        }
 
         didBootstrapInitialMainWindow = true
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
             openPreferencesWindow(debugSource: "uiTestShowSettings.\(debugSource)")
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.bootstrap.end windowId=\(String(windowId.uuidString.prefix(8))) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
         return windowId
     }
 
     @discardableResult
     func ensureInitialMainWindowIfNeeded(shouldActivate: Bool = true) -> UUID {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog(
+            "activation.ensureInitialWindow.begin shouldActivate=\(shouldActivate ? 1 : 0) \(debugActivationState())"
+        )
+#endif
         for context in sortedMainWindowContextsForSessionSnapshot() {
             guard let window = resolvedWindow(for: context) else { continue }
             if shouldActivate {
@@ -5513,10 +5860,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 window.makeKeyAndOrderFront(nil)
                 setActiveMainWindow(window)
             }
+#if DEBUG
+            cmuxDebugLog(
+                "activation.ensureInitialWindow.end route=existing windowId=\(String(context.windowId.uuidString.prefix(8))) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+            )
+#endif
             return context.windowId
         }
 
-        return createMainWindow(shouldActivate: shouldActivate)
+        let windowId = createMainWindow(shouldActivate: shouldActivate)
+#if DEBUG
+        cmuxDebugLog(
+            "activation.ensureInitialWindow.end route=create windowId=\(String(windowId.uuidString.prefix(8))) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
+        return windowId
     }
 
     private func hasVisibleMainTerminalWindow() -> Bool {
@@ -6183,11 +6541,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         shouldActivate: Bool = true
     ) -> UUID {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog(
+            "activation.createMainWindow.begin hasInitialDirectory=\((initialWorkingDirectory?.isEmpty == false) ? 1 : 0) hasSessionSnapshot=\(sessionWindowSnapshot == nil ? 0 : 1) shouldActivate=\(shouldActivate ? 1 : 0) \(debugActivationState())"
+        )
+#endif
         let windowId = UUID()
+#if DEBUG
+        let tabManagerStartedAt = debugActivationNow()
+#endif
         let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
             tabManager.restoreSessionSnapshot(tabManagerSnapshot)
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.createMainWindow.phase stage=tabManager elapsedMs=\(debugActivationElapsedMs(tabManagerStartedAt)) windowId=\(String(windowId.uuidString.prefix(8))) workspaceCount=\(tabManager.tabs.count)"
+        )
+#endif
 
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width
             .map(SessionPersistencePolicy.sanitizedSidebarWidth)
@@ -6215,12 +6587,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
 
+#if DEBUG
+        let configStartedAt = debugActivationNow()
+#endif
         let cmuxConfigStore = CmuxConfigStore()
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
         cmuxConfigStore.loadAll()
+#if DEBUG
+        cmuxDebugLog(
+            "activation.createMainWindow.phase stage=configStore elapsedMs=\(debugActivationElapsedMs(configStartedAt)) windowId=\(String(windowId.uuidString.prefix(8)))"
+        )
+#endif
 
         let fileExplorerState = FileExplorerState()
 
+#if DEBUG
+        let rootStartedAt = debugActivationNow()
+#endif
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
@@ -6228,10 +6611,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
+#if DEBUG
+        cmuxDebugLog(
+            "activation.createMainWindow.phase stage=rootView elapsedMs=\(debugActivationElapsedMs(rootStartedAt)) windowId=\(String(windowId.uuidString.prefix(8)))"
+        )
+#endif
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+#if DEBUG
+        let windowStartedAt = debugActivationNow()
+#endif
         let sourceContext = preferredMainWindowContextForWorkspaceCreation(
             debugSource: "createMainWindow.initialGeometry"
         )
@@ -6291,10 +6682,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         window.contentView = MainWindowHostingView(rootView: root)
+#if DEBUG
+        cmuxDebugLog(
+            "activation.createMainWindow.phase stage=windowConstructed elapsedMs=\(debugActivationElapsedMs(windowStartedAt)) windowId=\(String(windowId.uuidString.prefix(8))) restoredFrame=\(restoredFrame == nil ? 0 : 1)"
+        )
+#endif
 
         // Apply shared window styling.
+#if DEBUG
+        let decorateStartedAt = debugActivationNow()
+#endif
         attachUpdateAccessory(to: window)
         applyWindowDecorations(to: window)
+#if DEBUG
+        cmuxDebugLog(
+            "activation.createMainWindow.phase stage=decorated elapsedMs=\(debugActivationElapsedMs(decorateStartedAt)) windowId=\(String(windowId.uuidString.prefix(8)))"
+        )
+#endif
 
         // Keep a strong reference so the window isn't deallocated.
         let controller = MainWindowController(window: window)
@@ -6305,6 +6709,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.delegate = controller
         mainWindowControllers.append(controller)
 
+#if DEBUG
+        let registerStartedAt = debugActivationNow()
+#endif
         registerMainWindow(
             window,
             windowId: windowId,
@@ -6314,7 +6721,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
+#if DEBUG
+        cmuxDebugLog(
+            "activation.createMainWindow.phase stage=registered elapsedMs=\(debugActivationElapsedMs(registerStartedAt)) windowId=\(String(windowId.uuidString.prefix(8)))"
+        )
+#endif
         installFileDropOverlay(on: window, tabManager: tabManager)
+#if DEBUG
+        let orderStartedAt = debugActivationNow()
+#endif
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
             window.orderFront(nil)
             if shouldActivate, TerminalController.socketCommandAllowsInAppFocusMutations() {
@@ -6325,6 +6740,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             NSApp.activate(ignoringOtherApps: true)
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.createMainWindow.phase stage=ordered elapsedMs=\(debugActivationElapsedMs(orderStartedAt)) windowId=\(String(windowId.uuidString.prefix(8))) shouldActivate=\(shouldActivate ? 1 : 0) \(debugActivationState())"
+        )
+#endif
         if shouldTemporarilyDisallowFullScreenTiling {
             DispatchQueue.main.async { [weak window] in
                 window?.collectionBehavior.remove(.fullScreenDisallowsTiling)
@@ -6339,6 +6759,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.createMainWindow.end windowId=\(String(windowId.uuidString.prefix(8))) elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) \(debugActivationState())"
+        )
+#endif
         return windowId
     }
 
@@ -12250,8 +12675,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] note in
             guard let self, let window = note.object as? NSWindow else { return }
             MainActor.assumeIsolated {
+#if DEBUG
+                let activationStartedAt = self.debugActivationNow()
+                cmuxDebugLog(
+                    "activation.window.didBecomeKey.begin window={\(self.debugWindowToken(window))} \(self.debugActivationState())"
+                )
+#endif
                 self.setActiveMainWindow(window)
-                _ = self.contextForMainTerminalWindow(window)?.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
+                let didRestore = self.contextForMainTerminalWindow(window)?.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey() ?? false
+#if DEBUG
+                cmuxDebugLog(
+                    "activation.window.didBecomeKey.end restored=\(didRestore ? 1 : 0) elapsedMs=\(self.debugActivationElapsedMs(activationStartedAt)) window={\(self.debugWindowToken(window))} \(self.debugActivationState())"
+                )
+#endif
             }
         }
     }
@@ -12400,6 +12836,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func setActiveMainWindow(_ window: NSWindow) {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+#endif
         guard let context = contextForMainTerminalWindow(window) else { return }
 #if DEBUG
         let beforeManagerToken = debugManagerToken(tabManager)
@@ -12412,6 +12851,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         cmuxDebugLog(
             "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) \(debugShortcutRouteSnapshot())"
+        )
+        cmuxDebugLog(
+            "activation.mainWindow.active elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) window={\(debugWindowToken(window))} context={\(debugContextToken(context))} \(debugActivationState())"
         )
 #endif
     }
@@ -12771,8 +13213,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func bringToFront(_ window: NSWindow) {
+#if DEBUG
+        let activationStartedAt = debugActivationNow()
+        cmuxDebugLog(
+            "activation.bringToFront.begin window={\(debugWindowToken(window))} suppress=\(TerminalController.shouldSuppressSocketCommandActivation() ? 1 : 0) \(debugActivationState())"
+        )
+#endif
         if TerminalController.shouldSuppressSocketCommandActivation(),
            !TerminalController.socketCommandAllowsInAppFocusMutations() {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.bringToFront.end reason=suppressed elapsedMs=\(debugActivationElapsedMs(activationStartedAt))"
+            )
+#endif
             return
         }
         setActiveMainWindow(window)
@@ -12782,6 +13235,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.makeKeyAndOrderFront(nil)
         // Improve reliability across Spaces / when other helper panels are key.
         NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+#if DEBUG
+        cmuxDebugLog(
+            "activation.bringToFront.end elapsedMs=\(debugActivationElapsedMs(activationStartedAt)) window={\(debugWindowToken(window))} \(debugActivationState())"
+        )
+#endif
     }
 
     private func markReadIfFocused(

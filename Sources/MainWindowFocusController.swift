@@ -59,6 +59,44 @@ final class MainWindowFocusController {
     private var feedSelectedItemId: UUID?
     private var lastPublishedFeedFocusSnapshot = FeedFocusSnapshot()
 
+#if DEBUG
+    private func debugFocusNow() -> TimeInterval {
+        ProcessInfo.processInfo.systemUptime
+    }
+
+    private func debugFocusElapsedMs(_ startedAt: TimeInterval) -> String {
+        String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0))
+    }
+
+    private func debugResponderLabel(_ responder: NSResponder?) -> String {
+        guard let responder else { return "nil" }
+        return String(describing: type(of: responder))
+    }
+
+    private func debugIntentLabel(_ intent: MainWindowKeyboardFocusIntent?) -> String {
+        switch intent {
+        case .mainPanel(let workspaceId, let panelId):
+            return "mainPanel:\(workspaceId.uuidString.prefix(5)):\(panelId.uuidString.prefix(5))"
+        case .rightSidebar(let mode):
+            return "rightSidebar:\(mode.rawValue)"
+        case nil:
+            return "nil"
+        }
+    }
+
+    private func debugFocusState() -> String {
+        let windowNumber = window?.windowNumber ?? -1
+        let key = window?.isKeyWindow == true ? 1 : 0
+        let visible = window?.isVisible == true ? 1 : 0
+        let firstResponder = debugResponderLabel(window?.firstResponder)
+        let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(8)) } ?? "nil"
+        let workspaceCount = tabManager?.tabs.count ?? 0
+        let mode = fileExplorerState?.mode.rawValue ?? "nil"
+        let sidebarVisible = fileExplorerState?.isVisible == true ? 1 : 0
+        return "windowId=\(windowId.uuidString.prefix(8)) win=\(windowNumber) key=\(key) visible=\(visible) selected=\(selected) workspaces=\(workspaceCount) intent=\(debugIntentLabel(intent)) sidebarVisible=\(sidebarVisible) mode=\(mode) pendingFirst=\(pendingRightSidebarFirstItemFocusMode?.rawValue ?? "nil") pendingFind=\(pendingFileSearchFocus ? 1 : 0) fr=\(firstResponder)"
+    }
+#endif
+
     init(
         windowId: UUID,
         window: NSWindow?,
@@ -235,21 +273,47 @@ final class MainWindowFocusController {
 
     @discardableResult
     func restoreTargetAfterWindowBecameKey() -> Bool {
+#if DEBUG
+        let focusStartedAt = debugFocusNow()
+        cmuxDebugLog("activation.focus.restoreAfterKey.begin \(debugFocusState())")
+#endif
         guard case .rightSidebar(let mode) = intent else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.restoreAfterKey.end result=0 reason=notRightSidebar elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
             return false
         }
         if let responder = window?.firstResponder,
            ownsRightSidebarFocus(responder) {
             publishFeedFocusSnapshot()
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.restoreAfterKey.end result=1 reason=alreadySidebarResponder elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
             return true
         }
         if pendingFileSearchFocus, mode == .find {
-            return focusFileSearch()
+            let result = focusFileSearch()
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.restoreAfterKey.end result=\(result ? 1 : 0) route=fileSearch elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
+            return result
         }
-        return focusRightSidebar(
+        let result = focusRightSidebar(
             mode: mode,
             focusFirstItem: pendingRightSidebarFirstItemFocusMode == mode
         )
+#if DEBUG
+        cmuxDebugLog(
+            "activation.focus.restoreAfterKey.end result=\(result ? 1 : 0) route=rightSidebar elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+        )
+#endif
+        return result
     }
 
     @discardableResult
@@ -278,12 +342,27 @@ final class MainWindowFocusController {
     }
 
     func syncAfterResponderChange() {
+#if DEBUG
+        let focusStartedAt = debugFocusNow()
+        let beforeIntent = debugIntentLabel(intent)
+        let beforeResponder = debugResponderLabel(window?.firstResponder)
+#endif
         guard let responder = window?.firstResponder else {
             publishFeedFocusSnapshot()
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.syncAfterResponder.end route=noResponder beforeIntent=\(beforeIntent) beforeFr=\(beforeResponder) elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
             return
         }
         if let terminal = terminalFocusRequest(for: responder) {
             noteTerminalInteraction(workspaceId: terminal.workspaceId, panelId: terminal.panelId)
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.syncAfterResponder.end route=terminal beforeIntent=\(beforeIntent) beforeFr=\(beforeResponder) elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
             return
         }
         if let mode = rightSidebarModeOwning(responder) {
@@ -300,18 +379,46 @@ final class MainWindowFocusController {
                 feedSelectedItemId = nil
             }
             publishFeedFocusSnapshot()
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.syncAfterResponder.end route=rightSidebar mode=\(mode.rawValue) beforeIntent=\(beforeIntent) beforeFr=\(beforeResponder) elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
             return
         }
         if let mainPanel = selectedFocusedBrowserPanelRequest() {
             noteMainPanelInteraction(workspaceId: mainPanel.workspaceId, panelId: mainPanel.panelId)
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.syncAfterResponder.end route=browser beforeIntent=\(beforeIntent) beforeFr=\(beforeResponder) elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
             return
         }
         publishFeedFocusSnapshot()
+#if DEBUG
+        cmuxDebugLog(
+            "activation.focus.syncAfterResponder.end route=unknown beforeIntent=\(beforeIntent) beforeFr=\(beforeResponder) elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+        )
+#endif
     }
 
     @discardableResult
     func focusRightSidebar(mode requestedMode: RightSidebarMode? = nil, focusFirstItem: Bool = true) -> Bool {
-        guard let state = fileExplorerState else { return false }
+#if DEBUG
+        let focusStartedAt = debugFocusNow()
+        cmuxDebugLog(
+            "activation.focus.rightSidebar.begin requested=\(requestedMode?.rawValue ?? "nil") focusFirst=\(focusFirstItem ? 1 : 0) \(debugFocusState())"
+        )
+#endif
+        guard let state = fileExplorerState else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.rightSidebar.end result=0 reason=noState elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
+            return false
+        }
         let mode = requestedMode ?? lastRightSidebarMode ?? state.mode
         lastRightSidebarMode = mode
         pendingRightSidebarFirstItemFocusMode = focusFirstItem ? mode : nil
@@ -350,12 +457,28 @@ final class MainWindowFocusController {
         let fallbackResult = modeResult ? false : focusFallbackRightSidebarHost()
         let result = modeResult || fallbackResult || pendingRightSidebarFirstItemFocusMode == mode
         publishFeedFocusSnapshot()
+#if DEBUG
+        cmuxDebugLog(
+            "activation.focus.rightSidebar.end result=\(result ? 1 : 0) modeResult=\(modeResult ? 1 : 0) fallback=\(fallbackResult ? 1 : 0) elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+        )
+#endif
         return result
     }
 
     @discardableResult
     func focusFileSearch() -> Bool {
-        guard let state = fileExplorerState else { return false }
+#if DEBUG
+        let focusStartedAt = debugFocusNow()
+        cmuxDebugLog("activation.focus.fileSearch.begin \(debugFocusState())")
+#endif
+        guard let state = fileExplorerState else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.fileSearch.end result=0 reason=noState elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
+            return false
+        }
         lastRightSidebarMode = .find
         pendingRightSidebarFirstItemFocusMode = nil
         pendingFileSearchFocus = true
@@ -375,6 +498,11 @@ final class MainWindowFocusController {
         let fallbackResult = modeResult ? false : focusFallbackRightSidebarHost()
         let result = modeResult || fallbackResult || pendingFileSearchFocus
         publishFeedFocusSnapshot()
+#if DEBUG
+        cmuxDebugLog(
+            "activation.focus.fileSearch.end result=\(result ? 1 : 0) modeResult=\(modeResult ? 1 : 0) fallback=\(fallbackResult ? 1 : 0) elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+        )
+#endif
         return result
     }
 
@@ -426,8 +554,17 @@ final class MainWindowFocusController {
 
     @discardableResult
     func focusTerminal() -> Bool {
+#if DEBUG
+        let focusStartedAt = debugFocusNow()
+        cmuxDebugLog("activation.focus.terminal.begin \(debugFocusState())")
+#endif
         guard let tabManager,
               let workspace = tabManager.selectedWorkspace else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.terminal.end result=0 reason=noWorkspace elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
             return false
         }
         let terminalPanel: TerminalPanel? = {
@@ -437,7 +574,14 @@ final class MainWindowFocusController {
             }
             return workspace.focusedTerminalPanel
         }()
-        guard let terminalPanel else { return false }
+        guard let terminalPanel else {
+#if DEBUG
+            cmuxDebugLog(
+                "activation.focus.terminal.end result=0 reason=noTerminalPanel elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+            )
+#endif
+            return false
+        }
         pendingRightSidebarFirstItemFocusMode = nil
         pendingFileSearchFocus = false
         intent = .mainPanel(workspaceId: workspace.id, panelId: terminalPanel.id)
@@ -448,7 +592,13 @@ final class MainWindowFocusController {
             surfaceId: terminalPanel.id,
             respectForeignFirstResponder: false
         )
-        return terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        let result = terminalPanel.hostedView.isSurfaceViewFirstResponder()
+#if DEBUG
+        cmuxDebugLog(
+            "activation.focus.terminal.end result=\(result ? 1 : 0) surface=\(terminalPanel.id.uuidString.prefix(8)) elapsedMs=\(debugFocusElapsedMs(focusStartedAt)) \(debugFocusState())"
+        )
+#endif
+        return result
     }
 
     private func findShortcutTarget(forRightSidebarMode mode: RightSidebarMode) -> MainWindowFindShortcutTarget {

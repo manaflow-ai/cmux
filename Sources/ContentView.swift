@@ -3031,6 +3031,12 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
+#if DEBUG
+            let activationStartedAt = ProcessInfo.processInfo.systemUptime
+            cmuxDebugLog(
+                "activation.content.onAppear.begin windowId=\(windowId.uuidString.prefix(8)) tabs=\(tabManager.tabs.count) selected=\(debugShortWorkspaceId(tabManager.selectedTabId)) mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds))"
+            )
+#endif
             selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
@@ -3051,6 +3057,11 @@ struct ContentView: View {
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
             updateTitlebarText()
             syncTrafficLightInset()
+#if DEBUG
+            cmuxDebugLog(
+                "activation.content.onAppear.phase stage=initialSetup elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1000.0))) windowId=\(windowId.uuidString.prefix(8)) tabs=\(tabManager.tabs.count) selected=\(debugShortWorkspaceId(tabManager.selectedTabId)) mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds))"
+            )
+#endif
 
             // Startup recovery (#399): if session restore or a race condition leaves the
             // view in a broken state (empty tabs, no selection, unmounted workspaces),
@@ -3098,6 +3109,11 @@ struct ContentView: View {
                     ])
                 }
             }
+#if DEBUG
+            cmuxDebugLog(
+                "activation.content.onAppear.end elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1000.0))) windowId=\(windowId.uuidString.prefix(8)) tabs=\(tabManager.tabs.count) selected=\(debugShortWorkspaceId(tabManager.selectedTabId)) mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds))"
+            )
+#endif
         })
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
@@ -3594,6 +3610,12 @@ struct ContentView: View {
         })
 
         view = AnyView(view.background(WindowAccessor { [appearance] window in
+#if DEBUG
+            let activationStartedAt = ProcessInfo.processInfo.systemUptime
+            cmuxDebugLog(
+                "activation.content.windowAccessor.begin windowId=\(windowId.uuidString.prefix(8)) win=\(window.windowNumber) visible=\(window.isVisible ? 1 : 0) key=\(window.isKeyWindow ? 1 : 0) tabs=\(tabManager.tabs.count)"
+            )
+#endif
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.isRestorable = false
             window.titlebarAppearsTransparent = true
@@ -3680,12 +3702,20 @@ struct ContentView: View {
                 cmuxConfigStore: cmuxConfigStore
             )
             installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
+#if DEBUG
+            cmuxDebugLog(
+                "activation.content.windowAccessor.end elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1000.0))) windowId=\(windowId.uuidString.prefix(8)) win=\(window.windowNumber) visible=\(window.isVisible ? 1 : 0) key=\(window.isKeyWindow ? 1 : 0) tabs=\(tabManager.tabs.count)"
+            )
+#endif
         }))
 
         return view
     }
 
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
+#if DEBUG
+        let activationStartedAt = ProcessInfo.processInfo.systemUptime
+#endif
         let currentTabs = tabs ?? tabManager.tabs
         let orderedTabIds = currentTabs.map { $0.id }
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
@@ -3732,6 +3762,12 @@ struct ContentView: View {
                     "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds))"
                 )
             }
+        }
+        let elapsedMs = max(0, (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1000.0)
+        if elapsedMs >= 1.0 || mountedWorkspaceIds != previousMountedIds {
+            cmuxDebugLog(
+                "activation.content.reconcileMounted elapsedMs=\(String(format: "%.2f", elapsedMs)) tabs=\(currentTabs.count) selected=\(debugShortWorkspaceId(effectiveSelectedId)) mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds)) changed=\(mountedWorkspaceIds == previousMountedIds ? 0 : 1)"
+            )
         }
 #endif
     }

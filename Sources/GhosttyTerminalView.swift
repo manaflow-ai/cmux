@@ -4678,17 +4678,24 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
         #if DEBUG
+        let activationStartedAt = ProcessInfo.processInfo.systemUptime
         let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap { String(cString: $0) } ?? "(unset)"
         let terminfo = getenv("TERMINFO").flatMap { String(cString: $0) } ?? "(unset)"
         let xdg = getenv("XDG_DATA_DIRS").flatMap { String(cString: $0) } ?? "(unset)"
         let manpath = getenv("MANPATH").flatMap { String(cString: $0) } ?? "(unset)"
         Self.surfaceLog("createSurface start surface=\(id.uuidString) tab=\(tabId.uuidString) bounds=\(view.bounds) inWindow=\(view.window != nil) resources=\(resourcesDir) terminfo=\(terminfo) xdg=\(xdg) manpath=\(manpath)")
+        cmuxDebugLog(
+            "activation.surface.create.begin surface=\(id.uuidString.prefix(8)) workspace=\(tabId.uuidString.prefix(8)) context=\(cmuxSurfaceContextName(surfaceContext)) inWindow=\(view.window != nil ? 1 : 0) bounds=\(String(format: "%.1fx%.1f", view.bounds.width, view.bounds.height))"
+        )
         #endif
 
         guard let app = GhosttyApp.shared.app else {
             print("Ghostty app not initialized")
             #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty app not initialized")
+            cmuxDebugLog(
+                "activation.surface.create.end result=0 reason=noGhosttyApp elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1000.0))) surface=\(id.uuidString.prefix(8))"
+            )
             #endif
             return
         }
@@ -4862,8 +4869,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 envVars.append(ghostty_env_var_s(key: keyPtr, value: valuePtr))
             }
         }
-
         let createSurface = { [self] in
+#if DEBUG
+            let ghosttyNewStartedAt = ProcessInfo.processInfo.systemUptime
+#endif
             if !envVars.isEmpty {
                 let envVarsCount = envVars.count
                 envVars.withUnsafeMutableBufferPointer { buffer in
@@ -4874,6 +4883,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             } else {
                 self.surface = ghostty_surface_new(app, &surfaceConfig)
             }
+#if DEBUG
+            cmuxDebugLog(
+                "activation.surface.create.phase stage=ghosttyNew elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - ghosttyNewStartedAt) * 1000.0))) surface=\(id.uuidString.prefix(8)) ready=\(self.surface != nil ? 1 : 0)"
+            )
+#endif
         }
 
         let resolvedWorkingDirectory: String? = {
@@ -4894,6 +4908,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
             return baseConfig.initialInput
         }()
+#if DEBUG
+        cmuxDebugLog(
+            "activation.surface.create.phase stage=envBuilt elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1000.0))) surface=\(id.uuidString.prefix(8)) envCount=\(envVars.count) hasCommand=\((resolvedCommand?.isEmpty == false) ? 1 : 0) hasInitialInput=\((resolvedInitialInput?.isEmpty == false) ? 1 : 0)"
+        )
+#endif
         func withOptionalCString<T>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {
             guard let value else {
                 return body(nil)
@@ -4922,6 +4941,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             print("Failed to create ghostty surface")
             #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty_surface_new returned nil")
+            cmuxDebugLog(
+                "activation.surface.create.end result=0 reason=ghosttyNewNil elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1000.0))) surface=\(id.uuidString.prefix(8))"
+            )
             if let cfg = GhosttyApp.shared.config {
                 let count = Int(ghostty_config_diagnostics_count(cfg))
                 Self.surfaceLog("createSurface diagnostics count=\(count)")
@@ -5015,6 +5037,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         cmuxDebugLog(
             "zoom.create.done surface=\(id.uuidString.prefix(5)) context=\(cmuxSurfaceContextName(surfaceContext)) " +
             "runtimeFont=\(runtimeFontText)"
+        )
+        cmuxDebugLog(
+            "activation.surface.create.end result=1 elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - activationStartedAt) * 1000.0))) surface=\(id.uuidString.prefix(8)) focus=\(desiredFocusState ? 1 : 0) pixels=\(lastPixelWidth)x\(lastPixelHeight)"
         )
 #endif
     }

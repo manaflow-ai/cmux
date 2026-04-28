@@ -7317,6 +7317,20 @@ extension TabManager {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) {
+#if DEBUG
+        let restoreStartedAt = ProcessInfo.processInfo.systemUptime
+        let snapshotPanels = snapshot.workspaces.reduce(0) { total, workspace in
+            total + workspace.panels.count
+        }
+        let snapshotScrollbackChars = snapshot.workspaces.reduce(0) { total, workspace in
+            total + workspace.panels.reduce(0) { panelTotal, panel in
+                panelTotal + (panel.terminal?.scrollback?.count ?? 0)
+            }
+        }
+        cmuxDebugLog(
+            "activation.session.tabManagerRestore.begin oldWorkspaces=\(tabs.count) snapshotWorkspaces=\(snapshot.workspaces.count) snapshotPanels=\(snapshotPanels) scrollbackChars=\(snapshotScrollbackChars)"
+        )
+#endif
         let previousTabs = tabs
         for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)
@@ -7341,6 +7355,11 @@ extension TabManager {
         isWorkspaceCycleHot = false
         selectionSideEffectsGeneration &+= 1
         recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.tabManagerRestore.phase stage=cleared elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - restoreStartedAt) * 1000.0)))"
+        )
+#endif
 
         // Build the new workspace list locally to avoid intermediate @Published
         // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
@@ -7361,6 +7380,11 @@ extension TabManager {
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.tabManagerRestore.phase stage=workspacesBuilt elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - restoreStartedAt) * 1000.0))) newWorkspaces=\(newTabs.count)"
+        )
+#endif
 
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
@@ -7407,6 +7431,11 @@ extension TabManager {
                 userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
             )
         }
+#if DEBUG
+        cmuxDebugLog(
+            "activation.session.tabManagerRestore.end elapsedMs=\(String(format: "%.2f", max(0, (ProcessInfo.processInfo.systemUptime - restoreStartedAt) * 1000.0))) newWorkspaces=\(tabs.count) selected=\(selectedTabId.map { String($0.uuidString.prefix(8)) } ?? "nil")"
+        )
+#endif
     }
 }
 
