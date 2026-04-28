@@ -11560,6 +11560,17 @@ struct CMUXCLI {
         for (key, value) in context {
             rendered = rendered.replacingOccurrences(of: "#{\(key)}", with: value)
         }
+        let shortAliases: [String: String] = [
+            "S": "session_name",
+            "I": "window_index",
+            "W": "window_name",
+            "P": "pane_index",
+            "T": "pane_title",
+            "D": "pane_id",
+        ]
+        for (shortAlias, key) in shortAliases where context.keys.contains(key) {
+            rendered = rendered.replacingOccurrences(of: "#\(shortAlias)", with: context[key] ?? "")
+        }
         rendered = rendered.replacingOccurrences(
             of: "#\\{[^}]+\\}",
             with: "",

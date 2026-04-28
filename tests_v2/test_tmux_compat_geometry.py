@@ -158,6 +158,27 @@ def test_display_geometry_format(cli: str) -> None:
     print("PASS")
 
 
+def test_display_short_format_aliases(cli: str) -> None:
+    """Short tmux format aliases match long-form output."""
+    print("  test_display_short_format_aliases ... ", end="", flush=True)
+    long_form = _run_tmux_compat(cli, ["display", "-p", "#{session_name}:#{window_index}:#{window_name}"])
+    _must(long_form.returncode == 0, f"display with long-form failed: {long_form.stderr}")
+    long_output = long_form.stdout.strip()
+    _must(long_output, f"Expected long-form output, got empty: {long_form.stdout!r}")
+
+    short_form = _run_tmux_compat(cli, ["display", "-p", "#S:#I:#W"])
+    _must(short_form.returncode == 0, f"display with short-form failed: {short_form.stderr}")
+    short_output = short_form.stdout.strip()
+    _must(short_output == long_output, f"Short-form output mismatch: short={short_output!r} long={long_output!r}")
+
+    paneid_form = _run_tmux_compat(cli, ["display", "-p", "#S:#I %<paneid>"])
+    _must(paneid_form.returncode == 0, f"display with paneid token failed: {paneid_form.stderr}")
+    paneid_output = paneid_form.stdout.strip()
+    _must(long_output.split(":")[0] in paneid_output and long_output.split(":")[1] in paneid_output, f"paneid form should include expanded short fields: {paneid_output!r}")
+    _must("%<paneid>" in paneid_output, f"Expected literal %<paneid> to remain: {paneid_output!r}")
+    print("PASS")
+
+
 def test_multi_pane_geometry(cli: str, c: cmux) -> None:
     """After splitting, two panes have different pane_left values and halved widths."""
     print("  test_multi_pane_geometry ... ", end="", flush=True)
@@ -222,6 +243,7 @@ def main() -> int:
             ("test_list_panes_geometry_format", lambda: test_list_panes_geometry_format(cli)),
             ("test_list_panes_pane_target", lambda: test_list_panes_pane_target(cli, c)),
             ("test_display_geometry_format", lambda: test_display_geometry_format(cli)),
+            ("test_display_short_format_aliases", lambda: test_display_short_format_aliases(cli)),
             ("test_multi_pane_geometry", lambda: test_multi_pane_geometry(cli, c)),
         ]
 
