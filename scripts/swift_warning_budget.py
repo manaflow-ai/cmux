@@ -11,9 +11,15 @@ import sys
 
 
 OWNED_ROOTS = ("Sources", "CLI", "Packages", "cmuxTests", "cmuxUITests")
-IGNORED_PATH_PARTS = ("/vendor/", "/ghostty/", "/homebrew-cmux/", "/SourcePackages/")
+IGNORED_PATH_PARTS = (
+    "/vendor/",
+    "/ghostty/",
+    "/homebrew-cmux/",
+    "/SourcePackages/",
+    "/.ci-source-packages/",
+)
 WARNING_RE = re.compile(
-    r"^(?P<path>.*?(?:Sources|CLI|Packages|cmuxTests|cmuxUITests)/[^:]+):"
+    r"^(?P<path>.+):"
     r"(?P<line>\d+):(?P<column>\d+): warning: (?P<message>.*)$"
 )
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -24,17 +30,52 @@ SWIFT6_ERROR_SUFFIX = "; this is an error in the Swift 6 language mode"
 WarningBudget = collections.Counter[tuple[str, str]]
 
 
-def relative_owned_path(raw_path: str) -> str | None:
-    path = raw_path.strip()
+def is_ignored_path(path: str) -> bool:
     normalized = "/" + path.lstrip("/")
-    if any(part in normalized for part in IGNORED_PATH_PARTS):
+    return any(part in normalized for part in IGNORED_PATH_PARTS)
+
+
+def is_owned_relative_path(path: str) -> bool:
+    return any(path == root or path.startswith(f"{root}/") for root in OWNED_ROOTS)
+
+
+def fallback_owned_path(path: str) -> str | None:
+    parts = pathlib.PurePosixPath(path).parts
+    candidates = ["/".join(parts[index:]) for index, part in enumerate(parts) if part in OWNED_ROOTS]
+    packages_candidates = [candidate for candidate in candidates if candidate.startswith("Packages/")]
+    if packages_candidates:
+        return packages_candidates[-1]
+    if candidates:
+        return candidates[-1]
+    return None
+
+
+def relative_owned_path(raw_path: str, repo_root: pathlib.Path | None = None) -> str | None:
+    path = raw_path.strip()
+    if is_ignored_path(path):
         return None
 
-    for root in OWNED_ROOTS:
-        marker = f"{root}/"
-        index = path.find(marker)
-        if index >= 0:
-            return path[index:]
+    repo_root = repo_root or pathlib.Path.cwd()
+    candidate_path = pathlib.Path(path)
+    if candidate_path.is_absolute():
+        try:
+            rel_path = candidate_path.resolve(strict=False).relative_to(repo_root.resolve(strict=False))
+        except ValueError:
+            pass
+        else:
+            rel_text = rel_path.as_posix()
+            if is_ignored_path(rel_text):
+                return None
+            if is_owned_relative_path(rel_text):
+                return rel_text
+            return None
+
+    if is_owned_relative_path(path):
+        return path
+
+    fallback = fallback_owned_path(path)
+    if fallback is not None and not is_ignored_path(fallback):
+        return fallback
     return None
 
 

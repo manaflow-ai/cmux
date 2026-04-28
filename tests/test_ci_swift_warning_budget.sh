@@ -11,18 +11,24 @@ LOG="$TMP_DIR/build.log"
 BUDGET="$TMP_DIR/budget.tsv"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 
-REQUIRED_PATTERNS=(
-  "Validate Swift warning budget guard"
-  "tee /tmp/cmux-build-output.txt"
-  "scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt"
-)
+python3 - "$CI_FILE" <<'PY'
+import pathlib
+import sys
 
-for pattern in "${REQUIRED_PATTERNS[@]}"; do
-  if ! grep -Fq "$pattern" "$CI_FILE"; then
-    echo "missing Swift warning budget CI pattern: $pattern" >&2
-    exit 1
-  fi
-done
+ci_text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+required_tokens = {
+    "workflow guard step": "Validate Swift warning budget guard",
+    "guard test script": "./tests/test_ci_swift_warning_budget.sh",
+    "build log tee": "tee",
+    "build log path": "cmux-build-output.txt",
+    "budget script": "scripts/swift_warning_budget.py",
+    "budget log argument": "--log",
+}
+
+missing = [label for label, token in required_tokens.items() if token not in ci_text]
+if missing:
+    raise SystemExit(f"missing Swift warning budget CI wiring: {', '.join(missing)}")
+PY
 
 cat >"$LOG" <<'LOG'
 /Users/example/cmux/Sources/AppDelegate.swift:10:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ObjectiveC'
@@ -33,6 +39,11 @@ cat >"$LOG" <<'LOG'
 /Users/example/cmux/vendor/bonsplit/Sources/Bonsplit/Public/BonsplitView.swift:1:1: warning: ignored vendor warning
 /tmp/cmux/SourcePackages/checkouts/posthog-ios/PostHog/PostHogSDK.swift:1:1: warning: ignored package warning
 warning: Run script build phase 'Run Script' will be run during every build
+LOG
+
+cat >>"$LOG" <<LOG
+$ROOT_DIR/.ci-source-packages/checkouts/example/Sources/Example/File.swift:1:1: warning: ignored cloned package warning
+$ROOT_DIR/Packages/WarningBudgetFixture/Sources/WarningBudgetFixture/File.swift:1:1: warning: package-owned warning
 LOG
 
 python3 scripts/swift_warning_budget.py --log "$LOG" --budget "$BUDGET" --write-budget
@@ -47,6 +58,11 @@ if ! grep -Fq $'1\tSources/AppDelegate.swift\tcapture of '\''observer'\'' with n
   exit 1
 fi
 
+if ! grep -Fq $'1\tPackages/WarningBudgetFixture/Sources/WarningBudgetFixture/File.swift\tpackage-owned warning' "$BUDGET"; then
+  echo "expected Packages warning to preserve the Packages root" >&2
+  exit 1
+fi
+
 if grep -q 'vendor/bonsplit' "$BUDGET"; then
   echo "vendor warning should not be included" >&2
   exit 1
@@ -54,6 +70,11 @@ fi
 
 if grep -q 'SourcePackages' "$BUDGET"; then
   echo "package warning should not be included" >&2
+  exit 1
+fi
+
+if grep -q '.ci-source-packages' "$BUDGET"; then
+  echo "cloned package warning should not be included" >&2
   exit 1
 fi
 
