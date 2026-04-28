@@ -731,6 +731,7 @@
 				D1320AA0D1320AA0D1320AA6 /* Copy Dock Tile Plugin */,
 				A5001020 /* Embed Frameworks */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
+				D20AD4DAA1B2C3D4E5F60719 /* Build Agent Launcher TUI */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
 			);
 			buildRules = (
@@ -926,6 +927,29 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		D20AD4DAA1B2C3D4E5F60719 /* Build Agent Launcher TUI */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Tools/agent-launcher-tui/go.mod",
+				"$(SRCROOT)/Tools/agent-launcher-tui/go.sum",
+				"$(SRCROOT)/Tools/agent-launcher-tui/main.go",
+				"$(SRCROOT)/Tools/agent-launcher-tui/main_test.go",
+				"$(SRCROOT)/scripts/build-agent-launcher-tui.sh",
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-agent-launcher-tui",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/build-agent-launcher-tui.sh\" --output \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/cmux-agent-launcher-tui\"\n";
+		};
 		A5001300A1B2C3D4E5F60719 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;

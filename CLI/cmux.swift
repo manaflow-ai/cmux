@@ -1888,6 +1888,16 @@ struct CMUXCLI {
             return
         }
 
+        if command == "home" || command == "agent-launcher" {
+            try runAgentLauncher(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         if command == "feedback" {
             try runFeedback(
                 commandArgs: commandArgs,
@@ -3529,6 +3539,1319 @@ struct CMUXCLI {
 
         // Bring the app to front
         try activateApp()
+    }
+
+    private enum AgentLauncherKind: String {
+        case claude
+        case codex
+        case opencode
+        case custom
+
+        var shortName: String {
+            switch self {
+            case .claude: return "cl"
+            case .codex: return "cx"
+            case .opencode: return "oc"
+            case .custom: return "sh"
+            }
+        }
+
+        var displayName: String {
+            switch self {
+            case .claude: return "Claude"
+            case .codex: return "Codex"
+            case .opencode: return "OpenCode"
+            case .custom: return "Custom"
+            }
+        }
+    }
+
+    private struct AgentLauncherRequest {
+        var prompt: String
+        var imagePaths: [String]
+        var claudeCount: Int
+        var codexCount: Int
+        var opencodeCount: Int
+        var customCount: Int
+        var customCommand: String?
+        var workspaceName: String?
+        var baseDirectory: String?
+        var useAIName: Bool
+        var placement: AgentLauncherPlacement
+        var isolation: AgentLauncherIsolation
+    }
+
+    private enum AgentLauncherPlacement: String {
+        case splits
+        case tabs
+        case workspaces
+
+        var displayName: String {
+            switch self {
+            case .splits: return "splits"
+            case .tabs: return "tabs"
+            case .workspaces: return "workspaces"
+            }
+        }
+    }
+
+    private enum AgentLauncherIsolation: String {
+        case auto
+        case shared
+        case worktrees
+
+        var displayName: String {
+            switch self {
+            case .auto: return "auto"
+            case .shared: return "shared"
+            case .worktrees: return "worktrees"
+            }
+        }
+    }
+
+    private struct AgentLauncherRepoRoot {
+        let repoPath: String
+        let worktreesPath: String
+    }
+
+    private struct AgentLauncherLaunchRoot {
+        let basePath: String
+        let repoRoot: AgentLauncherRepoRoot?
+    }
+
+    private struct AgentLauncherLaunchDirectory {
+        let branchName: String?
+        let path: String
+        let usesWorktree: Bool
+    }
+
+    private struct AgentLauncherSurface {
+        let kind: AgentLauncherKind
+        let ordinal: Int
+        let title: String
+        let command: String
+        let launchDirectory: AgentLauncherLaunchDirectory
+    }
+
+    private struct AgentLauncherCreatedWorkspace {
+        let name: String
+        let ref: String
+    }
+
+    private struct AgentLauncherResult {
+        let workspaceName: String
+        let workspaceRef: String
+        let workspaces: [AgentLauncherCreatedWorkspace]
+        let placement: AgentLauncherPlacement
+        let surfaces: [AgentLauncherSurface]
+    }
+
+    private struct AgentLauncherContextFiles {
+        let promptPath: String
+        let imagesPath: String
+    }
+
+    private enum AgentLauncherTUICommand {
+        case keepReading
+        case run
+        case quit
+    }
+
+    private static let agentLauncherImageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "heic", "heif", "webp", "tiff", "tif", "bmp", "avif"
+    ]
+
+    private func runAgentLauncher(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let first = commandArgs.first?.lowercased()
+        let subcommand = first?.hasPrefix("-") == true ? nil : first
+        switch subcommand {
+        case nil, "tui":
+            let remaining = subcommand == nil ? commandArgs : Array(commandArgs.dropFirst())
+            try runAgentLauncherTUI(
+                commandArgs: remaining,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: jsonOutput
+            )
+        case "run":
+            try runAgentLauncherOnce(
+                commandArgs: Array(commandArgs.dropFirst()),
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: jsonOutput
+            )
+        case "install":
+            try runAgentLauncherInstall(
+                commandArgs: Array(commandArgs.dropFirst()),
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: jsonOutput
+            )
+        default:
+            throw CLIError(message: "home: unknown subcommand '\(commandArgs.first ?? "")'. Use tui, run, or install.")
+        }
+    }
+
+    private func runAgentLauncherTUI(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        if try runAgentLauncherCharmTUIIfAvailable(
+            commandArgs: commandArgs,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            jsonOutput: jsonOutput
+        ) {
+            return
+        }
+
+        try runAgentLauncherBasicTUI(
+            commandArgs: commandArgs,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            jsonOutput: jsonOutput
+        )
+    }
+
+    private func runAgentLauncherCharmTUIIfAvailable(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws -> Bool {
+        if ProcessInfo.processInfo.environment["CMUX_AGENT_LAUNCHER_SWIFT_TUI"] == "1" {
+            return false
+        }
+        guard let helperPath = agentLauncherTUIExecutablePath() else {
+            return false
+        }
+
+        var arguments = [
+            "--cmux", currentCmuxExecutableForLauncher(),
+            "--socket", socketPath
+        ]
+        if let explicitPassword, !explicitPassword.isEmpty {
+            arguments.append(contentsOf: ["--password", explicitPassword])
+        }
+        if jsonOutput {
+            arguments.append("--json")
+        }
+        arguments.append(contentsOf: commandArgs)
+
+        try execInteractiveHelper(
+            executablePath: helperPath,
+            arguments: arguments,
+            environment: ProcessInfo.processInfo.environment,
+            failureDescription: "cmux home Charm TUI"
+        )
+    }
+
+    private func agentLauncherTUIExecutablePath() -> String? {
+        let helperName = "cmux-agent-launcher-tui"
+        let fm = FileManager.default
+        if let executableDir = resolvedExecutableURL()?.deletingLastPathComponent() {
+            let candidate = executableDir.appendingPathComponent(helperName, isDirectory: false).path
+            if fm.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return resolveExecutableInSearchPath(
+            helperName,
+            searchPath: ProcessInfo.processInfo.environment["PATH"]
+        )
+    }
+
+    private func runAgentLauncherBasicTUI(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        var request = try parseAgentLauncherOptions(commandArgs, defaultPrompt: "")
+        var promptLines: [String] = []
+
+        print("""
+
+        cmux home
+        Paste a prompt, paste or drag image files, then type /run.
+
+        Commands:
+          /claude <n>    /codex <n>    /opencode <n>    /custom <n>
+          /placement <splits|tabs|workspaces>    /isolation <auto|shared|worktrees>
+          /command <bash command>
+          /image <path>  /name <short name>  /base <repo or hq path>
+          /run           /quit
+        """)
+
+        while true {
+            printAgentLauncherState(request: request, promptLines: promptLines)
+            print("› ", terminator: "")
+            fflush(stdout)
+
+            guard let line = readLine(strippingNewline: true) else {
+                print("")
+                return
+            }
+
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("/") {
+                let command = try handleAgentLauncherTUICommand(
+                    trimmed,
+                    request: &request,
+                    promptLines: &promptLines
+                )
+                switch command {
+                case .keepReading:
+                    continue
+                case .run:
+                    request.prompt = promptLines.joined(separator: "\n")
+                    let result = try launchAgentWorkspace(
+                        request: request,
+                        socketPath: socketPath,
+                        explicitPassword: explicitPassword
+                    )
+                    printAgentLauncherResult(result, jsonOutput: jsonOutput)
+                    return
+                case .quit:
+                    return
+                }
+            }
+
+            let imagePaths = imagePaths(inLauncherInputLine: line)
+            if !imagePaths.isEmpty {
+                request.imagePaths = appendUniqueAgentLauncherImages(request.imagePaths, imagePaths)
+                print("attached \(imagePaths.count) image\(imagePaths.count == 1 ? "" : "s")")
+                if isAttachmentOnlyAgentLauncherLine(line) {
+                    continue
+                }
+            }
+
+            promptLines.append(line)
+        }
+    }
+
+    private func runAgentLauncherOnce(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        var request = try parseAgentLauncherOptions(commandArgs, defaultPrompt: nil)
+        if request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           isatty(STDIN_FILENO) == 0 {
+            let data = FileHandle.standardInput.readDataToEndOfFile()
+            request.prompt = String(data: data, encoding: .utf8) ?? ""
+        }
+        guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !request.imagePaths.isEmpty else {
+            throw CLIError(message: "home run requires --prompt <text>, stdin, or at least one --image <path>")
+        }
+
+        let result = try launchAgentWorkspace(
+            request: request,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword
+        )
+        printAgentLauncherResult(result, jsonOutput: jsonOutput)
+    }
+
+    private func runAgentLauncherInstall(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let (nameOpt, remaining) = parseOption(commandArgs, name: "--name")
+        let filtered = remaining.filter { $0 != "--" }
+        if let unknown = filtered.first {
+            throw CLIError(message: "home install: unknown flag '\(unknown)'. Known flags: --name <title>")
+        }
+
+        let title = normalizedAgentLauncherWorkspaceName(nameOpt) ?? "hq homepage"
+        let launchRoot = resolveAgentLauncherLaunchRoot(baseDirectory: nil)
+        let launcherCommandParts = [
+            shellQuote(currentCmuxExecutableForLauncher()),
+            "home"
+        ] + ["--base", shellQuote(launchRoot.basePath)]
+        let launcherCommand = launcherCommandParts.joined(separator: " ")
+        let layout: [String: Any] = [
+            "pane": [
+                "surfaces": [[
+                    "type": "terminal",
+                    "name": "launcher",
+                    "cwd": launchRoot.basePath,
+                    "command": launcherCommand,
+                    "focus": true
+                ]]
+            ]
+        ]
+
+        let client = try connectClient(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchIfNeeded: true
+        )
+        defer { client.close() }
+
+        let created = try client.sendV2(method: "workspace.create", params: [
+            "title": title,
+            "description": "cmux home",
+            "layout": layout
+        ])
+        guard let workspaceId = created["workspace_id"] as? String else {
+            throw CLIError(message: "home install: workspace.create did not return workspace_id")
+        }
+        _ = try client.sendV2(method: "workspace.action", params: ["workspace_id": workspaceId, "action": "pin"])
+        _ = try client.sendV2(method: "workspace.action", params: ["workspace_id": workspaceId, "action": "move_top"])
+        _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
+
+        if jsonOutput {
+            print(jsonString([
+                "workspace_id": workspaceId,
+                "workspace_ref": created["workspace_ref"] as? String ?? workspaceId,
+                "title": title,
+                "pinned": true
+            ]))
+        } else {
+            let ref = (created["workspace_ref"] as? String) ?? workspaceId
+            print("OK \(ref) \(title)")
+        }
+    }
+
+    private func parseAgentLauncherOptions(
+        _ commandArgs: [String],
+        defaultPrompt: String?
+    ) throws -> AgentLauncherRequest {
+        let (promptOpt, rem0) = parseOption(commandArgs, name: "--prompt")
+        let (nameOpt, rem1) = parseOption(rem0, name: "--name")
+        let (baseOpt, rem2) = parseOption(rem1, name: "--base")
+        let (claudeOpt, rem3) = parseOption(rem2, name: "--claude")
+        let (codexOpt, rem4) = parseOption(rem3, name: "--codex")
+        let (opencodeOpt, rem5) = parseOption(rem4, name: "--opencode")
+        let (customOpt, rem6) = parseOption(rem5, name: "--custom")
+        let (commandOpt, rem7) = parseOption(rem6, name: "--command")
+        let (placementOpt, rem8) = parseOption(rem7, name: "--placement")
+        let (layoutOpt, rem9) = parseOption(rem8, name: "--layout")
+        let (isolationOpt, rem10) = parseOption(rem9, name: "--isolation")
+        let (imageOpts, rem11) = parseRepeatedOption(rem10, name: "--image")
+        let (noAIName, rem12) = parseFlag(rem11, name: "--no-ai-name")
+        let (noWorktrees, rem13) = parseFlag(rem12, name: "--no-worktrees")
+        let (worktrees, rem14) = parseFlag(rem13, name: "--worktrees")
+        let remaining = rem14.filter { $0 != "--" }
+        if let unknown = remaining.first {
+            throw CLIError(
+                message: "home: unknown flag '\(unknown)'. Known flags: --prompt, --name, --base, --claude, --codex, --opencode, --custom, --command, --placement, --layout, --isolation, --worktrees, --no-worktrees, --image, --no-ai-name"
+            )
+        }
+
+        let claudeCount = try parseAgentLauncherCount(claudeOpt, fallback: 1, flag: "--claude")
+        let codexCount = try parseAgentLauncherCount(codexOpt, fallback: 1, flag: "--codex")
+        let opencodeCount = try parseAgentLauncherCount(opencodeOpt, fallback: 0, flag: "--opencode")
+        let customCount = try parseAgentLauncherCount(customOpt, fallback: 0, flag: "--custom")
+        let placement = try parseAgentLauncherPlacement(placementOpt ?? layoutOpt)
+        let isolation = try parseAgentLauncherIsolation(
+            isolationOpt,
+            forceShared: noWorktrees,
+            forceWorktrees: worktrees
+        )
+
+        let images = imageOpts.compactMap { normalizedAgentLauncherImagePath($0) }
+        return AgentLauncherRequest(
+            prompt: promptOpt ?? defaultPrompt ?? "",
+            imagePaths: images,
+            claudeCount: claudeCount,
+            codexCount: codexCount,
+            opencodeCount: opencodeCount,
+            customCount: customCount,
+            customCommand: normalizedAgentLauncherCustomCommand(commandOpt),
+            workspaceName: normalizedAgentLauncherWorkspaceName(nameOpt),
+            baseDirectory: baseOpt,
+            useAIName: !noAIName,
+            placement: placement,
+            isolation: isolation
+        )
+    }
+
+    private func parseAgentLauncherCount(_ raw: String?, fallback: Int, flag: String) throws -> Int {
+        guard let raw else { return fallback }
+        guard let value = Int(raw), value >= 0, value <= 8 else {
+            throw CLIError(message: "home: \(flag) must be an integer from 0 through 8")
+        }
+        return value
+    }
+
+    private func parseAgentLauncherPlacement(_ raw: String?) throws -> AgentLauncherPlacement {
+        guard let raw else { return .splits }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "", "split", "splits", "pane", "panes":
+            return .splits
+        case "tab", "tabs":
+            return .tabs
+        case "workspace", "workspaces", "separate":
+            return .workspaces
+        default:
+            throw CLIError(message: "home: --placement must be splits, tabs, or workspaces")
+        }
+    }
+
+    private func parseAgentLauncherIsolation(
+        _ raw: String?,
+        forceShared: Bool,
+        forceWorktrees: Bool
+    ) throws -> AgentLauncherIsolation {
+        if forceShared, forceWorktrees {
+            throw CLIError(message: "home: use only one of --worktrees or --no-worktrees")
+        }
+        if forceShared { return .shared }
+        if forceWorktrees { return .worktrees }
+        guard let raw else { return .auto }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "", "auto":
+            return .auto
+        case "shared", "cwd", "none", "off", "no-worktrees":
+            return .shared
+        case "worktree", "worktrees", "required", "git":
+            return .worktrees
+        default:
+            throw CLIError(message: "home: --isolation must be auto, shared, or worktrees")
+        }
+    }
+
+    private func normalizedAgentLauncherCustomCommand(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func parseFlag(_ args: [String], name: String) -> (Bool, [String]) {
+        var found = false
+        var remaining: [String] = []
+        var pastTerminator = false
+        for arg in args {
+            if arg == "--" {
+                pastTerminator = true
+                remaining.append(arg)
+                continue
+            }
+            if !pastTerminator, arg == name {
+                found = true
+            } else {
+                remaining.append(arg)
+            }
+        }
+        return (found, remaining)
+    }
+
+    private func printAgentLauncherState(request: AgentLauncherRequest, promptLines: [String]) {
+        let imageCount = request.imagePaths.count
+        let name = request.workspaceName ?? "auto"
+        print("")
+        print("agents: claude \(request.claudeCount), codex \(request.codexCount), opencode \(request.opencodeCount), custom \(request.customCount)  placement: \(request.placement.displayName)  isolation: \(request.isolation.displayName)  name: \(name)  images: \(imageCount)")
+        if !promptLines.isEmpty {
+            let preview = promptLines.joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let clipped = preview.count > 96 ? String(preview.prefix(96)) + "..." : preview
+            print("prompt: \(clipped)")
+        }
+    }
+
+    private func handleAgentLauncherTUICommand(
+        _ line: String,
+        request: inout AgentLauncherRequest,
+        promptLines: inout [String]
+    ) throws -> AgentLauncherTUICommand {
+        let words = shellWords(line)
+        guard let command = words.first?.lowercased() else { return .keepReading }
+        let value = words.dropFirst().joined(separator: " ")
+
+        switch command {
+        case "/run":
+            return .run
+        case "/quit", "/q":
+            return .quit
+        case "/claude":
+            request.claudeCount = try parseAgentLauncherCount(value.isEmpty ? nil : value, fallback: request.claudeCount, flag: "/claude")
+        case "/codex":
+            request.codexCount = try parseAgentLauncherCount(value.isEmpty ? nil : value, fallback: request.codexCount, flag: "/codex")
+        case "/opencode":
+            request.opencodeCount = try parseAgentLauncherCount(value.isEmpty ? nil : value, fallback: request.opencodeCount, flag: "/opencode")
+        case "/custom":
+            request.customCount = try parseAgentLauncherCount(value.isEmpty ? nil : value, fallback: request.customCount, flag: "/custom")
+        case "/command":
+            request.customCommand = normalizedAgentLauncherCustomCommand(value)
+        case "/placement", "/layout":
+            request.placement = try parseAgentLauncherPlacement(value.isEmpty ? nil : value)
+        case "/isolation":
+            request.isolation = try parseAgentLauncherIsolation(value.isEmpty ? nil : value, forceShared: false, forceWorktrees: false)
+        case "/name":
+            request.workspaceName = normalizedAgentLauncherWorkspaceName(value)
+        case "/base":
+            request.baseDirectory = value.isEmpty ? nil : value
+        case "/image":
+            let images = words.dropFirst().compactMap { normalizedAgentLauncherImagePath($0) }
+            guard !images.isEmpty else {
+                print("no image files found")
+                return .keepReading
+            }
+            request.imagePaths = appendUniqueAgentLauncherImages(request.imagePaths, images)
+            print("attached \(images.count) image\(images.count == 1 ? "" : "s")")
+        case "/clear":
+            promptLines.removeAll()
+        default:
+            print("unknown command: \(command)")
+        }
+        return .keepReading
+    }
+
+    private func launchAgentWorkspace(
+        request: AgentLauncherRequest,
+        socketPath: String,
+        explicitPassword: String?
+    ) throws -> AgentLauncherResult {
+        var effectiveRequest = request
+        if effectiveRequest.claudeCount + effectiveRequest.codexCount + effectiveRequest.opencodeCount + effectiveRequest.customCount == 0 {
+            effectiveRequest.claudeCount = 1
+            effectiveRequest.codexCount = 1
+        }
+
+        let launchRoot = resolveAgentLauncherLaunchRoot(baseDirectory: effectiveRequest.baseDirectory)
+        if effectiveRequest.isolation != .shared, let repoRoot = launchRoot.repoRoot {
+            refreshAgentLauncherRepoIfPossible(repoRoot.repoPath)
+        }
+
+        let workspaceName = effectiveRequest.workspaceName
+            ?? generatedAgentLauncherWorkspaceName(for: effectiveRequest.prompt, useAI: effectiveRequest.useAIName)
+        let slug = agentLauncherSlug(from: workspaceName)
+        let prompt = agentLauncherPromptText(
+            prompt: effectiveRequest.prompt,
+            imagePaths: effectiveRequest.imagePaths
+        )
+        let files = try createAgentLauncherContextFiles(
+            prompt: prompt,
+            imagePaths: effectiveRequest.imagePaths
+        )
+
+        var surfaces: [AgentLauncherSurface] = []
+        var perKindOrdinal: [AgentLauncherKind: Int] = [:]
+        for kind in agentKinds(for: effectiveRequest) {
+            let ordinal = (perKindOrdinal[kind] ?? 0) + 1
+            perKindOrdinal[kind] = ordinal
+            let launchDirectory = try agentLauncherLaunchDirectory(
+                launchRoot: launchRoot,
+                isolation: effectiveRequest.isolation,
+                workspaceSlug: slug,
+                kind: kind,
+                ordinal: ordinal
+            )
+            let title = agentLauncherSurfaceTitle(
+                workspaceName: workspaceName,
+                kind: kind,
+                ordinal: ordinal,
+                repeated: (perKindCount(kind, in: effectiveRequest) > 1)
+            )
+            let command = agentLauncherCommand(
+                kind: kind,
+                title: title,
+                prompt: prompt,
+                imagePaths: effectiveRequest.imagePaths,
+                launchDirectoryPath: launchDirectory.path,
+                customCommand: effectiveRequest.customCommand,
+                promptFilePath: files.promptPath,
+                imagesFilePath: files.imagesPath,
+                ordinal: ordinal
+            )
+            surfaces.append(AgentLauncherSurface(
+                kind: kind,
+                ordinal: ordinal,
+                title: title,
+                command: command,
+                launchDirectory: launchDirectory
+            ))
+        }
+
+        let client = try connectClient(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchIfNeeded: true
+        )
+        defer { client.close() }
+
+        let createdWorkspaces: [AgentLauncherCreatedWorkspace]
+        switch effectiveRequest.placement {
+        case .splits, .tabs:
+            let layout = agentLauncherLayout(for: surfaces, placement: effectiveRequest.placement)
+            let response = try client.sendV2(method: "workspace.create", params: [
+                "title": workspaceName,
+                "description": agentLauncherDescription(from: effectiveRequest.prompt),
+                "cwd": launchRoot.basePath,
+                "layout": layout
+            ])
+            guard let workspaceId = response["workspace_id"] as? String else {
+                throw CLIError(message: "home: workspace.create did not return workspace_id")
+            }
+            createdWorkspaces = [
+                AgentLauncherCreatedWorkspace(
+                    name: workspaceName,
+                    ref: (response["workspace_ref"] as? String) ?? workspaceId
+                )
+            ]
+        case .workspaces:
+            var created: [AgentLauncherCreatedWorkspace] = []
+            for surface in surfaces {
+                let title = surfaces.count == 1 ? workspaceName : surface.title
+                let response = try client.sendV2(method: "workspace.create", params: [
+                    "title": title,
+                    "description": agentLauncherDescription(from: effectiveRequest.prompt),
+                    "cwd": surface.launchDirectory.path,
+                    "layout": agentLauncherSinglePaneLayout(surface, focused: true)
+                ])
+                guard let workspaceId = response["workspace_id"] as? String else {
+                    throw CLIError(message: "home: workspace.create did not return workspace_id")
+                }
+                created.append(AgentLauncherCreatedWorkspace(
+                    name: title,
+                    ref: (response["workspace_ref"] as? String) ?? workspaceId
+                ))
+            }
+            createdWorkspaces = created
+        }
+
+        return AgentLauncherResult(
+            workspaceName: workspaceName,
+            workspaceRef: createdWorkspaces.first?.ref ?? "",
+            workspaces: createdWorkspaces,
+            placement: effectiveRequest.placement,
+            surfaces: surfaces
+        )
+    }
+
+    private func agentKinds(for request: AgentLauncherRequest) -> [AgentLauncherKind] {
+        var kinds: [AgentLauncherKind] = []
+        kinds.append(contentsOf: Array(repeating: .claude, count: request.claudeCount))
+        kinds.append(contentsOf: Array(repeating: .codex, count: request.codexCount))
+        kinds.append(contentsOf: Array(repeating: .opencode, count: request.opencodeCount))
+        kinds.append(contentsOf: Array(repeating: .custom, count: request.customCount))
+        return kinds
+    }
+
+    private func perKindCount(_ kind: AgentLauncherKind, in request: AgentLauncherRequest) -> Int {
+        switch kind {
+        case .claude: return request.claudeCount
+        case .codex: return request.codexCount
+        case .opencode: return request.opencodeCount
+        case .custom: return request.customCount
+        }
+    }
+
+    private func agentLauncherSurfaceTitle(
+        workspaceName: String,
+        kind: AgentLauncherKind,
+        ordinal: Int,
+        repeated: Bool
+    ) -> String {
+        let suffix = repeated ? "\(kind.shortName)\(ordinal)" : kind.shortName
+        return "\(workspaceName) \(suffix)"
+    }
+
+    private func agentLauncherPromptText(prompt: String, imagePaths: [String]) -> String {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        var parts: [String] = []
+        if !trimmed.isEmpty {
+            parts.append(trimmed)
+        }
+        if !imagePaths.isEmpty {
+            let imageBlock = imagePaths.map { "- \($0)" }.joined(separator: "\n")
+            parts.append("Image files:\n\(imageBlock)")
+        }
+        return parts.isEmpty ? "Inspect the attached image files and propose the next steps." : parts.joined(separator: "\n\n")
+    }
+
+    private func createAgentLauncherContextFiles(
+        prompt: String,
+        imagePaths: [String]
+    ) throws -> AgentLauncherContextFiles {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let directory = home
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("agent-launcher", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let promptURL = directory.appendingPathComponent("prompt.txt", isDirectory: false)
+        let imagesURL = directory.appendingPathComponent("images.txt", isDirectory: false)
+        try prompt.write(to: promptURL, atomically: true, encoding: .utf8)
+        try imagePaths.joined(separator: "\n").write(to: imagesURL, atomically: true, encoding: .utf8)
+        return AgentLauncherContextFiles(promptPath: promptURL.path, imagesPath: imagesURL.path)
+    }
+
+    private func agentLauncherDescription(from prompt: String) -> String {
+        let line = prompt
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !line.isEmpty else { return "agent workspace" }
+        return line.count > 120 ? String(line.prefix(120)) : line
+    }
+
+    private func agentLauncherCommand(
+        kind: AgentLauncherKind,
+        title: String,
+        prompt: String,
+        imagePaths: [String],
+        launchDirectoryPath: String,
+        customCommand: String?,
+        promptFilePath: String,
+        imagesFilePath: String,
+        ordinal: Int
+    ) -> String {
+        switch kind {
+        case .claude:
+            return [
+                "claude",
+                "--name", shellQuote(title),
+                shellQuote(prompt)
+            ].joined(separator: " ")
+        case .codex:
+            var parts = ["codex", "-C", shellQuote(launchDirectoryPath)]
+            for imagePath in imagePaths {
+                parts.append("--image")
+                parts.append(shellQuote(imagePath))
+            }
+            parts.append(shellQuote(prompt))
+            return parts.joined(separator: " ")
+        case .opencode:
+            return [
+                shellQuote(currentCmuxExecutableForLauncher()),
+                "omo",
+                "--model", "kimi-for-coding/k2p6",
+                "--prompt", shellQuote(prompt),
+                shellQuote(launchDirectoryPath)
+            ].joined(separator: " ")
+        case .custom:
+            let command = customCommand ?? "exec ${SHELL:-/bin/zsh} -l"
+            let environment = agentLauncherCustomCommandEnvironment(
+                kind: kind,
+                title: title,
+                launchDirectoryPath: launchDirectoryPath,
+                promptFilePath: promptFilePath,
+                imagesFilePath: imagesFilePath,
+                ordinal: ordinal
+            )
+            return "\(environment) /bin/bash -lc \(shellQuote(command))"
+        }
+    }
+
+    private func agentLauncherCustomCommandEnvironment(
+        kind: AgentLauncherKind,
+        title: String,
+        launchDirectoryPath: String,
+        promptFilePath: String,
+        imagesFilePath: String,
+        ordinal: Int
+    ) -> String {
+        [
+            ("CMUX_AGENT_KIND", kind.rawValue),
+            ("CMUX_AGENT_TITLE", title),
+            ("CMUX_AGENT_WORKDIR", launchDirectoryPath),
+            ("CMUX_AGENT_PROMPT_FILE", promptFilePath),
+            ("CMUX_AGENT_IMAGES_FILE", imagesFilePath),
+            ("CMUX_AGENT_ORDINAL", String(ordinal))
+        ]
+        .map { key, value in "\(key)=\(shellQuote(value))" }
+        .joined(separator: " ")
+    }
+
+    private func agentLauncherLayout(for surfaces: [AgentLauncherSurface], placement: AgentLauncherPlacement) -> [String: Any] {
+        if placement == .tabs {
+            return agentLauncherTabbedLayout(for: surfaces)
+        }
+        func build(_ slice: ArraySlice<AgentLauncherSurface>, focusedSurfaceId: String?) -> [String: Any] {
+            if slice.count == 1, let only = slice.first {
+                return agentLauncherSinglePaneLayout(only, focused: only.title == focusedSurfaceId)
+            }
+
+            let leftCount = max(1, slice.count / 2)
+            let splitIndex = slice.index(slice.startIndex, offsetBy: leftCount)
+            let left = slice[..<splitIndex]
+            let right = slice[splitIndex...]
+            return [
+                "direction": "horizontal",
+                "split": Double(left.count) / Double(slice.count),
+                "children": [
+                    build(left, focusedSurfaceId: focusedSurfaceId),
+                    build(right, focusedSurfaceId: focusedSurfaceId)
+                ]
+            ]
+        }
+
+        let firstTitle = surfaces.first?.title
+        return build(ArraySlice(surfaces), focusedSurfaceId: firstTitle)
+    }
+
+    private func agentLauncherSinglePaneLayout(_ surface: AgentLauncherSurface, focused: Bool) -> [String: Any] {
+        [
+            "pane": [
+                "surfaces": [[
+                    "type": "terminal",
+                    "name": surface.title,
+                    "cwd": surface.launchDirectory.path,
+                    "command": surface.command,
+                    "focus": focused
+                ]]
+            ]
+        ]
+    }
+
+    private func agentLauncherTabbedLayout(for surfaces: [AgentLauncherSurface]) -> [String: Any] {
+        [
+            "pane": [
+                "surfaces": surfaces.enumerated().map { index, surface in
+                    [
+                        "type": "terminal",
+                        "name": surface.title,
+                        "cwd": surface.launchDirectory.path,
+                        "command": surface.command,
+                        "focus": index == 0
+                    ]
+                }
+            ]
+        ]
+    }
+
+    private func resolveAgentLauncherLaunchRoot(baseDirectory: String?) -> AgentLauncherLaunchRoot {
+        let fm = FileManager.default
+        let rawBase = baseDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let basePath = rawBase?.isEmpty == false ? resolvePath(rawBase!) : fm.currentDirectoryPath
+        var isDirectory: ObjCBool = false
+        let baseURL: URL
+        if fm.fileExists(atPath: basePath, isDirectory: &isDirectory), !isDirectory.boolValue {
+            baseURL = URL(fileURLWithPath: (basePath as NSString).deletingLastPathComponent, isDirectory: true)
+        } else {
+            baseURL = URL(fileURLWithPath: basePath, isDirectory: true)
+        }
+        let standardizedBase = baseURL.standardizedFileURL
+
+        let hqRepo = standardizedBase.appendingPathComponent("repo", isDirectory: true)
+        if let gitRoot = gitTopLevelDirectoryIfPresent(startingAt: hqRepo.path) {
+            return AgentLauncherLaunchRoot(
+                basePath: gitRoot,
+                repoRoot: AgentLauncherRepoRoot(
+                    repoPath: gitRoot,
+                    worktreesPath: standardizedBase.appendingPathComponent("worktrees", isDirectory: true).standardizedFileURL.path
+                )
+            )
+        }
+
+        guard let gitRoot = gitTopLevelDirectoryIfPresent(startingAt: standardizedBase.path) else {
+            return AgentLauncherLaunchRoot(basePath: standardizedBase.path, repoRoot: nil)
+        }
+
+        if let range = gitRoot.range(of: "/worktrees/") {
+            let hqRoot = String(gitRoot[..<range.lowerBound])
+            let repoPath = URL(fileURLWithPath: hqRoot, isDirectory: true)
+                .appendingPathComponent("repo", isDirectory: true)
+                .standardizedFileURL
+                .path
+            if gitTopLevelDirectoryIfPresent(startingAt: repoPath) != nil {
+                return AgentLauncherLaunchRoot(
+                    basePath: gitRoot,
+                    repoRoot: AgentLauncherRepoRoot(
+                        repoPath: repoPath,
+                        worktreesPath: URL(fileURLWithPath: hqRoot, isDirectory: true)
+                            .appendingPathComponent("worktrees", isDirectory: true)
+                            .standardizedFileURL
+                            .path
+                    )
+                )
+            }
+        }
+
+        let rootURL = URL(fileURLWithPath: gitRoot, isDirectory: true).standardizedFileURL
+        if rootURL.lastPathComponent == "repo" {
+            return AgentLauncherLaunchRoot(
+                basePath: rootURL.path,
+                repoRoot: AgentLauncherRepoRoot(
+                    repoPath: rootURL.path,
+                    worktreesPath: rootURL.deletingLastPathComponent()
+                        .appendingPathComponent("worktrees", isDirectory: true)
+                        .standardizedFileURL
+                        .path
+                )
+            )
+        }
+
+        return AgentLauncherLaunchRoot(
+            basePath: rootURL.path,
+            repoRoot: AgentLauncherRepoRoot(
+                repoPath: rootURL.path,
+                worktreesPath: rootURL.deletingLastPathComponent()
+                    .appendingPathComponent("worktrees", isDirectory: true)
+                    .standardizedFileURL
+                    .path
+            )
+        )
+    }
+
+    private func gitTopLevelDirectoryIfPresent(startingAt path: String) -> String? {
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", path, "rev-parse", "--show-toplevel"],
+            timeout: 10
+        )
+        guard result.status == 0 else { return nil }
+        let root = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return root.isEmpty ? nil : root
+    }
+
+    private func refreshAgentLauncherRepoIfPossible(_ repoPath: String) {
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", repoPath, "fetch", "origin"],
+            timeout: 90
+        )
+        if result.status != 0 {
+            let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            FileHandle.standardError.write(Data("home: git fetch origin failed, using local refs. \(message)\n".utf8))
+        }
+    }
+
+    private func agentLauncherLaunchDirectory(
+        launchRoot: AgentLauncherLaunchRoot,
+        isolation: AgentLauncherIsolation,
+        workspaceSlug: String,
+        kind: AgentLauncherKind,
+        ordinal: Int
+    ) throws -> AgentLauncherLaunchDirectory {
+        switch isolation {
+        case .shared:
+            return AgentLauncherLaunchDirectory(branchName: nil, path: launchRoot.basePath, usesWorktree: false)
+        case .auto:
+            guard let repoRoot = launchRoot.repoRoot else {
+                return AgentLauncherLaunchDirectory(branchName: nil, path: launchRoot.basePath, usesWorktree: false)
+            }
+            return try createAgentLauncherWorktree(
+                repoRoot: repoRoot,
+                workspaceSlug: workspaceSlug,
+                kind: kind,
+                ordinal: ordinal
+            )
+        case .worktrees:
+            guard let repoRoot = launchRoot.repoRoot else {
+                throw CLIError(message: "home: --isolation worktrees requires a git repository")
+            }
+            return try createAgentLauncherWorktree(
+                repoRoot: repoRoot,
+                workspaceSlug: workspaceSlug,
+                kind: kind,
+                ordinal: ordinal
+            )
+        }
+    }
+
+    private func createAgentLauncherWorktree(
+        repoRoot: AgentLauncherRepoRoot,
+        workspaceSlug: String,
+        kind: AgentLauncherKind,
+        ordinal: Int
+    ) throws -> AgentLauncherLaunchDirectory {
+        let fm = FileManager.default
+        try fm.createDirectory(
+            at: URL(fileURLWithPath: repoRoot.worktreesPath, isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let ordinalSuffix = ordinal > 1 ? "\(ordinal)" : ""
+        let branchBase = "task-\(workspaceSlug)-\(kind.shortName)\(ordinalSuffix)"
+        var suffix = 1
+        while true {
+            let branch = suffix == 1 ? branchBase : "\(branchBase)-\(suffix)"
+            let path = URL(fileURLWithPath: repoRoot.worktreesPath, isDirectory: true)
+                .appendingPathComponent(branch, isDirectory: true)
+                .standardizedFileURL
+                .path
+            if !agentLauncherBranchExists(branch, repoPath: repoRoot.repoPath),
+               !fm.fileExists(atPath: path) {
+                let baseRef = agentLauncherGitRefExists("origin/main", repoPath: repoRoot.repoPath) ? "origin/main" : "HEAD"
+                let result = runProcess(
+                    executablePath: "/usr/bin/env",
+                    arguments: ["git", "-C", repoRoot.repoPath, "worktree", "add", "-b", branch, path, baseRef],
+                    timeout: 120
+                )
+                guard result.status == 0 else {
+                    let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    throw CLIError(message: "home: failed to create worktree \(branch): \(message)")
+                }
+                let submoduleResult = runProcess(
+                    executablePath: "/usr/bin/env",
+                    arguments: ["git", "-C", path, "submodule", "update", "--init", "--recursive"],
+                    timeout: 180
+                )
+                guard submoduleResult.status == 0 else {
+                    let message = submoduleResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    throw CLIError(message: "home: failed to initialize submodules for \(branch): \(message)")
+                }
+                return AgentLauncherLaunchDirectory(branchName: branch, path: path, usesWorktree: true)
+            }
+            suffix += 1
+        }
+    }
+
+    private func agentLauncherBranchExists(_ branch: String, repoPath: String) -> Bool {
+        agentLauncherGitRefExists("refs/heads/\(branch)", repoPath: repoPath)
+            || agentLauncherGitRefExists("refs/remotes/origin/\(branch)", repoPath: repoPath)
+    }
+
+    private func agentLauncherGitRefExists(_ ref: String, repoPath: String) -> Bool {
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", repoPath, "rev-parse", "--verify", "--quiet", ref],
+            timeout: 10
+        )
+        return result.status == 0
+    }
+
+    private func generatedAgentLauncherWorkspaceName(for prompt: String, useAI: Bool) -> String {
+        if useAI, let generated = aiGeneratedAgentLauncherWorkspaceName(for: prompt) {
+            return generated
+        }
+        return fallbackAgentLauncherWorkspaceName(for: prompt)
+    }
+
+    private func aiGeneratedAgentLauncherWorkspaceName(for prompt: String) -> String? {
+        guard let codexPath = resolveExecutableInSearchPath(
+            "codex",
+            searchPath: ProcessInfo.processInfo.environment["PATH"]
+        ) else {
+            return nil
+        }
+
+        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-agent-launcher-name-\(UUID().uuidString).txt", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let clippedPrompt = prompt.count > 1800 ? String(prompt.prefix(1800)) : prompt
+        let namingPrompt = """
+        Generate a short cmux workspace name for this coding task.
+        Rules: 2 to 4 lowercase words, no punctuation, no quotes, 24 characters maximum.
+        Return only the name.
+
+        Task:
+        \(clippedPrompt)
+        """
+        let result = runProcess(
+            executablePath: codexPath,
+            arguments: [
+                "exec",
+                "--skip-git-repo-check",
+                "--ephemeral",
+                "--color", "never",
+                "--output-last-message", tempURL.path,
+                namingPrompt
+            ],
+            timeout: 20
+        )
+        guard result.status == 0,
+              let raw = try? String(contentsOf: tempURL, encoding: .utf8) else {
+            return nil
+        }
+        return normalizedAgentLauncherWorkspaceName(raw)
+    }
+
+    private func fallbackAgentLauncherWorkspaceName(for prompt: String) -> String {
+        let words = prompt
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
+            .filter { word in
+                word.count >= 3 && !Self.agentLauncherStopWords.contains(word)
+            }
+        let picked = Array(words.prefix(3))
+        if picked.isEmpty {
+            return "agent task"
+        }
+        let name = picked.joined(separator: " ")
+        return normalizedAgentLauncherWorkspaceName(name) ?? "agent task"
+    }
+
+    private static let agentLauncherStopWords: Set<String> = [
+        "the", "and", "for", "with", "that", "this", "from", "into", "make", "help", "please",
+        "create", "build", "need", "will", "should", "would", "could", "have", "like"
+    ]
+
+    private func normalizedAgentLauncherWorkspaceName(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let cleaned = raw
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .prefix(4)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+        if cleaned.count <= 24 {
+            return cleaned
+        }
+        let clippedWords = cleaned.split(separator: " ")
+        var result: [Substring] = []
+        var count = 0
+        for word in clippedWords {
+            let nextCount = count + word.count + (result.isEmpty ? 0 : 1)
+            guard nextCount <= 24 else { break }
+            result.append(word)
+            count = nextCount
+        }
+        return result.isEmpty ? String(cleaned.prefix(24)) : result.joined(separator: " ")
+    }
+
+    private func agentLauncherSlug(from name: String) -> String {
+        let parts = name
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
+        let slug = parts.joined(separator: "-")
+        if slug.isEmpty {
+            return "agent-task"
+        }
+        return String(slug.prefix(40)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    private func imagePaths(inLauncherInputLine line: String) -> [String] {
+        shellWords(line).compactMap { normalizedAgentLauncherImagePath($0) }
+    }
+
+    private func isAttachmentOnlyAgentLauncherLine(_ line: String) -> Bool {
+        let words = shellWords(line)
+        guard !words.isEmpty else { return false }
+        return words.allSatisfy { normalizedAgentLauncherImagePath($0) != nil }
+    }
+
+    private func normalizedAgentLauncherImagePath(_ raw: String) -> String? {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("file://"), let url = URL(string: value), url.isFileURL {
+            value = url.path
+        }
+        if value.hasPrefix("~") {
+            value = (value as NSString).expandingTildeInPath
+        }
+        if !value.hasPrefix("/") {
+            value = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+                .appendingPathComponent(value)
+                .standardizedFileURL
+                .path
+        }
+        let ext = URL(fileURLWithPath: value).pathExtension.lowercased()
+        guard Self.agentLauncherImageExtensions.contains(ext),
+              FileManager.default.fileExists(atPath: value) else {
+            return nil
+        }
+        return URL(fileURLWithPath: value).standardizedFileURL.path
+    }
+
+    private func appendUniqueAgentLauncherImages(_ existing: [String], _ additions: [String]) -> [String] {
+        var seen = Set(existing)
+        var result = existing
+        for path in additions where seen.insert(path).inserted {
+            result.append(path)
+        }
+        return result
+    }
+
+    private func shellWords(_ line: String) -> [String] {
+        var words: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaping = false
+
+        for char in line {
+            if escaping {
+                current.append(char)
+                escaping = false
+                continue
+            }
+            if char == "\\" {
+                escaping = true
+                continue
+            }
+            if let activeQuote = quote {
+                if char == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(char)
+                }
+                continue
+            }
+            if char == "'" || char == "\"" {
+                quote = char
+                continue
+            }
+            if char.isWhitespace {
+                if !current.isEmpty {
+                    words.append(current)
+                    current = ""
+                }
+            } else {
+                current.append(char)
+            }
+        }
+
+        if escaping {
+            current.append("\\")
+        }
+        if !current.isEmpty {
+            words.append(current)
+        }
+        return words
+    }
+
+    private func currentCmuxExecutableForLauncher() -> String {
+        resolvedExecutableURL()?.path ?? args.first ?? "cmux"
+    }
+
+    private func printAgentLauncherResult(_ result: AgentLauncherResult, jsonOutput: Bool) {
+        if jsonOutput {
+            print(jsonString([
+                "workspace": [
+                    "name": result.workspaceName,
+                    "ref": result.workspaceRef
+                ],
+                "workspaces": result.workspaces.map { workspace in
+                    [
+                        "name": workspace.name,
+                        "ref": workspace.ref
+                    ]
+                },
+                "placement": result.placement.rawValue,
+                "agents": result.surfaces.map { surface in
+                    [
+                        "kind": surface.kind.rawValue,
+                        "title": surface.title,
+                        "branch": surface.launchDirectory.branchName ?? "",
+                        "path": surface.launchDirectory.path,
+                        "worktree": surface.launchDirectory.usesWorktree
+                    ]
+                }
+            ]))
+            return
+        }
+
+        print("OK \(result.workspaceRef) \(result.workspaceName) \(result.placement.displayName)")
+        if result.workspaces.count > 1 {
+            for workspace in result.workspaces {
+                print("Workspace: \(workspace.ref)  \(workspace.name)")
+            }
+        }
+        for surface in result.surfaces {
+            let prefix = surface.launchDirectory.branchName ?? "shared"
+            print("\(surface.kind.displayName): \(prefix)  \(surface.launchDirectory.path)")
+        }
     }
 
     private func runFeedback(
@@ -8353,6 +9676,25 @@ struct CMUXCLI {
             If the app is already running, this restores the last saved session into the current app.
             If the app is not running, this launches cmux and lets startup restore reopen the saved session.
             """
+        case "home", "agent-launcher":
+            return """
+            Usage: cmux home [tui]
+                   cmux home install [--name <title>]
+                   cmux home run --prompt <text> [--image <path> ...] [--claude <n>] [--codex <n>] [--opencode <n>] [--custom <n>] [--command <bash>] [--placement splits|tabs|workspaces] [--isolation auto|shared|worktrees] [--name <title>] [--base <path>] [--no-ai-name]
+
+            Start the Charm TUI for creating agent workspaces.
+
+            cmux home opens agents in splits, tabs, or separate workspaces.
+            Worktrees are optional: auto uses them inside git repos and falls back to the current directory elsewhere.
+            Defaults to one Claude pane on the left and one Codex pane on the right.
+
+            Images pasted or dropped into a cmux terminal are inserted as file paths. cmux home
+            shows those paths as [Image #N] tokens, passes them to Codex with --image, and also
+            lists them in the prompt for Claude and OpenCode.
+
+            OpenCode uses Kimi with --model kimi-for-coding/k2p6.
+            Custom bash commands receive CMUX_AGENT_PROMPT_FILE, CMUX_AGENT_IMAGES_FILE, CMUX_AGENT_TITLE, and CMUX_AGENT_WORKDIR.
+            """
         case "feedback":
             return """
             Usage: cmux feedback
@@ -9773,7 +11115,8 @@ struct CMUXCLI {
     private func execInteractiveHelper(
         executablePath: String,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        failureDescription: String = "interactive helper"
     ) throws -> Never {
         var argv = ([executablePath] + arguments).map { strdup($0) }
         defer {
@@ -9794,7 +11137,7 @@ struct CMUXCLI {
 
         execve(executablePath, &argv, &envp)
         let code = errno
-        throw CLIError(message: "Failed to launch interactive theme picker: \(String(cString: strerror(code)))")
+        throw CLIError(message: "Failed to launch \(failureDescription): \(String(cString: strerror(code)))")
     }
 
     private func bundledGhosttyResourcesURL() -> URL? {
@@ -18543,6 +19886,7 @@ export default CMUXSessionRestore;
           welcome
           shortcuts
           restore-session
+          home [tui|install|run]
           feedback [--email <email> --body <text> [--image <path> ...]]
           themes [list|set|clear]
           claude-teams [claude-args...]
