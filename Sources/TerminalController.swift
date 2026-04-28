@@ -56,6 +56,7 @@ class TerminalController {
     private nonisolated let listenerStateLock = NSLock()
     private nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
     private nonisolated(unsafe) var listenerReadSource: DispatchSourceRead?
+    private nonisolated(unsafe) var listenerReadSourceSuspended = false
     private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
@@ -297,14 +298,14 @@ class TerminalController {
         }
     }
 
-    private static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool) -> Bool {
+    private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool) -> Bool {
         if isV2 {
             return focusIntentV2Methods.contains(commandKey)
         }
         return focusIntentV1Commands.contains(commandKey)
     }
 
-    private func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, _ body: () -> T) -> T {
+    private nonisolated func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, _ body: () -> T) -> T {
         let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(commandKey: commandKey, isV2: isV2)
         Self.socketCommandPolicyLock.lock()
         Self.socketCommandPolicyDepth += 1
@@ -1210,7 +1211,7 @@ class TerminalController {
     }
 
     nonisolated func stop() {
-        let (sourceToCancel, socketToShutdown, socketToClose, socketPathToUnlink) = withListenerState {
+        let (sourceToCancel, sourceWasSuspended, socketToShutdown, socketToClose, socketPathToUnlink) = withListenerState {
             isRunning = false
             acceptLoopAlive = false
             pendingAcceptLoopRearmGeneration = nil
@@ -1218,11 +1219,14 @@ class TerminalController {
             nextAcceptLoopGeneration &+= 1
             activeAcceptLoopGeneration = 0
             let sourceToCancel = listenerReadSource
+            let sourceWasSuspended = listenerReadSourceSuspended
             listenerReadSource = nil
+            listenerReadSourceSuspended = false
             let socketToClose = serverSocket
             serverSocket = -1
             return (
                 sourceToCancel,
+                sourceWasSuspended,
                 socketToClose,
                 sourceToCancel == nil ? socketToClose : Int32(-1),
                 socketPath
@@ -1230,6 +1234,9 @@ class TerminalController {
         }
         if socketToShutdown >= 0 {
             shutdown(socketToShutdown, SHUT_RDWR)
+        }
+        if sourceWasSuspended {
+            sourceToCancel?.resume()
         }
         sourceToCancel?.cancel()
         if socketToClose >= 0 {
@@ -1363,6 +1370,57 @@ class TerminalController {
         return nil
     }
 
+    private nonisolated func socketWorkerAuthResponseIfNeeded(for command: String) -> String? {
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return nil
+        }
+
+        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard method == "auth.status" || method == "auth.begin_sign_in" || method == "auth.sign_out" else {
+            return nil
+        }
+
+        let id: Any? = dict["id"]
+        let params = dict["params"] as? [String: Any] ?? [:]
+
+        return withSocketCommandPolicy(commandKey: method, isV2: true) {
+            switch method {
+            case "auth.status":
+                let semaphore = DispatchSemaphore(value: 0)
+                Task { @MainActor in
+                    await AuthManager.shared.awaitBootstrapped()
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: false))
+            case "auth.begin_sign_in":
+                let timeoutSeconds = (params["timeout_seconds"] as? Double) ?? 300
+                let semaphore = DispatchSemaphore(value: 0)
+                nonisolated(unsafe) var signedIn = false
+                Task { @MainActor in
+                    signedIn = await AuthManager.shared.beginSignInAndAwait(
+                        timeout: timeoutSeconds
+                    )
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: !signedIn))
+            case "auth.sign_out":
+                let semaphore = DispatchSemaphore(value: 0)
+                Task { @MainActor in
+                    _ = await AuthManager.shared.signOutAndAwait(timeout: 5)
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: false))
+            default:
+                return nil
+            }
+        }
+    }
+
     private nonisolated func startAcceptSource(listenerSocket: Int32, generation: UInt64) {
         let source = DispatchSource.makeReadSource(fileDescriptor: listenerSocket, queue: socketListenerQueue)
         source.setEventHandler { [weak self] in
@@ -1378,6 +1436,7 @@ class TerminalController {
                 return false
             }
             listenerReadSource = source
+            listenerReadSourceSuspended = false
             acceptLoopAlive = true
             return true
         }
@@ -1407,6 +1466,7 @@ class TerminalController {
             guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else { return }
             acceptLoopAlive = false
             listenerReadSource = nil
+            listenerReadSourceSuspended = false
         }
     }
 
@@ -1487,41 +1547,52 @@ class TerminalController {
             )
         )
 
-        let delayMs: Int
         switch recoveryAction {
         case .retryImmediately:
             return
-        case .resumeAfterDelay(let resumeDelayMs), .rearmAfterDelay(let resumeDelayMs):
-            delayMs = resumeDelayMs
-        }
-
-        let cleanup = withListenerState {
-            guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else {
-                return (didCleanup: false, sourceToCancel: nil as DispatchSourceRead?)
-            }
-            pendingAcceptLoopRearmGeneration = generation
-            isRunning = false
-            acceptLoopAlive = false
-            let source = listenerReadSource
-            listenerReadSource = nil
-            serverSocket = -1
-            shutdown(listenerSocket, SHUT_RDWR)
-            if source == nil {
-                close(listenerSocket)
-            }
-            return (didCleanup: true, sourceToCancel: source)
-        }
-        guard cleanup.didCleanup else {
+        case .resumeAfterDelay(let delayMs):
+            scheduleAcceptSourceResume(
+                listenerSocket: listenerSocket,
+                generation: generation,
+                errnoCode: errnoCode,
+                consecutiveFailures: consecutiveFailures,
+                delayMs: delayMs
+            )
             return
-        }
-        cleanup.sourceToCancel?.cancel()
+        case .rearmAfterDelay(let delayMs):
+            let cleanup = withListenerState {
+                guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else {
+                    return (didCleanup: false, sourceToCancel: nil as DispatchSourceRead?, sourceWasSuspended: false)
+                }
+                pendingAcceptLoopRearmGeneration = generation
+                isRunning = false
+                acceptLoopAlive = false
+                let source = listenerReadSource
+                let sourceWasSuspended = listenerReadSourceSuspended
+                listenerReadSource = nil
+                listenerReadSourceSuspended = false
+                serverSocket = -1
+                shutdown(listenerSocket, SHUT_RDWR)
+                if source == nil {
+                    close(listenerSocket)
+                }
+                return (didCleanup: true, sourceToCancel: source, sourceWasSuspended: sourceWasSuspended)
+            }
+            guard cleanup.didCleanup else {
+                return
+            }
+            if cleanup.sourceWasSuspended {
+                cleanup.sourceToCancel?.resume()
+            }
+            cleanup.sourceToCancel?.cancel()
 
-        scheduleListenerRearm(
-            generation: generation,
-            errnoCode: errnoCode,
-            consecutiveFailures: consecutiveFailures,
-            delayMs: delayMs
-        )
+            scheduleListenerRearm(
+                generation: generation,
+                errnoCode: errnoCode,
+                consecutiveFailures: consecutiveFailures,
+                delayMs: delayMs
+            )
+        }
     }
 
     private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
@@ -1531,6 +1602,60 @@ class TerminalController {
                 return
             }
             self.handleClient(clientSocket, peerPid: peerPid)
+        }
+    }
+
+    private nonisolated func scheduleAcceptSourceResume(
+        listenerSocket: Int32,
+        generation: UInt64,
+        errnoCode: Int32,
+        consecutiveFailures: Int,
+        delayMs: Int
+    ) {
+        let sourceToPause = withListenerState {
+            guard activeAcceptLoopGeneration == generation,
+                  serverSocket == listenerSocket,
+                  let source = listenerReadSource,
+                  !listenerReadSourceSuspended else {
+                return nil as DispatchSourceRead?
+            }
+            source.suspend()
+            listenerReadSourceSuspended = true
+            return source
+        }
+        guard let sourceToPause else {
+            return
+        }
+
+        sentryBreadcrumb(
+            "socket.listener.accept.resume_scheduled",
+            category: "socket",
+            data: socketListenerEventData(
+                stage: "accept_source_resume",
+                errnoCode: errnoCode,
+                extra: [
+                    "generation": generation,
+                    "consecutiveFailures": consecutiveFailures,
+                    "resumeDelayMs": delayMs
+                ]
+            )
+        )
+
+        let deadline = DispatchTime.now() + .milliseconds(delayMs)
+        socketListenerQueue.asyncAfter(deadline: deadline) { [weak self, sourceToPause] in
+            guard let self else { return }
+            self.withListenerState {
+                guard self.activeAcceptLoopGeneration == generation,
+                      self.serverSocket == listenerSocket,
+                      self.isRunning,
+                      let activeSource = self.listenerReadSource,
+                      activeSource === sourceToPause,
+                      self.listenerReadSourceSuspended else {
+                    return
+                }
+                sourceToPause.resume()
+                self.listenerReadSourceSuspended = false
+            }
         }
     }
 
@@ -1638,6 +1763,9 @@ class TerminalController {
     ) -> SocketLineProcessingResult {
         var nextAuthenticated = authenticated
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
+            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        }
+        if let response = socketWorkerAuthResponseIfNeeded(for: command) {
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
 
@@ -3124,36 +3252,38 @@ class TerminalController {
     // MARK: - V2 Helpers (encoding + result plumbing)
     // MARK: - V2 Helpers (encoding + result plumbing)
 
-    private func v2AuthStatusPayload(timedOut: Bool) -> [String: Any] {
+    private nonisolated func v2AuthStatusPayload(timedOut: Bool) -> [String: Any] {
         var result: [String: Any] = [:]
         v2MainSync {
-            let manager = AuthManager.shared
-            var status: [String: Any] = [
-                "signed_in": manager.isAuthenticated,
-                "is_restoring_session": manager.isRestoringSession,
-                "is_loading": manager.isLoading,
-                "timed_out": timedOut
-            ]
-            if let user = manager.currentUser {
-                var userDict: [String: Any] = ["id": user.id]
-                if let email = user.primaryEmail { userDict["email"] = email }
-                if let name = user.displayName { userDict["display_name"] = name }
-                status["user"] = userDict
-            }
-            if let teamID = manager.resolvedTeamID {
-                status["selected_team_id"] = teamID
-            }
-            if !manager.availableTeams.isEmpty {
-                status["teams"] = manager.availableTeams.map { team -> [String: Any] in
-                    var dict: [String: Any] = [
-                        "id": team.id,
-                        "display_name": team.displayName
-                    ]
-                    if let slug = team.slug { dict["slug"] = slug }
-                    return dict
+            MainActor.assumeIsolated {
+                let manager = AuthManager.shared
+                var status: [String: Any] = [
+                    "signed_in": manager.isAuthenticated,
+                    "is_restoring_session": manager.isRestoringSession,
+                    "is_loading": manager.isLoading,
+                    "timed_out": timedOut
+                ]
+                if let user = manager.currentUser {
+                    var userDict: [String: Any] = ["id": user.id]
+                    if let email = user.primaryEmail { userDict["email"] = email }
+                    if let name = user.displayName { userDict["display_name"] = name }
+                    status["user"] = userDict
                 }
+                if let teamID = manager.resolvedTeamID {
+                    status["selected_team_id"] = teamID
+                }
+                if !manager.availableTeams.isEmpty {
+                    status["teams"] = manager.availableTeams.map { team -> [String: Any] in
+                        var dict: [String: Any] = [
+                            "id": team.id,
+                            "display_name": team.displayName
+                        ]
+                        if let slug = team.slug { dict["slug"] = slug }
+                        return dict
+                    }
+                }
+                result = status
             }
-            result = status
         }
         return result
     }

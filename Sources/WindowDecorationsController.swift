@@ -49,6 +49,10 @@ final class WindowDecorationsController {
                 self.lastMinimalModeTitlebarClick = nil
                 return event
             }
+            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: event.locationInWindow) else {
+                self.lastMinimalModeTitlebarClick = nil
+                return event
+            }
 
             let windowNumber = window.windowNumber
             let isDoubleClick = minimalModeTitlebarClickFormsDoubleClick(

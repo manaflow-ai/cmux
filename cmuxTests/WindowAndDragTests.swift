@@ -475,8 +475,11 @@ final class WindowDragHandleHitTests: XCTestCase {
 
     private final class HostContainerView: NSView {}
     private final class BlockingTopHitContainerView: NSView {
+        var hitCount = 0
+
         override func hitTest(_ point: NSPoint) -> NSView? {
-            bounds.contains(point) ? self : nil
+            hitCount += 1
+            return bounds.contains(point) ? self : nil
         }
     }
     private final class PassThroughProbeView: NSView {
@@ -659,6 +662,31 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(windowDragHandleShouldTreatTopHitAsPassiveHost(NSButton(frame: .zero)))
     }
 
+    func testMinimalModeTitlebarControlRegionRegistryMatchesVisibleRegisteredView() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let controlRegion = NSView(frame: NSRect(x: 72, y: 88, width: 124, height: 28))
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        XCTAssertTrue(isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 100, y: 100)))
+        XCTAssertFalse(isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 20, y: 100)))
+
+        controlRegion.isHidden = true
+        XCTAssertFalse(isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 100, y: 100)))
+    }
+
     func testSuppressedTitlebarDoubleClickConsumesWithoutWindowAction() {
         XCTAssertEqual(
             handleTitlebarDoubleClick(window: nil, behavior: .suppress),
@@ -790,7 +818,7 @@ final class WindowDragHandleHitTests: XCTestCase {
                 doubleClickInterval: 0.5
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             minimalModeTitlebarClickFormsDoubleClick(
                 clickCount: 1,
                 timestamp: 10.65,
@@ -904,17 +932,21 @@ final class WindowDragHandleHitTests: XCTestCase {
             XCTFail("Expected nested content view")
             return
         }
-        let nestedContainer = BlockingTopHitContainerView(frame: nestedContentView.bounds)
+        let nestedContainer = NSView(frame: nestedContentView.bounds)
         nestedContainer.autoresizingMask = [.width, .height]
         nestedContentView.addSubview(nestedContainer)
         let nestedDragHandle = NSView(frame: nestedContainer.bounds)
         nestedDragHandle.autoresizingMask = [.width, .height]
         nestedContainer.addSubview(nestedDragHandle)
+        let nestedBlockingOverlay = BlockingTopHitContainerView(frame: nestedContainer.bounds)
+        nestedBlockingOverlay.autoresizingMask = [.width, .height]
+        nestedContainer.addSubview(nestedBlockingOverlay)
 
         XCTAssertFalse(
             windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown, eventWindow: nestedWindow),
             "Nested window drag handle should be blocked by top-hit titlebar container"
         )
+        XCTAssertEqual(nestedBlockingOverlay.hitCount, 1)
 
         var nestedCaptureResult: Bool?
         let probe = PassThroughProbeView(frame: outerContainer.bounds)
@@ -930,6 +962,11 @@ final class WindowDragHandleHitTests: XCTestCase {
             nestedCaptureResult,
             false,
             "Top-hit recursion in one window must not disable top-hit resolution in another window"
+        )
+        XCTAssertEqual(
+            nestedBlockingOverlay.hitCount,
+            2,
+            "Nested window should resolve its own blocking sibling while another window is resolving hits"
         )
     }
 

@@ -612,6 +612,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             .frame(width: hostWidth, height: hostHeight, alignment: .leading)
         }
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
+        .background(MinimalModeTitlebarControlHitRegionView())
         .onAppear {
             isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
             popoverVisibilityState.setShown(isNotificationsPopoverShown)

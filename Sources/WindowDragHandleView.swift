@@ -266,11 +266,99 @@ func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
     return false
 }
 
+enum MinimalModeTitlebarControlHitRegionRegistry {
+    private static let lock = NSLock()
+    private static let registeredViews = NSHashTable<NSView>.weakObjects()
+
+    static func register(_ view: NSView) {
+        lock.lock()
+        registeredViews.add(view)
+        lock.unlock()
+    }
+
+    static func unregister(_ view: NSView) {
+        lock.lock()
+        registeredViews.remove(view)
+        lock.unlock()
+    }
+
+    private static func snapshot() -> [NSView] {
+        lock.lock()
+        let views = registeredViews.allObjects
+        lock.unlock()
+        return views
+    }
+
+    private static func isVisibleInHierarchy(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            guard !candidate.isHidden, candidate.alphaValue > 0 else { return false }
+            current = candidate.superview
+        }
+        return true
+    }
+
+    static func containsWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> Bool {
+        let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
+        for view in snapshot() {
+            guard view.window === window, isVisibleInHierarchy(view) else { continue }
+            let frameInWindow = view.convert(view.bounds, to: nil).insetBy(dx: -epsilon, dy: -epsilon)
+            if frameInWindow.contains(windowPoint) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+struct MinimalModeTitlebarControlHitRegionView: NSViewRepresentable {
+    final class RegisteredView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
+            } else {
+                MinimalModeTitlebarControlHitRegionRegistry.register(self)
+            }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        deinit {
+            MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
+        }
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        RegisteredView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        MinimalModeTitlebarControlHitRegionRegistry.register(nsView)
+    }
+}
+
+func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint) -> Bool {
+    MinimalModeTitlebarControlHitRegionRegistry.containsWindowPoint(locationInWindow, in: window)
+}
+
 /// Re-entrancy guard for the sibling hit-test walk. When `sibling.hitTest()`
 /// triggers SwiftUI view-body evaluation, AppKit can call back into this
 /// function before the outer invocation finishes, causing a Swift
-/// exclusive-access violation (SIGABRT). Main-thread only, no lock needed.
-private var _windowDragHandleIsResolvingSiblingHits = false
+/// exclusive-access violation (SIGABRT). Scope it per window so one window's
+/// active walk does not disable hit resolution in another window.
+/// Main-thread only, no lock needed.
+private var _windowDragHandleResolvingSiblingHitScopes = Set<ObjectIdentifier>()
+
+private func windowDragHandleSiblingHitResolutionScope(
+    window: NSWindow?,
+    superview: NSView
+) -> ObjectIdentifier {
+    if let window {
+        return ObjectIdentifier(window)
+    }
+    return ObjectIdentifier(superview)
+}
 
 /// Returns whether the titlebar drag handle should capture a hit at `point`.
 /// We only claim the hit when no sibling view already handles it, so interactive
@@ -353,15 +441,21 @@ func windowDragHandleShouldCaptureHit(
     // when sibling.hitTest() re-enters SwiftUI layout, which calls hitTest on
     // this drag handle again. Proceeding would trigger an exclusive-access
     // violation in the Swift runtime.
-    guard !_windowDragHandleIsResolvingSiblingHits else {
+    let hitResolutionScope = windowDragHandleSiblingHitResolutionScope(
+        window: dragHandleWindow,
+        superview: superview
+    )
+    guard !_windowDragHandleResolvingSiblingHitScopes.contains(hitResolutionScope) else {
         #if DEBUG
         cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=reentrant point=\(windowDragHandleFormatPoint(point))")
         #endif
         return false
     }
 
-    _windowDragHandleIsResolvingSiblingHits = true
-    defer { _windowDragHandleIsResolvingSiblingHits = false }
+    _windowDragHandleResolvingSiblingHitScopes.insert(hitResolutionScope)
+    defer {
+        _windowDragHandleResolvingSiblingHitScopes.remove(hitResolutionScope)
+    }
 
     let siblingSnapshot = Array(superview.subviews.reversed())
 
@@ -603,7 +697,7 @@ func minimalModeTitlebarClickFormsDoubleClick(
     windowNumber: Int,
     previous: MinimalModeTitlebarClickRecord?,
     doubleClickInterval: TimeInterval,
-    doubleClickIntervalTolerance: TimeInterval = 0.25,
+    doubleClickIntervalTolerance: TimeInterval = 0,
     maxDistance: CGFloat = 4
 ) -> Bool {
     if clickCount >= 2 {
@@ -760,6 +854,10 @@ struct MinimalModeTitlebarDoubleClickHandlerView: NSViewRepresentable {
                 bounds: view.bounds,
                 topStripHeight: coordinator.topStripHeight
             ) else {
+                coordinator.lastClick = nil
+                return event
+            }
+            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint) else {
                 coordinator.lastClick = nil
                 return event
             }
