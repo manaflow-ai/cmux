@@ -100,7 +100,7 @@ struct FeedPanelView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .frame(height: 29)
+        .frame(height: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
     private var controlBarContent: some View {

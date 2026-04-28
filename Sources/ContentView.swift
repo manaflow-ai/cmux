@@ -7,24 +7,6 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-enum MinimalModeChromeMetrics {
-    static let titlebarHeight: CGFloat = WindowChromeMetrics.minimumTitlebarHeight
-}
-
-enum RightSidebarChromeMetrics {
-    static let titlebarHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
-}
-
-enum SidebarWorkspaceListMetrics {
-    static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
-    static let rowVerticalPadding: CGFloat = 8
-    static let topScrimHeight: CGFloat = firstRowTopOffset + 20
-
-    static var scrollTopInset: CGFloat {
-        max(0, firstRowTopOffset - rowVerticalPadding)
-    }
-}
-
 // MARK: - File Drop Overlay
 
 enum DragOverlayRoutingPolicy {
@@ -15489,17 +15471,6 @@ enum WindowChromeSeparatorColor {
 
     static func current() -> NSColor {
         color(forChromeBackground: GhosttyBackgroundTheme.currentColor())
-    }
-}
-
-enum WindowChromeMetrics {
-    static let appTitlebarHeight: CGFloat = 28
-    static let minimumTitlebarHeight: CGFloat = appTitlebarHeight
-    static let maximumTitlebarHeight: CGFloat = 72
-    static let defaultTitlebarHeight: CGFloat = appTitlebarHeight
-
-    static func clampedTitlebarHeight(_ height: CGFloat) -> CGFloat {
-        max(minimumTitlebarHeight, min(maximumTitlebarHeight, height))
     }
 }
 

@@ -23,7 +23,6 @@ struct SessionIndexView: View {
     @State private var scrollRequest: SessionIndexScrollRequest?
     @State private var scrollRequestSequence = 0
     let onResume: ((SessionEntry) -> Void)?
-
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
 
@@ -125,7 +124,8 @@ struct SessionIndexView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .frame(height: 29)
+        .frame(height: RightSidebarChromeMetrics.secondaryBarHeight)
+        .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
     private var loadingView: some View {

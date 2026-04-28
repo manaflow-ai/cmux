@@ -8,6 +8,11 @@ struct RightSidebarChromeGeometry: Equatable {
     var titlebarHeight: CGFloat
 }
 
+enum RightSidebarChromeGeometryRole {
+    case modeBar
+    case secondaryBar
+}
+
 enum RightSidebarChromeUITestRecorder {
     static func shouldRecord() -> Bool {
 #if DEBUG
@@ -17,7 +22,7 @@ enum RightSidebarChromeUITestRecorder {
 #endif
     }
 
-    static func record(geometry: RightSidebarChromeGeometry) {
+    static func record(role: RightSidebarChromeGeometryRole, geometry: RightSidebarChromeGeometry) {
 #if DEBUG
         guard let path = dataPath(),
               geometry.isVisible,
@@ -27,11 +32,19 @@ enum RightSidebarChromeUITestRecorder {
         }
 
         var payload = loadPayload(at: path)
-        payload["rightSidebarModeBarMinY"] = String(format: "%.3f", Double(geometry.frame.minY))
-        payload["rightSidebarModeBarMaxY"] = String(format: "%.3f", Double(geometry.frame.minY + geometry.titlebarHeight))
-        payload["rightSidebarModeBarWidth"] = String(format: "%.3f", Double(geometry.frame.width))
-        payload["rightSidebarModeBarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
-        payload["rightSidebarTitlebarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
+        switch role {
+        case .modeBar:
+            payload["rightSidebarModeBarMinY"] = String(format: "%.3f", Double(geometry.frame.minY))
+            payload["rightSidebarModeBarMaxY"] = String(format: "%.3f", Double(geometry.frame.minY + geometry.titlebarHeight))
+            payload["rightSidebarModeBarWidth"] = String(format: "%.3f", Double(geometry.frame.width))
+            payload["rightSidebarModeBarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
+            payload["rightSidebarTitlebarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
+        case .secondaryBar:
+            payload["rightSidebarSecondaryBarMinY"] = String(format: "%.3f", Double(geometry.frame.minY))
+            payload["rightSidebarSecondaryBarMaxY"] = String(format: "%.3f", Double(geometry.frame.minY + geometry.titlebarHeight))
+            payload["rightSidebarSecondaryBarWidth"] = String(format: "%.3f", Double(geometry.frame.width))
+            payload["rightSidebarSecondaryBarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
+        }
 
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
@@ -62,17 +75,20 @@ enum RightSidebarChromeUITestRecorder {
 }
 
 struct RightSidebarChromeGeometryReporter: NSViewRepresentable {
+    var role: RightSidebarChromeGeometryRole
     var isVisible: Bool
     var titlebarHeight: CGFloat
 
     func makeNSView(context: Context) -> RightSidebarChromeGeometryReportingView {
         let view = RightSidebarChromeGeometryReportingView()
+        view.role = role
         view.isVisibleForReporting = isVisible
         view.titlebarHeight = titlebarHeight
         return view
     }
 
     func updateNSView(_ nsView: RightSidebarChromeGeometryReportingView, context: Context) {
+        nsView.role = role
         nsView.isVisibleForReporting = isVisible
         nsView.titlebarHeight = titlebarHeight
         nsView.reportIfNeeded()
@@ -80,6 +96,10 @@ struct RightSidebarChromeGeometryReporter: NSViewRepresentable {
 }
 
 final class RightSidebarChromeGeometryReportingView: NSView {
+    var role: RightSidebarChromeGeometryRole = .modeBar {
+        didSet { reportIfNeeded() }
+    }
+
     var isVisibleForReporting = false {
         didSet { reportIfNeeded() }
     }
@@ -117,6 +137,7 @@ final class RightSidebarChromeGeometryReportingView: NSView {
         }
 
         RightSidebarChromeUITestRecorder.record(
+            role: role,
             geometry: RightSidebarChromeGeometry(
                 frame: convert(bounds, to: nil),
                 isVisible: isVisibleForReporting,
@@ -128,11 +149,13 @@ final class RightSidebarChromeGeometryReportingView: NSView {
 
 extension View {
     func reportRightSidebarChromeGeometryForBonsplitUITest(
+        role: RightSidebarChromeGeometryRole = .modeBar,
         isVisible: Bool,
         titlebarHeight: CGFloat
     ) -> some View {
         background(
             RightSidebarChromeGeometryReporter(
+                role: role,
                 isVisible: isVisible,
                 titlebarHeight: titlebarHeight
             )

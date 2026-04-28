@@ -3915,7 +3915,7 @@ private struct TabBarBackdropLabSample: View {
 
     private static func makeAppearance(for variant: TabBarBackdropLabVariant) -> BonsplitConfiguration.Appearance {
         BonsplitConfiguration.Appearance(
-            tabBarHeight: 33,
+            tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
             tabMinWidth: 138,
             tabMaxWidth: 210,
             tabTitleFontSize: 11,
