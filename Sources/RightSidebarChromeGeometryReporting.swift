@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -5,18 +6,6 @@ struct RightSidebarChromeGeometry: Equatable {
     var frame: CGRect
     var isVisible: Bool
     var titlebarHeight: CGFloat
-}
-
-struct RightSidebarChromeGeometryPreferenceKey: PreferenceKey {
-    static var defaultValue = RightSidebarChromeGeometry(
-        frame: .zero,
-        isVisible: false,
-        titlebarHeight: 0
-    )
-
-    static func reduce(value: inout RightSidebarChromeGeometry, nextValue: () -> RightSidebarChromeGeometry) {
-        value = nextValue()
-    }
 }
 
 enum RightSidebarChromeUITestRecorder {
@@ -72,30 +61,82 @@ enum RightSidebarChromeUITestRecorder {
 #endif
 }
 
+struct RightSidebarChromeGeometryReporter: NSViewRepresentable {
+    var isVisible: Bool
+    var titlebarHeight: CGFloat
+
+    func makeNSView(context: Context) -> RightSidebarChromeGeometryReportingView {
+        let view = RightSidebarChromeGeometryReportingView()
+        view.isVisibleForReporting = isVisible
+        view.titlebarHeight = titlebarHeight
+        return view
+    }
+
+    func updateNSView(_ nsView: RightSidebarChromeGeometryReportingView, context: Context) {
+        nsView.isVisibleForReporting = isVisible
+        nsView.titlebarHeight = titlebarHeight
+        nsView.reportIfNeeded()
+    }
+}
+
+final class RightSidebarChromeGeometryReportingView: NSView {
+    var isVisibleForReporting = false {
+        didSet { reportIfNeeded() }
+    }
+
+    var titlebarHeight: CGFloat = 0 {
+        didSet { reportIfNeeded() }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        reportIfNeeded()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        reportIfNeeded()
+    }
+
+    override func layout() {
+        super.layout()
+        reportIfNeeded()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        reportIfNeeded()
+    }
+
+    func reportIfNeeded() {
+        guard RightSidebarChromeUITestRecorder.shouldRecord(),
+              window != nil,
+              bounds.width > 1,
+              bounds.height > 1 else {
+            return
+        }
+
+        RightSidebarChromeUITestRecorder.record(
+            geometry: RightSidebarChromeGeometry(
+                frame: convert(bounds, to: nil),
+                isVisible: isVisibleForReporting,
+                titlebarHeight: titlebarHeight
+            )
+        )
+    }
+}
+
 extension View {
-    @ViewBuilder
     func reportRightSidebarChromeGeometryForBonsplitUITest(
         isVisible: Bool,
         titlebarHeight: CGFloat
     ) -> some View {
-        if RightSidebarChromeUITestRecorder.shouldRecord() {
-            background {
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: RightSidebarChromeGeometryPreferenceKey.self,
-                        value: RightSidebarChromeGeometry(
-                            frame: proxy.frame(in: .global),
-                            isVisible: isVisible,
-                            titlebarHeight: titlebarHeight
-                        )
-                    )
-                }
-            }
-            .onPreferenceChange(RightSidebarChromeGeometryPreferenceKey.self) { geometry in
-                RightSidebarChromeUITestRecorder.record(geometry: geometry)
-            }
-        } else {
-            self
-        }
+        background(
+            RightSidebarChromeGeometryReporter(
+                isVisible: isVisible,
+                titlebarHeight: titlebarHeight
+            )
+            .allowsHitTesting(false)
+        )
     }
 }
