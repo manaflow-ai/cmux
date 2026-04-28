@@ -2993,6 +2993,12 @@ class TerminalController {
             "ref": v2Ref(kind: .workspace, uuid: workspace.id),
             "index": index,
             "title": workspace.title,
+            "kind": workspace.isRealTmuxWorkspace ? "real-tmux" : "native",
+            "source": workspace.isRealTmuxWorkspace ? "real-tmux" : "native",
+            "real_tmux": workspace.isRealTmuxWorkspace ? [
+                "session_id": v2OrNull(workspace.realTmuxSessionId),
+                "session_name": v2OrNull(workspace.realTmuxSessionName)
+            ] : NSNull(),
             "description": v2OrNull(workspace.customDescription),
             "selected": selected,
             "pinned": workspace.isPinned,
@@ -3322,7 +3328,7 @@ class TerminalController {
                 return tm
             }
         }
-        return tabManager
+        return v2MainSync { AppDelegate.shared?.synchronizeActiveMainWindowContext() } ?? tabManager
     }
 
     private func v2ResolveWindowId(tabManager: TabManager?) -> UUID? {
@@ -3419,6 +3425,12 @@ class TerminalController {
             "id": workspace.id.uuidString,
             "ref": v2Ref(kind: .workspace, uuid: workspace.id),
             "title": workspace.title,
+            "kind": workspace.isRealTmuxWorkspace ? "real-tmux" : "native",
+            "source": workspace.isRealTmuxWorkspace ? "real-tmux" : "native",
+            "real_tmux": workspace.isRealTmuxWorkspace ? [
+                "session_id": v2OrNull(workspace.realTmuxSessionId),
+                "session_name": v2OrNull(workspace.realTmuxSessionName)
+            ] : NSNull(),
             "description": v2OrNull(workspace.customDescription),
             "selected": selected,
             "pinned": workspace.isPinned,
@@ -5157,14 +5169,19 @@ class TerminalController {
                 return
             }
 
-            if ws.panels.count <= 1 {
+            let isRealTmuxWorkspace = ws.realTmuxSessionId != nil || ws.realTmuxSessionName != nil
+            if ws.panels.count <= 1 && !isRealTmuxWorkspace {
                 result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
                 return
             }
 
             // Socket API must be non-interactive: bypass close-confirmation gating.
-            ws.closePanel(surfaceId, force: true)
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            let closed = isRealTmuxWorkspace
+                ? tabManager.closeSurface(tabId: ws.id, surfaceId: surfaceId)
+                : ws.closePanel(surfaceId, force: true)
+            result = closed
+                ? .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+                : .err(code: "internal_error", message: "Failed to close surface", data: ["surface_id": surfaceId.uuidString])
         }
         return result
     }
@@ -5188,6 +5205,24 @@ class TerminalController {
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if ws.isRealTmuxWorkspace {
+                if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: surfaceId, direction: direction, focus: true) {
+                    let windowId = v2ResolveWindowId(tabManager: tabManager)
+                    result = .ok([
+                        "window_id": v2OrNull(windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowId),
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "surface_id": newId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: newId),
+                        "pane_id": v2OrNull(ws.paneId(forPanelId: newId)?.id.uuidString),
+                        "pane_ref": v2Ref(kind: .pane, uuid: ws.paneId(forPanelId: newId)?.id)
+                    ])
+                } else {
+                    result = .err(code: "internal_error", message: "Failed to split real tmux pane", data: nil)
+                }
                 return
             }
             guard let bonsplitTabId = ws.surfaceIdFromPanelId(surfaceId) else {
@@ -6421,6 +6456,30 @@ class TerminalController {
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
             guard let focusedPanelId = ws.focusedPanelId else {
                 result = .err(code: "not_found", message: "No focused surface to split", data: nil)
+                return
+            }
+
+            if ws.isRealTmuxWorkspace {
+                guard panelType != .browser else {
+                    result = .err(code: "invalid_state", message: "Cannot create native browser panes in a real tmux workspace", data: nil)
+                    return
+                }
+                if let newPanelId = tabManager.newSplit(tabId: ws.id, surfaceId: focusedPanelId, direction: direction, focus: v2FocusAllowed()) {
+                    let windowId = v2ResolveWindowId(tabManager: tabManager)
+                    result = .ok([
+                        "window_id": v2OrNull(windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowId),
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "pane_id": v2OrNull(ws.paneId(forPanelId: newPanelId)?.id.uuidString),
+                        "pane_ref": v2Ref(kind: .pane, uuid: ws.paneId(forPanelId: newPanelId)?.id),
+                        "surface_id": newPanelId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: newPanelId),
+                        "type": "real-tmux"
+                    ])
+                } else {
+                    result = .err(code: "internal_error", message: "Failed to split real tmux pane", data: nil)
+                }
                 return
             }
 
@@ -12775,7 +12834,8 @@ class TerminalController {
         DispatchQueue.main.sync {
             let tabs = tabManager.tabs.enumerated().map { (index, tab) in
                 let selected = tab.id == tabManager.selectedTabId ? "*" : " "
-                return "\(selected) \(index): \(tab.id.uuidString) \(tab.title)"
+                let kind = tab.isRealTmuxWorkspace ? "real-tmux" : "native"
+                return "\(selected) \(index): \(tab.id.uuidString) [\(kind)] \(tab.title)"
             }
             result = tabs.joined(separator: "\n")
         }
@@ -14576,6 +14636,17 @@ class TerminalController {
                 return
             }
 
+            if tab.isRealTmuxWorkspace {
+                guard panelType != .browser else {
+                    result = "ERROR: Cannot create native browser panes in a real tmux workspace"
+                    return
+                }
+                if let id = tabManager.newSplit(tabId: tabId, surfaceId: focusedPanelId, direction: direction, focus: focus) {
+                    result = "OK \(id.uuidString) [tmux]"
+                }
+                return
+            }
+
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = tab.newBrowserSplit(
@@ -16051,15 +16122,18 @@ class TerminalController {
                 return
             }
 
-            // Don't close if it's the only surface
-            if tab.panels.count <= 1 {
+            let isRealTmuxWorkspace = tab.realTmuxSessionId != nil || tab.realTmuxSessionName != nil
+            // Don't close if it's the only surface, unless the surface represents a real tmux session.
+            if tab.panels.count <= 1 && !isRealTmuxWorkspace {
                 result = "ERROR: Cannot close the last surface"
                 return
             }
 
             // Socket commands must be non-interactive: bypass close-confirmation gating.
-            tab.closePanel(targetSurfaceId, force: true)
-            result = "OK"
+            let closed = isRealTmuxWorkspace
+                ? tabManager.closeSurface(tabId: tab.id, surfaceId: targetSurfaceId)
+                : tab.closePanel(targetSurfaceId, force: true)
+            result = closed ? "OK" : "ERROR: Failed to close surface"
         }
         return result
     }

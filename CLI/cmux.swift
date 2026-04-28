@@ -2233,6 +2233,8 @@ struct CMUXCLI {
                         let selected = (ws["selected"] as? Bool) == true
                         let handle = textHandle(ws, idFormat: idFormat)
                         let title = (ws["title"] as? String) ?? ""
+                        let kind = (ws["kind"] as? String) ?? (ws["source"] as? String) ?? "native"
+                        let kindTag = kind == "real-tmux" ? "  [tmux]" : "  [native]"
                         let remoteTag: String = {
                             guard let remote = ws["remote"] as? [String: Any],
                                   (remote["enabled"] as? Bool) == true else {
@@ -2244,7 +2246,7 @@ struct CMUXCLI {
                         let prefix = selected ? "* " : "  "
                         let selTag = selected ? "  [selected]" : ""
                         let titlePart = title.isEmpty ? "" : "  \(title)"
-                        print("\(prefix)\(handle)\(titlePart)\(remoteTag)\(selTag)")
+                        print("\(prefix)\(handle)\(titlePart)\(kindTag)\(remoteTag)\(selTag)")
                     }
                 }
             }
@@ -2300,7 +2302,7 @@ struct CMUXCLI {
                 throw CLIError(message: "new-split requires a direction")
             }
             var params: [String: Any] = ["direction": direction]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
@@ -2380,7 +2382,7 @@ struct CMUXCLI {
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
             var params: [String: Any] = ["direction": direction]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
@@ -3574,8 +3576,16 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowCurrent { return nil }
-            let current = try client.sendV2(method: "workspace.current")
-            return (current["workspace_ref"] as? String) ?? (current["workspace_id"] as? String)
+            if let current = try? client.sendV2(method: "workspace.current"),
+               let handle = (current["workspace_ref"] as? String) ?? (current["workspace_id"] as? String) {
+                return handle
+            }
+            let listed = try client.sendV2(method: "workspace.list")
+            let items = listed["workspaces"] as? [[String: Any]] ?? []
+            if let selected = items.first(where: { ($0["selected"] as? Bool) == true }) {
+                return (selected["ref"] as? String) ?? (selected["id"] as? String)
+            }
+            return nil
         }
 
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9192,7 +9202,13 @@ struct CMUXCLI {
         if let explicit = optionValue(args, name: "--workspace") { return explicit }
         // When --window is explicitly targeted, don't fall back to env workspace from a different window
         if windowOverride != nil { return nil }
-        return ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        let env = ProcessInfo.processInfo.environment
+        if let socketPath = env["CMUX_SOCKET_PATH"],
+           let inheritedSocket = env["CMUX_SOCKET"],
+           socketPath != inheritedSocket {
+            return nil
+        }
+        return env["CMUX_WORKSPACE_ID"]
     }
 
     private func forwardSidebarMetadataCommand(
@@ -9752,6 +9768,8 @@ struct CMUXCLI {
         if !title.isEmpty {
             parts.append("\"\(title)\"")
         }
+        let kind = (workspace["kind"] as? String) ?? (workspace["source"] as? String) ?? "native"
+        parts.append(kind == "real-tmux" ? "[tmux]" : "[native]")
         if (workspace["selected"] as? Bool) == true {
             parts.append("[selected]")
         }
