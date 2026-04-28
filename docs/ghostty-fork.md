@@ -13,7 +13,8 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on April 28, 2026.
-Current cmux pinned fork head: `d3117e03e` on `cmux-upstream-20260428`
+Current cmux pinned fork head: `d3117e03e`, merged into fork `main` via
+`manaflow-ai/ghostty` PR https://github.com/manaflow-ai/ghostty/pull/48
 (`xcframework-f7880c47313a8697ee7f58969564772cb70eb6e9-300-gd3117e03e`).
 This head merges upstream `659019666` and preserves the previous cmux pin
 `465a9a621`.
@@ -139,8 +140,8 @@ tend to conflict together during rebases.
   - Lets cmux parse generated or override config without materializing a separate config file first.
 
 The current cmux pin is the head listed above. It is reachable from the
-`manaflow-ai/ghostty` fork branch `cmux-upstream-20260428` and has a matching
-prebuilt release tag `xcframework-d3117e03ea19665bc83a28f7e0428c63937e6140`.
+`manaflow-ai/ghostty` fork `main` branch and has a matching prebuilt release
+tag `xcframework-d3117e03ea19665bc83a28f7e0428c63937e6140`.
 
 ## Upstreamed fork changes
 
@@ -164,12 +165,13 @@ prebuilt release tag `xcframework-d3117e03ea19665bc83a28f7e0428c63937e6140`.
 
 These files change frequently upstream; be careful when rebasing the fork:
 
-- April 28, 2026 upstream merge:
+- April 28, 2026, upstream merge:
   - Merged upstream `659019666` into `465a9a621` without textual conflicts.
   - Verified with `CMUX_GHOSTTYKIT_NO_PREBUILT=1 ./scripts/ensure-ghosttykit.sh`.
   - Verified cmux with `./scripts/reload.sh --tag gtyup`.
   - Published `xcframework-d3117e03ea19665bc83a28f7e0428c63937e6140` and pinned
     its archive checksum in `scripts/ghosttykit-checksums.txt`.
+  - Merged `d3117e03e` into fork `main` with https://github.com/manaflow-ai/ghostty/pull/48.
   - Package GhosttyKit archives with `COPYFILE_DISABLE=1`; the archive validator rejects
     macOS AppleDouble entries such as `._GhosttyKit.xcframework`.
 
