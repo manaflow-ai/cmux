@@ -15,7 +15,6 @@ enum RightSidebarChromeMetrics {
     static let titlebarHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 
-#if DEBUG
 private struct RightSidebarChromeGeometry: Equatable {
     var frame: CGRect
     var isVisible: Bool
@@ -35,32 +34,36 @@ private struct RightSidebarChromeGeometryPreferenceKey: PreferenceKey {
 }
 
 private extension View {
+    @ViewBuilder
     func reportRightSidebarChromeGeometryForBonsplitUITest(
         isVisible: Bool,
         titlebarHeight: CGFloat
     ) -> some View {
-        background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: RightSidebarChromeGeometryPreferenceKey.self,
-                    value: RightSidebarChromeGeometry(
-                        frame: proxy.frame(in: .global),
-                        isVisible: isVisible,
-                        titlebarHeight: titlebarHeight
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
+            background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: RightSidebarChromeGeometryPreferenceKey.self,
+                        value: RightSidebarChromeGeometry(
+                            frame: proxy.frame(in: .global),
+                            isVisible: isVisible,
+                            titlebarHeight: titlebarHeight
+                        )
                     )
+                }
+            }
+            .onPreferenceChange(RightSidebarChromeGeometryPreferenceKey.self) { geometry in
+                AppDelegate.shared?.recordRightSidebarChromeGeometryForBonsplitUITest(
+                    containerFrame: geometry.frame,
+                    isVisible: geometry.isVisible,
+                    titlebarHeight: geometry.titlebarHeight
                 )
             }
-        }
-        .onPreferenceChange(RightSidebarChromeGeometryPreferenceKey.self) { geometry in
-            AppDelegate.shared?.recordRightSidebarChromeGeometryForBonsplitUITest(
-                containerFrame: geometry.frame,
-                isVisible: geometry.isVisible,
-                titlebarHeight: geometry.titlebarHeight
-            )
+        } else {
+            self
         }
     }
 }
-#endif
 
 enum SidebarWorkspaceListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
@@ -2732,14 +2735,10 @@ struct ContentView: View {
             }
         }
 
-#if DEBUG
         return panel.reportRightSidebarChromeGeometryForBonsplitUITest(
             isVisible: rightSidebarVisible,
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight
         )
-#else
-        return panel
-#endif
     }
 
     private var rightSidebarPanel: some View {
