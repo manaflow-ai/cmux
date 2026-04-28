@@ -4798,7 +4798,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteSnapshotByWindowId.removeValue(forKey: context.windowId)
 
         if tabManager === context.tabManager {
-            activateMainWindowContext(mainWindowContexts.values.first(where: { resolvedWindow(for: $0) != nil }))
+            activateMainWindowContext(Array(mainWindowContexts.values).first { resolvedWindow(for: $0) != nil })
         }
 
         if let store = notificationStore {
