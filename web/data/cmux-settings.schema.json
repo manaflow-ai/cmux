@@ -83,6 +83,12 @@
           "default": false,
           "description": "When true, closing the last surface keeps the workspace open."
         },
+        "tabCloseButtonPosition": {
+          "type": "string",
+          "enum": ["leading", "trailing"],
+          "default": "leading",
+          "description": "Preferred placement for pane tab close buttons."
+        },
         "focusPaneOnFirstClick": {
           "type": "boolean",
           "default": true,

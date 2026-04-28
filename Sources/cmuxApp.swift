@@ -5336,6 +5336,8 @@ struct SettingsView: View {
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+    @AppStorage(TabCloseButtonPositionSettings.storageKey)
+    private var tabCloseButtonPosition = TabCloseButtonPositionSettings.defaultPosition.rawValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
@@ -5414,6 +5416,32 @@ struct SettingsView: View {
 
     private var keepWorkspaceOpenOnLastSurfaceShortcut: Bool {
         !closeWorkspaceOnLastSurfaceShortcut
+    }
+
+    private var selectedTabCloseButtonPosition: TabCloseButtonPositionSettings.Position {
+        TabCloseButtonPositionSettings.position(for: tabCloseButtonPosition)
+    }
+
+    private var tabCloseButtonPositionBinding: Binding<TabCloseButtonPositionSettings.Position> {
+        Binding(
+            get: { selectedTabCloseButtonPosition },
+            set: { tabCloseButtonPosition = $0.rawValue }
+        )
+    }
+
+    private var tabCloseButtonPositionSubtitle: String {
+        switch selectedTabCloseButtonPosition {
+        case .leading:
+            return String(
+                localized: "settings.app.tabCloseButtonPosition.subtitleLeading",
+                defaultValue: "Close buttons appear on the leading side of pane tabs."
+            )
+        case .trailing:
+            return String(
+                localized: "settings.app.tabCloseButtonPosition.subtitleTrailing",
+                defaultValue: "Close buttons appear on the trailing side of pane tabs."
+            )
+        }
     }
 
     private var keepWorkspaceOpenOnLastSurfaceShortcutBinding: Binding<Bool> {
@@ -6004,6 +6032,21 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click")
                                 )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .json("app.tabCloseButtonPosition"),
+                            String(localized: "settings.app.tabCloseButtonPosition", defaultValue: "Tab Close Button Position"),
+                            subtitle: tabCloseButtonPositionSubtitle,
+                            controlWidth: pickerColumnWidth,
+                            selection: tabCloseButtonPositionBinding
+                        ) {
+                            Text(String(localized: "settings.app.tabCloseButtonPosition.leading", defaultValue: "Leading"))
+                                .tag(TabCloseButtonPositionSettings.Position.leading)
+                            Text(String(localized: "settings.app.tabCloseButtonPosition.trailing", defaultValue: "Trailing"))
+                                .tag(TabCloseButtonPositionSettings.Position.trailing)
                         }
 
                         SettingsCardDivider()
@@ -7504,6 +7547,7 @@ struct SettingsView: View {
             TerminalScrollBarSettings.notifyDidChange()
         }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+        tabCloseButtonPosition = TabCloseButtonPositionSettings.defaultPosition.rawValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout

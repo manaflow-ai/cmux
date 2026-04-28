@@ -5355,6 +5355,12 @@ class TabManager: ObservableObject {
         }
     }
 
+    func applyTabCloseButtonPosition(_ position: BonsplitConfiguration.Appearance.CloseButtonPosition) {
+        for workspace in tabs {
+            workspace.applyTabCloseButtonPosition(position)
+        }
+    }
+
     func applySurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,

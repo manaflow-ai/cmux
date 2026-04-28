@@ -92,6 +92,25 @@ enum PaneFirstClickFocusSettings {
     }
 }
 
+enum TabCloseButtonPositionSettings {
+    enum Position: String, CaseIterable {
+        case leading
+        case trailing
+        var id: String { rawValue }
+    }
+
+    static let storageKey = "tabCloseButtonPosition"
+    static let defaultPosition: Position = .leading
+
+    static func position(for rawValue: String?) -> Position {
+        Position(rawValue: rawValue ?? "") ?? defaultPosition
+    }
+
+    static func position(defaults: UserDefaults = .standard) -> Position {
+        position(for: defaults.string(forKey: storageKey))
+    }
+}
+
 enum TerminalScrollBarSettings {
     static let showScrollBarKey = "terminal.showScrollBar"
     static let defaultShowScrollBar = true

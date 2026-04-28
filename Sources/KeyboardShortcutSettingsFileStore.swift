@@ -32,6 +32,7 @@ final class CmuxSettingsFileStore {
         "app.newWorkspacePlacement",
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
+        "app.tabCloseButtonPosition",
         "app.focusPaneOnFirstClick",
         "app.preferredEditor",
         "app.openMarkdownInCmuxViewer",
@@ -415,6 +416,13 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["focusPaneOnFirstClick"]) {
             snapshot.managedUserDefaults[PaneFirstClickFocusSettings.enabledKey] = .bool(value)
+        }
+        if let raw = jsonString(section["tabCloseButtonPosition"]) {
+            guard TabCloseButtonPositionSettings.Position(rawValue: raw) != nil else {
+                logInvalid("app.tabCloseButtonPosition", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[TabCloseButtonPositionSettings.storageKey] = .string(raw)
         }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)

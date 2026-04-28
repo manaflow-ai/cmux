@@ -641,7 +641,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
+    private var tabCloseButtonPositionObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
+    private var tabCloseButtonPositionRefreshScheduled = false
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -1052,6 +1054,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest {
             configureUserNotifications()
             installMenuBarVisibilityObserver()
+            installTabCloseButtonPositionObserver()
             syncApplicationPresentationPreferences()
             updateController.startUpdaterIfNeeded()
         }
@@ -6578,6 +6581,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func installTabCloseButtonPositionObserver() {
+        guard tabCloseButtonPositionObserver == nil else { return }
+        tabCloseButtonPositionObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleTabCloseButtonPositionRefreshAcrossWorkspaces()
+            }
+        }
+    }
+
     private func syncApplicationPresentationPreferences(defaults: UserDefaults = .standard) {
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
@@ -9664,6 +9680,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return }
             self.splitButtonTooltipRefreshScheduled = false
             self.refreshSplitButtonTooltipsAcrossWorkspaces()
+        }
+    }
+
+    /// Coalesce close-button-position changes and refresh every workspace's Bonsplit
+    /// configuration on the next runloop tick.
+    private func scheduleTabCloseButtonPositionRefreshAcrossWorkspaces() {
+        guard !tabCloseButtonPositionRefreshScheduled else { return }
+        tabCloseButtonPositionRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.tabCloseButtonPositionRefreshScheduled = false
+            self.refreshTabCloseButtonPositionAcrossWorkspaces()
+        }
+    }
+
+    private func refreshTabCloseButtonPositionAcrossWorkspaces() {
+        let closeButtonPosition = resolvedTabCloseButtonPosition()
+        var refreshedManagers: Set<ObjectIdentifier> = []
+
+        if let manager = tabManager {
+            manager.applyTabCloseButtonPosition(closeButtonPosition)
+            refreshedManagers.insert(ObjectIdentifier(manager))
+        }
+
+        for context in mainWindowContexts.values {
+            let manager = context.tabManager
+            let identifier = ObjectIdentifier(manager)
+            guard refreshedManagers.insert(identifier).inserted else { continue }
+            manager.applyTabCloseButtonPosition(closeButtonPosition)
+        }
+    }
+
+    private func resolvedTabCloseButtonPosition(
+        defaults: UserDefaults = .standard
+    ) -> BonsplitConfiguration.Appearance.CloseButtonPosition {
+        switch TabCloseButtonPositionSettings.position(defaults: defaults) {
+        case .leading:
+            return .leading
+        case .trailing:
+            return .trailing
         }
     }
 

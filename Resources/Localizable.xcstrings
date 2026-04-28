@@ -50858,6 +50858,121 @@
         }
       }
     },
+    "settings.app.tabCloseButtonPosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Close Button Position"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンの位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼 위치"
+          }
+        }
+      }
+    },
+    "settings.app.tabCloseButtonPosition.leading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leading"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽"
+          }
+        }
+      }
+    },
+    "settings.app.tabCloseButtonPosition.subtitleLeading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close buttons appear on the leading side of pane tabs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じるボタンは各ペインタブの先頭側に表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼이 각 패널 탭의 왼쪽에 표시됩니다."
+          }
+        }
+      }
+    },
+    "settings.app.tabCloseButtonPosition.trailing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trailing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "末尾"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽"
+          }
+        }
+      }
+    },
+    "settings.app.tabCloseButtonPosition.subtitleTrailing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close buttons appear on the trailing side of pane tabs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じるボタンは各ペインタブの末尾側に表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼이 각 패널 탭의 오른쪽에 표시됩니다."
+          }
+        }
+      }
+    },
     "settings.app.newWorkspacePlacement": {
       "extractionState": "manual",
       "localizations": {

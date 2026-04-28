@@ -7510,6 +7510,7 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitAppearance(
             from: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
+            closeButtonPosition: resolvedTabCloseButtonPosition(),
             tabTitleFontSize: config.surfaceTabBarFontSize
         )
     }
@@ -7662,6 +7663,7 @@ final class Workspace: Identifiable, ObservableObject {
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double,
+        closeButtonPosition: BonsplitConfiguration.Appearance.CloseButtonPosition,
         tabTitleFontSize: CGFloat = 11
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
@@ -7678,6 +7680,7 @@ final class Workspace: Identifiable, ObservableObject {
             tabTitleFontSize: tabTitleFontSize,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
+            closeButtonPosition: closeButtonPosition,
             enableAnimations: false,
             chromeColors: chromeColors,
             usesSharedBackdrop: sharesWindowBackdrop
@@ -7740,6 +7743,13 @@ final class Workspace: Identifiable, ObservableObject {
                 "resultingTabFont=\(String(format: "%.3f", bonsplitController.configuration.appearance.tabTitleFontSize))"
             )
         }
+    }
+
+    func applyTabCloseButtonPosition(_ position: BonsplitConfiguration.Appearance.CloseButtonPosition) {
+        guard bonsplitController.configuration.appearance.closeButtonPosition != position else {
+            return
+        }
+        bonsplitController.configuration.appearance.closeButtonPosition = position
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor, backgroundOpacity: Double, reason: String = "unspecified") {
@@ -7820,9 +7830,11 @@ final class Workspace: Identifiable, ObservableObject {
         // Use the cached Ghostty config so new workspaces inherit tab-strip sizing
         // without paying repeated parse costs on the workspace-creation hot path.
         let initialSurfaceTabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
+        let tabCloseButtonPosition = Self.resolvedTabCloseButtonPosition()
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            closeButtonPosition: tabCloseButtonPosition,
             tabTitleFontSize: initialSurfaceTabBarFontSize
         )
         let config = BonsplitConfiguration(
@@ -7918,6 +7930,17 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+    }
+
+    private static func resolvedTabCloseButtonPosition(
+        defaults: UserDefaults = .standard
+    ) -> BonsplitConfiguration.Appearance.CloseButtonPosition {
+        switch TabCloseButtonPositionSettings.position(defaults: defaults) {
+        case .leading:
+            return .leading
+        case .trailing:
+            return .trailing
+        }
     }
 
     deinit {
@@ -13662,6 +13685,14 @@ extension Workspace: BonsplitDelegate {
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
         case .move:
             promptMovePanel(tabId: tab.id)
+        case .moveToLeftPane:
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let targetPane = bonsplitController.adjacentPane(to: pane, direction: .left) else { return }
+            moveSurface(panelId: panelId, toPane: targetPane)
+        case .moveToRightPane:
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let targetPane = bonsplitController.adjacentPane(to: pane, direction: .right) else { return }
+            moveSurface(panelId: panelId, toPane: targetPane)
         case .newTerminalToRight:
             createTerminalToRight(of: tab.id, inPane: pane)
         case .newBrowserToRight:
