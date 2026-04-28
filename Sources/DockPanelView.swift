@@ -112,11 +112,6 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         self.panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory)
     }
 
-    var terminalHeight: CGFloat {
-        let requested = definition.height ?? 260
-        return CGFloat(min(max(requested, 160), 700))
-    }
-
     func focus() {
         panel.hostedView.ensureFocus(
             for: panel.surface.tabId,
@@ -307,8 +302,7 @@ final class DockControlsStore: ObservableObject {
         DockControlDefinition(
             id: "feed",
             title: String(localized: "dock.default.feed.title", defaultValue: "Feed"),
-            command: "cmux feed tui",
-            height: 320
+            command: "cmux feed tui"
         )
     }
 
@@ -479,33 +473,88 @@ struct DockPanelView: View {
         } else if store.controls.isEmpty {
             DockEmptyView()
         } else {
+            DockControlsLayoutView(controls: store.controls)
+        }
+    }
+}
+
+private struct DockControlsLayoutView: View {
+    let controls: [DockControlRuntime]
+
+    private let headerHeight: CGFloat = 30
+    private let dividerHeight: CGFloat = 1
+    private let minimumTerminalHeight: CGFloat = 160
+
+    var body: some View {
+        GeometryReader { proxy in
+            let heights = terminalHeights(availableHeight: proxy.size.height)
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(Array(store.controls.enumerated()), id: \.element.id) { index, runtime in
+                    ForEach(Array(controls.enumerated()), id: \.element.id) { index, runtime in
                         DockControlSectionView(
                             runtime: runtime,
-                            ordinal: index + 1
+                            ordinal: index + 1,
+                            terminalHeight: heights[index]
                         )
-                        if index < store.controls.count - 1 {
+                        if index < controls.count - 1 {
                             Divider()
+                                .frame(height: dividerHeight)
                         }
                     }
                 }
+                .frame(maxWidth: .infinity)
             }
             .dockZeroScrollContentMargins()
         }
+    }
+
+    private func terminalHeights(availableHeight: CGFloat) -> [CGFloat] {
+        guard !controls.isEmpty else { return [] }
+
+        let chromeHeight = CGFloat(controls.count) * headerHeight
+            + CGFloat(max(controls.count - 1, 0)) * dividerHeight
+        let availableTerminalHeight = max(availableHeight - chromeHeight, 0)
+        var heights = Array(repeating: CGFloat.zero, count: controls.count)
+        var flexibleIndexes: [Int] = []
+        var fixedHeightTotal: CGFloat = 0
+
+        for (index, runtime) in controls.enumerated() {
+            if let requestedHeight = runtime.definition.height {
+                let fixedHeight = max(CGFloat(requestedHeight), minimumTerminalHeight)
+                heights[index] = fixedHeight
+                fixedHeightTotal += fixedHeight
+            } else {
+                flexibleIndexes.append(index)
+            }
+        }
+
+        if flexibleIndexes.isEmpty {
+            let extraHeight = max(availableTerminalHeight - fixedHeightTotal, 0)
+            guard extraHeight > 0 else { return heights }
+            let extraHeightPerControl = extraHeight / CGFloat(controls.count)
+            return heights.map { $0 + extraHeightPerControl }
+        }
+
+        let remaining = max(availableTerminalHeight - fixedHeightTotal, 0)
+        let sharedHeight = max(remaining / CGFloat(flexibleIndexes.count), minimumTerminalHeight)
+        for index in flexibleIndexes {
+            heights[index] = sharedHeight
+        }
+
+        return heights
     }
 }
 
 private struct DockControlSectionView: View {
     @ObservedObject var runtime: DockControlRuntime
     let ordinal: Int
+    let terminalHeight: CGFloat
 
     var body: some View {
         VStack(spacing: 0) {
             header
             DockTerminalView(runtime: runtime)
-                .frame(height: runtime.terminalHeight)
+                .frame(height: terminalHeight)
                 .clipped()
         }
         .accessibilityIdentifier("DockControl.\(runtime.id)")
@@ -549,6 +598,7 @@ private struct DockControlSectionView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
+        .frame(height: 30)
         .background(Color.primary.opacity(0.035))
     }
 }

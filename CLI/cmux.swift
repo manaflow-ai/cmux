@@ -16659,6 +16659,7 @@ export default CMUXSessionRestore;
         let source: String
         let kind: String
         let status: String
+        let createdAt: Date?
         let title: String
         let detail: String
         let defaultMode: String?
@@ -16684,6 +16685,12 @@ export default CMUXSessionRestore;
             let title = (dict["title"] as? String)
                 ?? Self.defaultTitle(kind: kind, dict: dict)
             let detail = Self.detail(kind: kind, dict: dict)
+            let createdAt = Self.dateValue(
+                dict["created_at"]
+                    ?? dict["createdAt"]
+                    ?? dict["timestamp"]
+                    ?? dict["time"]
+            )
             let options: [FeedTUIOption] = (dict["question_options"] as? [[String: Any]])?.compactMap { option in
                 guard let id = option["id"] as? String,
                       let label = option["label"] as? String else {
@@ -16698,6 +16705,7 @@ export default CMUXSessionRestore;
                 source: source,
                 kind: kind,
                 status: status,
+                createdAt: createdAt,
                 title: title,
                 detail: detail,
                 defaultMode: dict["default_mode"] as? String,
@@ -16736,9 +16744,56 @@ export default CMUXSessionRestore;
                     ?? ((dict["cwd"] as? String) ?? "")
             }
         }
+
+        private static func dateValue(_ rawValue: Any?) -> Date? {
+            if let date = rawValue as? Date {
+                return date
+            }
+
+            if let number = rawValue as? NSNumber {
+                return dateFromTimeInterval(number.doubleValue)
+            }
+
+            if let value = rawValue as? Double {
+                return dateFromTimeInterval(value)
+            }
+
+            if let value = rawValue as? Int {
+                return dateFromTimeInterval(Double(value))
+            }
+
+            guard let value = rawValue as? String,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+
+            let isoFormatter = ISO8601DateFormatter()
+            if let date = isoFormatter.date(from: value) {
+                return date
+            }
+
+            let fractionalFormatter = ISO8601DateFormatter()
+            fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = fractionalFormatter.date(from: value) {
+                return date
+            }
+
+            if let numericValue = Double(value) {
+                return dateFromTimeInterval(numericValue)
+            }
+
+            return nil
+        }
+
+        private static func dateFromTimeInterval(_ value: Double) -> Date? {
+            guard value.isFinite, value > 0 else { return nil }
+            let seconds = value > 10_000_000_000 ? value / 1_000 : value
+            return Date(timeIntervalSince1970: seconds)
+        }
     }
 
     private enum FeedTUIKey: Equatable {
+        case tick
         case up
         case down
         case enter
@@ -16770,29 +16825,49 @@ export default CMUXSessionRestore;
             throw CLIError(message: "Failed to enter terminal raw mode")
         }
 
-        print("\u{001B}[?1049h", terminator: "")
+        print("\u{001B}[?1049h\u{001B}[?25l", terminator: "")
         defer {
             rawMode?.restore()
-            print("\u{001B}[?1049l", terminator: "")
+            print("\u{001B}[?25h\u{001B}[?1049l", terminator: "")
             fflush(stdout)
         }
 
         var selectedIndex = 0
+        var selectedItemID: String?
+        var scrollOffset = 0
         var statusLine = ""
         while true {
             let items = try feedTUIItems(client: client)
-            if selectedIndex >= items.count {
+            if let selectedItemID,
+               let updatedIndex = items.firstIndex(where: { $0.id == selectedItemID }) {
+                selectedIndex = updatedIndex
+            } else if selectedIndex >= items.count {
                 selectedIndex = max(items.count - 1, 0)
             }
-            renderFeedTUI(items: items, selectedIndex: selectedIndex, statusLine: statusLine)
+            selectedItemID = feedTUIItem(in: items, at: selectedIndex)?.id
+            scrollOffset = adjustedFeedTUIScrollOffset(
+                itemCount: items.count,
+                selectedIndex: selectedIndex,
+                scrollOffset: scrollOffset
+            )
+            renderFeedTUI(
+                items: items,
+                selectedIndex: selectedIndex,
+                scrollOffset: scrollOffset,
+                statusLine: statusLine
+            )
             statusLine = ""
 
-            let key = readFeedTUIKey()
+            let key = readFeedTUIKey(timeoutMilliseconds: 1_000)
             switch key {
+            case .tick:
+                continue
             case .up:
                 selectedIndex = max(selectedIndex - 1, 0)
+                selectedItemID = feedTUIItem(in: items, at: selectedIndex)?.id
             case .down:
                 selectedIndex = min(selectedIndex + 1, max(items.count - 1, 0))
+                selectedItemID = feedTUIItem(in: items, at: selectedIndex)?.id
             case .refresh:
                 continue
             case .quit:
@@ -16824,10 +16899,16 @@ export default CMUXSessionRestore;
         let rawItems = payload["items"] as? [[String: Any]] ?? []
         return rawItems.compactMap(FeedTUIItem.parse)
             .sorted { lhs, rhs in
-                if lhs.isPending != rhs.isPending {
-                    return lhs.isPending && !rhs.isPending
+                switch (lhs.createdAt, rhs.createdAt) {
+                case (.some(let lhsDate), .some(let rhsDate)) where lhsDate != rhsDate:
+                    return lhsDate > rhsDate
+                case (.some, .none):
+                    return true
+                case (.none, .some):
+                    return false
+                default:
+                    return lhs.id > rhs.id
                 }
-                return lhs.id > rhs.id
             }
     }
 
@@ -16841,36 +16922,134 @@ export default CMUXSessionRestore;
         return options[index]
     }
 
-    private func renderFeedTUI(items: [FeedTUIItem], selectedIndex: Int, statusLine: String) {
+    private struct FeedTUILayout {
+        let width: Int
+        let rows: Int
+
+        let headerRows = 3
+        let footerRows = 2
+        let cardRows = 5
+
+        var visibleItemCount: Int {
+            max((rows - headerRows - footerRows) / cardRows, 1)
+        }
+    }
+
+    private func adjustedFeedTUIScrollOffset(
+        itemCount: Int,
+        selectedIndex: Int,
+        scrollOffset: Int
+    ) -> Int {
+        guard itemCount > 0 else { return 0 }
         let size = currentCLITerminalSize()
-        let width = max(size.cols, 40)
-        let bodyRows = max(size.rows - 5, 1)
+        let layout = FeedTUILayout(width: max(size.cols, 1), rows: max(size.rows, 1))
+        let visibleCount = layout.visibleItemCount
+        let maxOffset = max(itemCount - visibleCount, 0)
+        if selectedIndex < scrollOffset {
+            return max(selectedIndex, 0)
+        }
+        if selectedIndex >= scrollOffset + visibleCount {
+            return min(selectedIndex - visibleCount + 1, maxOffset)
+        }
+        return min(max(scrollOffset, 0), maxOffset)
+    }
+
+    private func renderFeedTUI(
+        items: [FeedTUIItem],
+        selectedIndex: Int,
+        scrollOffset: Int,
+        statusLine: String
+    ) {
+        let size = currentCLITerminalSize()
+        let layout = FeedTUILayout(width: max(size.cols, 1), rows: max(size.rows, 1))
+        let width = layout.width
+        let pendingCount = items.filter(\.isPending).count
+        let visibleStart = items.isEmpty ? 0 : min(scrollOffset + 1, items.count)
+        let visibleEnd = min(scrollOffset + layout.visibleItemCount, items.count)
+
         print("\u{001B}[2J\u{001B}[H", terminator: "")
-        print("cmux Dock Feed")
-        print("j/k or arrows move, Enter accepts default, d denies, f replans, r refreshes, q quits")
-        print(String(repeating: "-", count: min(width, 100)))
+        print(feedTUILine(
+            "cmux Dock Feed  latest first  \(pendingCount) pending  \(items.count) total  \(visibleStart)-\(visibleEnd)",
+            width: width
+        ))
+        print(feedTUILine(
+            "j/k arrows move  enter default  d deny  f replan  r refresh  q quit",
+            width: width
+        ))
+        print(feedTUISeparator(width: width))
 
         if items.isEmpty {
-            print("No feed items.")
+            print(feedTUILine("No feed items yet.", width: width))
         } else {
-            for (index, item) in items.prefix(bodyRows).enumerated() {
-                let selected = index == selectedIndex
-                let prefix = selected ? "> " : "  "
-                let status = item.isPending ? "pending" : item.status
-                let line = "\(prefix)[\(status)] \(item.source) \(item.title) - \(item.detail)"
-                if selected {
-                    print("\u{001B}[7m\(truncateForTerminal(line, width: width))\u{001B}[0m")
-                } else {
-                    print(truncateForTerminal(line, width: width))
+            for visibleIndex in 0..<layout.visibleItemCount {
+                let itemIndex = scrollOffset + visibleIndex
+                guard itemIndex < items.count else {
+                    for _ in 0..<layout.cardRows {
+                        print(feedTUILine("", width: width))
+                    }
+                    continue
                 }
+                let item = items[itemIndex]
+                let selected = itemIndex == selectedIndex
+                renderFeedTUICard(item, selected: selected, width: width)
             }
         }
 
-        let footerTop = max(size.rows - 1, 1)
+        let footerTop = max(layout.rows - 1, 1)
         print("\u{001B}[\(footerTop);1H", terminator: "")
+        print(feedTUISeparator(width: width), terminator: "")
+        print("\u{001B}[\(layout.rows);1H", terminator: "")
         let footer = statusLine.isEmpty ? selectedHelp(feedTUIItem(in: items, at: selectedIndex)) : statusLine
-        print(truncateForTerminal(footer, width: width), terminator: "")
+        print(feedTUILine(footer, width: width), terminator: "")
         fflush(stdout)
+    }
+
+    private func renderFeedTUICard(_ item: FeedTUIItem, selected: Bool, width: Int) {
+        let status = item.isPending ? "[PENDING]" : "[\(item.status.uppercased())]"
+        let time = relativeFeedTUITime(since: item.createdAt)
+        let kind = feedTUIKindLabel(item.kind)
+        let source = sanitizedTerminalText(item.source)
+        let marker = selected ? ">" : " "
+        let metaSuffix = time.isEmpty ? kind : "\(kind)  \(time)"
+        let detailLines = wrappedTerminalLines(item.detail, width: max(width - 4, 1), maxLines: 2)
+        let firstDetailLine = detailLines.indices.contains(0) ? detailLines[0] : ""
+        let secondDetailLine = detailLines.indices.contains(1) ? detailLines[1] : ""
+
+        print(feedTUILine("\(marker) \(status) @\(source)  \(metaSuffix)", width: width, highlighted: selected))
+        print(feedTUILine("  \(item.title)", width: width, highlighted: selected))
+        print(feedTUILine("  \(firstDetailLine)", width: width, highlighted: selected))
+        print(feedTUILine("  \(secondDetailLine)", width: width, highlighted: selected))
+        print(feedTUISeparator(width: width))
+    }
+
+    private func feedTUIKindLabel(_ kind: String) -> String {
+        switch kind {
+        case "permissionRequest":
+            return "permission"
+        case "exitPlan":
+            return "plan"
+        case "question":
+            return "question"
+        default:
+            return kind
+        }
+    }
+
+    private func relativeFeedTUITime(since date: Date?) -> String {
+        guard let date else { return "" }
+        let seconds = max(Int(Date().timeIntervalSince(date)), 0)
+        if seconds < 60 {
+            return "\(seconds)s"
+        }
+        let minutes = seconds / 60
+        if minutes < 60 {
+            return "\(minutes)m"
+        }
+        let hours = minutes / 60
+        if hours < 24 {
+            return "\(hours)h"
+        }
+        return "\(hours / 24)d"
     }
 
     private func selectedHelp(_ item: FeedTUIItem?) -> String {
@@ -16984,7 +17163,32 @@ export default CMUXSessionRestore;
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func readFeedTUIKey() -> FeedTUIKey {
+    private func readFeedTUIKey(timeoutMilliseconds: Int32? = nil) -> FeedTUIKey {
+        if let timeoutMilliseconds {
+            while true {
+                var descriptor = pollfd(
+                    fd: STDIN_FILENO,
+                    events: Int16(POLLIN | POLLHUP | POLLERR),
+                    revents: 0
+                )
+                let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+                if ready < 0 {
+                    if errno == EINTR { continue }
+                    return .ignored
+                }
+                if ready == 0 {
+                    return .tick
+                }
+                if descriptor.revents & Int16(POLLHUP) != 0 {
+                    return .quit
+                }
+                if descriptor.revents & Int16(POLLIN) == 0 {
+                    return .ignored
+                }
+                break
+            }
+        }
+
         var byte: UInt8 = 0
         while true {
             let count = Darwin.read(STDIN_FILENO, &byte, 1)
@@ -17051,12 +17255,93 @@ export default CMUXSessionRestore;
         return (80, 24)
     }
 
+    private func feedTUISeparator(width: Int) -> String {
+        String(repeating: "-", count: max(width, 0))
+    }
+
+    private func feedTUILine(
+        _ value: String,
+        width: Int,
+        highlighted: Bool = false
+    ) -> String {
+        let line = paddedTerminalLine(truncateForTerminal(value, width: width), width: width)
+        guard highlighted else { return line }
+        return "\u{001B}[7m\(line)\u{001B}[0m"
+    }
+
+    private func paddedTerminalLine(_ value: String, width: Int) -> String {
+        guard width > 0 else { return "" }
+        if value.count >= width {
+            return value
+        }
+        return value + String(repeating: " ", count: width - value.count)
+    }
+
+    private func wrappedTerminalLines(_ value: String, width: Int, maxLines: Int) -> [String] {
+        guard maxLines > 0 else { return [] }
+        guard width > 0 else { return Array(repeating: "", count: maxLines) }
+
+        var remainder = sanitizedTerminalText(value)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var lines: [String] = []
+
+        while lines.count < maxLines, !remainder.isEmpty {
+            if remainder.count <= width {
+                lines.append(remainder)
+                remainder = ""
+                break
+            }
+
+            let limitIndex = remainder.index(remainder.startIndex, offsetBy: width)
+            let candidate = remainder[..<limitIndex]
+            if let splitIndex = candidate.lastIndex(of: " ") {
+                let line = String(remainder[..<splitIndex])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                lines.append(line.isEmpty ? String(candidate) : line)
+                remainder = String(remainder[splitIndex...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                lines.append(String(candidate))
+                remainder = String(remainder[limitIndex...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        if !remainder.isEmpty, !lines.isEmpty {
+            lines[lines.count - 1] = truncateForTerminal("\(lines[lines.count - 1]) ...", width: width)
+        }
+
+        while lines.count < maxLines {
+            lines.append("")
+        }
+        return lines
+    }
+
+    private func sanitizedTerminalText(_ value: String) -> String {
+        var output = ""
+        for scalar in value.unicodeScalars {
+            if CharacterSet.controlCharacters.contains(scalar) {
+                output.append(" ")
+            } else {
+                output.unicodeScalars.append(scalar)
+            }
+        }
+        return output
+            .replacingOccurrences(of: "\u{001B}", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+    }
+
     private func truncateForTerminal(_ value: String, width: Int) -> String {
-        guard width > 1 else { return "" }
-        let sanitized = value.replacingOccurrences(of: "\n", with: " ")
+        guard width > 0 else { return "" }
+        let sanitized = sanitizedTerminalText(value)
         if sanitized.count <= width { return sanitized }
-        let end = sanitized.index(sanitized.startIndex, offsetBy: max(width - 1, 0))
-        return String(sanitized[..<end])
+        let suffix = "..."
+        guard width > suffix.count else {
+            let end = sanitized.index(sanitized.startIndex, offsetBy: width)
+            return String(sanitized[..<end])
+        }
+        let end = sanitized.index(sanitized.startIndex, offsetBy: width - suffix.count)
+        return String(sanitized[..<end]) + suffix
     }
 
     private func runFeedClear() throws {

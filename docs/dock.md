@@ -10,14 +10,13 @@ The built-in Dock starts with Feed:
     {
       "id": "feed",
       "title": "Feed",
-      "command": "cmux feed tui",
-      "height": 320
+      "command": "cmux feed tui"
     }
   ]
 }
 ```
 
-`cmux feed tui` is the keyboard-first version of Feed. It lists permission requests, plans, questions, and activity. Use `j` / `k` or arrow keys to move, Enter to accept the default action, `d` to deny, `f` to send replan feedback, `r` to refresh, and `q` or `Ctrl-C` to quit.
+`cmux feed tui` is the keyboard-first version of Feed. It shows a latest-first timeline of permission requests, plans, questions, and activity. Use `j` / `k` or arrow keys to move, Enter to accept the default action, `d` to deny, `f` to send replan feedback, `r` to refresh, and `q` or `Ctrl-C` to quit.
 
 ## Team Config
 
@@ -29,8 +28,7 @@ Commit `.cmux/dock.json` in a repo to share controls with teammates:
     {
       "id": "feed",
       "title": "Feed",
-      "command": "cmux feed tui",
-      "height": 320
+      "command": "cmux feed tui"
     },
     {
       "id": "git",
@@ -54,6 +52,8 @@ Commit `.cmux/dock.json` in a repo to share controls with teammates:
 ```
 
 The order of `controls` is the order shown in Dock. Reorder entries in the file to reorder Dock sections. Omit the built-in `feed` entry if the team does not want it.
+
+`height` is optional and acts as a preferred minimum. Dock expands controls to use the available sidebar height. Controls without a `height` split the remaining space after fixed-height controls are placed.
 
 cmux looks for config in this order:
 
