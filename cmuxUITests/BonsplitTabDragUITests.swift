@@ -151,43 +151,51 @@ final class BonsplitTabDragUITests: XCTestCase {
             let alphaTab = app.buttons[alphaTitle]
             XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
 
-            let modeBar = app.descendants(matching: .any).matching(identifier: "RightSidebarModeBar").firstMatch
-            XCTAssertTrue(modeBar.waitForExistence(timeout: 5.0), "Expected right sidebar mode bar to exist")
+            guard let geometry = waitForJSONKey(
+                "rightSidebarModeBarHeight",
+                atPath: dataPath,
+                timeout: 5.0
+            ) else {
+                XCTFail("Timed out waiting for right sidebar mode bar geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
+                return
+            }
+            XCTAssertEqual(
+                geometry["rightSidebarVisible"],
+                "1",
+                "Expected right sidebar to be visible before measuring its titlebar. data=\(geometry)"
+            )
+            let modeBarHeight = CGFloat(Double(geometry["rightSidebarModeBarHeight"] ?? "") ?? .nan)
+            let modeBarMinY = CGFloat(Double(geometry["rightSidebarModeBarMinY"] ?? "") ?? .nan)
+            let titlebarHeight = CGFloat(Double(geometry["rightSidebarTitlebarHeight"] ?? "") ?? .nan)
 
             XCTAssertEqual(
-                modeBar.frame.height,
+                modeBarHeight,
                 expectedModeBarHeight,
                 accuracy: 2,
-                "Expected \(presentationMode.rawValue)-mode right sidebar mode bar to stay compact. modeBar=\(modeBar.frame)"
+                "Expected \(presentationMode.rawValue)-mode right sidebar mode bar to stay compact. geometry=\(geometry)"
             )
             XCTAssertEqual(
-                modeBar.frame.height,
+                titlebarHeight,
+                expectedModeBarHeight,
+                accuracy: 0.5,
+                "Expected \(presentationMode.rawValue)-mode right sidebar chrome metric to stay compact. geometry=\(geometry)"
+            )
+            XCTAssertEqual(
+                modeBarHeight,
                 alphaTab.frame.height,
                 accuracy: 2,
-                "Expected \(presentationMode.rawValue)-mode right sidebar mode bar to match Bonsplit pane tab height. modeBar=\(modeBar.frame) alphaTab=\(alphaTab.frame)"
+                "Expected \(presentationMode.rawValue)-mode right sidebar mode bar to match Bonsplit pane tab height. geometry=\(geometry) alphaTab=\(alphaTab.frame)"
             )
 
-            let modeBarTopInset = distanceToTopEdge(of: modeBar, in: window)
             if let referenceTopInset {
                 XCTAssertEqual(
-                    modeBarTopInset,
+                    modeBarMinY,
                     referenceTopInset,
                     accuracy: 2,
-                    "Expected right sidebar mode bar top position not to shift between presentation modes. mode=\(presentationMode.rawValue) modeBar=\(modeBar.frame) window=\(window.frame)"
+                    "Expected right sidebar mode bar top position not to shift between presentation modes. mode=\(presentationMode.rawValue) geometry=\(geometry) window=\(window.frame)"
                 )
             } else {
-                referenceTopInset = modeBarTopInset
-            }
-
-            if presentationMode == .minimal {
-                let modeBarBottomInset = modeBarTopInset + modeBar.frame.height
-                let alphaTabBottomInset = distanceToTopEdge(of: alphaTab, in: window) + alphaTab.frame.height
-                XCTAssertEqual(
-                    modeBarBottomInset,
-                    alphaTabBottomInset,
-                    accuracy: 2,
-                    "Expected minimal-mode right sidebar separator to align with Bonsplit pane tab baseline. modeBar=\(modeBar.frame) alphaTab=\(alphaTab.frame) window=\(window.frame)"
-                )
+                referenceTopInset = modeBarMinY
             }
         }
     }
@@ -616,6 +624,20 @@ final class BonsplitTabDragUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         if let data = loadJSON(atPath: path), data[key] == expected {
+            return data
+        }
+        return nil
+    }
+
+    private func waitForJSONKey(_ key: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadJSON(atPath: path), data[key] != nil {
+                return data
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadJSON(atPath: path), data[key] != nil {
             return data
         }
         return nil

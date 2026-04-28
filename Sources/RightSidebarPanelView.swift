@@ -9,6 +9,33 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
     return String(describing: type(of: responder))
 }
+
+private struct RightSidebarModeBarFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
+private extension View {
+    func reportRightSidebarModeBarGeometryForUITest(titlebarHeight: CGFloat) -> some View {
+        background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: RightSidebarModeBarFramePreferenceKey.self,
+                    value: proxy.frame(in: .global)
+                )
+            }
+        }
+        .onPreferenceChange(RightSidebarModeBarFramePreferenceKey.self) { frame in
+            AppDelegate.shared?.recordRightSidebarModeBarGeometryForBonsplitUITest(
+                frame: frame,
+                titlebarHeight: titlebarHeight
+            )
+        }
+    }
+}
 #endif
 
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
@@ -220,6 +247,9 @@ struct RightSidebarPanelView: View {
         .padding(.trailing, 6)
         .padding(.vertical, 4)
         .frame(height: titlebarHeight)
+#if DEBUG
+        .reportRightSidebarModeBarGeometryForUITest(titlebarHeight: titlebarHeight)
+#endif
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
     }
