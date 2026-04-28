@@ -3,9 +3,9 @@ import XCTest
 
 /// Exercises the right-sidebar Feed end-to-end: boot the app with a
 /// dedicated socket, inject a synthetic permission request over the
-/// socket's `feed.push` V2 verb, toggle the sidebar to Dock mode, tap
-/// Allow Once, and assert the hook-side socket response carries the
-/// resolved decision.
+/// socket's `feed.push` V2 verb, toggle the sidebar to Dock mode, drive
+/// the Feed TUI from the keyboard, and assert the hook-side socket
+/// response carries the resolved decision.
 final class FeedSidebarUITests: XCTestCase {
     private var socketPath = ""
     private let modeKey = "socketControlMode"
@@ -20,8 +20,15 @@ final class FeedSidebarUITests: XCTestCase {
 
     func testFeedReceivesAndResolvesPermissionRequest() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-\(modeKey)", "cmuxOnly"]
+        app.launchArguments += [
+            "-\(modeKey)", "cmuxOnly",
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US"
+        ]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "cmuxOnly"
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launch()
@@ -30,19 +37,7 @@ final class FeedSidebarUITests: XCTestCase {
             "cmux failed to launch for Feed UI test"
         )
 
-        // Wait for the socket to come up.
-        let socketExists = expectation(description: "socket exists")
-        DispatchQueue.global().async {
-            let deadline = Date().addingTimeInterval(10)
-            while Date() < deadline {
-                if FileManager.default.fileExists(atPath: self.socketPath) {
-                    socketExists.fulfill()
-                    return
-                }
-                Thread.sleep(forTimeInterval: 0.1)
-            }
-        }
-        wait(for: [socketExists], timeout: 12)
+        XCTAssertTrue(waitForSocketPong(timeout: 20), "Expected control socket at \(socketPath)")
 
         // Reveal the right sidebar and toggle to Dock. Uses accessibility
         // identifiers registered on the ModeBarButton row.
@@ -55,18 +50,21 @@ final class FeedSidebarUITests: XCTestCase {
         XCTAssertTrue(dockButton.exists, "Dock tab not visible in right sidebar")
         dockButton.click()
 
+        let focusButton = app.buttons["Focus Control"].firstMatch
+        XCTAssertTrue(
+            focusButton.waitForExistence(timeout: 10),
+            "Dock Feed focus button did not appear"
+        )
+        focusButton.click()
+
         // Push a synthetic permission request via the socket.
         let requestId = "uitest-\(UUID().uuidString)"
         let replyPayload = try sendFeedPush(requestId: requestId, waitSeconds: 30)
 
-        // The reply arrives once the Feed row's Allow Once button is
-        // clicked — run that on the UI side while the send is in-flight.
-        let allowButton = app.buttons["Once"].firstMatch
-        XCTAssertTrue(
-            allowButton.waitForExistence(timeout: 10),
-            "Allow Once button did not appear in Dock"
-        )
-        allowButton.click()
+        // The TUI blocks on keyboard input. Refresh first so it observes the
+        // pending request, then Enter accepts the default "once" action.
+        app.typeKey("r", modifierFlags: [])
+        app.typeKey(.return, modifierFlags: [])
 
         // Await the socket reply from the earlier push.
         let result = try replyPayload.result(timeout: 30)
@@ -197,6 +195,16 @@ final class FeedSidebarUITests: XCTestCase {
         }
         return String(data: buffer, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                (try? self.sendLine("ping\n")) == "PONG"
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func removeSocketFile() {
