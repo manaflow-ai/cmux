@@ -3056,40 +3056,40 @@ struct CMUXCLI {
             let title = optionValue(commandArgs, name: "--title") ?? "Notification"
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
-
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let preferTTYFallback = windowId == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
-            let callerWorkspaceArg = preferTTYFallback
-                ? nil
-                : (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let workspaceArg = explicitWorkspaceArg ?? callerWorkspaceArg
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
-            let callerSurfaceArg = explicitSurfaceArg == nil && preferTTYFallback == false && windowId == nil
-                ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
-                : nil
-            let surfaceArg = explicitSurfaceArg ?? callerSurfaceArg
-
-            let targetWorkspace = try {
-                if explicitWorkspaceArg != nil {
-                    return try resolveWorkspaceId(workspaceArg, client: client)
+            let hasExplicitHandle = [explicitWorkspaceArg, explicitSurfaceArg].compactMap { $0 }.contains { !isUUID($0) }
+            if hasExplicitHandle {
+                let workspaceRaw = explicitWorkspaceArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                let targetWorkspace = try (explicitWorkspaceArg == nil
+                    ? resolveWorkspaceIdAllowingFallback(workspaceRaw, client: client)
+                    : resolveWorkspaceId(workspaceRaw, client: client))
+                let targetSurface = try explicitSurfaceArg.map { try resolveSurfaceId($0, workspaceId: targetWorkspace, client: client) }
+                    ?? resolveSurfaceId(nil, workspaceId: targetWorkspace, client: client)
+                let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
+                let response = try sendV1Command("notify_target_async \(targetWorkspace) \(targetSurface) \(payload)", client: client)
+                print(response)
+                return
+            }
+            var params: [String: Any] = ["title": title, "subtitle": subtitle, "body": body]
+            let method: String
+            if explicitWorkspaceArg != nil || explicitSurfaceArg != nil {
+                method = "notification.create"
+                if let explicitWorkspaceArg { params["workspace_id"] = explicitWorkspaceArg }
+                if let explicitSurfaceArg { params["surface_id"] = explicitSurfaceArg }
+            } else {
+                method = "notification.create_for_caller"
+                params["prefer_tty"] = preferTTYFallback
+                if windowId == nil {
+                    let env = ProcessInfo.processInfo.environment
+                    if let workspaceId = env["CMUX_WORKSPACE_ID"], isUUID(workspaceId) { params["preferred_workspace_id"] = workspaceId }
+                    if let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) { params["preferred_surface_id"] = surfaceId }
                 }
-                return try resolveWorkspaceIdAllowingFallback(workspaceArg, client: client)
-            }()
-            let targetSurface = try {
-                if explicitSurfaceArg != nil {
-                    return try resolveSurfaceId(surfaceArg, workspaceId: targetWorkspace, client: client)
-                }
-                return try resolveSurfaceIdAllowingFallback(
-                    surfaceArg,
-                    workspaceId: targetWorkspace,
-                    client: client
-                )
-            }()
-
-            let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
-            let response = try sendV1Command("notify_target_async \(targetWorkspace) \(targetSurface) \(payload)", client: client)
-            print(response)
-
+                if let callerTTY = resolveCallerTTYName() { params["caller_tty"] = callerTTY }
+            }
+            let payload = try client.sendV2(method: method, params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
         case "list-notifications":
             let response = try sendV1Command("list_notifications", client: client)
             if jsonOutput {

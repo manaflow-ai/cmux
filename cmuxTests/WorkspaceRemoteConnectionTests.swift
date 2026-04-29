@@ -1906,36 +1906,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                let method = payload["method"] as? String {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 switch method {
-                case "surface.list":
-                    let workspaceId = params["workspace_id"] as? String
-                    if workspaceId == staleWorkspace {
-                        return self.v2Response(
-                            id: id,
-                            ok: false,
-                            error: ["code": "not_found", "message": "Workspace not found"]
-                        )
-                    }
-                    if workspaceId == currentWorkspace {
-                        return self.v2Response(
-                            id: id,
-                            ok: true,
-                            result: [
-                                "surfaces": [
-                                    [
-                                        "id": currentSurface,
-                                        "ref": "surface:1",
-                                        "index": 0,
-                                        "focused": true
-                                    ]
-                                ]
-                            ]
-                        )
-                    }
-                case "workspace.current":
+                case "notification.create_for_caller":
+                    XCTAssertEqual(params["preferred_workspace_id"] as? String, staleWorkspace)
+                    XCTAssertEqual(params["preferred_surface_id"] as? String, staleSurface)
+                    XCTAssertEqual(params["prefer_tty"] as? Bool, false)
                     return self.v2Response(
                         id: id,
                         ok: true,
-                        result: ["workspace_id": currentWorkspace]
+                        result: ["workspace_id": currentWorkspace, "surface_id": currentSurface]
                     )
                 default:
                     break
@@ -1947,9 +1925,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 )
             }
 
-            if line == "notify_target_async \(currentWorkspace) \(currentSurface) Notification||" {
-                return "OK"
-            }
             return "ERROR: Unexpected command \(line)"
         }
 
@@ -1973,8 +1948,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains("notify_target_async \(currentWorkspace) \(currentSurface) Notification||"),
-            "Expected notify_target_async to use current workspace and surface, saw \(state.commands)"
+            state.commands.contains { $0.contains("\"method\":\"notification.create_for_caller\"") },
+            "Expected notify to use single-call caller notification path, saw \(state.commands)"
         )
     }
 
@@ -2595,10 +2570,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if line == "notify_target_async \(workspaceId) \(callerSurface) Notification||" {
-                return "OK"
-            }
-
             guard let data = line.data(using: .utf8),
                   let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                   let id = payload["id"] as? String,
@@ -2608,62 +2579,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
             let params = payload["params"] as? [String: Any] ?? [:]
             switch method {
-            case "surface.list":
-                let requestedWorkspace = params["workspace_id"] as? String
-                if requestedWorkspace == staleWorkspace {
-                    return self.v2Response(
-                        id: id,
-                        ok: false,
-                        error: ["code": "not_found", "message": "Workspace not found"]
-                    )
-                }
-                if requestedWorkspace == workspaceId {
-                    return self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "surfaces": [
-                                [
-                                    "id": callerSurface,
-                                    "ref": "surface:1",
-                                    "index": 0,
-                                    "focused": false
-                                ],
-                                [
-                                    "id": focusedSurface,
-                                    "ref": "surface:2",
-                                    "index": 1,
-                                    "focused": true
-                                ]
-                            ]
-                        ]
-                    )
-                }
-            case "workspace.current":
+            case "notification.create_for_caller":
+                XCTAssertEqual(params["preferred_workspace_id"] as? String, staleWorkspace)
+                XCTAssertEqual(params["preferred_surface_id"] as? String, staleSurface)
+                XCTAssertEqual(params["caller_tty"] as? String, "ttys777")
+                XCTAssertEqual(params["prefer_tty"] as? Bool, false)
                 return self.v2Response(
                     id: id,
                     ok: true,
-                    result: ["workspace_id": workspaceId]
-                )
-            case "debug.terminals":
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "count": 2,
-                        "terminals": [
-                            [
-                                "workspace_id": workspaceId,
-                                "surface_id": callerSurface,
-                                "tty": callerTTY
-                            ],
-                            [
-                                "workspace_id": workspaceId,
-                                "surface_id": focusedSurface,
-                                "tty": "/dev/ttys778"
-                            ]
-                        ]
-                    ]
+                    result: ["workspace_id": workspaceId, "surface_id": callerSurface]
                 )
             default:
                 break
@@ -2697,12 +2621,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains("notify_target_async \(workspaceId) \(callerSurface) Notification||"),
-            "Expected notify_target_async to use caller tty surface, saw \(state.commands)"
-        )
-        XCTAssertFalse(
-            state.commands.contains("notify_target_async \(workspaceId) \(focusedSurface) Notification||"),
-            "Focused surface should not win over caller tty, saw \(state.commands)"
+            state.commands.contains { $0.contains("\"method\":\"notification.create_for_caller\"") },
+            "Expected notify to use single-call caller notification path, saw \(state.commands)"
         )
     }
 
@@ -2723,13 +2643,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if line == "notify_target_async \(workspaceId) \(callerSurface) Notification||" {
-                return "OK"
-            }
-            if line == "notify_target_async \(workspaceId) \(staleSurface) Notification||" {
-                return "OK"
-            }
-
             guard let data = line.data(using: .utf8),
                   let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                   let id = payload["id"] as? String,
@@ -2739,49 +2652,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
             let params = payload["params"] as? [String: Any] ?? [:]
             switch method {
-            case "surface.list":
-                let requestedWorkspace = params["workspace_id"] as? String
-                if requestedWorkspace == workspaceId {
-                    return self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "surfaces": [
-                                [
-                                    "id": callerSurface,
-                                    "ref": "surface:1",
-                                    "index": 0,
-                                    "focused": false
-                                ],
-                                [
-                                    "id": staleSurface,
-                                    "ref": "surface:2",
-                                    "index": 1,
-                                    "focused": true
-                                ]
-                            ]
-                        ]
-                    )
-                }
-            case "debug.terminals":
+            case "notification.create_for_caller":
+                XCTAssertEqual(params["preferred_workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["preferred_surface_id"] as? String, staleSurface)
+                XCTAssertEqual(params["caller_tty"] as? String, "ttys777")
+                XCTAssertEqual(params["prefer_tty"] as? Bool, true)
                 return self.v2Response(
                     id: id,
                     ok: true,
-                    result: [
-                        "count": 2,
-                        "terminals": [
-                            [
-                                "workspace_id": workspaceId,
-                                "surface_id": callerSurface,
-                                "tty": callerTTY
-                            ],
-                            [
-                                "workspace_id": workspaceId,
-                                "surface_id": staleSurface,
-                                "tty": "/dev/ttys778"
-                            ]
-                        ]
-                    ]
+                    result: ["workspace_id": workspaceId, "surface_id": callerSurface]
                 )
             default:
                 break
@@ -2816,12 +2695,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains("notify_target_async \(workspaceId) \(callerSurface) Notification||"),
-            "Expected notify_target_async to use caller tty surface in tmux, saw \(state.commands)"
-        )
-        XCTAssertFalse(
-            state.commands.contains("notify_target_async \(workspaceId) \(staleSurface) Notification||"),
-            "Stale env surface should not win inside tmux, saw \(state.commands)"
+            state.commands.contains { $0.contains("\"method\":\"notification.create_for_caller\"") },
+            "Expected notify to use single-call caller notification path in tmux, saw \(state.commands)"
         )
     }
 

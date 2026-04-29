@@ -558,6 +558,8 @@ class TerminalController {
         self.tabManager = tabManager
     }
 
+    func activeTabManagerForCallerNotification() -> TabManager? { tabManager }
+
     // MARK: - Process Ancestry Check
 
     /// Get the peer PID of a connected Unix domain socket using LOCAL_PEERPID.
@@ -2362,6 +2364,8 @@ class TerminalController {
         // Notifications
         case "notification.create":
             return v2Result(id: id, self.v2NotificationCreate(params: params))
+        case "notification.create_for_caller":
+            return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "notification.create_for_surface":
             return v2Result(id: id, self.v2NotificationCreateForSurface(params: params))
         case "notification.create_for_target":
@@ -2708,6 +2712,7 @@ class TerminalController {
             "pane.join",
             "pane.last",
             "notification.create",
+            "notification.create_for_caller",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",
@@ -3244,7 +3249,7 @@ class TerminalController {
         ])
     }
 
-    private enum V2CallResult {
+    enum V2CallResult {
         case ok(Any)
         case err(code: String, message: String, data: Any?)
     }

@@ -148,7 +148,25 @@ def clear_command(cmux_bin: str) -> list[str]:
     return [cmux_bin, "clear-notifications"]
 
 
-def run_notify_burst(cmux_bin: str, count: int, interval_ms: float, state: NotifyState) -> None:
+def socket_env(socket_path: str | None) -> dict[str, str]:
+    env = os.environ.copy()
+    if socket_path:
+        env["CMUX_SOCKET_PATH"] = socket_path
+        env["CMUX_SOCKET"] = socket_path
+    elif env.get("CMUX_SOCKET_PATH"):
+        env["CMUX_SOCKET"] = env["CMUX_SOCKET_PATH"]
+    elif env.get("CMUX_SOCKET"):
+        env["CMUX_SOCKET_PATH"] = env["CMUX_SOCKET"]
+    return env
+
+
+def run_notify_burst(
+    cmux_bin: str,
+    socket_path: str | None,
+    count: int,
+    interval_ms: float,
+    state: NotifyState,
+) -> None:
     state.running = True
     state.started_at = time.monotonic()
     state.completed = 0
@@ -164,6 +182,7 @@ def run_notify_burst(cmux_bin: str, count: int, interval_ms: float, state: Notif
                     notify_command(cmux_bin, index),
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
+                    env=socket_env(socket_path),
                     text=True,
                     timeout=5,
                     check=True,
@@ -182,26 +201,31 @@ def run_notify_burst(cmux_bin: str, count: int, interval_ms: float, state: Notif
 
 
 def start_notify_burst(
-    cmux_bin: str, count: int, interval_ms: float, state: NotifyState
+    cmux_bin: str,
+    socket_path: str | None,
+    count: int,
+    interval_ms: float,
+    state: NotifyState,
 ) -> None:
     if state.running:
         return
     thread = threading.Thread(
         target=run_notify_burst,
-        args=(cmux_bin, count, interval_ms, state),
+        args=(cmux_bin, socket_path, count, interval_ms, state),
         daemon=True,
     )
     state.thread = thread
     thread.start()
 
 
-def run_clear(cmux_bin: str, state: NotifyState) -> None:
+def run_clear(cmux_bin: str, socket_path: str | None, state: NotifyState) -> None:
     start = time.perf_counter()
     try:
         subprocess.run(
             clear_command(cmux_bin),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            env=socket_env(socket_path),
             text=True,
             timeout=5,
             check=True,
@@ -233,6 +257,7 @@ def draw(stdscr: curses.window, stats: FrameStats, notify: NotifyState, args: ar
         "cmux frame probe TUI",
         "terminal cadence proxy, not a Core Animation compositor counter",
         f"target={stats.hz:.1f}Hz budget={budget:.2f}ms hiccup>={stats.hiccup_ms:.2f}ms cmux={args.cmux_bin}",
+        f"socket={args.socket_path or os.environ.get('CMUX_SOCKET_PATH') or os.environ.get('CMUX_SOCKET') or '(auto)'}",
         "",
         (
             f"frames={summary['frames']} elapsed={summary['elapsed_ms'] / 1000.0:.1f}s "
@@ -287,7 +312,13 @@ def run_tui(args: argparse.Namespace) -> int:
     notify = NotifyState()
     stats = FrameStats(hz=args.hz, history_limit=args.history)
     if args.auto_notify:
-        start_notify_burst(args.cmux_bin, args.notify_count, args.notify_interval_ms, notify)
+        start_notify_burst(
+            args.cmux_bin,
+            args.socket_path,
+            args.notify_count,
+            args.notify_interval_ms,
+            notify,
+        )
 
     def wrapped(stdscr: curses.window) -> int:
         try:
@@ -311,11 +342,15 @@ def run_tui(args: argparse.Namespace) -> int:
                 stats.reset()
             if key in (ord("n"), ord("N")):
                 start_notify_burst(
-                    args.cmux_bin, args.notify_count, args.notify_interval_ms, notify
+                    args.cmux_bin,
+                    args.socket_path,
+                    args.notify_count,
+                    args.notify_interval_ms,
+                    notify,
                 )
             if key in (ord("c"), ord("C")):
                 threading.Thread(
-                    target=run_clear, args=(args.cmux_bin, notify), daemon=True
+                    target=run_clear, args=(args.cmux_bin, args.socket_path, notify), daemon=True
                 ).start()
 
             next_deadline += interval
@@ -333,7 +368,13 @@ def run_headless(args: argparse.Namespace) -> int:
     notify = NotifyState()
     stats = FrameStats(hz=args.hz, history_limit=args.history)
     if args.auto_notify:
-        start_notify_burst(args.cmux_bin, args.notify_count, args.notify_interval_ms, notify)
+        start_notify_burst(
+            args.cmux_bin,
+            args.socket_path,
+            args.notify_count,
+            args.notify_interval_ms,
+            notify,
+        )
 
     interval = 1.0 / args.hz
     end_at = time.monotonic() + args.headless
@@ -398,6 +439,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--cmux-bin",
         default=None,
         help="cmux binary path, defaults to CMUX_FRAME_PROBE_CMUX, /tmp/cmux-cli, cmux-dev, then cmux",
+    )
+    parser.add_argument(
+        "--socket-path",
+        default=os.environ.get("CMUX_FRAME_PROBE_SOCKET"),
+        help="cmux Unix socket path, also accepted from CMUX_FRAME_PROBE_SOCKET",
     )
     parser.add_argument(
         "--auto-notify",
