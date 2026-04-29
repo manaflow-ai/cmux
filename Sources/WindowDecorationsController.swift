@@ -31,6 +31,9 @@ final class WindowDecorationsController {
     }
 
     func apply(to window: NSWindow) {
+        if isMainWorkspaceWindow(window) {
+            window.acceptsMouseMovedEvents = true
+        }
         let shouldHideButtons = shouldHideTrafficLights(for: window)
         hideStandardButtons(on: window, hidden: shouldHideButtons)
         applyTrafficLightOffset(on: window, hidden: shouldHideButtons)
