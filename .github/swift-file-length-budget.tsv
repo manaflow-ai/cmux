@@ -32,14 +32,14 @@
 1949	Sources/FileExplorerView.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1941	Sources/SessionIndexStore.swift
-1940	cmuxTests/WindowAndDragTests.swift
+1951	cmuxTests/WindowAndDragTests.swift
 1784	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1692	cmuxTests/CmuxConfigTests.swift
 1676	Sources/KeyboardShortcutSettingsFileStore.swift
 1517	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1423	Sources/TerminalNotificationStore.swift
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
-1332	Sources/WindowDragHandleView.swift
+1336	Sources/WindowDragHandleView.swift
 1292	cmuxUITests/SidebarHelpMenuUITests.swift
 1255	cmuxTests/NotificationAndMenuBarTests.swift
 1215	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift

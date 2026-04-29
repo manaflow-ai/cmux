@@ -1002,7 +1002,8 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 locationInWindow: event.locationInWindow,
                 windowNumber: window.windowNumber,
                 previous: coordinator.lastClick,
-                doubleClickInterval: NSEvent.doubleClickInterval
+                doubleClickInterval: NSEvent.doubleClickInterval,
+                doubleClickIntervalTolerance: minimalModeTitlebarSyntheticDoubleClickTolerance
             )
             guard isDoubleClick else {
                 coordinator.lastClick = MinimalModeTitlebarClickRecord(
@@ -1092,6 +1093,8 @@ func minimalModeTitlebarClickFormsDoubleClick(
     let dy = locationInWindow.y - previous.locationInWindow.y
     return hypot(dx, dy) <= maxDistance
 }
+
+let minimalModeTitlebarSyntheticDoubleClickTolerance: TimeInterval = 0.15
 
 func minimalModeTitlebarDoubleClickBandHeight(for window: NSWindow) -> CGFloat {
     MinimalModeChromeMetrics.titlebarHeight
@@ -1290,7 +1293,8 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
                 locationInWindow: locationInWindow,
                 windowNumber: window.windowNumber,
                 previous: lastTitlebarClick,
-                doubleClickInterval: NSEvent.doubleClickInterval
+                doubleClickInterval: NSEvent.doubleClickInterval,
+                doubleClickIntervalTolerance: minimalModeTitlebarSyntheticDoubleClickTolerance
             )
             guard isDoubleClick else {
                 lastTitlebarClick = MinimalModeTitlebarClickRecord(

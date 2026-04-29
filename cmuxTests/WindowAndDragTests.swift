@@ -987,6 +987,17 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
         XCTAssertTrue(
             minimalModeTitlebarClickFormsDoubleClick(
+                clickCount: 1,
+                timestamp: 10.62,
+                locationInWindow: NSPoint(x: 201, y: 291),
+                windowNumber: 42,
+                previous: previous,
+                doubleClickInterval: 0.5,
+                doubleClickIntervalTolerance: 0.15
+            )
+        )
+        XCTAssertTrue(
+            minimalModeTitlebarClickFormsDoubleClick(
                 clickCount: 2,
                 timestamp: 20,
                 locationInWindow: NSPoint(x: 20, y: 20),

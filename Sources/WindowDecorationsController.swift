@@ -213,7 +213,8 @@ final class WindowDecorationsController {
             locationInWindow: locationInWindow,
             windowNumber: windowNumber,
             previous: lastMinimalModeTitlebarClick,
-            doubleClickInterval: NSEvent.doubleClickInterval
+            doubleClickInterval: NSEvent.doubleClickInterval,
+            doubleClickIntervalTolerance: minimalModeTitlebarSyntheticDoubleClickTolerance
         )
 
         guard isDoubleClick else {
