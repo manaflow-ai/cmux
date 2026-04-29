@@ -5457,18 +5457,18 @@ class TerminalController {
                 return
             }
 
-            let isRealTmuxWorkspace = ws.realTmuxSessionId != nil || ws.realTmuxSessionName != nil
-            if ws.panels.count <= 1 && !isRealTmuxWorkspace {
+            if ws.panels.count <= 1 && !ws.isRealTmuxWorkspace {
                 result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
                 return
             }
 
             // Socket API must be non-interactive: bypass close-confirmation gating.
-            let closed = isRealTmuxWorkspace
+            let closed = ws.isRealTmuxWorkspace
                 ? tabManager.closeSurface(tabId: ws.id, surfaceId: surfaceId)
                 : ws.closePanel(surfaceId, force: true)
+            let resolvedWindowId = v2ResolveWindowId(tabManager: tabManager)
             result = closed
-                ? .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+                ? .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(resolvedWindowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: resolvedWindowId)])
                 : .err(code: "internal_error", message: "Failed to close surface", data: ["surface_id": surfaceId.uuidString])
         }
         return result
@@ -16450,15 +16450,14 @@ class TerminalController {
                 return
             }
 
-            let isRealTmuxWorkspace = tab.realTmuxSessionId != nil || tab.realTmuxSessionName != nil
             // Don't close if it's the only surface, unless the surface represents a real tmux session.
-            if tab.panels.count <= 1 && !isRealTmuxWorkspace {
+            if tab.panels.count <= 1 && !tab.isRealTmuxWorkspace {
                 result = "ERROR: Cannot close the last surface"
                 return
             }
 
             // Socket commands must be non-interactive: bypass close-confirmation gating.
-            let closed = isRealTmuxWorkspace
+            let closed = tab.isRealTmuxWorkspace
                 ? tabManager.closeSurface(tabId: tab.id, surfaceId: targetSurfaceId)
                 : tab.closePanel(targetSurfaceId, force: true)
             result = closed ? "OK" : "ERROR: Failed to close surface"

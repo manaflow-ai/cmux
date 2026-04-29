@@ -7638,6 +7638,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
+        if shouldBlockRealTmuxShortcut(event, surface: surface) {
+            return
+        }
+
         // Build release events from the same translation path as keyDown so
         // consumers that depend on precise key identity (for example Space
         // hold/release flows) receive consistent metadata.
