@@ -245,7 +245,6 @@ final class DockControlsStore: ObservableObject {
     private var lastRootDirectory: String?
     private var lastWorkspaceId: UUID?
     private var activeConfigURL: URL?
-    private var loadedWithoutWorkspace = false
     private var hasLoadedConfiguration = false
     private var controlsVisibleInUI = false
 
@@ -257,11 +256,11 @@ final class DockControlsStore: ObservableObject {
 
     func activate(rootDirectory: String?, workspaceId: UUID?) {
         controlsVisibleInUI = true
-        if hasLoadedConfiguration,
-           lastRootDirectory == rootDirectory,
-           lastWorkspaceId == workspaceId {
-            setControlsVisibleInUI(true)
-            return
+        if hasLoadedConfiguration, lastRootDirectory == rootDirectory {
+            if workspaceId == nil || lastWorkspaceId == workspaceId {
+                setControlsVisibleInUI(true)
+                return
+            }
         }
         reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
     }
@@ -274,7 +273,6 @@ final class DockControlsStore: ObservableObject {
     func reload(rootDirectory: String?, workspaceId: UUID?) {
         lastRootDirectory = rootDirectory
         lastWorkspaceId = workspaceId
-        loadedWithoutWorkspace = workspaceId == nil
         hasLoadedConfiguration = true
         errorMessage = nil
         trustRequest = nil
