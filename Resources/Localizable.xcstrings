@@ -69008,103 +69008,103 @@
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team مصادقة تسجيل دخول خروج بريد إلكتروني مستخدم ملف شخصي فريق حساب"
+                    "value": "auth authentication login logout sign in sign out email user profile team مصادقة تسجيل دخول خروج بريد إلكتروني مستخدم ملف شخصي فريق حساب"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team autentikacija prijava odjava korisnik profil tim račun"
+                    "value": "auth authentication login logout sign in sign out email user profile team autentikacija prijava odjava korisnik profil tim račun"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team godkendelse logud bruger profil konto"
+                    "value": "auth authentication login logout sign in sign out email user profile team godkendelse logud bruger profil konto"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team authentifizierung anmeldung abmeldung benutzer profil konto"
+                    "value": "auth authentication login logout sign in sign out email user profile team authentifizierung anmeldung abmeldung benutzer profil konto"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team autenticación iniciar sesión cerrar correo usuario perfil equipo cuenta"
+                    "value": "auth authentication login logout sign in sign out email user profile team autenticación iniciar sesión cerrar correo usuario perfil equipo cuenta"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team authentification connexion déconnexion e-mail utilisateur profil équipe compte"
+                    "value": "auth authentication login logout sign in sign out email user profile team authentification connexion déconnexion e-mail utilisateur profil équipe compte"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team autenticazione accesso disconnessione utente profilo account"
+                    "value": "auth authentication login logout sign in sign out email user profile team autenticazione accesso disconnessione utente profilo account"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team 인증 로그인 로그아웃 이메일 사용자 프로필 팀 계정 로그인…"
+                    "value": "auth authentication login logout sign in sign out email user profile team 인증 로그인 로그아웃 이메일 사용자 프로필 팀 계정 로그인…"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team autentisering innlogging utlogging e-post bruker profil konto"
+                    "value": "auth authentication login logout sign in sign out email user profile team autentisering innlogging utlogging e-post bruker profil konto"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team uwierzytelnianie logowanie wylogowanie użytkownik profil zespół konto"
+                    "value": "auth authentication login logout sign in sign out email user profile team uwierzytelnianie logowanie wylogowanie użytkownik profil zespół konto"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team autenticação sair usuário perfil equipe conta"
+                    "value": "auth authentication login logout sign in sign out email user profile team autenticação sair usuário perfil equipe conta"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team аутентификация вход выход пользователь профиль команда аккаунт"
+                    "value": "auth authentication login logout sign in sign out email user profile team аутентификация вход выход пользователь профиль команда аккаунт"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team ยืนยันตัวตน เข้าสู่ระบบ ออกจากระบบ อีเมล ผู้ใช้ โปรไฟล์ ทีม บัญชี"
+                    "value": "auth authentication login logout sign in sign out email user profile team ยืนยันตัวตน เข้าสู่ระบบ ออกจากระบบ อีเมล ผู้ใช้ โปรไฟล์ ทีม บัญชี"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team kimlik doğrulama giriş çıkış e-posta kullanıcı profil takım hesap"
+                    "value": "auth authentication login logout sign in sign out email user profile team kimlik doğrulama giriş çıkış e-posta kullanıcı profil takım hesap"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team 认证 登录 退出登录 邮件 用户 个人资料 团队 账户"
+                    "value": "auth authentication login logout sign in sign out email user profile team 认证 登录 退出登录 邮件 用户 个人资料 团队 账户"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team 驗證 登入 登出 郵件 使用者 個人資料 團隊 帳戶"
+                    "value": "auth authentication login logout sign in sign out email user profile team 驗證 登入 登出 郵件 使用者 個人資料 團隊 帳戶"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "auth authentication login logout sign in out email user profile team автентифікація вхід вихід користувач профіль команда обліковий запис Увійти… Вийти"
+                    "value": "auth authentication login logout sign in sign out email user profile team автентифікація вхід вихід користувач профіль команда обліковий запис Увійти… Вийти"
                 }
             }
         }
