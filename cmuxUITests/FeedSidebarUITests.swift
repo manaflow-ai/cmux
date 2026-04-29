@@ -53,7 +53,7 @@ final class FeedSidebarUITests: XCTestCase {
 
         XCTAssertTrue(
             waitForInAppSocketReady(timeout: 75),
-            "Expected app-side control socket readiness at \(socketPath). diagnostics=\(loadDiagnostics())"
+            "Expected app-side control socket readiness at \(socketPath). probe=\(lastSocketProbe) diagnostics=\(loadDiagnostics())"
         )
         XCTAssertTrue(
             revealDockMode(in: app),
@@ -118,8 +118,8 @@ final class FeedSidebarUITests: XCTestCase {
     private func waitForInAppSocketReady(timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             let diagnostics = loadDiagnostics()
-            return diagnostics["socketReady"] == "1" &&
-                diagnostics["socketPingResponse"] == "PONG"
+            guard diagnostics["socketReady"] == "1", diagnostics["socketPingResponse"] == "PONG" else { return false }
+            return waitForSocketPong(timeout: 1)
         }
     }
 
