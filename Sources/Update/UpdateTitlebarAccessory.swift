@@ -692,14 +692,13 @@ struct HiddenTitlebarSidebarControlsView: View {
     let onNewTab: () -> Void
     @StateObject private var viewModel = TitlebarControlsViewModel()
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
-    @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
     @State private var isNotificationsPopoverShown = false
     @State private var hostWindowNumber: Int?
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
 
     private var shouldPinControls: Bool {
-        isHoveringHost || isHoveringWindowChrome || isNotificationsPopoverShown || popoverVisibilityState.isShown
+        isHoveringWindowChrome || isNotificationsPopoverShown || popoverVisibilityState.isShown
     }
 
     var body: some View {
@@ -752,12 +751,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight,
             alignment: .leading
         )
-        .background {
-            ZStack {
-                MinimalSidebarHoverTrackingView { isHoveringHost = $0 }
-                MinimalModeTitlebarButtonHitRegionView(config: style.config)
-            }
-        }
+        .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
         .onAppear {
             isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
             popoverVisibilityState.setShown(isNotificationsPopoverShown)
@@ -778,7 +772,6 @@ struct HiddenTitlebarSidebarControlsView: View {
             #endif
         }
         .onDisappear {
-            isHoveringHost = false
             isHoveringWindowChrome = false
             isNotificationsPopoverShown = false
             if let hostWindowNumber {
@@ -792,90 +785,6 @@ struct HiddenTitlebarSidebarControlsView: View {
 enum TitlebarControlsVisibilityMode {
     case alwaysVisible
     case onHover
-}
-
-private struct MinimalSidebarHoverTrackingView: NSViewRepresentable {
-    let onHoverChanged: (Bool) -> Void
-
-    func makeNSView(context: Context) -> TrackingView {
-        let view = TrackingView()
-        view.onHoverChanged = onHoverChanged
-        return view
-    }
-
-    func updateNSView(_ nsView: TrackingView, context: Context) {
-        nsView.onHoverChanged = onHoverChanged
-        nsView.updateHoverFromCurrentMouseLocation()
-    }
-
-    final class TrackingView: NSView {
-        var onHoverChanged: ((Bool) -> Void)?
-        private var localMouseMonitor: Any?
-        private var isHovering = false
-
-        deinit {
-            removeLocalMouseMonitor()
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let window {
-                window.acceptsMouseMovedEvents = true
-                installLocalMouseMonitorIfNeeded()
-                updateHoverFromCurrentMouseLocation()
-            } else {
-                removeLocalMouseMonitor()
-                emitHoverChanged(false)
-            }
-        }
-
-        private func installLocalMouseMonitorIfNeeded() {
-            guard localMouseMonitor == nil else { return }
-            localMouseMonitor = NSEvent.addLocalMonitorForEvents(
-                matching: [.mouseMoved, .mouseEntered, .mouseExited, .leftMouseDown, .leftMouseDragged]
-            ) { [weak self] event in
-                self?.updateHover(from: event)
-                return event
-            }
-        }
-
-        private func removeLocalMouseMonitor() {
-            if let localMouseMonitor {
-                NSEvent.removeMonitor(localMouseMonitor)
-                self.localMouseMonitor = nil
-            }
-        }
-
-        private func updateHover(from event: NSEvent) {
-            guard let window else {
-                emitHoverChanged(false)
-                return
-            }
-
-            let pointInWindow = event.window === window
-                ? event.locationInWindow
-                : window.mouseLocationOutsideOfEventStream
-            let pointInView = convert(pointInWindow, from: nil)
-            emitHoverChanged(bounds.insetBy(dx: -1, dy: -1).contains(pointInView))
-        }
-
-        func updateHoverFromCurrentMouseLocation() {
-            guard let window else {
-                emitHoverChanged(false)
-                return
-            }
-            let pointInView = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            emitHoverChanged(bounds.insetBy(dx: -1, dy: -1).contains(pointInView))
-        }
-
-        private func emitHoverChanged(_ newValue: Bool) {
-            guard isHovering != newValue else { return }
-            isHovering = newValue
-            onHoverChanged?(newValue)
-        }
-    }
 }
 
 @MainActor
