@@ -786,14 +786,17 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(point) else { return nil }
             guard NSEvent.pressedMouseButtons == 0 else { return nil }
-            switch NSApp.currentEvent?.type {
+            let event = NSApp.currentEvent
+            switch event?.type {
             case .none:
+                refreshHoverForHitTest(event: event)
                 if passButtonColumnsThroughForPassiveHitTests,
                    TitlebarControlsHitRegions.pointFallsInButtonColumn(point, config: config) {
                     return nil
                 }
                 return self
             case .mouseMoved, .mouseEntered, .mouseExited:
+                refreshHoverForHitTest(event: event)
                 return self
             default:
                 return nil
@@ -879,6 +882,14 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             }
             let pointInView = convert(window.mouseLocationOutsideOfEventStream, from: nil)
             emitHoverChanged(bounds.insetBy(dx: -1, dy: -1).contains(pointInView))
+        }
+
+        private func refreshHoverForHitTest(event: NSEvent?) {
+            if let event {
+                updateHover(from: event)
+            } else {
+                updateHoverFromCurrentMouseLocation()
+            }
         }
 
         private func emitHoverChanged(_ newValue: Bool) {
