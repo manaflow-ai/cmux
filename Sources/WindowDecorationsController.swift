@@ -335,9 +335,10 @@ final class WindowDecorationsController {
 
         let hostHeight = MinimalModeSidebarTitlebarControlsMetrics.hostHeight
         let contentBounds = contentView.bounds
+        let targetY = contentView.isFlipped ? contentBounds.minY : max(0, contentBounds.maxY - hostHeight)
         target.frame = NSRect(
             x: MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
-            y: max(0, contentBounds.maxY - hostHeight),
+            y: targetY,
             width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
             height: hostHeight
         )
