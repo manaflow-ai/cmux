@@ -246,6 +246,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var type: PanelType
     var title: String?
     var customTitle: String?
+    var realTmuxPaneId: String?
     var directory: String?
     var isPinned: Bool
     var isManuallyUnread: Bool
@@ -335,6 +336,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customColor: String?
     var isPinned: Bool
     var terminalScrollBarHidden: Bool?
+    var realTmuxSessionId: String?
+    var realTmuxSessionName: String?
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot

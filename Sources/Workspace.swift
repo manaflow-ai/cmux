@@ -325,6 +325,8 @@ extension Workspace {
             customColor: customColor,
             isPinned: isPinned,
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
+            realTmuxSessionId: isRealTmuxWorkspace ? realTmuxSessionId : nil,
+            realTmuxSessionName: isRealTmuxWorkspace ? realTmuxSessionName : nil,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
@@ -346,6 +348,8 @@ extension Workspace {
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
+        realTmuxSessionId = snapshot.realTmuxSessionId
+        realTmuxSessionName = snapshot.realTmuxSessionName
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries = restoreSessionLayout(snapshot.layout)
@@ -458,6 +462,19 @@ extension Workspace {
         return decoded.id
     }
 
+    private static func realTmuxPaneProxyCommand(paneId: String) -> String? {
+        guard let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false),
+              FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) else {
+            return nil
+        }
+        let cmuxCommand = shellQuoted(bundledCLIURL.path)
+        return "exec \(cmuxCommand) __real-tmux-pane-proxy --pane \(shellQuoted(paneId))"
+    }
+
+    private static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
@@ -545,6 +562,7 @@ extension Workspace {
             type: panel.panelType,
             title: panelTitle,
             customTitle: customTitle,
+            realTmuxPaneId: (panel as? TerminalPanel)?.realTmuxPaneId,
             directory: directory,
             isPinned: isPinned,
             isManuallyUnread: isManuallyUnread,
@@ -720,12 +738,16 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
             )
+            let realTmuxPaneId = snapshot.realTmuxPaneId
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: workingDirectory,
+                initialCommand: realTmuxPaneId.flatMap(Self.realTmuxPaneProxyCommand),
                 initialInput: restoredAgentResumeInput,
-                startupEnvironment: replayEnvironment
+                startupEnvironment: replayEnvironment,
+                allowInRealTmuxWorkspace: realTmuxPaneId != nil,
+                realTmuxPaneId: realTmuxPaneId
             ) else {
                 return nil
             }
@@ -9875,6 +9897,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = true,
         allowInRealTmuxWorkspace: Bool = false,
         initialCommand: String? = nil,
+        initialInput: String? = nil,
         realTmuxPaneId: String? = nil
     ) -> TerminalPanel? {
         guard !isRealTmuxWorkspace || allowInRealTmuxWorkspace else {
@@ -9957,6 +9980,7 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: initialCommand ?? remoteTerminalStartupCommand,
+            initialInput: initialInput,
             realTmuxPaneId: realTmuxPaneId
         )
         configureTerminalPanel(newPanel)
@@ -10055,9 +10079,21 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         focus: Bool? = nil,
         workingDirectory: String? = nil,
+        initialCommand: String? = nil,
         initialInput: String? = nil,
-        startupEnvironment: [String: String] = [:]
+        startupEnvironment: [String: String] = [:],
+        allowInRealTmuxWorkspace: Bool = false,
+        realTmuxPaneId: String? = nil
     ) -> TerminalPanel? {
+        guard !isRealTmuxWorkspace || allowInRealTmuxWorkspace else {
+#if DEBUG
+            cmuxDebugLog(
+                "realTmux.terminalSurface.blockCmux workspace=\(id.uuidString.prefix(5)) " +
+                "pane=\(paneId.id.uuidString.prefix(5))"
+            )
+#endif
+            return nil
+        }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -10080,8 +10116,9 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: remoteTerminalStartupCommand,
+            initialCommand: initialCommand ?? remoteTerminalStartupCommand,
             initialInput: initialInput,
+            realTmuxPaneId: realTmuxPaneId,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)
