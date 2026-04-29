@@ -296,8 +296,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
+        guard let window = window(withId: windowId),
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let focusedPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            XCTFail("Expected test window with focused terminal panel")
             return
         }
 
@@ -323,6 +326,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let terminalView = surfaceView(in: focusedPanel.hostedView) else {
+            XCTFail("Expected a GhosttyNSView inside the focused panel's hosted view")
+            return
+        }
+        XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected to make Ghostty surface the first responder")
+        XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface to hold first responder after makeFirstResponder")
+
+        let initialPanelCount = workspace.panels.count
 
         guard let prefixEvent = makeKeyDownEvent(
             key: "`",
@@ -352,6 +364,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(
             appDelegate.debugHandleCustomShortcut(event: actionEvent),
             "Second stroke of a bare-key chord from settings.json must be consumed by the routing path"
+        )
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(
+            workspace.panels.count,
+            initialPanelCount + 1,
+            "splitRight should have added one terminal panel"
         )
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
