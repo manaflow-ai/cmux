@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 enum TitlebarControlsHitRegions {
@@ -36,10 +37,76 @@ enum TitlebarControlsHitRegions {
 
 final class MinimalModeSidebarControlActionView: NSView {
     var config = TitlebarControlsStyle.classic.config
+    {
+        didSet { needsLayout = true }
+    }
     var isEnabled = true
+    {
+        didSet { syncButtons() }
+    }
     var requiresRevealedState = false
+    {
+        didSet { syncButtons() }
+    }
     var telemetryPrefix = "minimalSidebarClickProxy"
     var onAction: ((MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void)?
+    private var cancellables: Set<AnyCancellable> = []
+    private let buttons: [MinimalModeSidebarControlActionSlot: NSButton]
+
+    override init(frame frameRect: NSRect) {
+        var buttons: [MinimalModeSidebarControlActionSlot: NSButton] = [:]
+        for slot in [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab] {
+            let button = NSButton(frame: .zero)
+            button.isBordered = false
+            button.isTransparent = true
+            button.title = ""
+            button.bezelStyle = .regularSquare
+            button.setButtonType(.momentaryChange)
+            button.target = nil
+            button.action = #selector(buttonPressed(_:))
+            button.identifier = NSUserInterfaceItemIdentifier(slot.accessibilityIdentifier)
+            button.setAccessibilityIdentifier(slot.accessibilityIdentifier)
+            button.setAccessibilityLabel(slot.accessibilityLabel)
+            button.setAccessibilityRole(.button)
+            buttons[slot] = button
+        }
+        self.buttons = buttons
+        super.init(frame: frameRect)
+        for (slot, button) in buttons {
+            button.target = self
+            button.tag = slot.rawValue
+            addSubview(button)
+        }
+        observeRevealState()
+        syncButtons()
+    }
+
+    required init?(coder: NSCoder) {
+        var buttons: [MinimalModeSidebarControlActionSlot: NSButton] = [:]
+        for slot in [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab] {
+            let button = NSButton(frame: .zero)
+            button.isBordered = false
+            button.isTransparent = true
+            button.title = ""
+            button.bezelStyle = .regularSquare
+            button.setButtonType(.momentaryChange)
+            button.identifier = NSUserInterfaceItemIdentifier(slot.accessibilityIdentifier)
+            button.setAccessibilityIdentifier(slot.accessibilityIdentifier)
+            button.setAccessibilityLabel(slot.accessibilityLabel)
+            button.setAccessibilityRole(.button)
+            buttons[slot] = button
+        }
+        self.buttons = buttons
+        super.init(coder: coder)
+        for (slot, button) in buttons {
+            button.target = self
+            button.action = #selector(buttonPressed(_:))
+            button.tag = slot.rawValue
+            addSubview(button)
+        }
+        observeRevealState()
+        syncButtons()
+    }
 
     override var mouseDownCanMoveWindow: Bool { false }
 
@@ -51,41 +118,65 @@ final class MinimalModeSidebarControlActionView: NSView {
         if let eventType = NSApp.currentEvent?.type, eventType != .leftMouseDown {
             return nil
         }
-        guard shouldAcceptAction else { return nil }
         guard bounds.contains(point) else { return nil }
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) else {
             return nil
         }
+        guard shouldAcceptAction(at: point), let button = buttons[slot] else { return nil }
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
             _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["\(telemetryPrefix)LastHitTestSlot"] = slot.debugName
                 payload["\(telemetryPrefix)LastHitTestPoint"] = windowDragHandleFormatPoint(point)
                 payload["\(telemetryPrefix)LastHitTestWindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
+                payload["\(telemetryPrefix)LastHitTestRevealed"] = String(isRevealed)
             }
         }
         #endif
-        return self
+        return button
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard shouldAcceptAction else {
-            super.mouseDown(with: event)
-            return
-        }
-
         let localPoint = convert(event.locationInWindow, from: nil)
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config) else {
             super.mouseDown(with: event)
             return
         }
+        performAction(slot: slot, locationInWindow: event.locationInWindow)
+    }
+
+    override func layout() {
+        super.layout()
+        let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
+        for (index, range) in ranges.enumerated() {
+            guard let slot = MinimalModeSidebarControlActionSlot(rawValue: index),
+                  let button = buttons[slot] else { continue }
+            button.frame = NSRect(
+                x: range.lowerBound,
+                y: max(0, (bounds.height - config.buttonSize) / 2),
+                width: config.buttonSize,
+                height: config.buttonSize
+            )
+        }
+        syncButtons()
+    }
+
+    @objc private func buttonPressed(_ sender: NSButton) {
+        guard let slot = MinimalModeSidebarControlActionSlot(rawValue: sender.tag) else { return }
+        let localPoint = sender.frame.center
+        performAction(slot: slot, locationInWindow: convert(localPoint, to: nil))
+    }
+
+    private func performAction(slot: MinimalModeSidebarControlActionSlot, locationInWindow: NSPoint) {
+        guard isEnabled else { return }
 
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
             _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["\(telemetryPrefix)LastAction"] = slot.debugName
-                payload["\(telemetryPrefix)LastPoint"] = windowDragHandleFormatPoint(localPoint)
+                payload["\(telemetryPrefix)LastPoint"] = windowDragHandleFormatPoint(convert(locationInWindow, from: nil))
                 payload["\(telemetryPrefix)WindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
+                payload["\(telemetryPrefix)LastActionRevealed"] = String(isRevealed)
             }
         }
         #endif
@@ -93,14 +184,50 @@ final class MinimalModeSidebarControlActionView: NSView {
         if let window {
             MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
         }
-        onAction?(slot, self, event.locationInWindow)
+        onAction?(slot, self, locationInWindow)
     }
 
-    private var shouldAcceptAction: Bool {
+    private func observeRevealState() {
+        MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.syncButtons() }
+            .store(in: &cancellables)
+
+        NotificationsPopoverVisibilityState.shared.$isShown
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.syncButtons() }
+            .store(in: &cancellables)
+    }
+
+    private func syncButtons() {
+        let revealed = isRevealed
+        for button in buttons.values {
+            button.isEnabled = isEnabled && (revealed || !requiresRevealedState)
+            button.setAccessibilityElement(revealed || !requiresRevealedState)
+        }
+    }
+
+    private var isRevealed: Bool {
         guard isEnabled else { return false }
         guard requiresRevealedState else { return true }
         guard let window else { return false }
         return MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
             || NotificationsPopoverVisibilityState.shared.isShown
+    }
+
+    private func shouldAcceptAction(at localPoint: NSPoint) -> Bool {
+        if isRevealed { return true }
+        guard isEnabled, requiresRevealedState, let window else { return false }
+        let windowPoint = convert(localPoint, to: nil)
+        return isMinimalModeSidebarChromeHoverCandidate(
+            window: window,
+            locationInWindow: windowPoint
+        )
+    }
+}
+
+private extension NSRect {
+    var center: NSPoint {
+        NSPoint(x: midX, y: midY)
     }
 }

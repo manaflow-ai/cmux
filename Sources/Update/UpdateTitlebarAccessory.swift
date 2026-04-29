@@ -183,27 +183,52 @@ final class NotificationsPopoverVisibilityState: ObservableObject {
     static let shared = NotificationsPopoverVisibilityState()
 
     @Published private(set) var isShown = false
+    private var shownPopoverIDs: Set<ObjectIdentifier> = []
 
     private init() {}
 
     func setShown(_ newValue: Bool) {
+        setShown(newValue, source: nil)
+    }
+
+    func setShown(_ newValue: Bool, source: AnyObject?) {
         if Thread.isMainThread {
-            guard isShown != newValue else { return }
-            isShown = newValue
+            setShownOnMain(newValue, source: source)
         } else {
             DispatchQueue.main.async { [weak self] in
-                self?.setShown(newValue)
+                self?.setShown(newValue, source: source)
             }
         }
     }
+
+    private func setShownOnMain(_ newValue: Bool, source: AnyObject?) {
+        if let source {
+            let id = ObjectIdentifier(source)
+            if newValue {
+                shownPopoverIDs.insert(id)
+            } else {
+                shownPopoverIDs.remove(id)
+            }
+            updateShown(!shownPopoverIDs.isEmpty)
+        } else {
+            shownPopoverIDs.removeAll()
+            updateShown(newValue)
+        }
+    }
+
+    private func updateShown(_ newValue: Bool) {
+        guard isShown != newValue else { return }
+        isShown = newValue
+    }
 }
 
-private func postNotificationsPopoverVisibilityDidChange(isShown: Bool) {
-    NotificationsPopoverVisibilityState.shared.setShown(isShown)
+private func postNotificationsPopoverVisibilityDidChange(isShown: Bool, source: AnyObject? = nil) {
+    let state = NotificationsPopoverVisibilityState.shared
+    state.setShown(isShown, source: source)
     NotificationCenter.default.post(
         name: .cmuxNotificationsPopoverVisibilityDidChange,
         object: nil,
-        userInfo: [NotificationsPopoverVisibilityUserInfoKey.isShown: isShown]
+        userInfo: [NotificationsPopoverVisibilityUserInfoKey.isShown: state.isShown]
     )
 }
 
@@ -1409,7 +1434,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-                postNotificationsPopoverVisibilityDidChange(isShown: true)
+                postNotificationsPopoverVisibilityDidChange(isShown: true, source: notificationsPopover)
                 return
             }
         }
@@ -1420,7 +1445,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-                postNotificationsPopoverVisibilityDidChange(isShown: true)
+                postNotificationsPopoverVisibilityDidChange(isShown: true, source: notificationsPopover)
                 return
             }
         }
@@ -1430,7 +1455,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let anchorRect = NSRect(x: 12, y: bounds.maxY - 8, width: 1, height: 1)
         notificationsPopover.animates = animated
         notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-        postNotificationsPopoverVisibilityDidChange(isShown: true)
+        postNotificationsPopoverVisibilityDidChange(isShown: true, source: notificationsPopover)
     }
 
     func dismissNotificationsPopover() {
@@ -1453,7 +1478,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     func popoverDidClose(_ notification: Notification) {
         // Clear the content view controller to stop SwiftUI observers when popover is hidden
         notificationsPopover.contentViewController = nil
-        postNotificationsPopoverVisibilityDidChange(isShown: false)
+        postNotificationsPopoverVisibilityDidChange(isShown: false, source: notificationsPopover)
     }
 }
 
@@ -1943,7 +1968,11 @@ final class UpdateTitlebarAccessoryController {
             guard let self, self.detachedNotificationsPopover === popover else { return }
             self.detachedNotificationsPopover = nil
             self.detachedNotificationsPopoverDelegate = nil
-            postNotificationsPopoverVisibilityDidChange(isShown: false)
+            if let popover {
+                postNotificationsPopoverVisibilityDidChange(isShown: false, source: popover)
+            } else {
+                postNotificationsPopoverVisibilityDidChange(isShown: false)
+            }
         }
         popover.behavior = .semitransient
         popover.animates = animated
@@ -1965,7 +1994,7 @@ final class UpdateTitlebarAccessoryController {
         detachedNotificationsPopover = popover
         detachedNotificationsPopoverDelegate = delegate
         popover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-        postNotificationsPopoverVisibilityDidChange(isShown: true)
+        postNotificationsPopoverVisibilityDidChange(isShown: true, source: popover)
     }
 
     func isNotificationsPopoverShown() -> Bool {

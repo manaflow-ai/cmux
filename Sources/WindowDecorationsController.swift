@@ -4,9 +4,7 @@ final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
     private var didStart = false
     private var trafficLightBaseFrames: [ObjectIdentifier: [NSWindow.ButtonType: NSRect]] = [:]
-    private var minimalModeTitlebarDoubleClickMonitor: Any?
     private var minimalModeSidebarChromeHoverMonitor: Any?
-    private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
     private let minimalModeSidebarTitlebarClickTargets = NSMapTable<NSWindow, MinimalModeSidebarControlActionView>(
         keyOptions: .weakMemory,
         valueOptions: .strongMemory
@@ -16,9 +14,6 @@ final class WindowDecorationsController {
         let center = NotificationCenter.default
         for observer in observers {
             center.removeObserver(observer)
-        }
-        if let minimalModeTitlebarDoubleClickMonitor {
-            NSEvent.removeMonitor(minimalModeTitlebarDoubleClickMonitor)
         }
         if let minimalModeSidebarChromeHoverMonitor {
             NSEvent.removeMonitor(minimalModeSidebarChromeHoverMonitor)
@@ -35,7 +30,6 @@ final class WindowDecorationsController {
         didStart = true
         attachToExistingWindows()
         installObservers()
-        installMinimalModeTitlebarDoubleClickMonitor()
         installMinimalModeSidebarChromeHoverMonitor()
     }
 
@@ -59,18 +53,6 @@ final class WindowDecorationsController {
         }
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: handler))
         observers.append(center.addObserver(forName: NSWindow.didBecomeMainNotification, object: nil, queue: .main, using: handler))
-    }
-
-    private func installMinimalModeTitlebarDoubleClickMonitor() {
-        guard minimalModeTitlebarDoubleClickMonitor == nil else { return }
-        minimalModeTitlebarDoubleClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
-            guard let self, let target = self.minimalModeSidebarChromeEventTarget(for: event) else { return event }
-            return self.handleMinimalModeTitlebarDoubleClickMouseDown(
-                window: target.window,
-                locationInWindow: target.locationInWindow,
-                event: event
-            ) ? nil : event
-        }
     }
 
     private func installMinimalModeSidebarChromeHoverMonitor() {
@@ -150,23 +132,6 @@ final class WindowDecorationsController {
         )
     }
 
-    func handleMinimalModeTitlebarMouseDown(event: NSEvent) -> Bool {
-        guard event.type == .leftMouseDown else { return false }
-        guard let target = minimalModeSidebarChromeEventTarget(for: event) else { return false }
-        if handleMinimalModeSidebarChromeMouseDown(
-            window: target.window,
-            locationInWindow: target.locationInWindow,
-            event: event
-        ) {
-            return true
-        }
-        return handleMinimalModeTitlebarDoubleClickMouseDown(
-            window: target.window,
-            locationInWindow: target.locationInWindow,
-            event: event
-        )
-    }
-
     private func handleMinimalModeSidebarChromeMouseDown(
         window: NSWindow,
         locationInWindow: NSPoint,
@@ -201,62 +166,6 @@ final class WindowDecorationsController {
             locationInWindow: locationInWindow
         )
         return true
-    }
-
-    private func handleMinimalModeTitlebarDoubleClickMouseDown(
-        window: NSWindow,
-        locationInWindow: NSPoint,
-        event: NSEvent
-    ) -> Bool {
-        let contentBounds = window.contentView?.bounds ?? NSRect(
-            x: 0,
-            y: 0,
-            width: window.frame.width,
-            height: window.frame.height
-        )
-        guard isMinimalModeWindowTitlebarClickCandidate(
-            isMinimalMode: WorkspacePresentationModeSettings.isMinimal(),
-            isFullScreen: window.styleMask.contains(.fullScreen),
-            isMainWindow: isMainWorkspaceWindow(window),
-            locationInWindow: locationInWindow,
-            contentBounds: contentBounds,
-            titlebarBandHeight: minimalModeTitlebarDoubleClickBandHeight(for: window)
-        ) else {
-            lastMinimalModeTitlebarClick = nil
-            return false
-        }
-        guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
-            lastMinimalModeTitlebarClick = nil
-            return false
-        }
-
-        let windowNumber = window.windowNumber
-        let isDoubleClick = minimalModeTitlebarClickFormsDoubleClick(
-            clickCount: event.clickCount,
-            timestamp: event.timestamp,
-            locationInWindow: locationInWindow,
-            windowNumber: windowNumber,
-            previous: lastMinimalModeTitlebarClick,
-            doubleClickInterval: NSEvent.doubleClickInterval
-        )
-
-        guard isDoubleClick else {
-            lastMinimalModeTitlebarClick = MinimalModeTitlebarClickRecord(
-                windowNumber: windowNumber,
-                timestamp: event.timestamp,
-                locationInWindow: locationInWindow
-            )
-            return false
-        }
-
-        lastMinimalModeTitlebarClick = nil
-        let result = handleTitlebarDoubleClick(window: window, behavior: .standardAction)
-        #if DEBUG
-        cmuxDebugLog(
-            "titlebar.minimalWindowDoubleClick.result=\(String(describing: result)) point=\(NSStringFromPoint(locationInWindow)) band=\(String(format: "%.1f", minimalModeTitlebarDoubleClickBandHeight(for: window)))"
-        )
-        #endif
-        return result.consumesEvent
     }
 
     private func minimalModeSidebarChromeEventTarget(
