@@ -842,10 +842,16 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
                 window.acceptsMouseMovedEvents = true
                 installLocalMouseMonitorIfNeeded()
                 updateHoverFromCurrentMouseLocation()
+                recordFrameForUITest()
             } else {
                 removeLocalMouseMonitor()
                 emitHoverChanged(false)
             }
+        }
+
+        override func layout() {
+            super.layout()
+            recordFrameForUITest()
         }
 
         override func updateTrackingAreas() {
@@ -925,6 +931,17 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             guard isHovering != newValue else { return }
             isHovering = newValue
             onHoverChanged?(newValue)
+        }
+
+        private func recordFrameForUITest() {
+            #if DEBUG
+            guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
+            guard window != nil else { return }
+            let frameInWindow = convert(bounds, to: nil)
+            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                payload["minimalSidebarHostFrameInWindow"] = NSStringFromRect(frameInWindow)
+            }
+            #endif
         }
     }
 }
