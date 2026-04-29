@@ -5669,6 +5669,8 @@ class TabManager: ObservableObject {
         guard let workspace = selectedWorkspace else { return }
         if workspace.isRealTmuxWorkspace,
            let focusedPanelId = workspace.focusedPanelId {
+            // Real tmux panes are created by splitting the backing tmux pane; there is no
+            // safe way to inject a cmux-only initial input before the proxy attaches.
             _ = createSplit(tabId: workspace.id, surfaceId: focusedPanelId, direction: .right)
             return
         }

@@ -7175,7 +7175,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If Ghostty handled the key (action/encoding), we're done.
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
             // so the IME gets a chance to process this event.
-        if handled { return }
+            if handled { return }
         }
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
