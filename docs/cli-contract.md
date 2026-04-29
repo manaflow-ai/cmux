@@ -29,6 +29,7 @@ written around user-visible behavior so the implementation can change behind it.
 | `cmux <path>` | Open a directory or file path in cmux. Relative paths resolve from the current working directory. |
 | `cmux [global-options] <command> [options]` | Run a named command. |
 | `cmux --help`, `cmux -h` | Print top-level usage without a socket. |
+| `cmux help` | Print top-level usage without a socket. |
 | `cmux --version`, `cmux -v`, `cmux version` | Print version summary without a socket. |
 
 Global options:
@@ -57,6 +58,8 @@ Environment:
 | Command | Contract |
 | --- | --- |
 | `welcome` | Print the welcome screen. |
+| `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
+| `settings` | Open Settings, print settings file paths, or print settings docs. |
 | `shortcuts` | Open Settings to Keyboard Shortcuts. |
 | `restore-session` | Restore the previously saved cmux session. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
@@ -283,6 +286,27 @@ Agent hook subcommands:
 | `feed-hook` | Convert agent hook events into Feed context. |
 | `<agent>-hook` | Generic hook surface for `opencode`, `cursor`, `gemini`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
 
+Docs topics:
+
+| Command | Contract |
+| --- | --- |
+| `docs` | List docs topics without a socket. |
+| `docs settings` | Print the configuration docs URL, raw schema URL, settings file paths, and reload command. |
+| `docs shortcuts` | Print shortcut docs and raw shortcut data resources. |
+| `docs api` | Print API docs and raw CLI contract resources. |
+| `docs browser` | Print browser automation docs and raw browser skill resources. |
+| `docs agents` | Print agent integration docs and raw integration resources. |
+
+Settings subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `settings` | Open the Settings window, launching cmux if needed. |
+| `settings open [target]` | Open Settings to an optional target section. |
+| `settings path` | Print settings.json paths, docs URL, schema URL, and reload command without a socket. |
+| `settings docs` | Print the same output as `docs settings` without a socket. |
+| `settings <target>` | Open Settings to a target section. Supported aliases include `shortcuts`, `json`, `settings-json`, `browser`, and `automation`. |
+
 ## No-Socket Help Probes
 
 The following probes are executable contract checks. They must exit 0 and print
@@ -290,6 +314,7 @@ the expected text without connecting to a cmux socket.
 
 <!-- cli-contract-help-probes:start -->
 - `cmux --help` -> `cmux - control cmux via Unix socket`
+- `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
@@ -297,6 +322,12 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh> [args...]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
+- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents]`
+- `cmux docs` -> `Topics:`
+- `cmux docs settings` -> `Settings files:`
+- `cmux settings --help` -> `Usage: cmux settings [open|path|docs|target]`
+- `cmux settings path` -> `Settings files:`
+- `cmux settings docs` -> `Settings files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
@@ -414,8 +445,6 @@ The following probes must not print help. They protect argument forwarding after
 These are current contracts to preserve until a follow-up PR intentionally
 changes them:
 
-- `cmux help` currently routes through the socket dispatch path. Use
-  `cmux --help` or `cmux help --help` for no-socket help.
 - `cmux version --help` currently prints the version summary because `version`
   is handled before subcommand help dispatch.
 - `cmux codex --help` currently is not a no-socket help probe.
