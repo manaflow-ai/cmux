@@ -3458,6 +3458,10 @@ struct CMUXCLI {
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // Editor commands
+        case "editor":
+            try runEditorCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -3599,6 +3603,85 @@ struct CMUXCLI {
             let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
             let filePath = (payload["path"] as? String) ?? absolutePath
             print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
+        }
+    }
+
+    private func runEditorCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        var args = commandArgs
+
+        // Parse routing flags
+        let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
+        let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
+        let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
+        let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
+        args = argsAfterDirection
+
+        let subcommand: String
+        var subArgs: [String]
+        if let first = args.first, ["open", "diff"].contains(first.lowercased()) {
+            subcommand = first.lowercased()
+            subArgs = Array(args.dropFirst())
+        } else if args.count == 1, let first = args.first, !first.hasPrefix("-") {
+            subcommand = "open"
+            subArgs = [first]
+        } else if let first = args.first, first.hasPrefix("-") {
+            throw CLIError(
+                message: "editor: unknown flag '\(first)'. Usage: cmux editor open <path> | cmux editor diff <path>"
+            )
+        } else if let first = args.first, looksLikePath(first) || first.contains(".") {
+            subcommand = "open"
+            subArgs = args
+        } else if let first = args.first {
+            throw CLIError(message: "Unknown editor subcommand: \(first). Usage: cmux editor open <path> | cmux editor diff <path>")
+        } else {
+            throw CLIError(message: "editor requires a subcommand. Usage: cmux editor open <path> | cmux editor diff <path>")
+        }
+
+        guard let rawPath = subArgs.first, !rawPath.isEmpty else {
+            throw CLIError(message: "editor \(subcommand) requires a file path. Usage: cmux editor \(subcommand) <path>")
+        }
+
+        let absolutePath = resolvePath(rawPath)
+        let direction = directionOpt ?? "right"
+
+        var params: [String: Any] = ["path": absolutePath, "direction": direction]
+        if let surfaceRaw = surfaceOpt {
+            if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
+                params["surface_id"] = surface
+            }
+        }
+        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        if let workspaceRaw {
+            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+                params["workspace_id"] = workspace
+            }
+        }
+        if let windowRaw = windowOpt {
+            if let window = try normalizeWindowHandle(windowRaw, client: client) {
+                params["window_id"] = window
+            }
+        }
+
+        let method = subcommand == "diff" ? "editor.diff" : "editor.open"
+        let payload = try client.sendV2(method: method, params: params)
+
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
+            let filePath = (payload["path"] as? String) ?? absolutePath
+            if subcommand == "diff" {
+                let baseLabel = (payload["base_label"] as? String) ?? "HEAD"
+                print("OK surface=\(surfaceText) path=\(filePath) diff_base=\(baseLabel)")
+            } else {
+                let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
+                print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
+            }
         }
     }
 
@@ -9790,6 +9873,31 @@ struct CMUXCLI {
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
+            """
+        case "editor":
+            return """
+            Usage: cmux editor open <path> [options]
+                   cmux editor diff <path> [options]
+                   cmux editor <path>       (shorthand for 'open')
+
+            Open a file in a read-only code viewer panel with Monaco syntax highlighting
+            and live file watching. Supports diff view against git HEAD.
+
+            Subcommands:
+              open    Open a file in the code viewer (default)
+              diff    Open a diff view comparing the file against git HEAD
+
+            Options:
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Source surface to split from (default: focused surface)
+              --window <id|ref|index>      Target window
+              --direction <left|right|up|down>  Split direction (default: right)
+
+            Examples:
+              cmux editor open main.swift
+              cmux editor ~/project/src/app.py
+              cmux editor diff src/lib.rs
+              cmux editor open config.yaml --direction down
             """
         default:
             return nil
@@ -18059,6 +18167,8 @@ export default CMUXSessionRestore;
           display-message [-p|--print] <text>
 
           markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
+          editor [open] <path>               (open file in read-only code viewer with syntax highlighting)
+          editor diff <path>                 (open file diff against git HEAD)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status

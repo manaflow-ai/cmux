@@ -900,10 +900,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        let directories = externalOpenDirectories(from: urls)
-        guard !directories.isEmpty else { return }
+        let nonAuthURLs = urls.filter { !AuthCallbackRouter.isAuthCallbackURL($0) }
+        let fileURLs = externalOpenFileURLs(from: nonAuthURLs)
+        let directories = externalOpenDirectories(from: externalOpenDirectoryURLs(from: nonAuthURLs))
+        guard !fileURLs.isEmpty || !directories.isEmpty else { return }
 
         prepareForExplicitOpenIntentAtStartup()
+        for fileURL in fileURLs {
+            openFileForExternalURL(
+                fileURL,
+                debugSource: "application.openURLs"
+            )
+        }
         for directory in directories {
             openWorkspaceForExternalDirectory(
                 workingDirectory: directory,
@@ -955,6 +963,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self,
             selector: #selector(handleReactGrabDidCopySelection(_:)),
             name: .reactGrabDidCopySelection,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleEditorDidSendSelection(_:)),
+            name: .editorDidSendSelection,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFileExplorerOpenInCodeViewer(_:)),
+            name: .fileExplorerOpenInCodeViewer,
             object: nil
         )
         NotificationCenter.default.addObserver(
@@ -5396,6 +5416,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let result: Bool
         switch target {
+        case .editorFileFind:
+            guard let workspace = context.tabManager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId,
+                  let editorPanel = workspace.editorPanel(for: panelId) else {
+                result = false
+                break
+            }
+            workspace.focusPanel(panelId)
+            result = editorPanel.triggerFind()
         case .rightSidebarFileSearch:
             result = context.keyboardFocusCoordinator.focusFileSearch()
         case .mainPanelFind:
@@ -5890,6 +5919,108 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             from: urls.filter { $0.isFileURL },
             excludingDescendantsOf: [Bundle.main.bundleURL]
         )
+    }
+
+    private func externalOpenDirectoryURLs(from urls: [URL]) -> [URL] {
+        urls.filter { url in
+            guard url.isFileURL else { return false }
+            let standardized = url.standardizedFileURL
+            guard !isSameOrDescendant(standardized, of: Bundle.main.bundleURL) else { return false }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: standardized.path, isDirectory: &isDirectory) else {
+                return standardized.hasDirectoryPath
+            }
+            return isDirectory.boolValue
+        }
+    }
+
+    private func externalOpenFileURLs(from urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var fileURLs: [URL] = []
+        for url in urls where url.isFileURL {
+            let standardized = url.standardizedFileURL
+            guard !isSameOrDescendant(standardized, of: Bundle.main.bundleURL) else { continue }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: standardized.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else {
+                continue
+            }
+            let canonical = canonicalFileRoutingPath(standardized.path)
+            guard seen.insert(canonical).inserted else { continue }
+            fileURLs.append(standardized)
+        }
+        return fileURLs
+    }
+
+    private func canonicalFileRoutingPath(_ path: String) -> String {
+        let expanded = NSString(string: path).expandingTildeInPath
+        let standardized = NSString(string: expanded).standardizingPath
+        return (standardized as NSString).resolvingSymlinksInPath
+    }
+
+    private func isSameOrDescendant(_ url: URL, of rootURL: URL) -> Bool {
+        let urlComponents = URL(fileURLWithPath: canonicalFileRoutingPath(url.path)).pathComponents
+        let rootComponents = URL(fileURLWithPath: canonicalFileRoutingPath(rootURL.path)).pathComponents
+        guard urlComponents.count >= rootComponents.count else { return false }
+        return Array(urlComponents.prefix(rootComponents.count)) == rootComponents
+    }
+
+    private func preferredWorkspaceForExternalFile(
+        debugSource: String
+    ) -> (context: MainWindowContext, workspace: Workspace)? {
+        if let context = preferredMainWindowContextForWorkspaceCreation(debugSource: "\(debugSource).file"),
+           let workspace = context.tabManager.selectedWorkspace {
+            return (context, workspace)
+        }
+
+        for context in mainWindowContexts.values {
+            if let workspace = context.tabManager.selectedWorkspace {
+                return (context, workspace)
+            }
+        }
+
+        for context in mainWindowContexts.values {
+            if let workspace = context.tabManager.tabs.first {
+                return (context, workspace)
+            }
+        }
+
+        return nil
+    }
+
+    private func openFileForExternalURL(
+        _ fileURL: URL,
+        debugSource: String
+    ) {
+        let filePath = fileURL.standardizedFileURL.path
+
+        let context: MainWindowContext
+        let workspace: Workspace
+        if let existing = preferredWorkspaceForExternalFile(debugSource: debugSource) {
+            context = existing.context
+            workspace = existing.workspace
+            if let window = context.window ?? windowForMainWindowId(context.windowId) {
+                setActiveMainWindow(window)
+                bringToFront(window)
+            }
+            context.tabManager.focusTab(workspace.id, suppressFlash: true)
+        } else {
+            let directory = (filePath as NSString).deletingLastPathComponent
+            let windowId = createMainWindow(initialWorkingDirectory: directory)
+            guard let createdContext = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+                  let createdWorkspace = createdContext.tabManager.selectedWorkspace else {
+                return
+            }
+            context = createdContext
+            workspace = createdWorkspace
+        }
+
+        if let editorPanel = workspace.openOrFocusWorkspaceEditor(
+            from: workspace.focusedPanelId,
+            filePath: filePath
+        ) {
+            context.tabManager.focusTab(workspace.id, surfaceId: editorPanel.id, suppressFlash: true)
+        }
     }
 
     private func openWorkspaceForExternalDirectory(
@@ -6863,6 +6994,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         sendTextWhenReady(content, to: workspace, preferredPanelId: returnPanelId)
+    }
+
+    @objc private func handleEditorDidSendSelection(_ notification: Notification) {
+        guard let workspaceId = notification.userInfo?[EditorSendSelectionNotificationKey.workspaceId] as? UUID,
+              let returnPanelId = notification.userInfo?[EditorSendSelectionNotificationKey.returnPanelId] as? UUID,
+              let content = notification.userInfo?[EditorSendSelectionNotificationKey.content] as? String else {
+            return
+        }
+
+        guard let manager = tabManagerFor(tabId: workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else {
+#if DEBUG
+            cmuxDebugLog(
+                "editor.sendSelection.drop reason=missingWorkspace workspace=\(Self.debugShortId(workspaceId))"
+            )
+#endif
+            return
+        }
+
+        guard workspace.terminalPanel(for: returnPanelId) != nil else {
+#if DEBUG
+            cmuxDebugLog(
+                "editor.sendSelection.drop reason=missingReturnTerminal workspace=\(Self.debugShortId(workspaceId)) return=\(Self.debugShortId(returnPanelId))"
+            )
+#endif
+            return
+        }
+
+#if DEBUG
+        cmuxDebugLog(
+            "editor.sendSelection workspace=\(Self.debugShortId(workspaceId)) " +
+            "return=\(Self.debugShortId(returnPanelId)) len=\(content.count)"
+        )
+#endif
+        manager.focusTab(workspaceId, surfaceId: returnPanelId, suppressFlash: true)
+        sendTextWhenReady(content, to: workspace, preferredPanelId: returnPanelId)
+    }
+
+    @objc private func handleFileExplorerOpenInCodeViewer(_ notification: Notification) {
+        guard let path = notification.userInfo?["path"] as? String else { return }
+        let lineNumber = notification.userInfo?["lineNumber"] as? Int
+        let columnNumber = notification.userInfo?["columnNumber"] as? Int
+        guard let tabManager else { return }
+        guard let workspace = tabManager.selectedWorkspace else { return }
+        _ = workspace.openOrFocusWorkspaceEditor(
+            from: workspace.focusedPanelId,
+            filePath: path,
+            lineNumber: lineNumber,
+            columnNumber: columnNumber
+        )
+    }
+
+    private func sendFocusedEditorSelectionToTerminalIfPossible() -> Bool {
+        guard let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let editorPanel = workspace.editorPanel(for: focusedPanelId),
+              editorPanel.hasSelection else {
+            return false
+        }
+
+        let preferredTerminalId = workspace.focusedTerminalPanel?.id
+            ?? workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id }.first
+        guard let preferredTerminalId else { return false }
+
+        editorPanel.getSelection { [weak self, weak workspace] selection in
+            guard let self,
+                  let workspace,
+                  let selection,
+                  !selection.isEmpty else { return }
+            self.tabManagerFor(tabId: workspace.id)?.focusTab(workspace.id, surfaceId: preferredTerminalId, suppressFlash: true)
+            self.sendTextWhenReady(selection, to: workspace, preferredPanelId: preferredTerminalId)
+        }
+        return true
     }
 
     nonisolated private static func debugShortId(_ id: UUID?) -> String {
@@ -10736,6 +10941,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .focusBrowserAddressBar) {
+            if sendFocusedEditorSelectionToTerminalIfPossible() {
+                return true
+            }
+
             if let focusedPanel = tabManager?.focusedBrowserPanel {
                 focusBrowserAddressBar(in: focusedPanel)
                 return true
@@ -11815,6 +12024,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             case .newBrowser:
                 _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
+                return true
+            case .newEditor:
+                _ = tabManager?.selectedWorkspace?.newEditorSurfaceInFocusedPane(focus: true)
                 return true
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {

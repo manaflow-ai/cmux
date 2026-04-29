@@ -24,6 +24,7 @@ enum MainWindowFocusToggleDestination: Equatable {
 }
 
 enum MainWindowFindShortcutTarget: Equatable {
+    case editorFileFind
     case mainPanelFind
     case rightSidebarFileSearch
     case none
@@ -478,6 +479,9 @@ final class MainWindowFocusController {
             if selectedFocusedPanelIsBrowser() {
                 return .mainPanelFind
             }
+            if selectedFocusedPanelIsEditor() {
+                return .editorFileFind
+            }
             if case .rightSidebar(let mode) = intent {
                 return findShortcutTarget(forRightSidebarMode: mode)
             }
@@ -486,6 +490,9 @@ final class MainWindowFocusController {
 
         if case .rightSidebar(let mode) = intent {
             return findShortcutTarget(forRightSidebarMode: mode)
+        }
+        if selectedFocusedPanelIsEditor() {
+            return .editorFileFind
         }
         return .mainPanelFind
     }
@@ -522,6 +529,15 @@ final class MainWindowFocusController {
 
     private func selectedFocusedPanelIsBrowser() -> Bool {
         selectedFocusedBrowserPanelRequest() != nil
+    }
+
+    private func selectedFocusedPanelIsEditor() -> Bool {
+        guard let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            return false
+        }
+        return workspace.editorPanel(for: panelId) != nil
     }
 
     private struct FocusedPanelRequest {

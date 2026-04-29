@@ -2638,6 +2638,9 @@ struct ContentView: View {
             titlebarHeight: titlebarPadding,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
+            },
+            onOpenFile: { request in
+                openFileInSelectedWorkspaceFileArea(request)
             }
         )
         .frame(width: rightSidebarWidth)
@@ -2666,6 +2669,17 @@ struct ContentView: View {
                 fileExplorerWidth = sanitized
             }
         }
+    }
+
+    private func openFileInSelectedWorkspaceFileArea(_ request: FileExplorerOpenRequest) {
+        guard let workspace = tabManager.selectedWorkspace,
+              !workspace.isRemoteWorkspace else { return }
+        _ = workspace.openOrFocusWorkspaceEditor(
+            from: workspace.focusedPanelId,
+            filePath: request.path,
+            lineNumber: request.lineNumber,
+            columnNumber: request.columnNumber
+        )
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
@@ -6458,6 +6472,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .editor:
+            return String(localized: "commandPalette.kind.editor", defaultValue: "Editor")
         }
     }
 
@@ -6469,6 +6485,8 @@ struct ContentView: View {
             return ["browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
+        case .editor:
+            return ["editor", "code", "viewer", "file"]
         }
     }
 

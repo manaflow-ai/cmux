@@ -139,6 +139,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
     let onResumeSession: ((SessionEntry) -> Void)?
+    var onOpenFile: ((FileExplorerOpenRequest) -> Void)? = nil
 
     @StateObject private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
@@ -220,6 +221,7 @@ struct RightSidebarPanelView: View {
         .padding(.trailing, 6)
         .padding(.vertical, 4)
         .frame(height: titlebarHeight)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.94))
     }
 
     @ViewBuilder
@@ -248,9 +250,19 @@ struct RightSidebarPanelView: View {
     private var contentForMode: some View {
         switch fileExplorerState.mode {
         case .files:
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState, presentation: .files)
+            FileExplorerPanelView(
+                store: fileExplorerStore,
+                state: fileExplorerState,
+                onOpenFile: onOpenFile,
+                presentation: .files
+            )
         case .find:
-            FileExplorerPanelView(store: fileExplorerStore, state: fileExplorerState, presentation: .find)
+            FileExplorerPanelView(
+                store: fileExplorerStore,
+                state: fileExplorerState,
+                onOpenFile: onOpenFile,
+                presentation: .find
+            )
         case .sessions:
             SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
                 .onAppear {
@@ -382,24 +394,22 @@ private struct ModeBarButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: mode.symbolName)
-                    .font(.system(size: 11, weight: .medium))
-                Text(mode.label)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if badgeCount > 0 {
-                    pendingChip
-                }
-            }
-            .foregroundColor(isSelected ? .primary : .secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            Text(mode.label)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(minWidth: 42, maxWidth: 68, minHeight: 24)
+            .foregroundStyle(foregroundColor)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(backgroundColor)
             )
+            .overlay(alignment: .topTrailing) {
+                if badgeCount > 0 {
+                    badgeView
+                        .offset(x: 4, y: -4)
+                }
+            }
             .overlay(alignment: .trailing) {
                 if showsShortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
@@ -427,34 +437,32 @@ private struct ModeBarButton: View {
         return mode.label
     }
 
-    private var backgroundColor: Color {
+    private var foregroundColor: Color {
         if isSelected {
-            return Color.primary.opacity(0.10)
+            return Color(nsColor: .labelColor)
         }
         if isHovered {
-            return Color.primary.opacity(0.05)
+            return Color(nsColor: .labelColor).opacity(0.88)
+        }
+        return Color(nsColor: .secondaryLabelColor)
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color(nsColor: .controlAccentColor).opacity(0.16)
+        }
+        if isHovered {
+            return Color(nsColor: .labelColor).opacity(0.06)
         }
         return Color.clear
     }
 
-    /// Subtle inline count chip that sits after the label instead of
-    /// floating a red capsule over the icon. Tinted orange (the "needs
-    /// attention" color used elsewhere in the Feed) and sized to match
-    /// the label's typography.
-    private var pendingChip: some View {
-        let countText = badgeCount > 9 ? "9+" : String(badgeCount)
-        return Text(countText)
-            .font(.system(size: 10, weight: .bold).monospacedDigit())
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: true)
-            .foregroundColor(.orange)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.orange.opacity(0.20))
-            )
-            .fixedSize(horizontal: true, vertical: true)
-            .layoutPriority(2)
+    private var badgeView: some View {
+        Text(badgeCount > 99 ? "99+" : "\(badgeCount)")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 3)
+            .frame(minWidth: 12, minHeight: 12)
+            .background(Capsule().fill(Color(nsColor: .systemOrange)))
     }
 }

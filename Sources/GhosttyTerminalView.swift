@@ -3743,6 +3743,35 @@ class GhosttyApp {
                 // Fall through to the existing NSWorkspace path below.
             }
 
+            if target.url.isFileURL,
+               fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost" {
+                let fileURL = target.url
+                let routed: Bool = performOnMain {
+                    guard let termSurface = surfaceView.terminalSurface,
+                          let workspace = termSurface.owningWorkspace(),
+                          !workspace.isRemoteTerminalSurface(termSurface.id) else {
+                        return false
+                    }
+                    var isDirectory: ObjCBool = false
+                    guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
+                          !isDirectory.boolValue,
+                          FileManager.default.isReadableFile(atPath: fileURL.path) else {
+                        return false
+                    }
+                    return workspace.openOrFocusWorkspaceEditor(
+                        from: termSurface.id,
+                        filePath: fileURL.path
+                    ) != nil
+                }
+                if routed {
+                    #if DEBUG
+                    cmuxDebugLog("link.openURL routed local file into workspace editor url=\(fileURL)")
+                    #endif
+                    return true
+                }
+                // Fall through to the existing NSWorkspace path below.
+            }
+
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
                 #if DEBUG
                 cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
@@ -8436,10 +8465,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         #endif
 
-        // Remote-surface guard runs before shouldRoute so we never stat a local
-        // path on the main thread for a remote workspace. When the viewer path
-        // is applicable but split creation fails, fall back to the preferred
-        // editor so the click never silently no-ops.
+        // Remote-surface guard runs before local routing so we never stat a
+        // local path on the main thread for a remote workspace. Prefer the
+        // workspace editor so all clicked files share the same file area.
+        if let termSurface = terminalSurface,
+           let workspace = termSurface.owningWorkspace(),
+           !workspace.isRemoteTerminalSurface(termSurface.id),
+           workspace.openOrFocusWorkspaceEditor(from: termSurface.id, filePath: resolution.path) != nil {
+            return resolution
+        }
+
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
            !workspace.isRemoteTerminalSurface(termSurface.id),

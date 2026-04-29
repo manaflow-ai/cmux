@@ -2544,6 +2544,18 @@ class TerminalController {
         case "markdown.open":
             return v2Result(id: id, self.v2MarkdownOpen(params: params))
 
+        // Editor
+        case "editor.open":
+            return v2Result(id: id, self.v2EditorOpen(params: params))
+        case "editor.diff":
+            return v2Result(id: id, self.v2EditorDiff(params: params))
+        case "editor.get_content":
+            return v2Result(id: id, self.v2EditorGetContent(params: params))
+        case "editor.send_selection":
+            return v2Result(id: id, self.v2EditorSendSelection(params: params))
+        case "editor.goto":
+            return v2Result(id: id, self.v2EditorGoto(params: params))
+
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
 
@@ -2708,6 +2720,11 @@ class TerminalController {
             "app.focus_override.set",
             "app.simulate_active",
             "markdown.open",
+            "editor.open",
+            "editor.diff",
+            "editor.get_content",
+            "editor.send_selection",
+            "editor.goto",
             "browser.open_split",
             "browser.navigate",
             "browser.back",
@@ -8253,6 +8270,316 @@ class TerminalController {
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "path": filePath
+            ])
+        }
+        return result
+    }
+
+    // MARK: - Editor
+
+    private func v2EditorOpen(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let rawPath = v2String(params, "path") else {
+            return .err(code: "invalid_params", message: "Missing 'path' parameter", data: nil)
+        }
+
+        let expandedPath = NSString(string: rawPath).expandingTildeInPath
+        let filePath = NSString(string: expandedPath).standardizingPath
+
+        guard filePath.hasPrefix("/") else {
+            return .err(code: "invalid_params", message: "Path must be absolute: \(filePath)", data: ["path": filePath])
+        }
+
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: filePath, isDirectory: &isDir) else {
+            return .err(code: "not_found", message: "File not found: \(filePath)", data: ["path": filePath])
+        }
+        guard !isDir.boolValue else {
+            return .err(code: "invalid_params", message: "Path is a directory, not a file: \(filePath)", data: ["path": filePath])
+        }
+        guard FileManager.default.isReadableFile(atPath: filePath) else {
+            return .err(code: "permission_denied", message: "File not readable: \(filePath)", data: ["path": filePath])
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create editor panel", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let sourceSurfaceId else {
+                result = .err(code: "not_found", message: "No focused surface to open editor from", data: nil)
+                return
+            }
+            guard ws.panels[sourceSurfaceId] != nil else {
+                result = .err(code: "not_found", message: "Source surface not found", data: ["surface_id": sourceSurfaceId.uuidString])
+                return
+            }
+
+            let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
+            guard let sourcePaneId = ws.paneId(forPanelId: sourceSurfaceId) ?? ws.bonsplitController.focusedPaneId else {
+                result = .err(code: "not_found", message: "No target pane found for editor", data: nil)
+                return
+            }
+
+            let createdPanel = ws.newEditorSurface(
+                inPane: sourcePaneId,
+                filePath: filePath,
+                focus: v2FocusAllowed()
+            )
+
+            guard let editorPanelId = createdPanel?.id else {
+                result = .err(code: "internal_error", message: "Failed to create editor panel", data: nil)
+                return
+            }
+
+            let targetPaneUUID = ws.paneId(forPanelId: editorPanelId)?.id
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                "surface_id": editorPanelId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: editorPanelId),
+                "source_surface_id": sourceSurfaceId.uuidString,
+                "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
+                "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
+                "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
+                "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                "path": filePath
+            ])
+        }
+        return result
+    }
+
+    private func v2RunProcessStdout(
+        executablePath: String,
+        arguments: [String]
+    ) throws -> (status: Int32, stdout: Data) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, data)
+    }
+
+    private func v2EditorDiff(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let rawPath = v2String(params, "path") else {
+            return .err(code: "invalid_params", message: "Missing 'path' parameter", data: nil)
+        }
+
+        let expandedPath = NSString(string: rawPath).expandingTildeInPath
+        let filePath = NSString(string: expandedPath).standardizingPath
+
+        guard filePath.hasPrefix("/") else {
+            return .err(code: "invalid_params", message: "Path must be absolute: \(filePath)", data: ["path": filePath])
+        }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: filePath, isDirectory: &isDir) else {
+            return .err(code: "not_found", message: "File not found: \(filePath)", data: ["path": filePath])
+        }
+        guard !isDir.boolValue else {
+            return .err(code: "invalid_params", message: "Path is a directory, not a file: \(filePath)", data: ["path": filePath])
+        }
+        guard FileManager.default.isReadableFile(atPath: filePath) else {
+            return .err(code: "permission_denied", message: "File not readable: \(filePath)", data: ["path": filePath])
+        }
+
+        // Get base content — either from explicit `base` param or `git show HEAD:<path>`.
+        let baseContent: String
+        if let explicitBase = v2String(params, "base") {
+            baseContent = explicitBase
+        } else {
+            let fileDir = (filePath as NSString).deletingLastPathComponent
+            var repoRoot: String?
+            do {
+                let topLevel = try v2RunProcessStdout(
+                    executablePath: "/usr/bin/git",
+                    arguments: ["-C", fileDir, "rev-parse", "--show-toplevel"]
+                )
+                if topLevel.status == 0,
+                   let root = String(data: topLevel.stdout, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !root.isEmpty {
+                    repoRoot = root
+                }
+            } catch {}
+
+            guard let repoRoot else {
+                return .err(code: "git_error", message: "File is not in a git repository", data: ["path": filePath])
+            }
+            let repoComponents = URL(fileURLWithPath: repoRoot).standardizedFileURL.pathComponents
+            let fileComponents = URL(fileURLWithPath: filePath).standardizedFileURL.pathComponents
+            guard fileComponents.count > repoComponents.count,
+                  Array(fileComponents.prefix(repoComponents.count)) == repoComponents else {
+                return .err(code: "git_error", message: "File is not in a git repository", data: ["path": filePath])
+            }
+            let relativePath = fileComponents.dropFirst(repoComponents.count).joined(separator: "/")
+
+            do {
+                let gitShow = try v2RunProcessStdout(
+                    executablePath: "/usr/bin/git",
+                    arguments: ["-C", repoRoot, "show", "HEAD:\(relativePath)"]
+                )
+                guard gitShow.status == 0, let text = String(data: gitShow.stdout, encoding: .utf8) else {
+                    return .err(code: "git_error", message: "Failed to get git HEAD content for \(filePath)", data: ["path": filePath])
+                }
+                baseContent = text
+            } catch {
+                return .err(code: "git_error", message: "Failed to run git: \(error.localizedDescription)", data: ["path": filePath])
+            }
+        }
+
+        let baseLabel = v2String(params, "base_label") ?? "HEAD"
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to open diff", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let sourceSurfaceId else {
+                result = .err(code: "not_found", message: "No focused surface to split", data: nil)
+                return
+            }
+            guard ws.panels[sourceSurfaceId] != nil else {
+                result = .err(code: "unknown_surface", message: "Source surface not found", data: ["surface_id": sourceSurfaceId.uuidString])
+                return
+            }
+
+            // Open or focus editor for this file.
+            let editorPanel = ws.openOrFocusEditorSplit(from: sourceSurfaceId, filePath: filePath)
+            guard let editorPanel else {
+                result = .err(code: "internal_error", message: "Failed to create editor panel", data: nil)
+                return
+            }
+
+            editorPanel.enterDiffMode(baseContent: baseContent, baseLabel: baseLabel)
+
+            result = .ok([
+                "surface_id": editorPanel.id.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: editorPanel.id),
+                "path": filePath,
+                "base_label": baseLabel,
+            ])
+        }
+        return result
+    }
+
+    private func v2EditorGetContent(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to get content", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId, let editorPanel = ws.editorPanel(for: surfaceId) else {
+                result = .err(code: "not_found", message: "Editor panel not found", data: nil)
+                return
+            }
+
+            result = .ok([
+                "surface_id": editorPanel.id.uuidString,
+                "path": editorPanel.filePath,
+                "content": editorPanel.content,
+                "language": editorPanel.monacoLanguage,
+            ])
+        }
+        return result
+    }
+
+    private func v2EditorSendSelection(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to send selection", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId, let editorPanel = ws.editorPanel(for: surfaceId) else {
+                result = .err(code: "not_found", message: "Editor panel not found", data: nil)
+                return
+            }
+
+            // Find target terminal.
+            let targetSurfaceId = v2UUID(params, "target_surface_id")
+            guard let targetTerminal = (targetSurfaceId.flatMap { ws.terminalPanel(for: $0) } ?? ws.focusedTerminalPanel) else {
+                result = .err(code: "not_found", message: "No target terminal panel found", data: nil)
+                return
+            }
+
+            editorPanel.armSendSelection(returnTo: targetTerminal.id)
+            editorPanel.triggerSendSelection()
+
+            result = .ok([
+                "surface_id": editorPanel.id.uuidString,
+                "target_surface_id": targetTerminal.id.uuidString,
+            ])
+        }
+        return result
+    }
+
+    private func v2EditorGoto(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let line = v2Int(params, "line"), line > 0 else {
+            return .err(code: "invalid_params", message: "Missing or invalid 'line' parameter (must be positive integer)", data: nil)
+        }
+        let column = v2Int(params, "column")
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to goto", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId, let editorPanel = ws.editorPanel(for: surfaceId) else {
+                result = .err(code: "not_found", message: "Editor panel not found", data: nil)
+                return
+            }
+
+            editorPanel.goToLine(line, column: column)
+
+            result = .ok([
+                "surface_id": editorPanel.id.uuidString,
+                "line": line,
+                "column": column ?? 1,
             ])
         }
         return result
