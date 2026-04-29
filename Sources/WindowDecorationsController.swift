@@ -96,25 +96,28 @@ final class WindowDecorationsController {
         guard minimalModeSidebarChromeHoverMonitor == nil else { return }
         minimalModeSidebarChromeHoverMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.mouseMoved, .mouseEntered, .mouseExited, .leftMouseDown, .leftMouseDragged]
-        ) { event in
-            guard let window = event.window else {
+        ) { [weak self] event in
+            guard let self else { return event }
+            guard let target = self.minimalModeSidebarChromeEventTarget(for: event) else {
                 MinimalModeSidebarChromeHoverState.shared.clear()
                 return event
             }
+            let window = target.window
+            let locationInWindow = target.locationInWindow
             let isHovering = isMinimalModeSidebarChromeHoverCandidate(
                 window: window,
-                locationInWindow: event.locationInWindow
+                locationInWindow: locationInWindow
             )
             #if DEBUG
             recordMinimalModeSidebarChromeHoverForUITest(
                 window: window,
-                locationInWindow: event.locationInWindow,
+                locationInWindow: locationInWindow,
                 isHovering: isHovering,
                 eventType: event.type
             )
             #endif
             if event.type == .leftMouseDown,
-               let slot = minimalModeSidebarControlActionSlot(window: window, locationInWindow: event.locationInWindow) {
+               let slot = minimalModeSidebarControlActionSlot(window: window, locationInWindow: locationInWindow) {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
                 self.performMinimalModeSidebarControlAction(slot, window: window)
                 return nil
@@ -126,6 +129,29 @@ final class WindowDecorationsController {
             }
             return event
         }
+    }
+
+    private func minimalModeSidebarChromeEventTarget(
+        for event: NSEvent
+    ) -> (window: NSWindow, locationInWindow: NSPoint)? {
+        if let window = event.window {
+            return (window, event.locationInWindow)
+        }
+
+        let screenPoint = NSEvent.mouseLocation
+        for window in NSApp.windows.reversed() {
+            guard isMainWorkspaceWindow(window),
+                  window.isVisible,
+                  !window.isMiniaturized,
+                  window.frame.insetBy(dx: -1, dy: -1).contains(screenPoint) else {
+                continue
+            }
+            let pointInWindow = window.convertFromScreen(
+                NSRect(origin: screenPoint, size: .zero)
+            ).origin
+            return (window, pointInWindow)
+        }
+        return nil
     }
 
     private func performMinimalModeSidebarControlAction(
