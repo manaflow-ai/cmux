@@ -45,7 +45,7 @@ cmux docs settings
 cmux settings path
 ```
 
-cmux-owned settings live in `~/.config/cmux/settings.json`, with `~/Library/Application Support/com.cmuxterm.app/settings.json` as the fallback. Edit the user file, then reload:
+cmux-owned settings live in `~/.config/cmux/settings.json`, with `~/Library/Application Support/com.cmuxterm.app/settings.json` as the fallback. Before editing, copy any existing settings file to a timestamped `.bak` next to it so the user can revert. Edit the user file, then reload:
 
 ```bash
 cmux reload-config

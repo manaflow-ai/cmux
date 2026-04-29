@@ -3883,6 +3883,7 @@ struct CMUXCLI {
 
         Agents:
           Use `cmux docs settings` before editing ~/.config/cmux/settings.json.
+          Back up any existing settings file to a timestamped .bak copy before editing so the user can revert.
           Fetch raw resources with the printed curl commands when you need the latest schema.
         """
     }
@@ -3951,6 +3952,9 @@ struct CMUXCLI {
             print("Settings files:")
             print("  \(Self.primarySettingsDisplayPath)")
             print("  \(Self.fallbackSettingsDisplayPath)")
+            print()
+            print("Before editing settings.json:")
+            print("  Back up any existing settings file to a timestamped .bak copy so the user can revert.")
             print()
             print("After editing settings.json:")
             print("  cmux reload-config")
@@ -4038,6 +4042,9 @@ struct CMUXCLI {
           \(Self.primarySettingsDisplayPath)
           \(Self.fallbackSettingsDisplayPath)
 
+        Before editing settings.json:
+          Back up any existing settings file to a timestamped .bak copy so the user can revert.
+
         After editing settings.json:
           cmux reload-config
 
@@ -4069,6 +4076,9 @@ struct CMUXCLI {
         print()
         print("Schema:")
         print("  \(Self.settingsSchemaURL)")
+        print()
+        print("Before editing settings.json:")
+        print("  Back up any existing settings file to a timestamped .bak copy so the user can revert.")
         print()
         print("After editing settings.json:")
         print("  cmux reload-config")
@@ -18525,7 +18535,7 @@ export default CMUXSessionRestore;
           help
 
         Agent Help:
-          To change cmux-owned settings, run `cmux docs settings`, edit ~/.config/cmux/settings.json, then run `cmux reload-config`.
+          To change cmux-owned settings, run `cmux docs settings`, back up any existing settings file, edit ~/.config/cmux/settings.json, then run `cmux reload-config`.
           Use `cmux settings path` for settings file paths and the published schema URL.
           Terminal rendering options such as font, cursor style, theme, and scrollback belong in Ghostty config.
 
