@@ -5121,6 +5121,7 @@ struct SettingsView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var highlightedSearchAnchorID: String?
     @State private var searchHighlightToken = 0
+    @State private var settingsNavigationGeneration = 0
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -7190,6 +7191,9 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
+            settingsNavigationGeneration += 1
+            let navigationGeneration = settingsNavigationGeneration
+            let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
             if destination.shouldHighlight {
                 highlightedSearchAnchorID = destination.anchorID
                 searchHighlightToken += 1
@@ -7197,11 +7201,10 @@ struct SettingsView: View {
                 highlightedSearchAnchorID = nil
             }
             DispatchQueue.main.async {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    proxy.scrollTo(SettingsSearchIndex.sectionID(for: destination.target), anchor: .top)
-                    if destination.shouldHighlight {
-                        proxy.scrollTo(destination.anchorID, anchor: .center)
-                    }
+                guard navigationGeneration == settingsNavigationGeneration else { return }
+                proxy.scrollTo(sectionID, anchor: .top)
+                if destination.shouldHighlight {
+                    proxy.scrollTo(destination.anchorID, anchor: .center)
                 }
             }
         }
