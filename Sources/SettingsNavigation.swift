@@ -4,13 +4,13 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
     case app
     case terminal
-    case workspaceColors
     case sidebarAppearance
     case automation
     case browser
     case browserImport
     case globalHotkey
     case keyboardShortcuts
+    case workspaceColors
     case settingsJSON
     case reset
 
@@ -152,10 +152,11 @@ struct SettingsNavigationDestination {
 struct SettingsSearchHighlightState: Equatable {
     let anchorID: String?
     let token: Int
+    let startedAt: Date?
 }
 
 private struct SettingsSearchHighlightStateKey: EnvironmentKey {
-    static let defaultValue = SettingsSearchHighlightState(anchorID: nil, token: 0)
+    static let defaultValue = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
 }
 
 extension EnvironmentValues {
@@ -190,7 +191,6 @@ extension View {
 
 private struct SettingsSearchHighlightModifier: ViewModifier {
     @Environment(\.settingsSearchHighlightState) private var highlightState
-    @State private var highlightOpacity = 0.0
     let anchorIDs: [String]
 
     private func matches(_ state: SettingsSearchHighlightState) -> Bool {
@@ -200,38 +200,33 @@ private struct SettingsSearchHighlightModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.accentColor.opacity(highlightOpacity * 0.24))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.accentColor.opacity(highlightOpacity), lineWidth: 2.5)
-            )
-            .shadow(color: Color.accentColor.opacity(highlightOpacity * 0.24), radius: 8, x: 0, y: 0)
-            .onAppear {
-                updateHighlight(for: highlightState)
-            }
-            .onChange(of: highlightState) { _, newState in
-                updateHighlight(for: newState)
+            .background {
+                TimelineView(.animation) { context in
+                    let opacity = highlightOpacity(at: context.date, for: highlightState)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.accentColor.opacity(opacity * 0.24))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.accentColor.opacity(opacity), lineWidth: 2.5)
+                        )
+                        .shadow(color: Color.accentColor.opacity(opacity * 0.24), radius: 8, x: 0, y: 0)
+                }
             }
     }
 
-    private func updateHighlight(for state: SettingsSearchHighlightState) {
-        guard matches(state) else {
-            withAnimation(.easeOut(duration: 0.12)) {
-                highlightOpacity = 0
-            }
-            return
+    private func highlightOpacity(at date: Date, for state: SettingsSearchHighlightState) -> Double {
+        guard matches(state), let startedAt = state.startedAt else { return 0 }
+        let elapsed = date.timeIntervalSince(startedAt)
+        if elapsed < 0.14 {
+            return max(0, min(1, elapsed / 0.14))
         }
-
-        highlightOpacity = 0
-        withAnimation(.easeOut(duration: 0.14)) {
-            highlightOpacity = 1
+        if elapsed < 5 {
+            return 1
         }
-        withAnimation(.easeInOut(duration: 0.9).delay(5.0)) {
-            highlightOpacity = 0
+        if elapsed < 5.9 {
+            return max(0, 1 - ((elapsed - 5) / 0.9))
         }
+        return 0
     }
 }
 
@@ -321,10 +316,6 @@ enum SettingsSearchIndex {
         setting(.app, "show-progress", String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"), "progress bar"),
         setting(.app, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
-        setting(.workspaceColors, "indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "tab color indicator"),
-        setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
-        setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
-        setting(.workspaceColors, "palette", String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"), "named colors palette"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "light-tint", String(localized: "settings.sidebarAppearance.tintColorLight", defaultValue: "Light Mode Tint"), "sidebar color light"),
         setting(.sidebarAppearance, "dark-tint", String(localized: "settings.sidebarAppearance.tintColorDark", defaultValue: "Dark Mode Tint"), "sidebar color dark"),
@@ -355,6 +346,10 @@ enum SettingsSearchIndex {
         setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
         setting(.keyboardShortcuts, "show-hints", String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"), "modifier hold hints keyboard"),
         setting(.keyboardShortcuts, "shortcuts", String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), "keybindings commands"),
+        setting(.workspaceColors, "indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "tab color indicator"),
+        setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
+        setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
+        setting(.workspaceColors, "palette", String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"), "named colors palette"),
         setting(.settingsJSON, "open-file", String(localized: "settings.settingsJSON.openFile", defaultValue: "Open settings.json"), "config json file editor dotfiles"),
         setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "settings json schema reference docs"),
         setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")

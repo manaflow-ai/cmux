@@ -5121,6 +5121,7 @@ struct SettingsView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var highlightedSearchAnchorID: String?
     @State private var searchHighlightToken = 0
+    @State private var searchHighlightStartedAt: Date?
     @State private var settingsNavigationGeneration = 0
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
@@ -6326,158 +6327,6 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .workspaceColors))
-                    SettingsCard {
-                        SettingsPickerRow(
-                            configurationReview: .json("workspaceColors.indicatorStyle"),
-                            String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),
-                            controlWidth: pickerColumnWidth,
-                            selection: sidebarIndicatorStyleSelection
-                        ) {
-                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
-                                Text(style.displayName).tag(style.rawValue)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .json("workspaceColors.selectionColor"),
-                            String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"),
-                            subtitle: String(localized: "settings.workspaceColors.selectionColor.subtitle", defaultValue: "Background color of the selected workspace in the sidebar.")
-                        ) {
-                            HStack(spacing: 8) {
-                                if sidebarSelectionColorHex != nil {
-                                    Button(String(localized: "settings.workspaceColors.selectionColor.reset", defaultValue: "Reset")) {
-                                        sidebarSelectionColorHex = nil
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                }
-
-                                ColorPicker(
-                                    "",
-                                    selection: selectionColorBinding,
-                                    supportsOpacity: false
-                                )
-                                .labelsHidden()
-                                .frame(width: 38)
-
-                                Text(sidebarSelectionColorHex ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 76, alignment: .trailing)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .json("workspaceColors.notificationBadgeColor"),
-                            String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"),
-                            subtitle: String(localized: "settings.workspaceColors.notificationBadgeColor.subtitle", defaultValue: "Color of the unread notification badge on workspace tabs.")
-                        ) {
-                            HStack(spacing: 8) {
-                                if sidebarNotificationBadgeColorHex != nil {
-                                    Button(String(localized: "settings.workspaceColors.notificationBadgeColor.reset", defaultValue: "Reset")) {
-                                        sidebarNotificationBadgeColorHex = nil
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                }
-
-                                ColorPicker(
-                                    "",
-                                    selection: notificationBadgeColorBinding,
-                                    supportsOpacity: false
-                                )
-                                .labelsHidden()
-                                .frame(width: 38)
-
-                                Text(sidebarNotificationBadgeColorHex ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 76, alignment: .trailing)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardNote(
-                            String(
-                                localized: "settings.workspaceColors.dictionaryNote",
-                                defaultValue: "Edit settings.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries."
-                            )
-                        )
-
-                        if workspaceTabPaletteEntries.isEmpty {
-                            SettingsCardNote(
-                                String(
-                                    localized: "settings.workspaceColors.emptyPalette",
-                                    defaultValue: "No palette entries. Add colors in settings.json or use \"Choose Custom Color...\" from a workspace context menu."
-                                )
-                            )
-                        } else {
-                            ForEach(Array(workspaceTabPaletteEntries.enumerated()), id: \.element.name) { index, entry in
-                                if index > 0 {
-                                    SettingsCardDivider()
-                                }
-                                SettingsCardRow(
-                                    configurationReview: .json("workspaceColors.colors"),
-                                    entry.name,
-                                    subtitle: baseTabColorHex(for: entry.name).map {
-                                        String(localized: "settings.workspaceColors.base", defaultValue: "Base: \($0)")
-                                    } ?? String(
-                                        localized: "settings.workspaceColors.customEntry",
-                                        defaultValue: "Named palette entry."
-                                    )
-                                ) {
-                                    HStack(spacing: 8) {
-                                        ColorPicker(
-                                            "",
-                                            selection: tabColorBinding(for: entry.name),
-                                            supportsOpacity: false
-                                        )
-                                        .labelsHidden()
-                                        .frame(width: 38)
-
-                                        Text(entry.hex)
-                                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                            .foregroundStyle(.secondary)
-                                            .frame(width: 76, alignment: .trailing)
-
-                                        if baseTabColorHex(for: entry.name) == nil {
-                                            Button(String(localized: "settings.workspaceColors.remove", defaultValue: "Remove")) {
-                                                removeWorkspaceColor(named: entry.name)
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .controlSize(.small)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .action,
-                            String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"),
-                            subtitle: String(
-                                localized: "settings.workspaceColors.resetPalette.subtitleV2",
-                                defaultValue: "Restore the built-in palette and remove extra named colors."
-                            ),
-                            searchAnchorID: SettingsSearchIndex.settingID(for: .workspaceColors, idSuffix: "palette")
-                        ) {
-                            Button(String(localized: "settings.workspaceColors.resetPalette.button", defaultValue: "Reset")) {
-                                resetWorkspaceTabColors()
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-                    }
-
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
                     SettingsCard {
@@ -7091,6 +6940,158 @@ struct SettingsView: View {
                         .padding(.leading, 2)
                         .accessibilityIdentifier("ShortcutRecordingHint")
 
+                    SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .workspaceColors))
+                    SettingsCard {
+                        SettingsPickerRow(
+                            configurationReview: .json("workspaceColors.indicatorStyle"),
+                            String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),
+                            controlWidth: pickerColumnWidth,
+                            selection: sidebarIndicatorStyleSelection
+                        ) {
+                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                                Text(style.displayName).tag(style.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("workspaceColors.selectionColor"),
+                            String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"),
+                            subtitle: String(localized: "settings.workspaceColors.selectionColor.subtitle", defaultValue: "Background color of the selected workspace in the sidebar.")
+                        ) {
+                            HStack(spacing: 8) {
+                                if sidebarSelectionColorHex != nil {
+                                    Button(String(localized: "settings.workspaceColors.selectionColor.reset", defaultValue: "Reset")) {
+                                        sidebarSelectionColorHex = nil
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+
+                                ColorPicker(
+                                    "",
+                                    selection: selectionColorBinding,
+                                    supportsOpacity: false
+                                )
+                                .labelsHidden()
+                                .frame(width: 38)
+
+                                Text(sidebarSelectionColorHex ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("workspaceColors.notificationBadgeColor"),
+                            String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"),
+                            subtitle: String(localized: "settings.workspaceColors.notificationBadgeColor.subtitle", defaultValue: "Color of the unread notification badge on workspace tabs.")
+                        ) {
+                            HStack(spacing: 8) {
+                                if sidebarNotificationBadgeColorHex != nil {
+                                    Button(String(localized: "settings.workspaceColors.notificationBadgeColor.reset", defaultValue: "Reset")) {
+                                        sidebarNotificationBadgeColorHex = nil
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+
+                                ColorPicker(
+                                    "",
+                                    selection: notificationBadgeColorBinding,
+                                    supportsOpacity: false
+                                )
+                                .labelsHidden()
+                                .frame(width: 38)
+
+                                Text(sidebarNotificationBadgeColorHex ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(
+                            String(
+                                localized: "settings.workspaceColors.dictionaryNote",
+                                defaultValue: "Edit settings.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries."
+                            )
+                        )
+
+                        if workspaceTabPaletteEntries.isEmpty {
+                            SettingsCardNote(
+                                String(
+                                    localized: "settings.workspaceColors.emptyPalette",
+                                    defaultValue: "No palette entries. Add colors in settings.json or use \"Choose Custom Color...\" from a workspace context menu."
+                                )
+                            )
+                        } else {
+                            ForEach(Array(workspaceTabPaletteEntries.enumerated()), id: \.element.name) { index, entry in
+                                if index > 0 {
+                                    SettingsCardDivider()
+                                }
+                                SettingsCardRow(
+                                    configurationReview: .json("workspaceColors.colors"),
+                                    entry.name,
+                                    subtitle: baseTabColorHex(for: entry.name).map {
+                                        String(localized: "settings.workspaceColors.base", defaultValue: "Base: \($0)")
+                                    } ?? String(
+                                        localized: "settings.workspaceColors.customEntry",
+                                        defaultValue: "Named palette entry."
+                                    )
+                                ) {
+                                    HStack(spacing: 8) {
+                                        ColorPicker(
+                                            "",
+                                            selection: tabColorBinding(for: entry.name),
+                                            supportsOpacity: false
+                                        )
+                                        .labelsHidden()
+                                        .frame(width: 38)
+
+                                        Text(entry.hex)
+                                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 76, alignment: .trailing)
+
+                                        if baseTabColorHex(for: entry.name) == nil {
+                                            Button(String(localized: "settings.workspaceColors.remove", defaultValue: "Remove")) {
+                                                removeWorkspaceColor(named: entry.name)
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .controlSize(.small)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"),
+                            subtitle: String(
+                                localized: "settings.workspaceColors.resetPalette.subtitleV2",
+                                defaultValue: "Restore the built-in palette and remove extra named colors."
+                            ),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .workspaceColors, idSuffix: "palette")
+                        ) {
+                            Button(String(localized: "settings.workspaceColors.resetPalette.button", defaultValue: "Reset")) {
+                                resetWorkspaceTabColors()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+
                     SettingsSectionHeader(title: String(localized: "settings.section.settingsJSON", defaultValue: "settings.json"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .settingsJSON))
                         .accessibilityIdentifier("SettingsJSONSection")
@@ -7156,7 +7157,7 @@ struct SettingsView: View {
                 .padding(.top, 20)
                 .environment(
                     \.settingsSearchHighlightState,
-                    SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken)
+                    SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken, startedAt: searchHighlightStartedAt)
                 )
             }
         .toggleStyle(.switch)
@@ -7196,9 +7197,11 @@ struct SettingsView: View {
             let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
             if destination.shouldHighlight {
                 highlightedSearchAnchorID = destination.anchorID
+                searchHighlightStartedAt = Date()
                 searchHighlightToken += 1
             } else {
                 highlightedSearchAnchorID = nil
+                searchHighlightStartedAt = nil
             }
             DispatchQueue.main.async {
                 guard navigationGeneration == settingsNavigationGeneration else { return }
