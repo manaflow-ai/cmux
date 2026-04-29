@@ -812,8 +812,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace,
               let focusedPanelId = workspace.focusedPanelId,
               let focusedPanel = workspace.terminalPanel(for: focusedPanelId) else {
             XCTFail("Expected test window with focused terminal panel")
@@ -830,6 +829,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
         XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected to make Ghostty surface the first responder")
+        XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface to hold first responder after makeFirstResponder")
 
         // Bind ` then d so a bare-key leader is configured.
         let shortcut = StoredShortcut(
