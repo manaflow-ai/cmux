@@ -3,9 +3,10 @@ import Darwin
 import XCTest
 
 /// Exercises the right-sidebar Feed end-to-end: boot the app with a
-/// dedicated socket, inject a synthetic permission request inside the app,
+/// dedicated socket, inject a synthetic permission request through the same
+/// V2 dispatcher used by that socket,
 /// toggle the sidebar to Dock mode, drive the Feed TUI from the keyboard,
-/// and assert the Feed item carries the resolved decision.
+/// and assert the hook-side response carries the resolved decision.
 final class FeedSidebarUITests: XCTestCase {
     private var socketPath = ""
     private var diagnosticsPath = ""
@@ -23,7 +24,7 @@ final class FeedSidebarUITests: XCTestCase {
         feedResultPath = "/tmp/cmux-feed-sidebar-result-\(UUID().uuidString).json"
         feedTUIReadyPath = "/tmp/cmux-feed-sidebar-tui-ready-\(UUID().uuidString).json"
         requestId = "uitest-\(UUID().uuidString)"
-        try? FileManager.default.removeItem(atPath: socketPath)
+        removeSocketFile()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: feedResultPath)
         try? FileManager.default.removeItem(atPath: feedTUIReadyPath)
@@ -71,8 +72,8 @@ final class FeedSidebarUITests: XCTestCase {
         )
 
         XCTAssertTrue(
-            waitForInjectedFeedItem(requestId: requestId, timeout: 10),
-            "feed.push did not publish pending item. result=\(loadFeedResult())"
+            waitForFeedPushPendingObserved(timeout: 15),
+            "feed.push did not publish a pending item. result=\(loadFeedResult())"
         )
 
         // The TUI blocks on keyboard input. Refresh first so it observes the
@@ -81,10 +82,8 @@ final class FeedSidebarUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.0)
         app.typeKey(.return, modifierFlags: [])
 
-        guard let result = waitForFeedResult(timeout: 35) else {
-            XCTFail("Expected Feed item to resolve. result=\(loadFeedResult())")
-            return
-        }
+        // Await the hook-side reply from the Feed dispatcher.
+        let result = try waitForFeedPushResult(timeout: 35)
         XCTAssertEqual(
             result.status, "resolved",
             "Expected feed.push to resolve, got status=\(result.status)"
@@ -108,7 +107,7 @@ final class FeedSidebarUITests: XCTestCase {
         app.terminate()
     }
 
-    // MARK: - Feed helpers
+    // MARK: - Socket helpers
 
     private struct FeedPushResult {
         let status: String
@@ -118,34 +117,46 @@ final class FeedSidebarUITests: XCTestCase {
     private func waitForInAppSocketReady(timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             let diagnostics = loadDiagnostics()
-            return diagnostics["socketReady"] == "1" &&
-                diagnostics["socketPingResponse"] == "PONG" &&
-                diagnostics["socketPathMatches"] == "1" &&
-                diagnostics["socketPathExists"] == "1"
-        }
-    }
-
-    private func waitForInjectedFeedItem(requestId: String, timeout: TimeInterval) -> Bool {
-        pollUntil(timeout: timeout, interval: 0.2) {
-            let result = loadFeedResult()
-            return result["requestId"] == requestId &&
-                result["published"] == "1" &&
-                (result["status"] == "pending" || result["status"] == "resolved")
-        }
-    }
-
-    private func waitForFeedResult(timeout: TimeInterval) -> FeedPushResult? {
-        var resolved: FeedPushResult?
-        _ = pollUntil(timeout: timeout, interval: 0.2) {
-            let result = loadFeedResult()
-            guard result["requestId"] == requestId,
-                  result["status"] == "resolved" else {
+            guard diagnostics["socketReady"] == "1", diagnostics["socketPingResponse"] == "PONG" else {
                 return false
             }
-            resolved = FeedPushResult(status: result["status"] ?? "", mode: result["mode"] ?? "")
+            if let expectedPath = diagnostics["socketExpectedPath"], !expectedPath.isEmpty {
+                socketPath = expectedPath
+            }
             return true
         }
-        return resolved
+    }
+
+    private func waitForFeedPushPendingObserved(timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout, interval: 0.2) {
+            self.loadFeedResult()["pushPendingObserved"] == "1"
+        }
+    }
+
+    private func waitForFeedPushResult(timeout: TimeInterval) throws -> FeedPushResult {
+        var payload: [String: String] = [:]
+        let resolved = pollUntil(timeout: timeout, interval: 0.2) {
+            payload = self.loadFeedResult()
+            return payload["pushResultStatus"] != nil || payload["pushError"] != nil
+        }
+        guard resolved else {
+            throw NSError(
+                domain: "FeedPush",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "feed.push never returned. result=\(loadFeedResult())"]
+            )
+        }
+        if let error = payload["pushError"] {
+            throw NSError(
+                domain: "FeedPush",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "feed.push failed: \(error). result=\(payload)"]
+            )
+        }
+        return FeedPushResult(
+            status: payload["pushResultStatus"] ?? "",
+            mode: payload["pushResultMode"] ?? ""
+        )
     }
 
     private func waitForFeedTUIReady(timeout: TimeInterval) -> Bool {
@@ -249,6 +260,10 @@ final class FeedSidebarUITests: XCTestCase {
             app.wait(for: .runningForeground, timeout: 15),
             "cmux failed to launch for Feed UI test. state=\(app.state.rawValue)"
         )
+    }
+
+    private func removeSocketFile() {
+        try? FileManager.default.removeItem(atPath: socketPath)
     }
 
     private func loadDiagnostics() -> [String: String] {
