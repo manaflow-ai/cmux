@@ -349,6 +349,8 @@ func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig)
 
 struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
+    let accessibilityIdentifier: String
+    let accessibilityLabel: String
     let action: () -> Void
     @ViewBuilder let content: () -> Content
     @State private var isHovering = false
@@ -363,6 +365,9 @@ struct TitlebarControlButton<Content: View>: View {
         .frame(width: config.buttonSize, height: config.buttonSize)
         .contentShape(Rectangle())
         .background(hoverBackground)
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .accessibilityLabel(accessibilityLabel)
 
         if titlebarControlsShouldTrackButtonHover(config: config) {
             baseButton.onHover { isHovering = $0 }
@@ -493,7 +498,11 @@ struct TitlebarControlsView: View {
     private func controlsGroup(config: TitlebarControlsStyleConfig) -> some View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let content = HStack(spacing: config.spacing) {
-            TitlebarControlButton(config: config, action: {
+            TitlebarControlButton(
+                config: config,
+                accessibilityIdentifier: "titlebarControl.toggleSidebar",
+                accessibilityLabel: String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"),
+                action: {
                 #if DEBUG
                 cmuxDebugLog("titlebar.toggleSidebar")
                 #endif
@@ -501,11 +510,13 @@ struct TitlebarControlsView: View {
             }) {
                 iconLabel(systemName: "sidebar.left", config: config)
             }
-            .accessibilityIdentifier("titlebarControl.toggleSidebar")
-            .accessibilityLabel(String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"))
             .safeHelp(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
 
-            TitlebarControlButton(config: config, action: {
+            TitlebarControlButton(
+                config: config,
+                accessibilityIdentifier: "titlebarControl.showNotifications",
+                accessibilityLabel: String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"),
+                action: {
                 #if DEBUG
                 cmuxDebugLog("titlebar.notifications")
                 #endif
@@ -527,12 +538,14 @@ struct TitlebarControlsView: View {
                 }
                 .frame(width: config.buttonSize, height: config.buttonSize)
             }
-            .accessibilityIdentifier("titlebarControl.showNotifications")
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
-            .accessibilityLabel(String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"))
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarControlButton(config: config, action: {
+            TitlebarControlButton(
+                config: config,
+                accessibilityIdentifier: "titlebarControl.newTab",
+                accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
+                action: {
                 #if DEBUG
                 cmuxDebugLog("titlebar.newTab")
                 #endif
@@ -540,8 +553,6 @@ struct TitlebarControlsView: View {
             }) {
                 iconLabel(systemName: "plus", config: config)
             }
-            .accessibilityIdentifier("titlebarControl.newTab")
-            .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
 
         }
