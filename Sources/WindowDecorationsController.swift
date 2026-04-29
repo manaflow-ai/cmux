@@ -168,6 +168,39 @@ final class WindowDecorationsController {
         }
     }
 
+    func handleMinimalModeSidebarChromeMouseDown(window: NSWindow, event: NSEvent) -> Bool {
+        guard event.type == .leftMouseDown else { return false }
+
+        let locationInWindow = event.locationInWindow
+        applyMinimalModeSidebarTitlebarClickTarget(to: window)
+        let isHovering = isMinimalModeSidebarChromeHoverCandidate(
+            window: window,
+            locationInWindow: locationInWindow
+        )
+        let actionSlot = minimalModeSidebarControlActionSlot(
+            window: window,
+            locationInWindow: locationInWindow
+        )
+
+        #if DEBUG
+        recordMinimalModeSidebarChromeSendEventForUITest(
+            window: window,
+            locationInWindow: locationInWindow,
+            isHovering: isHovering,
+            slot: actionSlot
+        )
+        #endif
+
+        guard isHovering, let actionSlot else { return false }
+        MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
+        performMinimalModeSidebarControlAction(
+            actionSlot,
+            window: window,
+            locationInWindow: locationInWindow
+        )
+        return true
+    }
+
     private func minimalModeSidebarChromeEventTarget(
         for event: NSEvent
     ) -> (window: NSWindow, locationInWindow: NSPoint)? {
@@ -212,6 +245,25 @@ final class WindowDecorationsController {
             payload["minimalSidebarWindowMonitorLastScreenPoint"] = windowDragHandleFormatPoint(NSEvent.mouseLocation)
             payload["minimalSidebarWindowMonitorLastIsHovering"] = isHovering.map(String.init) ?? "nil"
             payload["minimalSidebarWindowMonitorLastSlot"] = slot?.debugName ?? "nil"
+        }
+    }
+    #endif
+
+    #if DEBUG
+    private func recordMinimalModeSidebarChromeSendEventForUITest(
+        window: NSWindow,
+        locationInWindow: NSPoint,
+        isHovering: Bool,
+        slot: MinimalModeSidebarControlActionSlot?
+    ) {
+        guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
+        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            let count = (payload["minimalSidebarWindowSendEventLeftMouseDownCount"] as? String).flatMap(Int.init) ?? 0
+            payload["minimalSidebarWindowSendEventLeftMouseDownCount"] = String(count + 1)
+            payload["minimalSidebarWindowSendEventLastWindowNumber"] = String(window.windowNumber)
+            payload["minimalSidebarWindowSendEventLastPoint"] = windowDragHandleFormatPoint(locationInWindow)
+            payload["minimalSidebarWindowSendEventLastIsHovering"] = String(isHovering)
+            payload["minimalSidebarWindowSendEventLastSlot"] = slot?.debugName ?? "nil"
         }
     }
     #endif
@@ -293,6 +345,7 @@ final class WindowDecorationsController {
         let shouldInstall = isMainWorkspaceWindow(window)
             && WorkspacePresentationModeSettings.isMinimal()
             && !window.styleMask.contains(.fullScreen)
+            && minimalModeSidebarTitlebarControlsAreAvailable(in: window)
         guard shouldInstall,
               let contentView = window.contentView else {
             #if DEBUG

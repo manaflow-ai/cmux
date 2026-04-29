@@ -497,6 +497,11 @@ final class MinimalModeSidebarChromeHoverState: ObservableObject {
     }
 }
 
+func minimalModeSidebarTitlebarControlsAreAvailable(in window: NSWindow) -> Bool {
+    guard let appDelegate = AppDelegate.shared else { return true }
+    return appDelegate.leftSidebarIsVisible(in: window) == true
+}
+
 func isMinimalModeSidebarChromeHoverCandidate(
     window: NSWindow,
     locationInWindow: NSPoint,
@@ -512,6 +517,9 @@ func isMinimalModeSidebarChromeHoverCandidate(
     let isFullScreen = window.styleMask.contains(.fullScreen)
     let isMainWindow = isMainWorkspaceWindow(window)
     guard isMinimalMode, !isFullScreen, isMainWindow, contentBounds.contains(locationInWindow) else {
+        return false
+    }
+    guard minimalModeSidebarTitlebarControlsAreAvailable(in: window) else {
         return false
     }
 
@@ -554,6 +562,9 @@ func minimalModeSidebarControlActionSlot(
     let isFullScreen = window.styleMask.contains(.fullScreen)
     let isMainWindow = isMainWorkspaceWindow(window)
     guard isMinimalMode, !isFullScreen, isMainWindow, contentBounds.contains(locationInWindow) else {
+        return nil
+    }
+    guard minimalModeSidebarTitlebarControlsAreAvailable(in: window) else {
         return nil
     }
 
@@ -606,6 +617,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
     let isMinimal = WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
     let isFullScreen = window.styleMask.contains(.fullScreen)
     let isMainWindow = isMainWorkspaceWindow(window)
+    let sidebarControlsAvailable = minimalModeSidebarTitlebarControlsAreAvailable(in: window)
     let contentBounds = window.contentView?.bounds ?? .zero
     let inTitlebarBand = isMinimalModeWindowTitlebarClickCandidate(
         isMinimalMode: isMinimal,
@@ -632,6 +644,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
         payload["minimalSidebarHoverIsMinimal"] = String(isMinimal)
         payload["minimalSidebarHoverIsFullScreen"] = String(isFullScreen)
         payload["minimalSidebarHoverIsMainWindow"] = String(isMainWindow)
+        payload["minimalSidebarHoverSidebarControlsAvailable"] = String(sidebarControlsAvailable)
         payload["minimalSidebarHoverInTitlebarBand"] = String(inTitlebarBand)
         payload["minimalSidebarHoverInXRange"] = String(inXRange)
         payload["minimalSidebarHoverContentBounds"] = NSStringFromRect(contentBounds)

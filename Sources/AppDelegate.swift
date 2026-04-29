@@ -5800,6 +5800,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
     }
 
+    func leftSidebarIsVisible(in window: NSWindow) -> Bool? {
+        contextForMainTerminalWindow(window)?.sidebarState.isVisible
+    }
+
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu(title: "")
         let newWindowItem = NSMenuItem(
@@ -13358,6 +13362,11 @@ private extension NSApplication {
 }
 
 private extension AppDelegate {
+    @discardableResult
+    func handleMinimalModeSidebarChromeMouseDown(window: NSWindow, event: NSEvent) -> Bool {
+        windowDecorationsController.handleMinimalModeSidebarChromeMouseDown(window: window, event: event)
+    }
+
     @objc func handleThemesReloadNotification(_ notification: Notification) {
         DispatchQueue.main.async {
             GhosttyApp.shared.reloadConfiguration(source: "distributed.cmux.themes")
@@ -13536,6 +13545,10 @@ private extension NSWindow {
         // can honor the typing quiet period in release.
         if event.type == .keyDown {
             AppDelegate.shared?.recordTypingActivity()
+        }
+        if event.type == .leftMouseDown,
+           AppDelegate.shared?.handleMinimalModeSidebarChromeMouseDown(window: self, event: event) == true {
+            return
         }
 #if DEBUG
         defer {
