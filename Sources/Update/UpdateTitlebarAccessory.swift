@@ -289,6 +289,7 @@ struct TitlebarControlsView: View {
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
+    let usesInternalHoverTracking: Bool
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
@@ -300,6 +301,24 @@ struct TitlebarControlsView: View {
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
+
+    init(
+        notificationStore: TerminalNotificationStore,
+        viewModel: TitlebarControlsViewModel,
+        onToggleSidebar: @escaping () -> Void,
+        onToggleNotifications: @escaping () -> Void,
+        onNewTab: @escaping () -> Void,
+        visibilityMode: TitlebarControlsVisibilityMode,
+        usesInternalHoverTracking: Bool = true
+    ) {
+        self.notificationStore = notificationStore
+        self.viewModel = viewModel
+        self.onToggleSidebar = onToggleSidebar
+        self.onToggleNotifications = onToggleNotifications
+        self.onNewTab = onNewTab
+        self.visibilityMode = visibilityMode
+        self.usesInternalHoverTracking = usesInternalHoverTracking
+    }
 
     private enum HintSlot: Int, CaseIterable {
         case toggleSidebar
@@ -347,10 +366,17 @@ struct TitlebarControlsView: View {
         let _ = shortcutRefreshTick
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
-        controlsGroup(config: config)
-            .padding(.leading, 4)
-            .padding(.trailing, titlebarHintTrailingInset)
-            .contentShape(Rectangle())
+        Group {
+            let content = controlsGroup(config: config)
+                .padding(.leading, 4)
+                .padding(.trailing, titlebarHintTrailingInset)
+
+            if usesInternalHoverTracking {
+                content.contentShape(Rectangle())
+            } else {
+                content
+            }
+        }
             .opacity(shouldShowControls ? 1 : 0)
             .allowsHitTesting(shouldShowControls)
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
@@ -361,6 +387,7 @@ struct TitlebarControlsView: View {
                 .frame(width: 0, height: 0)
             )
             .onHover { hovering in
+                guard usesInternalHoverTracking else { return }
                 isHoveringControls = hovering
             }
             .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
@@ -647,6 +674,44 @@ private struct TitlebarControlsGapDragView: NSViewRepresentable {
     }
 }
 
+private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
+    let config: TitlebarControlsStyleConfig
+
+    func makeNSView(context: Context) -> ButtonHitRegionView {
+        let view = ButtonHitRegionView()
+        view.config = config
+        return view
+    }
+
+    func updateNSView(_ nsView: ButtonHitRegionView, context: Context) {
+        nsView.config = config
+        MinimalModeTitlebarControlHitRegionRegistry.register(nsView)
+    }
+
+    final class ButtonHitRegionView: NSView, MinimalModeTitlebarControlHitRegionProviding {
+        var config = TitlebarControlsStyle.classic.config
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
+            } else {
+                MinimalModeTitlebarControlHitRegionRegistry.register(self)
+            }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
+            TitlebarControlsHitRegions.pointFallsInButtonColumn(localPoint, config: config)
+        }
+
+        deinit {
+            MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
+        }
+    }
+}
+
 struct HiddenTitlebarSidebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     let onToggleSidebar: () -> Void
@@ -668,6 +733,9 @@ struct HiddenTitlebarSidebarControlsView: View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
 
         ZStack(alignment: .leading) {
+            TitlebarControlsGapDragView(config: style.config)
+                .frame(width: hostWidth, height: hostHeight)
+
             PassthroughHoverTrackingView { isHovering in
                 isHoveringHost = isHovering
             }
@@ -681,15 +749,13 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(viewModel.notificationsAnchorView)
                 },
                 onNewTab: onNewTab,
-                visibilityMode: shouldPinControls ? .alwaysVisible : .onHover
+                visibilityMode: shouldPinControls ? .alwaysVisible : .onHover,
+                usesInternalHoverTracking: false
             )
             .frame(width: hostWidth, height: hostHeight, alignment: .leading)
-
-            TitlebarControlsGapDragView(config: style.config)
-                .frame(width: hostWidth, height: hostHeight)
         }
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
-        .background(MinimalModeTitlebarControlHitRegionView())
+        .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
         .onAppear {
             isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
             popoverVisibilityState.setShown(isNotificationsPopoverShown)

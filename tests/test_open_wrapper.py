@@ -31,6 +31,7 @@ def run_wrapper(
     *,
     args: list[str],
     intercept_setting: str | None,
+    browser_disabled_setting: str | None = None,
     legacy_open_setting: str | None = None,
     whitelist: str | None,
     external_patterns: str | None = None,
@@ -70,6 +71,13 @@ case "$key" in
   browserInterceptTerminalOpenCommandInCmuxBrowser)
     if [[ "${FAKE_DEFAULTS_INTERCEPT_OPEN+x}" == "x" ]]; then
       printf '%s\\n' "$FAKE_DEFAULTS_INTERCEPT_OPEN"
+      exit 0
+    fi
+    exit 1
+    ;;
+  browserDisabledOverride)
+    if [[ "${FAKE_DEFAULTS_BROWSER_DISABLED+x}" == "x" ]]; then
+      printf '%s\\n' "$FAKE_DEFAULTS_BROWSER_DISABLED"
       exit 0
     fi
     exit 1
@@ -146,6 +154,11 @@ exit 0
         else:
             env["FAKE_DEFAULTS_INTERCEPT_OPEN"] = intercept_setting
 
+        if browser_disabled_setting is None:
+            env.pop("FAKE_DEFAULTS_BROWSER_DISABLED", None)
+        else:
+            env["FAKE_DEFAULTS_BROWSER_DISABLED"] = browser_disabled_setting
+
         if legacy_open_setting is None:
             env.pop("FAKE_DEFAULTS_LEGACY_OPEN", None)
         else:
@@ -211,6 +224,23 @@ def test_toggle_disabled_case_insensitive_passthrough(failures: list[str]) -> No
     expect(
         open_log == [url],
         f"toggle off (case-insensitive): expected system open [{url}], got {open_log}",
+        failures,
+    )
+
+
+def test_browser_disabled_override_passthrough(failures: list[str]) -> None:
+    url = "https://example.com"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        browser_disabled_setting=" true ",
+        whitelist="",
+    )
+    expect(code == 0, f"browser disabled override: wrapper exited {code}: {stderr}", failures)
+    expect(cmux_log == [], f"browser disabled override: cmux should not be called, got {cmux_log}", failures)
+    expect(
+        open_log == [url],
+        f"browser disabled override: expected one system open [{url}], got {open_log}",
         failures,
     )
 
@@ -568,6 +598,7 @@ def main() -> int:
     failures: list[str] = []
     test_toggle_disabled_passthrough(failures)
     test_toggle_disabled_case_insensitive_passthrough(failures)
+    test_browser_disabled_override_passthrough(failures)
     test_whitelist_miss_passthrough(failures)
     test_whitelist_match_routes_to_cmux(failures)
     test_external_literal_pattern_is_deferred_to_app(failures)

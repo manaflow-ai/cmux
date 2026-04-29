@@ -713,6 +713,40 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 100, y: 100)))
     }
 
+    func testMinimalModeTitlebarControlRegionCanLimitHitsInsideRegisteredView() {
+        final class ButtonOnlyRegion: NSView, MinimalModeTitlebarControlHitRegionProviding {
+            func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
+                localPoint.x >= 24 && localPoint.x <= 48
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let controlRegion = ButtonOnlyRegion(frame: NSRect(x: 72, y: 88, width: 124, height: 28))
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        XCTAssertTrue(
+            isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 100, y: 100)),
+            "Expected points inside the provider's button range to suppress titlebar double-click handling."
+        )
+        XCTAssertFalse(
+            isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 136, y: 100)),
+            "Expected gaps inside the registered view to keep behaving like titlebar chrome."
+        )
+    }
+
     func testSuppressedTitlebarDoubleClickConsumesWithoutWindowAction() {
         XCTAssertEqual(
             handleTitlebarDoubleClick(window: nil, behavior: .suppress),

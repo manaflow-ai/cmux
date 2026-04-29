@@ -401,6 +401,13 @@ final class BonsplitTabDragUITests: XCTestCase {
             },
             "Expected minimal-mode sidebar controls to reveal when hovering the sidebar chrome area."
         )
+
+        notificationsButton.click()
+        XCTAssertTrue(
+            app.buttons["notificationsPopover.jumpToLatest"].waitForExistence(timeout: 6.0)
+                || app.staticTexts["No notifications yet"].waitForExistence(timeout: 6.0),
+            "Expected clicking the revealed sidebar notifications control to open the notifications popover."
+        )
     }
 
     func testMinimalModeCollapsedSidebarKeepsWorkspaceControlsSuppressed() {

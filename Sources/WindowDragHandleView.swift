@@ -266,6 +266,10 @@ func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
     return false
 }
 
+protocol MinimalModeTitlebarControlHitRegionProviding: AnyObject {
+    func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool
+}
+
 enum MinimalModeTitlebarControlHitRegionRegistry {
     private static let lock = NSLock()
     private static let registeredViews = NSHashTable<NSView>.weakObjects()
@@ -302,8 +306,14 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
         let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
         for view in snapshot() {
             guard view.window === window, isVisibleInHierarchy(view) else { continue }
-            let frameInWindow = view.convert(view.bounds, to: nil).insetBy(dx: -epsilon, dy: -epsilon)
-            if frameInWindow.contains(windowPoint) {
+            let localPoint = view.convert(windowPoint, from: nil)
+            let localBounds = view.bounds.insetBy(dx: -epsilon, dy: -epsilon)
+            guard localBounds.contains(localPoint) else { continue }
+            if let provider = view as? MinimalModeTitlebarControlHitRegionProviding {
+                if provider.containsMinimalModeTitlebarControlHit(localPoint: localPoint) {
+                    return true
+                }
+            } else {
                 return true
             }
         }
