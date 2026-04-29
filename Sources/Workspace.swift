@@ -10630,7 +10630,9 @@ final class Workspace: Identifiable, ObservableObject {
     func openOrFocusWorkspaceEditor(
         from panelId: UUID? = nil,
         filePath: String,
-        workspaceRootDirectory: String? = nil
+        workspaceRootDirectory: String? = nil,
+        lineNumber: Int? = nil,
+        columnNumber: Int? = nil
     ) -> EditorPanel? {
         let canonical = canonicalEditorPath(filePath)
         let rootDirectory = workspaceEditorRootDirectory(
@@ -10639,6 +10641,15 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let canonicalRootDirectory = canonicalEditorPath(rootDirectory)
         let editorPanelIds = editorPanelIdsInPriorityOrder(preferredPanelId: panelId)
+        func finish(_ editorPanel: EditorPanel, panelId: UUID? = nil) -> EditorPanel {
+            if let panelId {
+                focusPanel(panelId)
+            }
+            if let lineNumber {
+                editorPanel.goToLine(lineNumber, column: columnNumber)
+            }
+            return editorPanel
+        }
 
         for existingId in editorPanelIds {
             guard let editorPanel = panels[existingId] as? EditorPanel,
@@ -10649,8 +10660,7 @@ final class Workspace: Identifiable, ObservableObject {
             if !editorPanel.hasWorkspaceFileExplorer {
                 editorPanel.ensureWorkspaceFileExplorer(rootDirectory: rootDirectory)
             }
-            focusPanel(existingId)
-            return editorPanel
+            return finish(editorPanel, panelId: existingId)
         }
 
         for existingId in editorPanelIds {
@@ -10661,8 +10671,7 @@ final class Workspace: Identifiable, ObservableObject {
                   editorPanel.navigateToFile(filePath) else {
                 continue
             }
-            focusPanel(existingId)
-            return editorPanel
+            return finish(editorPanel, panelId: existingId)
         }
 
         for existingId in editorPanelIds {
@@ -10677,8 +10686,7 @@ final class Workspace: Identifiable, ObservableObject {
                isSameOrDescendantPath(rootDirectory, of: existingRootDirectory) {
                 editorPanel.ensureWorkspaceFileExplorer(rootDirectory: rootDirectory)
             }
-            focusPanel(existingId)
-            return editorPanel
+            return finish(editorPanel, panelId: existingId)
         }
 
         for existingId in editorPanelIds {
@@ -10693,8 +10701,7 @@ final class Workspace: Identifiable, ObservableObject {
                 continue
             }
             editorPanel.ensureWorkspaceFileExplorer(rootDirectory: rootDirectory)
-            focusPanel(existingId)
-            return editorPanel
+            return finish(editorPanel, panelId: existingId)
         }
 
         let targetPaneId = (panelId ?? focusedPanelId).flatMap { paneId(forPanelId: $0) }
@@ -10706,7 +10713,7 @@ final class Workspace: Identifiable, ObservableObject {
                focus: true
            ) {
             _ = editorPanel.navigateToFile(filePath)
-            return editorPanel
+            return finish(editorPanel)
         }
 
         if let paneId = bonsplitController.focusedPaneId,
@@ -10716,7 +10723,7 @@ final class Workspace: Identifiable, ObservableObject {
                focus: true
            ) {
             _ = editorPanel.navigateToFile(filePath)
-            return editorPanel
+            return finish(editorPanel)
         }
 
         return nil

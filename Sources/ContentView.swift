@@ -2639,8 +2639,8 @@ struct ContentView: View {
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },
-            onOpenFile: { path in
-                openFileInSelectedWorkspaceFileArea(path)
+            onOpenFile: { request in
+                openFileInSelectedWorkspaceFileArea(request)
             }
         )
         .frame(width: rightSidebarWidth)
@@ -2671,12 +2671,14 @@ struct ContentView: View {
         }
     }
 
-    private func openFileInSelectedWorkspaceFileArea(_ path: String) {
+    private func openFileInSelectedWorkspaceFileArea(_ request: FileExplorerOpenRequest) {
         guard let workspace = tabManager.selectedWorkspace,
               !workspace.isRemoteWorkspace else { return }
         _ = workspace.openOrFocusWorkspaceEditor(
             from: workspace.focusedPanelId,
-            filePath: path
+            filePath: request.path,
+            lineNumber: request.lineNumber,
+            columnNumber: request.columnNumber
         )
     }
 

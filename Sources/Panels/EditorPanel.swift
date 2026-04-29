@@ -76,6 +76,7 @@ final class EditorPanel: Panel, ObservableObject {
     /// The WKWebView hosting Monaco Editor.
     private(set) var webView: CmuxWebView?
     private var hasLoadedMonacoPage = false
+    private var pendingGoToLine: (line: Int, column: Int?)?
 
     /// Message handler name for JS → Swift bridge.
     static let bridgeHandlerName = "cmuxEditor"
@@ -191,6 +192,7 @@ final class EditorPanel: Panel, ObservableObject {
         isDirty = false
         lastSaveErrorMessage = nil
         lastLoadedContent = ""
+        pendingGoToLine = nil
         loadFileContent()
         startFileWatcher()
         return true
@@ -250,6 +252,7 @@ final class EditorPanel: Panel, ObservableObject {
     func markMonacoReady() {
         isMonacoReady = true
         pushContentToMonaco()
+        applyPendingGoToLineIfNeeded()
     }
 
     // MARK: - WKWebView setup
@@ -321,9 +324,25 @@ final class EditorPanel: Panel, ObservableObject {
 
     /// Go to a specific line in Monaco.
     func goToLine(_ line: Int, column: Int? = nil) {
+        let targetLine = max(1, line)
+        let targetColumn = column.map { max(1, $0) }
+        pendingGoToLine = (targetLine, targetColumn)
+        applyPendingGoToLineIfNeeded()
+    }
+
+    private func applyPendingGoToLineIfNeeded() {
+        guard let target = pendingGoToLine,
+              isMonacoReady,
+              let wv = webView else { return }
+        pendingGoToLine = nil
+        let col = target.column ?? 1
+        wv.evaluateJavaScript("cmuxEditor.goToLine(\(target.line), \(col))")
+    }
+
+    /// Show Monaco's in-file find widget.
+    func triggerFind() {
         guard isMonacoReady, let wv = webView else { return }
-        let col = column ?? 1
-        wv.evaluateJavaScript("cmuxEditor.goToLine(\(line), \(col))")
+        wv.evaluateJavaScript("cmuxEditor.triggerFind()")
     }
 
     /// Get the full content from Monaco via callback.

@@ -100,6 +100,15 @@ struct EditorPanelView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
+            Button {
+                panel.triggerFind()
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .help(String(localized: "editor.findInFile", defaultValue: "Find in File"))
             if !panel.isDiffMode {
                 Button {
                     panel.save()
@@ -122,8 +131,11 @@ struct EditorPanelView: View {
             FileExplorerPanelView(
                 store: panel.fileExplorerStore,
                 state: panel.fileExplorerState,
-                onOpenFile: { path in
-                    panel.navigateToFile(path)
+                onOpenFile: { request in
+                    guard panel.navigateToFile(request.path) else { return }
+                    if let lineNumber = request.lineNumber {
+                        panel.goToLine(lineNumber, column: request.columnNumber)
+                    }
                 }
             )
             .frame(width: 240)

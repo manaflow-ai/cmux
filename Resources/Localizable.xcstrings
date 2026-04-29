@@ -73635,6 +73635,74 @@
         }
       }
     },
+    "fileExplorer.search.filesLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First %d files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の%dファイル"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.filesMatches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dファイル"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.filesPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを検索"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.filesSearching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d files, searching"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dファイル、検索中"
+          }
+        }
+      }
+    },
     "fileExplorer.search.limit": {
       "extractionState": "manual",
       "localizations": {
@@ -73669,6 +73737,40 @@
         }
       }
     },
+    "fileExplorer.search.mode.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.mode.text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト"
+          }
+        }
+      }
+    },
     "fileExplorer.search.noMatches": {
       "extractionState": "manual",
       "localizations": {
@@ -73699,6 +73801,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ファイルを検索"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.textPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを検索"
           }
         }
       }
@@ -93618,6 +93737,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "エディタの内容を読み取れませんでした。"
+          }
+        }
+      }
+    },
+    "editor.findInFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル内検索"
           }
         }
       }

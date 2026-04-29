@@ -6966,11 +6966,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc private func handleFileExplorerOpenInCodeViewer(_ notification: Notification) {
         guard let path = notification.userInfo?["path"] as? String else { return }
+        let lineNumber = notification.userInfo?["lineNumber"] as? Int
+        let columnNumber = notification.userInfo?["columnNumber"] as? Int
         guard let tabManager else { return }
         guard let workspace = tabManager.selectedWorkspace else { return }
         _ = workspace.openOrFocusWorkspaceEditor(
             from: workspace.focusedPanelId,
-            filePath: path
+            filePath: path,
+            lineNumber: lineNumber,
+            columnNumber: columnNumber
         )
     }
 

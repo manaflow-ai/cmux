@@ -247,6 +247,19 @@
       }
     },
 
+    // Show Monaco's in-file find widget.
+    triggerFind: function () {
+      var activeEditor = isDiffMode
+        ? diffEditor
+          ? diffEditor.getModifiedEditor()
+          : null
+        : editor;
+      if (!activeEditor) return;
+      activeEditor.focus();
+      var action = activeEditor.getAction("actions.find");
+      if (action) action.run();
+    },
+
     // Set theme explicitly from Swift.
     setTheme: function (isDark) {
       monaco.editor.setTheme(isDark ? "vs-dark" : "vs");
@@ -263,6 +276,7 @@
       var col = column || 1;
       activeEditor.revealLineInCenter(line);
       activeEditor.setPosition({ lineNumber: line, column: col });
+      activeEditor.focus();
     },
   };
 

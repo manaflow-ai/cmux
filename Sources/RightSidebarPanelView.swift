@@ -139,7 +139,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
     let onResumeSession: ((SessionEntry) -> Void)?
-    var onOpenFile: ((String) -> Void)? = nil
+    var onOpenFile: ((FileExplorerOpenRequest) -> Void)? = nil
 
     @StateObject private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
