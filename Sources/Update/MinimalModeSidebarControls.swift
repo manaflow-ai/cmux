@@ -63,6 +63,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         for (slot, button) in buttons {
             button.target = self
             button.tag = slot.rawValue
+            button.setAccessibilityParent(self)
             addSubview(button)
         }
         observeRevealState()
@@ -80,6 +81,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             button.target = self
             button.action = #selector(buttonPressed(_:))
             button.tag = slot.rawValue
+            button.setAccessibilityParent(self)
             addSubview(button)
         }
         observeRevealState()
@@ -102,6 +104,15 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
+
+    override func isAccessibilityElement() -> Bool {
+        false
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        guard isRevealed || !requiresRevealedState else { return [] }
+        return [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab].compactMap { buttons[$0] }
+    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
