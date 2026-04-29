@@ -1263,15 +1263,15 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
 }
 
 @MainActor
-private func tmuxWorkspacePaneWindowOverlayController(for window: NSWindow) -> WindowTmuxWorkspacePaneOverlayController {
+private func tmuxWorkspacePaneWindowOverlayController(for window: NSWindow, createIfNeeded: Bool) -> WindowTmuxWorkspacePaneOverlayController? {
     if let existing = objc_getAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey) as? WindowTmuxWorkspacePaneOverlayController {
         return existing
     }
+    guard createIfNeeded else { return nil }
     let controller = WindowTmuxWorkspacePaneOverlayController(window: window)
     objc_setAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     return controller
 }
-
 private func commandPaletteOwningWebView(for responder: NSResponder?) -> WKWebView? {
     guard let responder else { return nil }
 
@@ -3486,8 +3486,8 @@ struct ContentView: View {
 
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
             MainActor.assumeIsolated {
-                let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
-                tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
+                let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
+                tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
                 let overlayController = commandPaletteWindowOverlayController(for: window)
                 overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
             }
