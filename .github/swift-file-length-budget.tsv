@@ -30,7 +30,7 @@
 2026	cmuxTests/CJKIMEInputTests.swift
 1949	Sources/FileExplorerView.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
-1919	Sources/SessionIndexStore.swift
+1924	Sources/SessionIndexStore.swift
 1700	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1692	cmuxTests/CmuxConfigTests.swift
 1676	Sources/KeyboardShortcutSettingsFileStore.swift

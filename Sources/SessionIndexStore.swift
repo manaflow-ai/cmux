@@ -36,6 +36,11 @@ enum OpenCodeDatabaseSnapshot {
         let databaseURL: URL
         private let directoryURL: URL
 
+        init(databaseURL: URL, directoryURL: URL) {
+            self.databaseURL = databaseURL
+            self.directoryURL = directoryURL
+        }
+
         func remove() {
             try? FileManager.default.removeItem(at: directoryURL)
         }
