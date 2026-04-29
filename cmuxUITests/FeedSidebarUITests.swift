@@ -90,7 +90,10 @@ final class FeedSidebarUITests: XCTestCase {
         )
         XCTAssertEqual(result.mode, "once")
 
-        app.typeKey("3", modifierFlags: [.control])
+        XCTAssertTrue(
+            waitForFeedShortcutResponse(timeout: 10),
+            "App-side Ctrl-3 shortcut simulation did not run. result=\(loadFeedResult())"
+        )
         XCTAssertTrue(
             app.buttons["RightSidebarModeButton.sessions"].firstMatch.waitForExistence(timeout: 5),
             "Sessions mode button disappeared after Ctrl-3"
@@ -157,6 +160,12 @@ final class FeedSidebarUITests: XCTestCase {
             status: payload["pushResultStatus"] ?? "",
             mode: payload["pushResultMode"] ?? ""
         )
+    }
+
+    private func waitForFeedShortcutResponse(timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout, interval: 0.2) {
+            self.loadFeedResult()["shortcutResponse"] == "OK"
+        }
     }
 
     private func waitForFeedTUIReady(timeout: TimeInterval) -> Bool {

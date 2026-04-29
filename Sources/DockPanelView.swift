@@ -945,15 +945,9 @@ final class DockKeyboardFocusView: NSView {
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        registerWithKeyboardFocusCoordinatorIfNeeded()
-    }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); registerWithKeyboardFocusCoordinatorIfNeeded() }
 
-    func registerWithKeyboardFocusCoordinatorIfNeeded() {
-        guard let window else { return }
-        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerDockHost(self)
-    }
+    func registerWithKeyboardFocusCoordinatorIfNeeded() { if let window { AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerDockHost(self) } }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
@@ -964,15 +958,20 @@ final class DockKeyboardFocusView: NSView {
         return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: surfaceId)
     }
 
-    func focusFirstItemFromCoordinator() {
-        _ = focusFirstControl?()
-    }
+    func focusFirstItemFromCoordinator() { _ = focusFirstControl?() }
 
     func focusHostFromCoordinator() -> Bool {
-        if focusFirstControl?() == true {
-            return true
-        }
-        return window?.makeFirstResponder(self) == true
+        focusFirstControl?() == true || window?.makeFirstResponder(self) == true
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool { handleModeShortcut(event) || super.performKeyEquivalent(with: event) }
+
+    override func keyDown(with event: NSEvent) { if !handleModeShortcut(event) { super.keyDown(with: event) } }
+
+    private func handleModeShortcut(_ event: NSEvent) -> Bool {
+        guard let mode = RightSidebarMode.modeShortcut(for: event) else { return false }
+        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
+        return true
     }
 }
 

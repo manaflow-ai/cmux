@@ -2308,8 +2308,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         observeFeedSidebarUITestPending(requestId: requestId, resultPath: resultPath)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let response = Self.runFeedSidebarUITestPush(requestId: requestId)
-            let updates = Self.feedSidebarUITestPushUpdates(response: response)
+            var updates = Self.feedSidebarUITestPushUpdates(response: Self.runFeedSidebarUITestPush(requestId: requestId))
+            if updates["pushResultStatus"] == "resolved" { updates["shortcutResponse"] = TerminalController.shared.handleSocketLine("simulate_shortcut ctrl+3") }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.writeFeedSidebarUITestData(updates, at: resultPath)
