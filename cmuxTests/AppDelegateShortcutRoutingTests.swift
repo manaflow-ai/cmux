@@ -802,6 +802,72 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testBareKeyChordDoubleTapSendsLiteralToFocusedTerminal() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // Bind ` then d so a bare-key leader is configured.
+        let shortcut = StoredShortcut(
+            key: "`",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "d"
+        )
+
+#if DEBUG
+        var captured: [String] = []
+        let previousRecorder = TerminalSurface.debugLastSendTextRecorder
+        TerminalSurface.debugLastSendTextRecorder = { text in
+            captured.append(text)
+        }
+        defer { TerminalSurface.debugLastSendTextRecorder = previousRecorder }
+#endif
+
+        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ),
+            let secondPrefixEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct backtick events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: secondPrefixEvent),
+                "Double-tap of a bare-key leader must be consumed and forwarded as a literal"
+            )
+            XCTAssertEqual(captured, ["`"], "Exactly one literal backtick should be sent to the focused surface")
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
     func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
