@@ -536,8 +536,6 @@ final class CmuxSettingsFileStore {
         if let value = jsonDouble(section["titleFontSize"]) {
             let clamped = min(max(value, SidebarTabTitleFontSettings.minSize), SidebarTabTitleFontSettings.maxSize)
             snapshot.managedUserDefaults[SidebarTabTitleFontSettings.userDefaultsKey] = .double(clamped)
-        } else if section.keys.contains("titleFontSize") {
-            logInvalid("sidebar.titleFontSize", sourcePath: sourcePath)
         }
     }
 
@@ -1270,6 +1268,7 @@ final class CmuxSettingsFileStore {
                     "showLog": true,
                     "showProgress": true,
                     "showCustomMetadata": true,
+                    "titleFontSize": SidebarTabTitleFontSettings.defaultSize,
                 ],
             ],
             [
