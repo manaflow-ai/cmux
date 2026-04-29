@@ -216,7 +216,7 @@ final class DockControlRuntime: ObservableObject, Identifiable {
           zsh|bash)
             CMUX_DOCK_START_COMMAND="$cmux_dock_command" \
             CMUX_DOCK_START_DIRECTORY="$cmux_dock_working_directory" \
-            exec "$cmux_dock_shell" -lic 'cd "$CMUX_DOCK_START_DIRECTORY" 2>/dev/null || true; eval "$CMUX_DOCK_START_COMMAND"; exec "${SHELL:-/bin/sh}" -l'
+            exec "$cmux_dock_shell" -lc 'cd "$CMUX_DOCK_START_DIRECTORY" 2>/dev/null || true; eval "$CMUX_DOCK_START_COMMAND"; exec "${SHELL:-/bin/sh}" -l'
             ;;
           *)
             CMUX_DOCK_START_COMMAND="$cmux_dock_command" \

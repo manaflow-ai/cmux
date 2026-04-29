@@ -2,7 +2,7 @@
 
 Dock lets you pin TUIs into the right sidebar. Each Dock control runs as its own Ghostty terminal section, so tools keep normal terminal keyboard behavior such as arrow keys, `j` / `k`, and `Ctrl-C`.
 
-Dock starts each command inside the terminal's login shell. That keeps the same PATH, shell startup files, and toolchain setup the user gets in a normal cmux terminal. When the command exits, Dock drops into a normal login shell in the same section.
+Dock starts each command inside the terminal's non-interactive login shell. That keeps normal login PATH and toolchain setup without running prompt code before the TUI starts. When the command exits, Dock drops into an interactive login shell in the same section.
 
 The built-in Dock starts with Feed:
 
