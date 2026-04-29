@@ -28,7 +28,7 @@
 2188	Sources/TerminalWindowPortal.swift
 2153	cmuxTests/SessionPersistenceTests.swift
 2026	cmuxTests/CJKIMEInputTests.swift
-2016	Sources/Update/UpdateTitlebarAccessory.swift
+2002	Sources/Update/UpdateTitlebarAccessory.swift
 1949	Sources/FileExplorerView.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1941	Sources/SessionIndexStore.swift
@@ -55,7 +55,7 @@
 832	Sources/WorkspaceContentView.swift
 829	cmuxUITests/TerminalCmdClickUITests.swift
 807	Sources/TerminalSSHSessionDetector.swift
-805	cmuxUITests/BonsplitTabDragUITests.swift
+806	cmuxUITests/BonsplitTabDragUITests.swift
 785	Sources/App/TerminalDirectoryOpenSupport.swift
 761	Sources/GhosttyConfig.swift
 754	Sources/MainWindowFocusController.swift

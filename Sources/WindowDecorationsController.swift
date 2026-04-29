@@ -64,12 +64,27 @@ final class WindowDecorationsController {
     private func installMinimalModeTitlebarDoubleClickMonitor() {
         guard minimalModeTitlebarDoubleClickMonitor == nil else { return }
         minimalModeTitlebarDoubleClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
-            guard let self, let window = event.window else { return event }
-            guard isMinimalModeWindowTitlebarClickCandidate(window: window, event: event) else {
+            guard let self, let target = self.minimalModeSidebarChromeEventTarget(for: event) else { return event }
+            let window = target.window
+            let locationInWindow = target.locationInWindow
+            let contentBounds = window.contentView?.bounds ?? NSRect(
+                x: 0,
+                y: 0,
+                width: window.frame.width,
+                height: window.frame.height
+            )
+            guard isMinimalModeWindowTitlebarClickCandidate(
+                isMinimalMode: WorkspacePresentationModeSettings.isMinimal(),
+                isFullScreen: window.styleMask.contains(.fullScreen),
+                isMainWindow: isMainWorkspaceWindow(window),
+                locationInWindow: locationInWindow,
+                contentBounds: contentBounds,
+                titlebarBandHeight: minimalModeTitlebarDoubleClickBandHeight(for: window)
+            ) else {
                 self.lastMinimalModeTitlebarClick = nil
                 return event
             }
-            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: event.locationInWindow) else {
+            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
                 self.lastMinimalModeTitlebarClick = nil
                 return event
             }
@@ -78,7 +93,7 @@ final class WindowDecorationsController {
             let isDoubleClick = minimalModeTitlebarClickFormsDoubleClick(
                 clickCount: event.clickCount,
                 timestamp: event.timestamp,
-                locationInWindow: event.locationInWindow,
+                locationInWindow: locationInWindow,
                 windowNumber: windowNumber,
                 previous: self.lastMinimalModeTitlebarClick,
                 doubleClickInterval: NSEvent.doubleClickInterval
@@ -88,7 +103,7 @@ final class WindowDecorationsController {
                 self.lastMinimalModeTitlebarClick = MinimalModeTitlebarClickRecord(
                     windowNumber: windowNumber,
                     timestamp: event.timestamp,
-                    locationInWindow: event.locationInWindow
+                    locationInWindow: locationInWindow
                 )
                 return event
             }

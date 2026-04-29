@@ -553,7 +553,8 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected pane tab bar controls to reveal when hovering inside empty pane-tab-bar space in collapsed-sidebar minimal mode. window=\(window.frame) alphaTab=\(alphaTab.frame) betaTab=\(betaTab.frame) button=\(newTerminalButton.debugDescription)"
         )
 
-        click(atAccessibilityPoint: CGPoint(x: newTerminalButton.frame.midX, y: newTerminalButton.frame.midY))
+        newTerminalButton.click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         XCTAssertTrue(
             waitForJSONNumber("trackedPaneTabCount", greaterThan: 2, atPath: dataPath, timeout: 5.0) != nil,
             "Expected the revealed pane tab bar new-terminal button to remain clickable in collapsed-sidebar minimal mode. data=\(loadJSON(atPath: dataPath) ?? [:]) button=\(newTerminalButton.debugDescription)"

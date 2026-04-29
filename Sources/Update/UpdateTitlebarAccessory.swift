@@ -775,20 +775,6 @@ struct HiddenTitlebarSidebarControlsView: View {
                 height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
             )
 
-            MinimalModeSidebarControlClickProxyView(config: style.config, isEnabled: shouldPinControls) { slot, anchorView in
-                switch slot {
-                case .toggleSidebar:
-                    onToggleSidebar()
-                case .showNotifications:
-                    onToggleNotifications(viewModel.notificationsAnchorView ?? anchorView)
-                case .newTab:
-                    onNewTab()
-                }
-            }
-            .frame(
-                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
-                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
-            )
         }
         .frame(
             width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,

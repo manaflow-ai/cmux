@@ -48,6 +48,9 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if let eventType = NSApp.currentEvent?.type, eventType != .leftMouseDown {
+            return nil
+        }
         guard shouldAcceptAction else { return nil }
         guard bounds.contains(point) else { return nil }
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) else {
@@ -99,27 +102,5 @@ final class MinimalModeSidebarControlActionView: NSView {
         guard let window else { return false }
         return MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
             || NotificationsPopoverVisibilityState.shared.isShown
-    }
-}
-
-struct MinimalModeSidebarControlClickProxyView: NSViewRepresentable {
-    let config: TitlebarControlsStyleConfig
-    let isEnabled: Bool
-    let onAction: (MinimalModeSidebarControlActionSlot, NSView) -> Void
-
-    func makeNSView(context: Context) -> MinimalModeSidebarControlActionView {
-        let view = MinimalModeSidebarControlActionView()
-        view.config = config
-        view.isEnabled = isEnabled
-        view.onAction = { slot, view, _ in onAction(slot, view) }
-        return view
-    }
-
-    func updateNSView(_ nsView: MinimalModeSidebarControlActionView, context: Context) {
-        nsView.config = config
-        nsView.isEnabled = isEnabled
-        nsView.requiresRevealedState = false
-        nsView.telemetryPrefix = "minimalSidebarClickProxy"
-        nsView.onAction = { slot, view, _ in onAction(slot, view) }
     }
 }
