@@ -3117,6 +3117,7 @@ class TerminalController {
             "index": index,
             "title": workspace.title,
             "kind": workspace.isRealTmuxWorkspace ? "real-tmux" : "native",
+            // Keep source duplicated with kind for forward-compatible clients that still read source.
             "source": workspace.isRealTmuxWorkspace ? "real-tmux" : "native",
             "real_tmux": workspace.isRealTmuxWorkspace ? [
                 "session_id": v2OrNull(workspace.realTmuxSessionId),
@@ -3657,6 +3658,7 @@ class TerminalController {
             "ref": v2Ref(kind: .workspace, uuid: workspace.id),
             "title": workspace.title,
             "kind": workspace.isRealTmuxWorkspace ? "real-tmux" : "native",
+            // Keep source duplicated with kind for forward-compatible clients that still read source.
             "source": workspace.isRealTmuxWorkspace ? "real-tmux" : "native",
             "real_tmux": workspace.isRealTmuxWorkspace ? [
                 "session_id": v2OrNull(workspace.realTmuxSessionId),

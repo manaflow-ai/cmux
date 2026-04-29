@@ -739,14 +739,24 @@ extension Workspace {
                 for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
             )
             let realTmuxPaneId = snapshot.realTmuxPaneId
+            let realTmuxProxyCommand: String?
+            if let realTmuxPaneId {
+                guard let proxyCommand = Self.realTmuxPaneProxyCommand(paneId: realTmuxPaneId) else {
+                    return nil
+                }
+                realTmuxProxyCommand = proxyCommand
+            } else {
+                realTmuxProxyCommand = nil
+            }
+            let restoresRealTmuxPane = realTmuxPaneId != nil && realTmuxProxyCommand != nil
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: workingDirectory,
-                initialCommand: realTmuxPaneId.flatMap(Self.realTmuxPaneProxyCommand),
-                initialInput: restoredAgentResumeInput,
-                startupEnvironment: replayEnvironment,
-                allowInRealTmuxWorkspace: realTmuxPaneId != nil,
+                initialCommand: restoresRealTmuxPane ? realTmuxProxyCommand : nil,
+                initialInput: restoresRealTmuxPane ? nil : restoredAgentResumeInput,
+                startupEnvironment: restoresRealTmuxPane ? [:] : replayEnvironment,
+                allowInRealTmuxWorkspace: restoresRealTmuxPane,
                 realTmuxPaneId: realTmuxPaneId
             ) else {
                 return nil
@@ -7394,6 +7404,8 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($customDescription),
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
+            sidebarObservationSignal($realTmuxSessionId),
+            sidebarObservationSignal($realTmuxSessionName),
             sidebarObservationSignal($terminalScrollBarHidden),
         ]
 
@@ -7403,6 +7415,8 @@ final class Workspace: Identifiable, ObservableObject {
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = {
         let publishers: [AnyPublisher<Void, Never>] = [
             sidebarObservationSignal($currentDirectory),
+            sidebarObservationSignal($realTmuxSessionId),
+            sidebarObservationSignal($realTmuxSessionName),
             $panels
                 .map(SidebarPanelObservationState.init)
                 .dropFirst()

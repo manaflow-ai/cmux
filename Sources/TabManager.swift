@@ -1214,7 +1214,17 @@ class TabManager: ObservableObject {
         realTmuxSessionSyncInFlight = true
 
         DispatchQueue.global(qos: .utility).async {
-            let realSessions = Self.listRealTmuxSessions()
+            guard let realSessions = Self.listRealTmuxSessions() else {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.realTmuxSessionSyncInFlight = false
+                    if self.realTmuxSessionSyncRerunPending {
+                        self.realTmuxSessionSyncRerunPending = false
+                        self.syncRealTmuxSessions()
+                    }
+                }
+                return
+            }
             let sessionDetails = realSessions.map { session in
                 RealTmuxSessionDetail(
                     session: session,
@@ -1277,10 +1287,10 @@ class TabManager: ObservableObject {
                 select: false,
                 autoWelcomeIfNeeded: false
             )
+            store.sessionIdToWorkspaceId[session.id] = workspace.id.uuidString
             if initialProxyCommand != nil {
                 workspace.realTmuxSessionId = session.id
                 workspace.realTmuxSessionName = session.name
-                store.sessionIdToWorkspaceId[session.id] = workspace.id.uuidString
             }
         }
 
@@ -1305,23 +1315,24 @@ class TabManager: ObservableObject {
         Self.saveRealTmuxStore(store)
     }
 
-    private static func listRealTmuxSessions() -> [RealTmuxSession] {
-        guard let tmuxPath = realTmuxExecutablePath() else { return [] }
+    private static func listRealTmuxSessions() -> [RealTmuxSession]? {
+        guard let tmuxPath = realTmuxExecutablePath() else { return nil }
         let process = Process()
         let pipe = Pipe()
+        let errorPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: tmuxPath)
         process.arguments = ["list-sessions", "-F", "#{session_id}\t#{session_name}"]
         process.standardOutput = pipe
-        process.standardError = Pipe()
+        process.standardError = errorPipe
         do {
             try process.run()
             process.waitUntilExit()
         } catch {
-            return []
+            return nil
         }
-        guard process.terminationStatus == 0 else { return [] }
+        guard process.terminationStatus == 0 else { return nil }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        guard let output = String(data: data, encoding: .utf8) else { return nil }
         return output.split(separator: "\n").compactMap { line in
             let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
             guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
@@ -4497,17 +4508,21 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
-    func closeWorkspace(_ workspace: Workspace, killRealTmuxSession: Bool = true) {
-        guard tabs.count > 1 else { return }
-        sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+    private func cleanupRealTmuxMapping(for workspace: Workspace, killSession: Bool) {
         if let realTmuxSessionId = workspace.realTmuxSessionId {
             var store = Self.loadRealTmuxStore()
             store.sessionIdToWorkspaceId = store.sessionIdToWorkspaceId.filter { $0.value != workspace.id.uuidString }
             Self.saveRealTmuxStore(store)
-            if killRealTmuxSession {
+            if killSession {
                 Self.killRealTmuxSession(id: realTmuxSessionId, name: workspace.realTmuxSessionName)
             }
         }
+    }
+
+    func closeWorkspace(_ workspace: Workspace, killRealTmuxSession: Bool = true) {
+        cleanupRealTmuxMapping(for: workspace, killSession: killRealTmuxSession)
+        guard tabs.count > 1 else { return }
+        sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         clearWorkspacePullRequestTracking(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
@@ -4919,6 +4934,7 @@ class TabManager: ObservableObject {
         }
         if tabs.count <= 1 {
             // Last workspace in this window: close the window (Cmd+Shift+W behavior).
+            cleanupRealTmuxMapping(for: workspace, killSession: true)
             if let window {
                 window.performClose(nil)
             } else {
@@ -4947,7 +4963,15 @@ class TabManager: ObservableObject {
         }
 
         if tab.isRealTmuxWorkspace,
-           Self.normalizedRealTmuxPaneId(tab.terminalPanel(for: panelId)?.realTmuxPaneId) != nil {
+           let terminalPanel = tab.terminalPanel(for: panelId),
+           Self.normalizedRealTmuxPaneId(terminalPanel.realTmuxPaneId) != nil {
+            if tab.panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
+                guard confirmClose(
+                    title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
+                    message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
+                    acceptCmdD: false
+                ) else { return }
+            }
             _ = closeRealTmuxPanel(tab: tab, panelId: panelId)
             return
         }
@@ -5538,7 +5562,10 @@ class TabManager: ObservableObject {
     func focusSurface(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         if tab.isRealTmuxWorkspace {
-            if Self.selectRealTmuxPane(in: tab, panelId: surfaceId) {
+            if Self.normalizedRealTmuxPaneId(tab.terminalPanel(for: surfaceId)?.realTmuxPaneId) != nil,
+               Self.selectRealTmuxPane(in: tab, panelId: surfaceId) {
+                tab.focusPanel(surfaceId)
+            } else {
                 tab.focusPanel(surfaceId)
             }
             return
@@ -5917,7 +5944,7 @@ class TabManager: ObservableObject {
                 _ = Self.runRealTmux(arguments: ["kill-pane", "-t", realTmuxPaneId])
                 return nil
             }
-            return tab.newTerminalSplit(
+            let newPanelId = tab.newTerminalSplit(
                 from: surfaceId,
                 orientation: direction.orientation,
                 insertFirst: direction.insertFirst,
@@ -5927,6 +5954,10 @@ class TabManager: ObservableObject {
                 initialInput: initialInput,
                 realTmuxPaneId: realTmuxPaneId
             )?.id
+            if newPanelId == nil {
+                _ = Self.runRealTmux(arguments: ["kill-pane", "-t", realTmuxPaneId])
+            }
+            return newPanelId
         }
         return tab.newTerminalSplit(
             from: surfaceId,
