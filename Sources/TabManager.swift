@@ -1166,14 +1166,23 @@ class TabManager: ObservableObject {
         selectedWorkspaceGitMetadataPollTimer = timer
     }
 
-    private struct RealTmuxSession: Equatable {
+    private struct RealTmuxSession: Equatable, Sendable {
         let id: String
         let name: String
+    }
+
+    private struct RealTmuxSessionDetail: Sendable {
+        let session: RealTmuxSession
+        let currentPath: String?
+        let currentPaneId: String?
     }
 
     private struct RealTmuxStore: Codable {
         var sessionIdToWorkspaceId: [String: String] = [:]
     }
+
+    private var realTmuxSessionSyncInFlight = false
+    private var realTmuxSessionSyncRerunPending = false
 
     private static var realTmuxStoreURL: URL {
         let bundleKey = (Bundle.main.bundleIdentifier ?? "cmux")
@@ -1198,7 +1207,37 @@ class TabManager: ObservableObject {
     }
 
     func syncRealTmuxSessions() {
-        let realSessions = Self.listRealTmuxSessions()
+        if realTmuxSessionSyncInFlight {
+            realTmuxSessionSyncRerunPending = true
+            return
+        }
+        realTmuxSessionSyncInFlight = true
+
+        DispatchQueue.global(qos: .utility).async {
+            let realSessions = Self.listRealTmuxSessions()
+            let sessionDetails = realSessions.map { session in
+                RealTmuxSessionDetail(
+                    session: session,
+                    currentPath: Self.realTmuxCurrentPath(for: session),
+                    currentPaneId: Self.realTmuxCurrentPaneId(for: session)
+                )
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.applyRealTmuxSessionSync(sessionDetails: sessionDetails)
+                self.realTmuxSessionSyncInFlight = false
+                if self.realTmuxSessionSyncRerunPending {
+                    self.realTmuxSessionSyncRerunPending = false
+                    self.syncRealTmuxSessions()
+                }
+            }
+        }
+    }
+
+    private func applyRealTmuxSessionSync(sessionDetails: [RealTmuxSessionDetail]) {
+        let realSessions = sessionDetails.map(\.session)
+        let detailsBySessionId = Dictionary(uniqueKeysWithValues: sessionDetails.map { ($0.session.id, $0) })
         var store = Self.loadRealTmuxStore()
         let liveSessionIds = Set(realSessions.map(\.id))
         let liveWorkspaceIds = AppDelegate.shared?.mainWindowWorkspaceIdStrings()
@@ -1227,8 +1266,8 @@ class TabManager: ObservableObject {
                 existing.realTmuxSessionName = session.name
                 continue
             }
-            let sessionCurrentPath = Self.realTmuxCurrentPath(for: session)
-            let initialPaneId = Self.realTmuxCurrentPaneId(for: session)
+            let sessionCurrentPath = detailsBySessionId[session.id]?.currentPath
+            let initialPaneId = detailsBySessionId[session.id]?.currentPaneId
             let initialProxyCommand = initialPaneId.flatMap(Self.realTmuxPaneProxyCommand)
             let workspace = addWorkspace(
                 title: session.name,
@@ -1256,7 +1295,7 @@ class TabManager: ObservableObject {
             }
             workspace.realTmuxSessionId = session.id
             workspace.realTmuxSessionName = session.name
-            if let sessionCurrentPath = Self.realTmuxCurrentPath(for: session),
+            if let sessionCurrentPath = detailsBySessionId[session.id]?.currentPath,
                workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines) == FileManager.default.homeDirectoryForCurrentUser.path {
                 workspace.currentDirectory = sessionCurrentPath
             }
