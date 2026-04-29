@@ -2,6 +2,12 @@ import AppKit
 import Combine
 import SwiftUI
 
+extension NSWindow {
+    var cmuxSupportsTitlebarAccessoryControllers: Bool {
+        styleMask.contains(.titled)
+    }
+}
+
 @MainActor
 final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private let commandItemIdentifier = NSToolbarItem.Identifier("cmux.focusedCommand")
@@ -92,6 +98,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         if !isMinimal {
             DispatchQueue.main.async {
                 for window in NSApp.windows {
+                    guard window.cmuxSupportsTitlebarAccessoryControllers else { continue }
                     for accessory in window.titlebarAccessoryViewControllers {
                         if !accessory.isHidden {
                             accessory.view.needsLayout = true

@@ -442,12 +442,12 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         let preTerminalSurfaceNil = Int(data["preTerminalSurfaceNil"] ?? "") ?? -1
 
         // Expected correct behavior: after closing the two right panes, we should have a clean 1x2 stack,
-        // and both panes should have a selected bonsplit tab that maps to an existing Panel.
+        // and both panes should have a selected WorkspaceSplit tab that maps to an existing Panel.
         XCTAssertEqual(preTerminalAttached, 1, "Expected the initial terminal view to be attached to a window before the repro runs")
         XCTAssertEqual(preTerminalSurfaceNil, 0, "Expected the initial terminal to have a non-nil ghostty_surface before the repro runs")
         XCTAssertEqual(finalPaneCount, 2, "Expected 2 panes after closing both right splits")
         XCTAssertEqual(missingSelected, 0, "Expected no pane to have a nil selected tab")
-        XCTAssertEqual(missingMapping, 0, "Expected no selected bonsplit tab to be missing its Panel mapping")
+        XCTAssertEqual(missingMapping, 0, "Expected no selected WorkspaceSplit tab to be missing its Panel mapping")
         XCTAssertEqual(emptyPanels, 0, "Expected no Empty Panel views to appear during the close sequence")
         XCTAssertEqual(selectedTerminalCount, 2, "Expected both remaining panes to be terminal panels")
         XCTAssertEqual(selectedTerminalAttached, 2, "Expected both remaining terminal views to be attached to a window")

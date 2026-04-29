@@ -53,14 +53,53 @@ if required not in text:
 PY
 }
 
+xcframework_is_usable() {
+  local path="$1"
+  [[ -d "$path" && -f "$path/Info.plist" && -f "$path/macos-arm64_x86_64/libghostty.a" ]]
+}
+
+refresh_archive_index() {
+  local archive="$1"
+  if [[ ! -f "$archive" ]]; then
+    return 0
+  fi
+
+  echo "==> Refreshing libghostty archive index..."
+  if ! command -v xcrun >/dev/null 2>&1; then
+    echo "error: xcrun is required to refresh libghostty archive index." >&2
+    exit 1
+  fi
+  if ! XCODE_RANLIB="$(xcrun --find ranlib 2>/dev/null)"; then
+    echo "error: could not locate ranlib via xcrun." >&2
+    exit 1
+  fi
+  "$XCODE_RANLIB" "$archive"
+}
+
+reuse_existing_xcframework_without_rebuild() {
+  local root_xcframework="$1"
+  local local_xcframework="$2"
+  local source=""
+
+  if xcframework_is_usable "$root_xcframework"; then
+    source="$root_xcframework"
+  elif xcframework_is_usable "$local_xcframework"; then
+    source="$local_xcframework"
+  else
+    return 1
+  fi
+
+  if [[ "$source" != "$root_xcframework" ]]; then
+    rm -rf "$root_xcframework"
+    cp -R "$source" "$root_xcframework"
+  fi
+
+  refresh_archive_index "$root_xcframework/macos-arm64_x86_64/libghostty.a"
+  return 0
+}
+
 if [[ ! -d "$PROJECT_DIR/ghostty" ]]; then
   echo "error: ghostty submodule is missing. Run ./scripts/setup.sh first." >&2
-  exit 1
-fi
-
-if ! command -v zig >/dev/null 2>&1; then
-  echo "Error: zig is not installed." >&2
-  echo "Install via: brew install zig" >&2
   exit 1
 fi
 
@@ -72,6 +111,41 @@ fi
 if ! validate_bridge_header "$PROJECT_DIR/ghostty.h"; then
   echo "error: ghostty.h no longer points at ghostty/include/ghostty.h." >&2
   echo "Restore the bridge header so Xcode uses Ghostty's canonical C API." >&2
+  exit 1
+fi
+
+ROOT_XCFRAMEWORK="$PROJECT_DIR/GhosttyKit.xcframework"
+LOCAL_XCFRAMEWORK="$PROJECT_DIR/ghostty/macos/GhosttyKit.xcframework"
+HAS_ZIG=1
+HAS_GHOSTTY_GIT=1
+
+if ! command -v zig >/dev/null 2>&1; then
+  HAS_ZIG=0
+fi
+
+if ! git -C ghostty rev-parse HEAD >/dev/null 2>&1; then
+  HAS_GHOSTTY_GIT=0
+fi
+
+if [[ "$HAS_ZIG" -eq 0 || "$HAS_GHOSTTY_GIT" -eq 0 ]]; then
+  if reuse_existing_xcframework_without_rebuild "$ROOT_XCFRAMEWORK" "$LOCAL_XCFRAMEWORK"; then
+    if [[ "$HAS_ZIG" -eq 0 && "$HAS_GHOSTTY_GIT" -eq 0 ]]; then
+      echo "==> Reusing existing GhosttyKit.xcframework (zig missing, ghostty git metadata unavailable)"
+    elif [[ "$HAS_ZIG" -eq 0 ]]; then
+      echo "==> Reusing existing GhosttyKit.xcframework (zig missing)"
+    else
+      echo "==> Reusing existing GhosttyKit.xcframework (ghostty git metadata unavailable)"
+    fi
+    exit 0
+  fi
+
+  if [[ "$HAS_ZIG" -eq 0 ]]; then
+    echo "Error: zig is not installed." >&2
+    echo "Install via: brew install zig" >&2
+  fi
+  if [[ "$HAS_GHOSTTY_GIT" -eq 0 ]]; then
+    echo "error: ghostty git metadata is unavailable and no reusable GhosttyKit.xcframework was found." >&2
+  fi
   exit 1
 fi
 
@@ -99,7 +173,6 @@ fi
 CACHE_ROOT="${CMUX_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/cmux/ghosttykit}"
 CACHE_DIR="$CACHE_ROOT/$GHOSTTY_KEY"
 CACHE_XCFRAMEWORK="$CACHE_DIR/GhosttyKit.xcframework"
-LOCAL_XCFRAMEWORK="$PROJECT_DIR/ghostty/macos/GhosttyKit.xcframework"
 LOCAL_KEY_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_state_key"
 LEGACY_LOCAL_SHA_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_sha"
 LOCK_DIR="$CACHE_ROOT/$GHOSTTY_KEY.lock"
@@ -240,20 +313,7 @@ else
 fi
 
 MACOS_ARCHIVE="$CACHE_XCFRAMEWORK/macos-arm64_x86_64/libghostty.a"
-if [[ -f "$MACOS_ARCHIVE" ]]; then
-  # Xcode 26 can fail to resolve symbols from Ghostty's universal static archive
-  # until its ranlib index is refreshed after reuse or copy.
-  echo "==> Refreshing libghostty archive index..."
-  if ! command -v xcrun >/dev/null 2>&1; then
-    echo "error: xcrun is required to refresh libghostty archive index." >&2
-    exit 1
-  fi
-  if ! XCODE_RANLIB="$(xcrun --find ranlib 2>/dev/null)"; then
-    echo "error: could not locate ranlib via xcrun." >&2
-    exit 1
-  fi
-  "$XCODE_RANLIB" "$MACOS_ARCHIVE"
-fi
+refresh_archive_index "$MACOS_ARCHIVE"
 
 echo "==> Creating symlink for GhosttyKit.xcframework..."
 ln -sfn "$CACHE_XCFRAMEWORK" GhosttyKit.xcframework

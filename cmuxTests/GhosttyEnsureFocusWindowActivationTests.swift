@@ -67,4 +67,48 @@ final class GhosttyEnsureFocusWindowActivationTests: XCTestCase {
             )
         )
     }
+
+    func testRightSidebarFocusOwnerBlocksDeferredTerminalFirstResponderRequest() {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let tabManager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = tabManager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected a focused terminal panel")
+            return
+        }
+
+        let hostedView = terminalPanel.hostedView
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .files, in: window)
+
+        XCTAssertFalse(
+            hostedView.debugRequestSurfaceFirstResponderForTesting(in: window, reason: "test.rightSidebar"),
+            "Deferred terminal focus retries should not steal first responder while the right sidebar owns keyboard focus"
+        )
+        XCTAssertFalse(hostedView.isSurfaceViewFirstResponder())
+#else
+        XCTFail("debugRequestSurfaceFirstResponderForTesting is only available in DEBUG")
+#endif
+    }
+
+    private func window(withId windowId: UUID) -> NSWindow? {
+        let identifier = "cmux.main.\(windowId.uuidString)"
+        return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
+    }
+
+    private func closeWindow(withId windowId: UUID) {
+        guard let window = window(withId: windowId) else { return }
+        window.performClose(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
 }

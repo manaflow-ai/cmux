@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import SwiftUI
 
 private extension NSView {
@@ -42,7 +41,7 @@ struct SurfaceSearchOverlay: View {
                     onFieldDidFocus: onFieldDidFocus,
                     onEscape: {
                         #if DEBUG
-                        cmuxDebugLog("find.nativeField.escape surface=\(surfaceId.uuidString.prefix(5)) needleEmpty=\(searchState.needle.isEmpty)")
+                        dlog("find.nativeField.escape surface=\(surfaceId.uuidString.prefix(5)) needleEmpty=\(searchState.needle.isEmpty)")
                         #endif
                         if searchState.needle.isEmpty {
                             onClose()
@@ -83,7 +82,7 @@ struct SurfaceSearchOverlay: View {
 
                 Button(action: {
                     #if DEBUG
-                    cmuxDebugLog("findbar.next surface=\(surfaceId.uuidString.prefix(5))")
+                    dlog("findbar.next surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
                     onNavigateSearch("navigate_search:next")
                 }) {
@@ -94,7 +93,7 @@ struct SurfaceSearchOverlay: View {
 
                 Button(action: {
                     #if DEBUG
-                    cmuxDebugLog("findbar.prev surface=\(surfaceId.uuidString.prefix(5))")
+                    dlog("findbar.prev surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
                     onNavigateSearch("navigate_search:previous")
                 }) {
@@ -105,7 +104,7 @@ struct SurfaceSearchOverlay: View {
 
                 Button(action: {
                     #if DEBUG
-                    cmuxDebugLog("findbar.close surface=\(surfaceId.uuidString.prefix(5))")
+                    dlog("findbar.close surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
                     onClose()
                 }) {
@@ -120,7 +119,7 @@ struct SurfaceSearchOverlay: View {
             .shadow(radius: 4)
             .onAppear {
                 #if DEBUG
-                cmuxDebugLog("find.overlay.appear tab=\(tabId.uuidString.prefix(5)) surface=\(surfaceId.uuidString.prefix(5))")
+                dlog("find.overlay.appear tab=\(tabId.uuidString.prefix(5)) surface=\(surfaceId.uuidString.prefix(5))")
                 #endif
                 isSearchFieldFocused = true
             }
@@ -259,7 +258,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
 
         func controlTextDidBeginEditing(_ obj: Notification) {
             #if DEBUG
-            cmuxDebugLog("find.nativeField.beginEditing surface=\(parent.surfaceId.uuidString.prefix(5))")
+            dlog("find.nativeField.beginEditing surface=\(parent.surfaceId.uuidString.prefix(5))")
             #endif
             parent.onFieldDidFocus()
             if !parent.isFocused {
@@ -271,7 +270,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
 
         func controlTextDidEndEditing(_ obj: Notification) {
             #if DEBUG
-            cmuxDebugLog("find.nativeField.endEditing surface=\(parent.surfaceId.uuidString.prefix(5))")
+            dlog("find.nativeField.endEditing surface=\(parent.surfaceId.uuidString.prefix(5))")
             #endif
             if parent.isFocused {
                 DispatchQueue.main.async {
@@ -332,7 +331,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                 field.currentEditor() != nil ||
                 ((fr as? NSTextView)?.delegate as? NSTextField) === field
             #if DEBUG
-            cmuxDebugLog(
+            dlog(
                 "find.nativeField.searchFocusNotification surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) " +
                 "alreadyFocused=\(alreadyFocused) firstResponder=\(String(describing: fr))"
             )
@@ -340,7 +339,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             guard !alreadyFocused else { return }
             let result = window.makeFirstResponder(field)
 #if DEBUG
-            cmuxDebugLog(
+            dlog(
                 "find.nativeField.searchFocusApply surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) " +
                 "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
             )

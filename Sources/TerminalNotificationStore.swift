@@ -1,7 +1,6 @@
 import AppKit
 import Foundation
 import UserNotifications
-import Bonsplit
 
 // UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
 // removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
@@ -564,6 +563,13 @@ enum NotificationBadgeSettings {
 enum NotificationPaneRingSettings {
     static let enabledKey = "notificationPaneRingEnabled"
     static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
 }
 
 enum NotificationPaneFlashSettings {
@@ -780,7 +786,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func logAuthorization(_ message: String) {
 #if DEBUG
-        cmuxDebugLog("notification.auth \(message)")
+        dlog("notification.auth \(message)")
 #endif
         NSLog("notification.auth %@", message)
     }

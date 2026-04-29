@@ -13,6 +13,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        XCUIApplication().terminate()
         dataPath = "/tmp/cmux-ui-test-goto-split-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
@@ -183,6 +184,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = focusedInputRoundTripPageURL
         launchAndEnsureForeground(app)
 
         XCTAssertTrue(
@@ -198,7 +200,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                 ],
                 timeout: 12.0
             ),
-            "Expected setup data including focused page input to be written"
+            "Expected setup data including focused page input to be written. path=\(dataPath) data=\(loadData() ?? [:])"
         )
 
         guard let setup = loadData() else {
@@ -209,14 +211,6 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
         XCTAssertEqual(setup["webInputFocusSeeded"], "true", "Expected test page input to be focused before Cmd+L")
 
-        guard let expectedInputId = setup["webInputFocusElementId"], !expectedInputId.isEmpty else {
-            XCTFail("Missing webInputFocusElementId in setup data")
-            return
-        }
-        guard let expectedSecondaryInputId = setup["webInputFocusSecondaryElementId"], !expectedSecondaryInputId.isEmpty else {
-            XCTFail("Missing webInputFocusSecondaryElementId in setup data")
-            return
-        }
         guard let secondaryClickOffsetXRaw = setup["webInputFocusSecondaryClickOffsetX"],
               let secondaryClickOffsetYRaw = setup["webInputFocusSecondaryClickOffsetY"],
               let secondaryClickOffsetX = Double(secondaryClickOffsetXRaw),
@@ -240,37 +234,32 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         if !waitForDataMatch(timeout: 2.0, predicate: { data in
             data["webViewFocusedAfterAddressBarExit"] == "true" &&
-                data["addressBarExitActiveElementId"] == expectedInputId &&
-                data["addressBarExitActiveElementEditable"] == "true"
+                data["browserPageTitle"] == "cmux-ui-focus-primary:cmux-ui-focus-primary"
         }) {
             app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         }
 
         let restoredExpectedInput = waitForDataMatch(timeout: 6.0) { data in
             data["webViewFocusedAfterAddressBarExit"] == "true" &&
-                data["addressBarExitActiveElementId"] == expectedInputId &&
-                data["addressBarExitActiveElementEditable"] == "true"
+                data["browserPageTitle"] == "cmux-ui-focus-primary:cmux-ui-focus-primary"
         }
         if !restoredExpectedInput {
             let snapshot = loadData() ?? [:]
             XCTFail(
                 "Expected Escape to restore focus to the previously focused page input. " +
-                "expectedInputId=\(expectedInputId) " +
                 "webViewFocusedAfterAddressBarExit=\(snapshot["webViewFocusedAfterAddressBarExit"] ?? "nil") " +
-                "addressBarExitActiveElementId=\(snapshot["addressBarExitActiveElementId"] ?? "nil") " +
-                "addressBarExitActiveElementTag=\(snapshot["addressBarExitActiveElementTag"] ?? "nil") " +
-                "addressBarExitActiveElementType=\(snapshot["addressBarExitActiveElementType"] ?? "nil") " +
-                "addressBarExitActiveElementEditable=\(snapshot["addressBarExitActiveElementEditable"] ?? "nil") " +
-                "addressBarExitTrackedFocusStateId=\(snapshot["addressBarExitTrackedFocusStateId"] ?? "nil") " +
-                "addressBarExitFocusTrackerInstalled=\(snapshot["addressBarExitFocusTrackerInstalled"] ?? "nil") " +
-                "addressBarFocusActiveElementId=\(snapshot["addressBarFocusActiveElementId"] ?? "nil") " +
-                "addressBarFocusTrackedFocusStateId=\(snapshot["addressBarFocusTrackedFocusStateId"] ?? "nil") " +
-                "addressBarFocusFocusTrackerInstalled=\(snapshot["addressBarFocusFocusTrackerInstalled"] ?? "nil") " +
-                "webInputFocusElementId=\(snapshot["webInputFocusElementId"] ?? "nil") " +
-                "webInputFocusTrackerInstalled=\(snapshot["webInputFocusTrackerInstalled"] ?? "nil") " +
-                "webInputFocusTrackedStateId=\(snapshot["webInputFocusTrackedStateId"] ?? "nil")"
+                "browserPageTitle=\(snapshot["browserPageTitle"] ?? "nil") " +
+                "browserPageURL=\(snapshot["browserPageURL"] ?? "nil")"
             )
         }
+
+        app.typeText("z")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["browserPageTitle"] == "cmux-ui-focus-primary:cmux-ui-focus-primaryz"
+            },
+            "Expected typing after Escape to stay in the primary page input"
+        )
 
         let window = app.windows.firstMatch
         XCTAssertTrue(
@@ -285,31 +274,30 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             .click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.15))
 
-        app.typeKey("l", modifierFlags: [.command])
-        let clickMovedFocusToSecondary = waitForDataMatch(timeout: 6.0) { data in
-            data["webViewFocusedAfterAddressBarFocus"] == "false" &&
-                data["addressBarFocusActiveElementId"] == expectedSecondaryInputId &&
-                data["addressBarFocusActiveElementEditable"] == "true"
+        let clickedSecondary = waitForDataMatch(timeout: 6.0) { data in
+            data["browserPageTitle"] == "cmux-ui-focus-secondary:cmux-ui-focus-secondary"
         }
-        if !clickMovedFocusToSecondary {
+        if !clickedSecondary {
             let snapshot = loadData() ?? [:]
             XCTFail(
                 "Expected post-escape click to focus secondary page input before Cmd+L. " +
-                "secondaryInputId=\(expectedSecondaryInputId) " +
-                "addressBarFocusActiveElementId=\(snapshot["addressBarFocusActiveElementId"] ?? "nil") " +
-                "addressBarFocusActiveElementTag=\(snapshot["addressBarFocusActiveElementTag"] ?? "nil") " +
-                "addressBarFocusActiveElementType=\(snapshot["addressBarFocusActiveElementType"] ?? "nil") " +
-                "addressBarFocusActiveElementEditable=\(snapshot["addressBarFocusActiveElementEditable"] ?? "nil") " +
-                "addressBarFocusTrackedFocusStateId=\(snapshot["addressBarFocusTrackedFocusStateId"] ?? "nil") " +
-                "addressBarFocusFocusTrackerInstalled=\(snapshot["addressBarFocusFocusTrackerInstalled"] ?? "nil")"
+                "browserPageTitle=\(snapshot["browserPageTitle"] ?? "nil") " +
+                "browserPageURL=\(snapshot["browserPageURL"] ?? "nil")"
             )
         }
+
+        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["webViewFocusedAfterAddressBarFocus"] == "false"
+            },
+            "Expected Cmd+L to focus omnibar after clicking the secondary page input"
+        )
 
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         if !waitForDataMatch(timeout: 2.0, predicate: { data in
             data["webViewFocusedAfterAddressBarExit"] == "true" &&
-                data["addressBarExitActiveElementId"] == expectedSecondaryInputId &&
-                data["addressBarExitActiveElementEditable"] == "true"
+                data["browserPageTitle"] == "cmux-ui-focus-secondary:cmux-ui-focus-secondary"
         }) {
             app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         }
@@ -317,10 +305,17 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         XCTAssertTrue(
             waitForDataMatch(timeout: 6.0) { data in
                 data["webViewFocusedAfterAddressBarExit"] == "true" &&
-                    data["addressBarExitActiveElementId"] == expectedSecondaryInputId &&
-                    data["addressBarExitActiveElementEditable"] == "true"
+                    data["browserPageTitle"] == "cmux-ui-focus-secondary:cmux-ui-focus-secondary"
             },
             "Expected Escape to restore focus to the clicked secondary page input"
+        )
+
+        app.typeText("y")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["browserPageTitle"] == "cmux-ui-focus-secondary:cmux-ui-focus-secondaryy"
+            },
+            "Expected typing after Escape to stay in the clicked secondary page input"
         )
     }
 
@@ -942,6 +937,278 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testEscapeAfterBrowserFindPaneRoundTripRestoresPageInputFocus() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = focusedInputRoundTripPageURL
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(
+                keys: [
+                    "browserPanelId",
+                    "terminalPaneId",
+                    "webViewFocused",
+                    "webInputFocusSeeded",
+                    "webInputFocusElementId"
+                ],
+                timeout: 12.0
+            ),
+            "Expected setup data including focused page input to be written. path=\(dataPath) data=\(loadData() ?? [:])"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+        XCTAssertEqual(setup["webInputFocusSeeded"], "true", "Expected test page input to be focused before Cmd+F")
+
+        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
+            XCTFail("Missing terminalPaneId in setup data")
+            return
+        }
+
+        app.typeKey("f", modifierFlags: [.command])
+        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+
+        app.typeText("seed")
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((findField.value as? String) ?? "") == "seed"
+            },
+            "Expected browser find field to capture initial typing. value=\(String(describing: findField.value))"
+        )
+
+        app.typeKey("h", modifierFlags: [.command, .control])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPaneId"] == expectedTerminalPaneId &&
+                    data["focusedPanelKind"] == "terminal" &&
+                    data["browserFindNeedle"] == "seed"
+            },
+            "Expected Cmd+Ctrl+H to focus the terminal pane while browser find stays open. data=\(loadData() ?? [:])"
+        )
+
+        app.typeKey("l", modifierFlags: [.command, .control])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == "browser" &&
+                    data["browserFindNeedle"] == "seed"
+            },
+            "Expected Cmd+Ctrl+L to return to the browser pane with browser find still active. data=\(loadData() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForNonExistence(findField, timeout: 5.0), "Expected Escape to close browser find")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["browserFindVisible"] == "false"
+            },
+            "Expected browser find state to be cleared after Escape. data=\(loadData() ?? [:])"
+        )
+
+        app.typeText("z")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["browserPageTitle"] == "cmux-ui-focus-primary:cmux-ui-focus-primaryz"
+            },
+            "Expected typing after Escape to return to the page input. data=\(loadData() ?? [:])"
+        )
+    }
+
+    func testEscapeAfterBrowserFindRestoresPageInputFocusWithoutPaneSwitch() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = focusedInputRoundTripPageURL
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(
+                keys: [
+                    "browserPanelId",
+                    "webViewFocused",
+                    "webInputFocusSeeded",
+                    "webInputFocusElementId"
+                ],
+                timeout: 12.0
+            ),
+            "Expected setup data including focused page input to be written. path=\(dataPath) data=\(loadData() ?? [:])"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+        XCTAssertEqual(setup["webInputFocusSeeded"], "true", "Expected test page input to be focused before Cmd+F")
+
+        app.typeKey("f", modifierFlags: [.command])
+        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+
+        app.typeText("seed")
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((findField.value as? String) ?? "") == "seed"
+            },
+            "Expected browser find field to capture typing. value=\(String(describing: findField.value))"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForNonExistence(findField, timeout: 5.0), "Expected Escape to close browser find")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["browserFindVisible"] == "false"
+            },
+            "Expected browser find state to be cleared after Escape. data=\(loadData() ?? [:])"
+        )
+
+        app.typeText("z")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["browserPageTitle"] == "cmux-ui-focus-primary:cmux-ui-focus-primaryz"
+            },
+            "Expected typing after Escape to return to the page input without pane switching. data=\(loadData() ?? [:])"
+        )
+    }
+
+    func testRepeatedEscapeAfterBrowserFindCmdOptionPaneRoundTripRestoresPageInputFocus() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = focusedInputRoundTripPageURL
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(
+                keys: [
+                    "browserPanelId",
+                    "terminalPaneId",
+                    "webViewFocused",
+                    "webInputFocusSeeded",
+                    "webInputFocusElementId"
+                ],
+                timeout: 12.0
+            ),
+            "Expected setup data including focused page input to be written. path=\(dataPath) data=\(loadData() ?? [:])"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+        XCTAssertEqual(setup["webInputFocusSeeded"], "true", "Expected test page input to be focused before Cmd+F")
+
+        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
+            XCTFail("Missing terminalPaneId in setup data")
+            return
+        }
+
+        let iterationMarkers = Array("abcdefghijklmnopqrstuvwxyzabcd")
+        var expectedInputValueAfterTyping = "cmux-ui-focus-primary"
+
+        for iteration in 1...30 {
+            let marker = String(iterationMarkers[iteration - 1])
+            let typedTextAfterEscape = " \(marker)"
+            expectedInputValueAfterTyping += typedTextAfterEscape
+            assertBrowserFindPaneRoundTripRestoresPageInput(
+                app,
+                expectedTerminalPaneId: expectedTerminalPaneId,
+                route: .cmdOptionArrows,
+                findNeedle: "seed\(iteration)",
+                typedTextAfterEscape: typedTextAfterEscape,
+                expectedInputValueAfterTyping: expectedInputValueAfterTyping,
+                iteration: iteration
+            )
+        }
+    }
+
+    func testGoogleLikeSearchInputKeepsCaretAndSpacesAfterRepeatedPaneFocusRoundTrips() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = googleLikeSearchPageURL
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(
+                keys: [
+                    "browserPanelId",
+                    "terminalPaneId",
+                    "webViewFocused",
+                    "browserPageTitle"
+                ],
+                timeout: 12.0
+            ),
+            "Expected setup data including Google-like page state to be written. path=\(dataPath) data=\(loadData() ?? [:])"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+
+        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
+            XCTFail("Missing terminalPaneId in setup data")
+            return
+        }
+
+        var expectedSearchValue = "cmux google"
+        XCTAssertTrue(
+            waitForGoogleLikeSearchState(expectedValue: expectedSearchValue, timeout: 8.0),
+            "Expected Google-like page input to start focused with the caret at the end. data=\(loadData() ?? [:])"
+        )
+
+        let iterationMarkers = Array("abcdefghijklmnopqrstuvwxyzabcd")
+        for iteration in 1...30 {
+            focusLeftPaneForFindScenario(app, route: .cmdOptionArrows)
+            XCTAssertTrue(
+                waitForDataMatch(timeout: 6.0) { data in
+                    data["focusedPaneId"] == expectedTerminalPaneId &&
+                        data["focusedPanelKind"] == "terminal"
+                },
+                "Expected focus-left shortcut to focus the terminal pane. iteration=\(iteration) data=\(loadData() ?? [:])"
+            )
+
+            focusRightPaneForFindScenario(app, route: .cmdOptionArrows)
+            XCTAssertTrue(
+                waitForDataMatch(timeout: 6.0) { data in
+                    data["focusedPanelKind"] == "browser"
+                },
+                "Expected focus-right shortcut to return to the browser pane. iteration=\(iteration) data=\(loadData() ?? [:])"
+            )
+
+            let marker = String(iterationMarkers[iteration - 1])
+            let typedText = " \(marker)"
+            expectedSearchValue += typedText
+            app.typeText(typedText)
+
+            XCTAssertTrue(
+                waitForGoogleLikeSearchState(expectedValue: expectedSearchValue, timeout: 8.0),
+                "Expected Google-like search input, suggestion text, and caret to include the typed leading space. " +
+                    "iteration=\(iteration) expected=\(expectedSearchValue) data=\(loadData() ?? [:])"
+            )
+        }
+    }
+
     func testWorkspaceRoundTripPreservesFocusedTerminalFindWhenBrowserFindIsAlsoOpen() {
         runSplitFindWorkspaceRoundTripScenario(restoredOwner: .terminal)
     }
@@ -1240,6 +1507,99 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         }
     }
 
+    private func assertBrowserFindPaneRoundTripRestoresPageInput(
+        _ app: XCUIApplication,
+        expectedTerminalPaneId: String,
+        route: FindFocusRoute,
+        findNeedle: String,
+        typedTextAfterEscape: String,
+        expectedInputValueAfterTyping: String,
+        iteration: Int
+    ) {
+        app.typeKey("f", modifierFlags: [.command])
+        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F. iteration=\(iteration)")
+
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText(findNeedle)
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((findField.value as? String) ?? "") == findNeedle
+            },
+            "Expected browser find field to capture typing. iteration=\(iteration) value=\(String(describing: findField.value))"
+        )
+
+        focusLeftPaneForFindScenario(app, route: route)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPaneId"] == expectedTerminalPaneId &&
+                    data["focusedPanelKind"] == "terminal" &&
+                    data["browserFindNeedle"] == findNeedle
+            },
+            "Expected focus-left shortcut to focus the terminal pane while browser find stays open. iteration=\(iteration) data=\(loadData() ?? [:])"
+        )
+
+        focusRightPaneForFindScenario(app, route: route)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == "browser" &&
+                    data["browserFindNeedle"] == findNeedle
+            },
+            "Expected focus-right shortcut to return to the browser pane with browser find still active. iteration=\(iteration) data=\(loadData() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(waitForNonExistence(findField, timeout: 5.0), "Expected Escape to close browser find. iteration=\(iteration)")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["browserFindVisible"] == "false"
+            },
+            "Expected browser find state to be cleared after Escape. iteration=\(iteration) data=\(loadData() ?? [:])"
+        )
+
+        app.typeText(typedTextAfterEscape)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["browserPageTitle"] == "cmux-ui-focus-primary:\(expectedInputValueAfterTyping)"
+            },
+            "Expected typing after Escape to return to the page input. iteration=\(iteration) data=\(loadData() ?? [:])"
+        )
+    }
+
+    private func waitForGoogleLikeSearchState(expectedValue: String, timeout: TimeInterval) -> Bool {
+        waitForDataMatch(timeout: timeout) { data in
+            let state = self.googleLikeSearchState(from: data)
+            let expectedEncoded = self.googleLikeTitleEncoded(expectedValue)
+            let expectedCaret = String(expectedValue.count)
+            return state["value"] == expectedEncoded &&
+                state["suggestion"] == expectedEncoded &&
+                state["start"] == expectedCaret &&
+                state["end"] == expectedCaret &&
+                state["active"] == "q"
+        }
+    }
+
+    private func googleLikeSearchState(from data: [String: String]) -> [String: String] {
+        guard let title = data["browserPageTitle"],
+              title.hasPrefix("cmux-google-like|") else {
+            return [:]
+        }
+
+        return title
+            .split(separator: "|")
+            .dropFirst()
+            .reduce(into: [String: String]()) { result, component in
+                let parts = component.split(separator: "=", maxSplits: 1)
+                guard parts.count == 2 else { return }
+                result[String(parts[0])] = String(parts[1])
+            }
+    }
+
+    private func googleLikeTitleEncoded(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
+    }
+
     private func waitForOmnibarToContainExampleDomain(_ omnibar: XCUIElement, timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
             let value = (omnibar.value as? String) ?? ""
@@ -1343,6 +1703,215 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     private var autofocusRacePageURL: String {
         "data:text/html,%3Cinput%20id%3D%22q%22%3E%3Cscript%3EsetTimeout%28function%28%29%7Bdocument.getElementById%28%22q%22%29.focus%28%29%3Blocation.hash%3D%22focused%22%3B%7D%2C700%29%3B%3C%2Fscript%3E"
+    }
+
+    private var focusedInputRoundTripPageURL: String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>cmux-ui-focus-loading</title>
+          <style>
+            body {
+              margin: 0;
+              min-height: 100vh;
+              background: #fff;
+              font-family: system-ui, -apple-system, sans-serif;
+            }
+            input {
+              position: fixed;
+              left: 24px;
+              width: min(520px, calc(100vw - 48px));
+              height: 40px;
+              box-sizing: border-box;
+              padding: 0 10px;
+              border: 1px solid #5f6368;
+              border-radius: 6px;
+              font-size: 14px;
+              background: #fff;
+              color: #000;
+            }
+            #cmux-ui-test-focus-input {
+              top: 24px;
+            }
+            #cmux-ui-test-focus-input-secondary {
+              top: 76px;
+            }
+          </style>
+        </head>
+        <body>
+          <input
+            id="cmux-ui-test-focus-input"
+            type="text"
+            value="cmux-ui-focus-primary"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <input
+            id="cmux-ui-test-focus-input-secondary"
+            type="text"
+            value="cmux-ui-focus-secondary"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <script>
+            const primary = document.getElementById('cmux-ui-test-focus-input');
+            const secondary = document.getElementById('cmux-ui-test-focus-input-secondary');
+
+            const updateTitle = () => {
+              const active = document.activeElement === secondary ? secondary : primary;
+              const prefix = active === secondary ? 'cmux-ui-focus-secondary:' : 'cmux-ui-focus-primary:';
+              document.title = prefix + String(active.value || '');
+            };
+
+            [primary, secondary].forEach((input) => {
+              input.addEventListener('focus', updateTitle, true);
+              input.addEventListener('input', updateTitle, true);
+            });
+
+            window.addEventListener('load', () => {
+              primary.focus({ preventScroll: true });
+              if (typeof primary.setSelectionRange === 'function') {
+                const end = primary.value.length;
+                primary.setSelectionRange(end, end);
+              }
+              updateTitle();
+            }, { once: true });
+          </script>
+        </body>
+        </html>
+        """
+        let encoded = html.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return "data:text/html,\(encoded)"
+    }
+
+    private var googleLikeSearchPageURL: String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>cmux-google-like-loading</title>
+          <style>
+            body {
+              margin: 0;
+              min-height: 100vh;
+              background: #fff;
+              color: #202124;
+              font-family: Arial, sans-serif;
+            }
+            main {
+              width: min(640px, calc(100vw - 48px));
+              margin: 72px auto 0;
+            }
+            input {
+              width: 100%;
+              height: 46px;
+              box-sizing: border-box;
+              padding: 0 16px;
+              border: 1px solid #dfe1e5;
+              border-radius: 23px;
+              font-size: 16px;
+              outline: none;
+            }
+            input:focus {
+              box-shadow: 0 1px 6px rgba(32, 33, 36, 0.28);
+            }
+            #suggestions {
+              margin-top: 8px;
+              padding: 8px 16px;
+              border: 1px solid #dfe1e5;
+              border-radius: 8px;
+              font-size: 14px;
+              min-height: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <main>
+            <input
+              id="q"
+              type="search"
+              value="cmux google"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              aria-label="Search"
+            >
+            <div id="suggestions"></div>
+          </main>
+          <script>
+            const q = document.getElementById('q');
+            const suggestions = document.getElementById('suggestions');
+            let lastKey = 'none';
+            let lastBeforeInput = 'none';
+            let suggestionMirror = q.value;
+            let suggestionCaret = q.value.length;
+
+            const encode = (value) => encodeURIComponent(String(value || ''));
+            const updateTitle = () => {
+              const start = typeof q.selectionStart === 'number' ? q.selectionStart : -1;
+              const end = typeof q.selectionEnd === 'number' ? q.selectionEnd : -1;
+              const active = document.activeElement === q ? 'q' : 'other';
+              suggestions.textContent = suggestionMirror;
+              document.title = [
+                'cmux-google-like',
+                'value=' + encode(q.value),
+                'suggestion=' + encode(suggestions.textContent),
+                'start=' + start,
+                'end=' + end,
+                'active=' + active,
+                'lastKey=' + encode(lastKey),
+                'before=' + encode(lastBeforeInput)
+              ].join('|');
+            };
+
+            const updateSoon = () => {
+              updateTitle();
+              requestAnimationFrame(updateTitle);
+            };
+
+            q.addEventListener('keydown', (event) => {
+              lastKey = event.key === ' ' ? 'Space' : event.key;
+              updateSoon();
+            }, true);
+            q.addEventListener('beforeinput', (event) => {
+              lastBeforeInput = event.data === ' ' ? 'Space' : (event.data || event.inputType || 'none');
+              if (event.inputType === 'insertText' && typeof event.data === 'string' && event.data.length > 0) {
+                const start = Math.max(0, Math.min(suggestionCaret, suggestionMirror.length));
+                suggestionMirror = suggestionMirror.slice(0, start) + event.data + suggestionMirror.slice(start);
+                suggestionCaret = start + event.data.length;
+              }
+              updateSoon();
+            }, true);
+            q.addEventListener('input', () => {
+              if (q.value === suggestionMirror && typeof q.selectionEnd === 'number') {
+                suggestionCaret = q.selectionEnd;
+              }
+              updateSoon();
+            }, true);
+            q.addEventListener('keyup', updateSoon, true);
+            q.addEventListener('focus', updateSoon, true);
+            q.addEventListener('blur', updateSoon, true);
+            document.addEventListener('selectionchange', updateSoon, true);
+            window.addEventListener('focus', updateSoon, true);
+            window.addEventListener('blur', updateSoon, true);
+            window.addEventListener('load', () => {
+              q.focus({ preventScroll: true });
+              const end = q.value.length;
+              q.setSelectionRange(end, end);
+              updateSoon();
+            }, { once: true });
+          </script>
+        </body>
+        </html>
+        """
+        let encoded = html.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return "data:text/html,\(encoded)"
     }
 
     private var zoomRoundTripPageURL: String {

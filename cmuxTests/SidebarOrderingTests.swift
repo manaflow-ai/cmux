@@ -4,7 +4,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -493,7 +492,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             status: .open
         )
 
-        XCTAssertEqual(workspace.panelPullRequests[panelId]?.isStale, false)
+        XCTAssertEqual(workspace.surfaceStateSnapshot(panelId: panelId).pullRequest?.isStale, false)
         XCTAssertEqual(workspace.pullRequest?.isStale, false)
     }
 
@@ -533,7 +532,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
 
         XCTAssertNil(workspace.pullRequest)
-        XCTAssertNil(workspace.panelPullRequests[panelId])
+        XCTAssertNil(workspace.surfaceStateSnapshot(panelId: panelId).pullRequest)
         XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
     }
 

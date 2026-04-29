@@ -1,49 +1,7 @@
 import SwiftUI
-import Foundation
 import AppKit
-import Bonsplit
 
-/// View for rendering a terminal panel
-struct TerminalPanelView: View {
-    @ObservedObject var panel: TerminalPanel
-    @AppStorage(NotificationPaneRingSettings.enabledKey)
-    private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
-    let paneId: PaneID
-    let isFocused: Bool
-    let isVisibleInUI: Bool
-    let portalPriority: Int
-    let isSplit: Bool
-    let appearance: PanelAppearance
-    let hasUnreadNotification: Bool
-    let onFocus: () -> Void
-    let onTriggerFlash: () -> Void
-
-    var body: some View {
-        // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
-        // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
-        GhosttyTerminalView(
-            terminalSurface: panel.surface,
-            paneId: paneId,
-            isActive: isFocused,
-            isVisibleInUI: isVisibleInUI,
-            portalZPriority: portalPriority,
-            showsInactiveOverlay: isSplit && !isFocused,
-            showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
-            inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
-            inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
-            searchState: panel.searchState,
-            reattachToken: panel.viewReattachToken,
-            onFocus: { _ in onFocus() },
-            onTriggerFlash: onTriggerFlash
-        )
-        // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
-        // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
-        .id(panel.id)
-        .background(Color.clear)
-    }
-}
-
-/// Shared appearance settings for panels
+/// Shared appearance settings for pane-hosted content.
 struct PanelAppearance {
     let dividerColor: Color
     let unfocusedOverlayNSColor: NSColor
@@ -55,5 +13,44 @@ struct PanelAppearance {
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity
         )
+    }
+}
+
+extension GhosttySurfaceScrollView {
+#if DEBUG
+    func debugRequestSurfaceFirstResponderForTesting(in window: NSWindow, reason: String) -> Bool {
+        requestSurfaceFirstResponder(in: window, reason: reason)
+    }
+#endif
+
+    func canRequestSurfaceFirstResponder(in window: NSWindow, reason: String) -> Bool {
+        guard let terminalSurface = surfaceView.terminalSurface else {
+            return true
+        }
+
+        let allowed = AppDelegate.shared?.allowsTerminalKeyboardFocus(
+            workspaceId: terminalSurface.tabId,
+            panelId: terminalSurface.id,
+            in: window
+        ) ?? true
+
+#if DEBUG
+        if !allowed {
+            dlog(
+                "focus.apply.skip surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                "reason=\(reason).coordinatorRightSidebar"
+            )
+        }
+#endif
+
+        return allowed
+    }
+
+    @discardableResult
+    func requestSurfaceFirstResponder(in window: NSWindow, reason: String) -> Bool {
+        guard canRequestSurfaceFirstResponder(in: window, reason: reason) else {
+            return false
+        }
+        return window.makeFirstResponder(surfaceView)
     }
 }

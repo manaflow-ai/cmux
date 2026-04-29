@@ -1,4 +1,3 @@
-import Bonsplit
 import SwiftUI
 
 struct NotificationsPage: View {

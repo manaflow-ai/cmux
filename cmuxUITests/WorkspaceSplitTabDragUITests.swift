@@ -3,7 +3,7 @@ import Foundation
 import AppKit
 import CoreGraphics
 
-final class BonsplitTabDragUITests: XCTestCase {
+final class WorkspaceSplitTabDragUITests: XCTestCase {
     private let launchTimeout: TimeInterval = 20.0
     private let setupTimeout: TimeInterval = 25.0
 
@@ -21,7 +21,7 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for minimal-mode Bonsplit tab drag UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for minimal-mode WorkspaceSplit tab drag UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -70,7 +70,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
         XCTAssertTrue(
             waitForCondition(timeout: 2.0) { dropIndicator.exists },
-            "Expected dragging beta onto alpha to reveal the Bonsplit drop indicator."
+            "Expected dragging beta onto alpha to reveal the WorkspaceSplit drop indicator."
         )
         endMouseDrag(dragSession, atAccessibilityPoint: destination)
 
@@ -382,7 +382,7 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for collapsed-sidebar minimal-mode Bonsplit controls hover UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for collapsed-sidebar minimal-mode WorkspaceSplit controls hover UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -441,17 +441,17 @@ final class BonsplitTabDragUITests: XCTestCase {
         presentationMode: WorkspacePresentationMode = .minimal
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
-        let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
+        let dataPath = "/tmp/cmux-ui-test-split-tab-drag-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_TAB_DRAG_PATH"] = dataPath
         if startWithHiddenSidebar {
-            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"
+            app.launchEnvironment["CMUX_UI_TEST_SPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"
         }
         app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
-        app.launch()
-        app.activate()
+        launchAndAllowBackground(app)
         return (app, dataPath)
     }
 
@@ -464,6 +464,20 @@ final class BonsplitTabDragUITests: XCTestCase {
             return app.wait(for: .runningForeground, timeout: 6.0)
         }
         return false
+    }
+
+    private func launchAndAllowBackground(_ app: XCUIApplication) {
+        // Headless CI runners can launch the app successfully but fail foreground activation.
+        // The split-host UI remains reachable through accessibility in that state.
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+
+        if app.state == .runningBackground {
+            app.activate()
+        }
     }
 
     private func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {

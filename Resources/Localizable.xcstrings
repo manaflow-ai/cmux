@@ -94203,1016 +94203,2466 @@
     "feed.context.you": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "You:" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "あなた:" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなた:"
+          }
+        }
       }
     },
     "feed.context.agent": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Agent:" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェント:" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント:"
+          }
+        }
       }
     },
     "feed.context.plan": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Plan:" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "計画:" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計画:"
+          }
+        }
       }
     },
     "feed.promptEcho": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "You: %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "あなた: %@" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなた: %@"
+          }
+        }
       }
     },
     "feed.promptEcho.permission": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "You: %@ request from %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%2$@からの%1$@リクエスト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You: %@ request from %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@からの%1$@リクエスト"
+          }
+        }
       }
     },
     "feed.kind.permission": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "PERMISSION" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "権限" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PERMISSION"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限"
+          }
+        }
       }
     },
     "feed.kind.plan": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "PLAN" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "プラン" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PLAN"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラン"
+          }
+        }
       }
     },
     "feed.kind.exitPlan": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Exit plan" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "終了プラン" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了プラン"
+          }
+        }
       }
     },
     "feed.kind.question": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Question" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "質問" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Question"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "質問"
+          }
+        }
       }
     },
     "feed.kind.question.upper": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "QUESTION" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "質問" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QUESTION"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "質問"
+          }
+        }
       }
     },
     "feed.kind.toolUse": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "TOOL USE" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ツール使用" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TOOL USE"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール使用"
+          }
+        }
       }
     },
     "feed.kind.toolResult": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "TOOL RESULT" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ツール結果" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TOOL RESULT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール結果"
+          }
+        }
       }
     },
     "feed.kind.prompt": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "PROMPT" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "プロンプト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PROMPT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプト"
+          }
+        }
       }
     },
     "feed.kind.message": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "MESSAGE" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "メッセージ" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MESSAGE"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ"
+          }
+        }
       }
     },
     "feed.kind.sessionStart.upper": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "SESSION START" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "セッション開始" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SESSION START"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション開始"
+          }
+        }
       }
     },
     "feed.kind.sessionEnd.upper": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "SESSION END" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "セッション終了" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SESSION END"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション終了"
+          }
+        }
       }
     },
     "feed.kind.stop": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "STOP" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "停止" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "STOP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        }
       }
     },
     "feed.kind.todos": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "TODOS" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "TODO" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TODOS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TODO"
+          }
+        }
       }
     },
     "feed.permission.mode.once": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "once" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "1回" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "once"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1回"
+          }
+        }
       }
     },
     "feed.permission.mode.always": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "always" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "常に" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に"
+          }
+        }
       }
     },
     "feed.permission.mode.all": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "all tools" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "全ツール" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "all tools"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全ツール"
+          }
+        }
       }
     },
     "feed.permission.mode.bypass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "bypass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "バイパス" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bypass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイパス"
+          }
+        }
       }
     },
     "feed.permission.mode.deny": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "denied" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "拒否" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        }
       }
     },
     "feed.exitplan.mode.bypass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "bypass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "バイパス" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bypass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイパス"
+          }
+        }
       }
     },
     "feed.exitplan.mode.ultraplan": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "ultraplan" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ウルトラプラン" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ultraplan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウルトラプラン"
+          }
+        }
       }
     },
     "feed.exitplan.mode.autoAccept": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "auto" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "自動" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
       }
     },
     "feed.exitplan.mode.manual": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "manual" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "手動" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        }
       }
     },
     "feed.exitplan.mode.deny": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "denied" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "拒否" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        }
       }
     },
     "feed.question.multiSelect": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Multi-select" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "複数選択" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multi-select"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数選択"
+          }
+        }
       }
     },
     "feed.telemetry.error": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "error" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エラー" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー"
+          }
+        }
       }
     },
     "feed.telemetry.ok": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "ok" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "OK" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ok"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
       }
     },
     "feed.telemetry.sessionStart": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "session start" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "セッション開始" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session start"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション開始"
+          }
+        }
       }
     },
     "feed.telemetry.sessionEnd": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "session end" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "セッション終了" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session end"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション終了"
+          }
+        }
       }
     },
     "feed.telemetry.stop": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "stop" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "停止" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        }
       }
     },
     "feed.todos.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Tasks" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "タスク" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク"
+          }
+        }
       }
     },
     "feed.todos.moreCompleted": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "... +%lld completed" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "... 完了が%lld件" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "... +%lld completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "... 完了が%lld件"
+          }
+        }
       }
     },
     "feed.todos.collapse": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Collapse" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "折りたたむ" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折りたたむ"
+          }
+        }
       }
     },
     "feed.todos.summary.done": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%lld done" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "完了%lld件" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了%lld件"
+          }
+        }
       }
     },
     "feed.todos.summary.inProgress": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%lld in progress" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "進行中%lld件" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld in progress"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進行中%lld件"
+          }
+        }
       }
     },
     "feed.todos.summary.open": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%lld open" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "未完了%lld件" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未完了%lld件"
+          }
+        }
       }
     },
     "feed.notification.permission.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ permission" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@の権限確認" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ permission"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@の権限確認"
+          }
+        }
       }
     },
     "feed.notification.permission.body": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ needs approval" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@に承認が必要です" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs approval"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に承認が必要です"
+          }
+        }
       }
     },
     "feed.notification.decisionNeeded": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Decision needed" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "判断が必要です" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decision needed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判断が必要です"
+          }
+        }
       }
     },
     "feed.notification.exitPlan.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ plan ready" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@のプラン準備完了" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ plan ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@のプラン準備完了"
+          }
+        }
       }
     },
     "feed.notification.exitPlan.body": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Review and approve the plan" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "プランを確認して承認してください" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review and approve the plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランを確認して承認してください"
+          }
+        }
       }
     },
     "feed.notification.question.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ question" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@からの質問" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ question"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@からの質問"
+          }
+        }
       }
     },
     "feed.notification.question.body": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Agent is asking a question" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが質問しています" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent is asking a question"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが質問しています"
+          }
+        }
       }
     },
     "feed.notification.permission.allowOnce": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Allow Once" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "1回だけ許可" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Once"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1回だけ許可"
+          }
+        }
       }
     },
     "feed.notification.permission.always": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Always" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "常に許可" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に許可"
+          }
+        }
       }
     },
     "feed.notification.permission.deny": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Deny" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "拒否" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deny"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        }
       }
     },
     "feed.notification.exitPlan.bypass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Bypass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "バイパス" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bypass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイパス"
+          }
+        }
       }
     },
     "feed.notification.exitPlan.ultraplan": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Ultraplan" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ウルトラプラン" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultraplan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウルトラプラン"
+          }
+        }
       }
     },
     "feed.notification.exitPlan.autoAccept": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Auto" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "自動" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
       }
     },
     "feed.notification.exitPlan.manual": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Manual" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "手動" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        }
       }
     },
     "feed.notification.question.reply": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reply" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "返信" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信"
+          }
+        }
       }
     },
     "debug.menu.feedButtonStyleDebug": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Button Style Debug…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィードボタンスタイルのデバッグ…" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed Button Style Debug…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードボタンスタイルのデバッグ…"
+          }
+        }
       }
     },
     "debug.menu.feedTextEditorDebug": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Text Editor Lab…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィードテキストエディタラボ…" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed Text Editor Lab…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードテキストエディタラボ…"
+          }
+        }
       }
     },
     "feed.textEditorDebug.windowTitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Text Editor Lab" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィードテキストエディタラボ" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed Text Editor Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードテキストエディタラボ"
+          }
+        }
       }
     },
     "feed.textEditorDebug.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Text Editors" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィードテキストエディタ" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed Text Editors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードテキストエディタ"
+          }
+        }
       }
     },
     "feed.textEditorDebug.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Compare autosizing editors with identical input." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "同じ入力で自動サイズ調整エディタを比較します。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compare autosizing editors with identical input."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じ入力で自動サイズ調整エディタを比較します。"
+          }
+        }
       }
     },
     "feed.textEditorDebug.reset": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reset" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リセット" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
       }
     },
     "feed.textEditorDebug.placeholder": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Type several lines here..." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ここに複数行を入力..." } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type several lines here..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここに複数行を入力..."
+          }
+        }
       }
     },
     "feed.textEditorDebug.metrics": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%lld lines · %lld chars" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%lld 行・%lld 文字" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld lines · %lld chars"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 行・%lld 文字"
+          }
+        }
       }
     },
     "feed.textEditorDebug.section.swiftui": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "SwiftUI" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "SwiftUI" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SwiftUI"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SwiftUI"
+          }
+        }
       }
     },
     "feed.textEditorDebug.section.appkit": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "AppKit" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "AppKit" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit"
+          }
+        }
       }
     },
     "feed.textEditorDebug.variant.swiftUITextField": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "SwiftUI TextField" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "SwiftUI TextField" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SwiftUI TextField"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SwiftUI TextField"
+          }
+        }
       }
     },
     "feed.textEditorDebug.variant.swiftUIMirror": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "SwiftUI Mirror TextEditor" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "SwiftUI Mirror TextEditor" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SwiftUI Mirror TextEditor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SwiftUI Mirror TextEditor"
+          }
+        }
       }
     },
     "feed.textEditorDebug.variant.appKitDirectSize": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "AppKit Direct, sizeThatFits" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "AppKit Direct, sizeThatFits" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit Direct, sizeThatFits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit Direct, sizeThatFits"
+          }
+        }
       }
     },
     "feed.textEditorDebug.variant.appKitDirectIntrinsic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "AppKit Direct, intrinsic" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "AppKit Direct, intrinsic" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit Direct, intrinsic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit Direct, intrinsic"
+          }
+        }
       }
     },
     "feed.textEditorDebug.variant.appKitScrollSize": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "AppKit ScrollView, sizeThatFits" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "AppKit ScrollView, sizeThatFits" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit ScrollView, sizeThatFits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit ScrollView, sizeThatFits"
+          }
+        }
       }
     },
     "feed.textEditorDebug.variant.appKitScrollMeasured": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "AppKit ScrollView, measured" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "AppKit ScrollView, measured" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit ScrollView, measured"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppKit ScrollView, measured"
+          }
+        }
       }
     },
     "feed.buttonDebug.windowTitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Button Style" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィードボタンスタイル" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed Button Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードボタンスタイル"
+          }
+        }
       }
     },
     "feed.buttonDebug.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Buttons" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィードボタン" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed Buttons"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードボタン"
+          }
+        }
       }
     },
     "feed.buttonDebug.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Tune every Feed button kind live." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "すべてのフィードボタン種別をライブ調整します。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tune every Feed button kind live."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのフィードボタン種別をライブ調整します。"
+          }
+        }
       }
     },
     "feed.buttonDebug.reset": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reset" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リセット" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
       }
     },
     "feed.buttonDebug.palette": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Palette" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "パレット" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット"
+          }
+        }
       }
     },
     "feed.buttonDebug.palette.system": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "System" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "システム" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム"
+          }
+        }
       }
     },
     "feed.buttonDebug.palette.glassNeutral": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Glass Neutral" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Glassニュートラル" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass Neutral"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glassニュートラル"
+          }
+        }
       }
     },
     "feed.buttonDebug.palette.graphite": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Graphite" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グラファイト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Graphite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グラファイト"
+          }
+        }
       }
     },
     "feed.buttonDebug.palette.aqua": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Aqua" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "アクア" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aqua"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクア"
+          }
+        }
       }
     },
     "feed.buttonDebug.palette.orchard": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Orchard" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "オーチャード" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orchard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーチャード"
+          }
+        }
       }
     },
     "feed.buttonDebug.palette.ember": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Ember" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エンバー" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ember"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンバー"
+          }
+        }
       }
     },
     "feed.buttonDebug.palette.contrast": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Contrast" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コントラスト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrast"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントラスト"
+          }
+        }
       }
     },
     "feed.buttonDebug.palette.light": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Light" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ライト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライト"
+          }
+        }
       }
     },
     "feed.buttonDebug.palette.dark": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Dark" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ダーク" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダーク"
+          }
+        }
       }
     },
     "feed.buttonDebug.style": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Style" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "スタイル" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スタイル"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.solid": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Solid" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ソリッド" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソリッド"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.glass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Raycast Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Raycast Glass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raycast Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raycast Glass"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.standardGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Standard Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "標準Glass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準Glass"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.standardTintedGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Standard Tinted Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "標準Tint Glass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard Tinted Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準Tint Glass"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.nativeGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Native Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ネイティブGlass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブGlass"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.nativeProminentGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Prominent Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "強調Glass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prominent Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強調Glass"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.liquid": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Liquid" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リキッド" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liquid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リキッド"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.halo": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Halo" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ハロー" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Halo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハロー"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.command": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Command" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コマンド" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.commandLight": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Command Light" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コマンドライト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Light"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドライト"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.outline": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Outline" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "アウトライン" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アウトライン"
+          }
+        }
       }
     },
     "feed.buttonDebug.style.flat": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Flat" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フラット" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フラット"
+          }
+        }
       }
     },
     "feed.buttonDebug.applyRaycastGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Apply Raycast Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Raycast Glassを適用" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply Raycast Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raycast Glassを適用"
+          }
+        }
       }
     },
     "feed.buttonDebug.variations": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Variations" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "バリエーション" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Variations"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バリエーション"
+          }
+        }
       }
     },
     "feed.buttonDebug.section.base": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Base" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ベース" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベース"
+          }
+        }
       }
     },
     "feed.buttonDebug.section.nativeGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Native Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ネイティブGlass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブGlass"
+          }
+        }
       }
     },
     "feed.buttonDebug.section.command": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Command" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コマンド" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド"
+          }
+        }
       }
     },
     "feed.buttonDebug.section.material": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Material" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "マテリアル" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Material"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マテリアル"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.solidClassic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Solid Classic" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ソリッド定番" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solid Classic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソリッド定番"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.raycastGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Raycast Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Raycast Glass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raycast Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raycast Glass"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.standardLiquidGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Standard Liquid Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "標準Liquid Glass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard Liquid Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準Liquid Glass"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.tintedLiquidGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Tinted Liquid Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Tint付きLiquid Glass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tinted Liquid Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tint付きLiquid Glass"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.nativeGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Native Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ネイティブGlass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブGlass"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.nativeProminentGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Prominent Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "強調Glass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prominent Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強調Glass"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.liquidCapsule": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Liquid Capsule" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リキッドカプセル" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liquid Capsule"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リキッドカプセル"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.frostedOutline": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Frosted Outline" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フロストアウトライン" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frosted Outline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フロストアウトライン"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.haloGlow": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Halo Glow" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ハローグロー" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Halo Glow"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハローグロー"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.commandDark": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Command Dark" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コマンドダーク" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Dark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドダーク"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.commandLight": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Command Light" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コマンドライト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Light"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドライト"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.clearGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Clear Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "クリアGlass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリアGlass"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.compactGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Compact Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コンパクトGlass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクトGlass"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.nativeBlue": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Native Blue" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ネイティブブルー" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Blue"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブブルー"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.liquidMono": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Liquid Mono" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リキッドモノ" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liquid Mono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リキッドモノ"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.softHalo": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Soft Halo" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ソフトハロー" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soft Halo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソフトハロー"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.hairlineGlass": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Hairline Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ヘアラインGlass" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hairline Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘアラインGlass"
+          }
+        }
       }
     },
     "feed.buttonDebug.preset.minimalFlat": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Minimal Flat" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ミニマルフラット" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimal Flat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミニマルフラット"
+          }
+        }
       }
     },
     "feed.buttonDebug.compactRadius": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Compact radius" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コンパクト半径" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact radius"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクト半径"
+          }
+        }
       }
     },
     "feed.buttonDebug.mediumRadius": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Medium radius" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "中サイズ半径" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium radius"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中サイズ半径"
+          }
+        }
       }
     },
     "feed.buttonDebug.horizontalPadding": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Medium horizontal padding" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "中サイズ横余白" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium horizontal padding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中サイズ横余白"
+          }
+        }
       }
     },
     "feed.buttonDebug.compactHorizontalPadding": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Compact horizontal padding" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コンパクト横余白" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact horizontal padding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクト横余白"
+          }
+        }
       }
     },
     "feed.buttonDebug.compactVerticalPadding": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Compact vertical padding" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コンパクト縦余白" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact vertical padding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクト縦余白"
+          }
+        }
       }
     },
     "feed.buttonDebug.mediumVerticalPadding": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Medium vertical padding" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "中サイズ縦余白" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium vertical padding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中サイズ縦余白"
+          }
+        }
       }
     },
     "feed.buttonDebug.glassTint": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Glass tint" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ガラスの色合い" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass tint"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガラスの色合い"
+          }
+        }
       }
     },
     "feed.buttonDebug.borderWidth": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Border" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "境界線" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Border"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "境界線"
+          }
+        }
       }
     },
     "feed.buttonDebug.kind": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Button Kind" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ボタン種別" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Button Kind"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタン種別"
+          }
+        }
       }
     },
     "feed.buttonDebug.colors": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Colors" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "色" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色"
+          }
+        }
       }
     },
     "feed.buttonDebug.background": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Background" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "背景" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景"
+          }
+        }
       }
     },
     "feed.buttonDebug.hover": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Hover" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ホバー" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバー"
+          }
+        }
       }
     },
     "feed.buttonDebug.foreground": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Foreground" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "前景" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreground"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前景"
+          }
+        }
       }
     },
     "feed.buttonDebug.preview": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Preview" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "プレビュー" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        }
       }
     },
     "feed.buttonDebug.kind.ghost": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Ghost" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ゴースト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghost"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴースト"
+          }
+        }
       }
     },
     "feed.buttonDebug.kind.soft": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Soft" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ソフト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soft"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソフト"
+          }
+        }
       }
     },
     "feed.buttonDebug.kind.dark": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Dark" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ダーク" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダーク"
+          }
+        }
       }
     },
     "feed.buttonDebug.kind.light": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Light" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ライト" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライト"
+          }
+        }
       }
     },
     "feed.buttonDebug.kind.primary": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Primary" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "プライマリ" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primary"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライマリ"
+          }
+        }
       }
     },
     "feed.buttonDebug.kind.success": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Success" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "成功" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Success"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功"
+          }
+        }
       }
     },
     "feed.buttonDebug.kind.warning": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Warning" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "警告" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告"
+          }
+        }
       }
     },
     "feed.buttonDebug.kind.destructive": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Destructive" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "破壊的" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destructive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破壊的"
+          }
+        }
       }
     },
     "rightSidebar.mode.pendingHelp": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ · %lld pending" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ · 保留中%lld件" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %lld pending"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · 保留中%lld件"
+          }
+        }
       }
     },
     "feed.filter.activity": {
@@ -95648,6 +97098,641 @@
           "stringUnit": {
             "state": "new",
             "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+          }
+        }
+      }
+    },
+    "dialog.cmuxConfig.confirmCommand.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل أنت متأكد أنك تريد تشغيل هذا الأمر؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeste li sigurni da želite pokrenuti ovu naredbu?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er du sikker på, at du vil køre denne kommando?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Möchten Sie diesen Befehl wirklich ausführen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to run this command?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Estás seguro de que deseas ejecutar este comando?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Êtes-vous sûr de vouloir exécuter cette commande ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sei sicuro di voler eseguire questo comando?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコマンドを実行してもよろしいですか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 명령을 실행하시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er du sikker på at du vil kjøre denne kommandoen?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czy na pewno chcesz uruchomić to polecenie?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tem certeza de que deseja executar este comando?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы уверены, что хотите выполнить эту команду?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณแน่ใจหรือไม่ว่าต้องการรันคำสั่งนี้?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu komutu çalıştırmak istediğinizden emin misiniz?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定要运行此命令吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確定要執行此命令嗎？"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ви впевнені, що хочете виконати цю команду?"
+          }
+        }
+      }
+    },
+    "command.copyIdentifiers.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy IDs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IDをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID 복사"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.closeGlyph.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates live tabs and the debug previews."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブのタブとデバッグプレビューをその場で更新します。"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.closeGlyph.sectionTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Glyph"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じるグリフ"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.closeCircle.sectionTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Circle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる円"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.closeCircle.sizeLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズ"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.closeGlyph.xLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "X"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "X"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.preview.closeState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Button"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じるボタン"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.preview.closeState.hover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバー"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.preview.closeState.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.preview.closeState.pressed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "押下"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.preview.closeHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Hover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じるホバー"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.preview.closePressed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Pressed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる押下"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.preview.scenarioTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interactive Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インタラクティブプレビュー"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.preview.sectionTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interactive Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インタラクティブプレビュー"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.preview.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.preview.tabHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Hover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブホバー"
+          }
+        }
+      }
+    },
+    "debug.workspaceTabChrome.closeGlyph.yLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Y"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Y"
+          }
+        }
+      }
+    },
+    "workspace.emptyPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace content unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの内容を表示できません"
+          }
+        }
+      }
+    },
+    "workspace.accessibility.pinnedTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めされたタブ"
+          }
+        }
+      }
+    },
+    "workspace.menu.closeTabsToLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tabs to Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左側のタブを閉じる"
+          }
+        }
+      }
+    },
+    "workspace.menu.closeTabsToRight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tabs to Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右側のタブを閉じる"
+          }
+        }
+      }
+    },
+    "workspace.menu.duplicateTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicate Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを複製"
+          }
+        }
+      }
+    },
+    "workspace.menu.exitZoomPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit Zoom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ズームを終了"
+          }
+        }
+      }
+    },
+    "workspace.menu.moveToLeftPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Left Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左ペインへ移動"
+          }
+        }
+      }
+    },
+    "workspace.menu.moveToRightPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Right Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右ペインへ移動"
+          }
+        }
+      }
+    },
+    "workspace.menu.newBrowserTabToRight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Browser Tab to Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右側に新しいブラウザタブ"
+          }
+        }
+      }
+    },
+    "workspace.menu.newTerminalTabToRight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Terminal Tab to Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右側に新しいターミナルタブ"
+          }
+        }
+      }
+    },
+    "workspace.menu.reloadTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを再読み込み"
+          }
+        }
+      }
+    },
+    "workspace.menu.removeCustomTabName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Custom Tab Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムタブ名を削除"
+          }
+        }
+      }
+    },
+    "workspace.menu.zoomPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインをズーム"
           }
         }
       }

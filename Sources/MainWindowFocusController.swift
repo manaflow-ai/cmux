@@ -50,7 +50,7 @@ final class MainWindowFocusController {
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
-            syncBonsplitTabShortcutHintEligibility()
+            syncWorkspaceSplitTabShortcutHintEligibility()
         }
     }
     private var lastRightSidebarMode: RightSidebarMode?
@@ -83,7 +83,7 @@ final class MainWindowFocusController {
         if lastRightSidebarMode == nil {
             lastRightSidebarMode = fileExplorerState?.mode
         }
-        syncBonsplitTabShortcutHintEligibility()
+        syncWorkspaceSplitTabShortcutHintEligibility()
         publishFeedFocusSnapshot()
     }
 
@@ -146,7 +146,7 @@ final class MainWindowFocusController {
         }
     }
 
-    func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
+    func allowsWorkspaceSplitTabShortcutHints(workspaceId: UUID) -> Bool {
         guard tabManager?.selectedTabId == workspaceId else { return false }
         switch intent {
         case .rightSidebar:
@@ -587,12 +587,12 @@ final class MainWindowFocusController {
         feedHost?.applyFocusSnapshotFromController(snapshot)
     }
 
-    func syncBonsplitTabShortcutHintEligibility() {
+    func syncWorkspaceSplitTabShortcutHintEligibility() {
         guard let tabManager else { return }
         for workspace in tabManager.tabs {
-            let enabled = allowsBonsplitTabShortcutHints(workspaceId: workspace.id)
-            if workspace.bonsplitController.tabShortcutHintsEnabled != enabled {
-                workspace.bonsplitController.tabShortcutHintsEnabled = enabled
+            let enabled = allowsWorkspaceSplitTabShortcutHints(workspaceId: workspace.id)
+            if workspace.splitController.tabShortcutHintsEnabled != enabled {
+                workspace.splitController.tabShortcutHintsEnabled = enabled
             }
         }
     }

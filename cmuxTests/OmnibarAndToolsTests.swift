@@ -4,7 +4,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -121,22 +120,6 @@ final class FinderServicePathResolverTests: XCTestCase {
 
             XCTAssertEqual(directories, [aliasDirectory.standardizedFileURL.path])
             XCTAssertNotEqual(directories, [actualDirectory.standardizedFileURL.path])
-        }
-    }
-
-    func testOrderedUniqueDirectoriesDedupesSymlinkAndRealPaths() throws {
-        try withTemporaryDirectory { root in
-            let actualDirectory = root.appendingPathComponent("actual/project", isDirectory: true)
-            let aliasDirectory = root.appendingPathComponent("alias-project", isDirectory: true)
-
-            try FileManager.default.createDirectory(at: actualDirectory, withIntermediateDirectories: true)
-            try FileManager.default.createSymbolicLink(at: aliasDirectory, withDestinationURL: actualDirectory)
-
-            let directories = FinderServicePathResolver.orderedUniqueDirectories(
-                from: [aliasDirectory, actualDirectory]
-            )
-
-            XCTAssertEqual(directories, [aliasDirectory.standardizedFileURL.path])
         }
     }
 
@@ -432,6 +415,24 @@ final class OmnibarStateMachineTests: XCTestCase {
         // Second escape: blur (since we're not editing and popup is closed).
         effects = omnibarReduce(state: &state, event: .escape)
         XCTAssertTrue(effects.shouldBlurToWebView)
+    }
+
+    func testEscapeBlursWhenFocusedWithoutEditingEvenIfSuggestionsAreOpen() throws {
+        var state = OmnibarState()
+
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
+        _ = omnibarReduce(
+            state: &state,
+            event: .suggestionsUpdated([.history(url: "https://example.com/", title: "Example")])
+        )
+        XCTAssertFalse(state.isUserEditing)
+        XCTAssertEqual(state.suggestions.count, 1)
+
+        let effects = omnibarReduce(state: &state, event: .escape)
+
+        XCTAssertTrue(effects.shouldBlurToWebView)
+        XCTAssertFalse(effects.shouldSelectAll)
+        XCTAssertTrue(state.suggestions.isEmpty)
     }
 
     func testPanelURLChangeDoesNotClobberUserBufferWhileEditing() throws {

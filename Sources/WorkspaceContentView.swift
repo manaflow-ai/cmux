@@ -1,15 +1,15 @@
 import SwiftUI
 import Foundation
 import AppKit
-import Bonsplit
+import Observation
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
-    case bonsplitPane
+    case workspacePane
     case tmuxActivePane
 
     var usesWorkspacePaneOverlay: Bool {
-        self == .bonsplitPane
+        self == .workspacePane
     }
 
     var usesTmuxActivePaneOverlay: Bool {
@@ -36,16 +36,22 @@ struct TmuxOverlayExperimentSettings {
 
     static func target(enabled: Bool, rawValue: String?) -> TmuxOverlayExperimentTarget {
         guard enabled else { return .surface }
-        guard let rawValue,
-              let target = TmuxOverlayExperimentTarget(rawValue: rawValue) else {
+        guard let rawValue else {
             return defaultTarget
         }
-        return target
+        if let target = TmuxOverlayExperimentTarget(rawValue: rawValue) {
+            return target
+        }
+        // Backward compatibility for persisted pre-rename values.
+        if rawValue == "bonsplitPane" {
+            return .workspacePane
+        }
+        return defaultTarget
     }
 }
 
 private enum WorkspaceTitlebarInteractionMetrics {
-    // Keep in sync with Bonsplit's tab bar height so the monitor only covers
+    // Keep in sync with WorkspaceSplit's tab bar height so the monitor only covers
     // the minimal-mode titlebar strip.
     static let minimalModeTopStripHeight: CGFloat = 30
 }
@@ -102,11 +108,12 @@ struct TmuxWorkspacePaneOverlayRenderState: Equatable {
 }
 
 @MainActor
-final class TmuxWorkspacePaneOverlayModel: ObservableObject {
-    @Published private(set) var unreadRects: [CGRect] = []
-    @Published private(set) var flashRect: CGRect?
-    @Published private(set) var flashStartedAt: Date?
-    @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
+@Observable
+final class TmuxWorkspacePaneOverlayModel {
+    private(set) var unreadRects: [CGRect] = []
+    private(set) var flashRect: CGRect?
+    private(set) var flashStartedAt: Date?
+    private(set) var flashReason: WorkspaceAttentionFlashReason?
 
     private var lastWorkspaceId: UUID?
     private var lastFlashToken: UInt64?
@@ -220,7 +227,21 @@ struct TmuxWorkspacePaneOverlayView: View {
     }
 }
 
-/// View that renders a Workspace's content using BonsplitView
+@MainActor
+struct TmuxWorkspacePaneOverlayObservedView: View {
+    let model: TmuxWorkspacePaneOverlayModel
+
+    var body: some View {
+        TmuxWorkspacePaneOverlayView(
+            unreadRects: model.unreadRects,
+            flashRect: model.flashRect,
+            flashStartedAt: model.flashStartedAt,
+            flashReason: model.flashReason
+        )
+    }
+}
+
+/// View that renders a Workspace's content using WorkspaceLayoutView
 struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
@@ -248,113 +269,49 @@ struct WorkspaceContentView: View {
         isSelectedInPane: Bool,
         isFocused: Bool
     ) -> Bool {
-        guard isWorkspaceVisible else { return false }
-        // During pane/tab reparenting, Bonsplit can transiently report selected=false
-        // for the currently focused panel. Keep focused content visible to avoid blank frames.
-        return isSelectedInPane || isFocused
+        WorkspaceLayoutRenderContext(
+            notificationStore: nil,
+            isWorkspaceVisible: isWorkspaceVisible,
+            isWorkspaceInputActive: false,
+            isMinimalMode: false,
+            appearance: PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            ),
+            workspacePortalPriority: 0,
+            usesWorkspacePaneOverlay: false,
+            showSplitButtons: false
+        ).panelVisibleInUI(
+            isSelectedInPane: isSelectedInPane,
+            isFocused: isFocused
+        )
     }
 
     var body: some View {
         let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
-            workspace.panels.count > 1
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
+        let renderContext = WorkspaceLayoutRenderContext(
+            notificationStore: notificationStore,
+            isWorkspaceVisible: isWorkspaceVisible,
+            isWorkspaceInputActive: isWorkspaceInputActive,
+            isMinimalMode: isMinimalMode,
+            appearance: appearance,
+            workspacePortalPriority: workspacePortalPriority,
+            usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
+            showSplitButtons: workspace.showsSplitButtons
+        )
+        let renderSnapshot = workspace.makeLayoutRenderSnapshot(context: renderContext)
 
-        // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
-        // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
-        let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
-
-
-        // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
-        // Finder file drops to the correct terminal panel.
-        let _ = {
-            workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
-                guard let workspace else { return false }
-                // Find the focused panel in this pane and drop the files into it.
-                guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
-                      let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
-                return panel.hostedView.handleDroppedURLs(urls)
-            }
-        }()
-
-        let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
-            // Content for each tab in bonsplit
-            let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
-            if let panel = workspace.panel(for: tab.id) {
-                let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
-                let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
-                let isVisibleInUI = Self.panelVisibleInUI(
-                    isWorkspaceVisible: isWorkspaceVisible,
-                    isSelectedInPane: isSelectedInPane,
-                    isFocused: isFocused
-                )
-                let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
-                    hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
-                        forTabId: workspace.id,
-                        surfaceId: panel.id
-                    ),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
-                )
-                PanelContentView(
-                    panel: panel,
-                    paneId: paneId,
-                    isFocused: isFocused,
-                    isSelectedInPane: isSelectedInPane,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: workspacePortalPriority,
-                    isSplit: isSplit,
-                    appearance: appearance,
-                    hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
-                    onFocus: {
-                        // Keep bonsplit focus in sync with the AppKit first responder for the
-                        // active workspace. This prevents divergence between the blue focused-tab
-                        // indicator and where keyboard input/flash-focus actually lands.
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
-                    },
-                    onRequestPanelFocus: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
-                            workspaceId: workspace.id,
-                            panelId: panel.id,
-                            in: NSApp.keyWindow ?? NSApp.mainWindow
-                        )
-                        workspace.focusPanel(panel.id)
-                    },
-                    onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
-                )
-                .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
-                }
-            } else {
-                // Fallback for tabs without panels (shouldn't happen normally)
-                EmptyPanelView(workspace: workspace, paneId: paneId)
-            }
-        } emptyPane: { paneId in
-            // Empty pane content
-            EmptyPanelView(workspace: workspace, paneId: paneId)
-                .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
-                }
-        }
+        let splitView = WorkspaceLayoutView(
+            host: workspace.layoutInteractionHandlers,
+            renderSnapshot: renderSnapshot,
+            surfaceRegistry: workspace.surfaceRegistry
+        )
         .internalOnlyTabDrag()
-        // Split zoom swaps Bonsplit between the full split tree and a single pane view.
-        // Recreate the Bonsplit subtree on zoom enter/exit so stale pre-zoom pane chrome
-        // cannot remain stacked above portal-hosted browser content.
-        .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
-        }
-        .onChange(of: notificationStore.notifications) { _, _ in
-            syncBonsplitNotificationBadges()
-        }
-        .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
-            syncBonsplitNotificationBadges()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             GhosttyConfig.invalidateLoadCache()
@@ -383,45 +340,41 @@ struct WorkspaceContentView: View {
         }
 
         Group {
-            if isMinimalMode && !isFullScreen {
-                bonsplitView
-                    .ignoresSafeArea(.container, edges: .top)
-            } else {
-                bonsplitView
-            }
-        }
-    }
-
-    private func syncBonsplitNotificationBadges() {
-        let manualUnread = workspace.manualUnreadPanelIds
-
-        for paneId in workspace.bonsplitController.allPaneIds {
-            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
-                let panelId = workspace.panelIdFromSurfaceId(tab.id)
-                let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
-                let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
-                let shouldShow = panelId.map {
-                    notificationStore.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: $0) ||
-                        manualUnread.contains($0)
-                } ?? false
-                let kindUpdate: String?? = expectedKind.map { .some($0) }
-
-                if tab.showsNotificationBadge != shouldShow ||
-                    tab.isPinned != expectedPinned ||
-                    (expectedKind != nil && tab.kind != expectedKind) {
-                    workspace.bonsplitController.updateTab(
-                        tab.id,
-                        kind: kindUpdate,
-                        showsNotificationBadge: shouldShow,
-                        isPinned: expectedPinned
-                    )
+            if isWorkspaceVisible {
+                if isMinimalMode && !isFullScreen {
+                    splitView
+                        .ignoresSafeArea(.container, edges: .top)
+                } else {
+                    splitView
                 }
+            } else {
+                // Keep the split host mounted offscreen so runtime surfaces can
+                // background-prime before the workspace becomes visible.
+                splitView
+                    .opacity(0.001)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
         }
-    }
-
-    private var splitZoomRenderIdentity: String {
-        workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
+        .onAppear {
+            #if DEBUG
+            startupLog(
+                "startup.view.appear workspace=\(workspace.id.uuidString.prefix(5)) " +
+                    "visible=\(isWorkspaceVisible ? 1 : 0) inputActive=\(isWorkspaceInputActive ? 1 : 0) " +
+                    "minimal=\(isMinimalMode ? 1 : 0) fullScreen=\(isFullScreen ? 1 : 0) " +
+                    "panels=\(workspace.panels.count) focused=\(workspace.focusedPanelId?.uuidString.prefix(5) ?? "nil")"
+            )
+            #endif
+        }
+        .onChange(of: isWorkspaceVisible) { _, newValue in
+            #if DEBUG
+            startupLog(
+                "startup.view.visibility workspace=\(workspace.id.uuidString.prefix(5)) " +
+                    "visible=\(newValue ? 1 : 0) panels=\(workspace.panels.count) " +
+                    "focused=\(workspace.focusedPanelId?.uuidString.prefix(5) ?? "nil")"
+            )
+            #endif
+        }
     }
 
     private static let tmuxWorkspacePaneTopChromeHeight: CGFloat = 30
@@ -489,16 +442,17 @@ struct WorkspaceContentView: View {
         return layoutSnapshot.panes.compactMap { pane in
             guard let selectedTabId = pane.selectedTabId,
                   let tabUUID = UUID(uuidString: selectedTabId),
-                  let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: tabUUID)) else {
+                  let panel = workspace.panel(for: TabID(uuid: tabUUID)) else {
                 return nil
             }
+            let panelId = panel.id
 
             let shouldShowUnread = Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
                     forTabId: workspace.id,
                     surfaceId: panelId
                 ),
-                isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId)
+                isManuallyUnread: workspace.isPanelManuallyUnread(panelId)
             )
             guard shouldShowUnread else { return nil }
 
@@ -681,7 +635,7 @@ struct WorkspaceContentView: View {
             )
         }
         logTheme(
-            "theme refresh end workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) chromeBg=\(workspace.bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil")"
+            "theme refresh end workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) chromeBg=\(workspace.chromeBackgroundHex ?? "nil")"
         )
     }
 
@@ -691,35 +645,9 @@ struct WorkspaceContentView: View {
     }
 }
 
-extension WorkspaceContentView {
-    #if DEBUG
-    static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
-        let found = workspace.panel(for: tab.id) != nil
-        if !found {
-            let ts = ISO8601DateFormatter().string(from: Date())
-            let line = "[\(ts)] PANEL NOT FOUND for tabId=\(tab.id) ws=\(workspace.id) panelCount=\(workspace.panels.count)\n"
-            let logPath = "/tmp/cmux-panel-debug.log"
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                defer { try? handle.close() }
-                guard (try? handle.seekToEnd()) != nil else { return }
-                try? handle.write(contentsOf: Data(line.utf8))
-            } else {
-                FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
-            }
-        }
-    }
-    #else
-    static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
-        _ = tab
-        _ = workspace
-    }
-    #endif
-}
-
 /// View shown for empty panes
 struct EmptyPanelView: View {
-    @ObservedObject var workspace: Workspace
-    let paneId: PaneID
+    let descriptor: WorkspacePlaceholderPaneContent
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     private struct ShortcutHint: View {
@@ -733,26 +661,6 @@ struct EmptyPanelView: View {
                 .padding(.vertical, 3)
                 .background(.white.opacity(0.18), in: Capsule())
         }
-    }
-
-    private func focusPane() {
-        workspace.bonsplitController.focusPane(paneId)
-    }
-
-    private func createTerminal() {
-        #if DEBUG
-        cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
-        #endif
-        focusPane()
-        _ = workspace.newTerminalSurface(inPane: paneId)
-    }
-
-    private func createBrowser() {
-        #if DEBUG
-        cmuxDebugLog("emptyPane.newBrowser pane=\(paneId.id.uuidString.prefix(5))")
-        #endif
-        focusPane()
-        _ = workspace.newBrowserSurface(inPane: paneId)
     }
 
     private var newSurfaceShortcut: StoredShortcut {
@@ -807,14 +715,14 @@ struct EmptyPanelView: View {
                     title: "Terminal",
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
-                    action: createTerminal
+                    action: descriptor.onCreateTerminal
                 )
 
                 emptyPaneActionButton(
                     title: "Browser",
                     systemImage: "globe",
                     shortcut: openBrowserShortcut,
-                    action: createBrowser
+                    action: descriptor.onCreateBrowser
                 )
             }
         }

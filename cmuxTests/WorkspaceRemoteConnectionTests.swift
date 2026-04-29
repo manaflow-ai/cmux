@@ -852,7 +852,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: false)
 
-        let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let paneID = try XCTUnwrap(workspace.paneIds.first)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let detached = try XCTUnwrap(workspace.detachSurface(panelId: panelID))
 
@@ -903,7 +903,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         let panelID = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
         let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: panelID))
-        let destinationPaneID = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+        let destinationPaneID = try XCTUnwrap(destinationWorkspace.paneIds.first)
 
         let restoredPanelID = destinationWorkspace.attachDetachedSurface(
             detached,
@@ -928,7 +928,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let manager = TabManager()
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let destinationWorkspace = manager.addWorkspace()
-        let sourcePaneID = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let sourcePaneID = try XCTUnwrap(sourceWorkspace.paneIds.first)
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -954,11 +954,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
 
         sourceWorkspace.configureRemoteConnection(config, autoConnect: false)
-        _ = sourceWorkspace.newBrowserSurface(inPane: sourcePaneID, url: URL(string: "https://example.com"), focus: false)
+        _ = sourceWorkspace.createBrowserPanel(inPane: sourcePaneID, url: URL(string: "https://example.com"), focus: false)
 
         let panelID = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
         let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: panelID))
-        let destinationPaneID = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+        let destinationPaneID = try XCTUnwrap(destinationWorkspace.paneIds.first)
 
         let restoredPanelID = destinationWorkspace.attachDetachedSurface(
             detached,
@@ -1012,7 +1012,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         let panelID = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
         let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: panelID))
-        let destinationPaneID = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+        let destinationPaneID = try XCTUnwrap(destinationWorkspace.paneIds.first)
 
         let restoredPanelID = destinationWorkspace.attachDetachedSurface(
             detached,
@@ -1036,7 +1036,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteTerminalSessionEndSkipsControlMasterCleanupWhenBrowserPanelsKeepWorkspaceRemote() throws {
         let workspace = Workspace()
-        let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let paneID = try XCTUnwrap(workspace.paneIds.first)
         let initialTerminalID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1063,7 +1063,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
 
         workspace.configureRemoteConnection(config, autoConnect: false)
-        _ = workspace.newBrowserSurface(inPane: paneID, url: URL(string: "https://example.com"), focus: false)
+        _ = workspace.createBrowserPanel(inPane: paneID, url: URL(string: "https://example.com"), focus: false)
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: initialTerminalID, relayPort: 64013)
 
@@ -1103,7 +1103,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let originalPanelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let originalPaneID = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelID))
         let movedPanel = try XCTUnwrap(
-            workspace.newTerminalSplit(from: originalPanelID, orientation: .horizontal)
+            workspace.splitTerminalPanel(fromPanelId: originalPanelID, orientation: .horizontal)
         )
 
         XCTAssertTrue(workspace.isRemoteTerminalSurface(originalPanelID))
@@ -1130,11 +1130,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         let panelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
         let sourcePaneID = try XCTUnwrap(source.paneId(forPanelId: panelID))
-        let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
-        source.surfaceTTYNames[panelID] = "/dev/ttys004"
+        let destinationPaneID = try XCTUnwrap(destination.paneIds.first)
+        source.setSurfaceTTYName(panelId: panelID, ttyName: "/dev/ttys004")
 
         let detached = try XCTUnwrap(source.detachSurface(panelId: panelID))
-        XCTAssertEqual(source.surfaceTTYNames[panelID], nil)
+        XCTAssertEqual(source.surfaceTTYName(panelId: panelID), nil)
 
         let restoredPanelID = destination.attachDetachedSurface(
             detached,
@@ -1143,8 +1143,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         XCTAssertEqual(restoredPanelID, panelID)
-        XCTAssertEqual(destination.surfaceTTYNames[panelID], "/dev/ttys004")
-        XCTAssertEqual(source.bonsplitController.tabs(inPane: sourcePaneID).count, 0)
+        XCTAssertEqual(destination.surfaceTTYName(panelId: panelID), "/dev/ttys004")
+        XCTAssertEqual(source.surfaceIds(inPane: sourcePaneID).count, 0)
     }
 
     func testDetectedSSHUploadFailureCleansUpEarlierRemoteUploads() throws {
@@ -1637,133 +1637,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             stderr: stderr,
             timedOut: timedOut
         )
-    }
-
-    func testOpenCodeInstallHooksRegistersSessionPlugin() throws {
-        let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-opencode-hooks-\(UUID().uuidString)", isDirectory: true)
-        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
-        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
-        try """
-        {
-          "plugin": [
-            "other-plugin",
-            "./plugins/cmux-session.js"
-          ]
-        }
-        """.write(to: configURL, atomically: true, encoding: .utf8)
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["OPENCODE_CONFIG_DIR"] = configDir.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["opencode", "install-hooks", "--yes"],
-            environment: environment,
-            timeout: 5
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let pluginURL = configDir
-            .appendingPathComponent("plugins", isDirectory: true)
-            .appendingPathComponent("cmux-session.js", isDirectory: false)
-        let pluginSource = try String(contentsOf: pluginURL, encoding: .utf8)
-        XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
-        XCTAssertTrue(pluginSource.contains("\"opencode-hook\""))
-
-        let data = try Data(contentsOf: configURL)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        let plugins = try XCTUnwrap(json["plugin"] as? [String])
-        XCTAssertEqual(plugins, ["other-plugin", "cmux-session"])
-    }
-
-    func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("hook")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-agent-hook-\(UUID().uuidString)", isDirectory: true)
-        let workspaceId = "11111111-1111-1111-1111-111111111111"
-        let surfaceId = "22222222-2222-2222-2222-222222222222"
-
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-            try? FileManager.default.removeItem(at: root)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            return self.v2Response(
-                id: line,
-                ok: false,
-                error: ["code": "unexpected", "message": "Unexpected command \(line)"]
-            )
-        }
-
-        var environment = ProcessInfo.processInfo.environment
-        for key in [
-            "ANTHROPIC_MODEL",
-            "CLAUDE_CONFIG_DIR",
-            "CMUX_CUSTOM_CLAUDE_PATH",
-            "NODE_OPTIONS",
-            "OPENCODE_CONFIG_DIR"
-        ] {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_WORKSPACE_ID"] = workspaceId
-        environment["CMUX_SURFACE_ID"] = surfaceId
-        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
-        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
-        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
-            "/usr/local/bin/codex",
-            "--model",
-            "gpt-5.4",
-            "old prompt"
-        ])
-        environment["CMUX_AGENT_LAUNCH_CWD"] = "/tmp/repo"
-        environment["CODEX_HOME"] = "/tmp/codex home"
-        environment["PATH"] = "/tmp/custom-bin:/usr/bin"
-        environment["SHELL"] = "/bin/zsh"
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["codex-hook", "session-start"],
-            environment: environment,
-            timeout: 5
-        )
-
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
-
-        let storeURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
-        let data = try Data(contentsOf: storeURL)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let session = try XCTUnwrap(sessions[surfaceId] as? [String: Any])
-        let launchCommand = try XCTUnwrap(session["launchCommand"] as? [String: Any])
-        let persistedEnvironment = try XCTUnwrap(launchCommand["environment"] as? [String: String])
-        XCTAssertEqual(persistedEnvironment, ["CODEX_HOME": "/tmp/codex home"])
-    }
-
-    private func base64NULSeparated(_ values: [String]) -> String {
-        var data = Data()
-        for value in values {
-            data.append(contentsOf: value.utf8)
-            data.append(0)
-        }
-        return data.base64EncodedString()
     }
 
     private func bindUnixSocket(at path: String) throws -> Int32 {

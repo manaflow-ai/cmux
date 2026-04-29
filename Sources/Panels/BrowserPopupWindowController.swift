@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import ObjectiveC
 import WebKit
 
@@ -52,7 +51,7 @@ private class BrowserPopupPanel: NSPanel {
         if flags == .command,
            KeyboardLayout.normalizedCharacters(for: event) == "w" {
             #if DEBUG
-            cmuxDebugLog("popup.panel.cmdW close")
+            dlog("popup.panel.cmdW close")
             #endif
             performClose(nil)
             return true
@@ -67,7 +66,6 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     static let maxNestingDepth = 3
 
     let webView: CmuxWebView
-    private let browserContext: BrowserPopupBrowserContext
     private let panel: NSPanel
     private let urlLabel: NSTextField
     private weak var openerPanel: BrowserPanel?
@@ -86,21 +84,21 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     init(
         configuration: WKWebViewConfiguration,
         windowFeatures: WKWindowFeatures,
-        browserContext: BrowserPopupBrowserContext,
         openerPanel: BrowserPanel?,
         parentPopupController: BrowserPopupWindowController? = nil,
         nestingDepth: Int = 0
     ) {
-        self.browserContext = browserContext
         self.openerPanel = openerPanel
         self.parentPopupController = parentPopupController
         self.nestingDepth = nestingDepth
 
-        BrowserPanel.configureWebViewConfiguration(
-            configuration,
-            websiteDataStore: browserContext.websiteDataStore,
-            processPool: browserContext.processPool
-        )
+        let browserContextSource = parentPopupController?.webView.configuration ?? openerPanel?.webView.configuration
+        if let browserContextSource {
+            BrowserPanel.configureWebViewConfiguration(
+                configuration,
+                websiteDataStore: browserContextSource.websiteDataStore
+            )
+        }
 
         // Create popup web view with WebKit's supplied configuration after
         // overlaying the opener's browser context so OAuth popups keep cmux's
@@ -239,7 +237,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         panel.delegate = self
 
         #if DEBUG
-        cmuxDebugLog("popup.init depth=\(nestingDepth) size=\(Int(contentRect.width))x\(Int(contentRect.height)) opener=\(openerPanel?.id.uuidString.prefix(5) ?? "nil")")
+        dlog("popup.init depth=\(nestingDepth) size=\(Int(contentRect.width))x\(Int(contentRect.height)) opener=\(openerPanel?.id.uuidString.prefix(5) ?? "nil")")
         #endif
 
         panel.makeKeyAndOrderFront(self)
@@ -281,7 +279,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         #if DEBUG
-        cmuxDebugLog("popup.close depth=\(nestingDepth)")
+        dlog("popup.close depth=\(nestingDepth)")
         #endif
 
         closeAllChildPopups()
@@ -315,14 +313,13 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         let nextDepth = nestingDepth + 1
         if nextDepth > Self.maxNestingDepth {
             #if DEBUG
-            cmuxDebugLog("popup.nested.blocked depth=\(nextDepth) max=\(Self.maxNestingDepth)")
+            dlog("popup.nested.blocked depth=\(nextDepth) max=\(Self.maxNestingDepth)")
             #endif
             return nil
         }
         let child = BrowserPopupWindowController(
             configuration: configuration,
             windowFeatures: windowFeatures,
-            browserContext: browserContext,
             openerPanel: openerPanel,
             parentPopupController: self,
             nestingDepth: nextDepth
@@ -331,10 +328,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         return child.webView
     }
 
-    func openInOpenerTab(_ request: URLRequest) {
+    func openInOpenerTab(_ url: URL) {
         if let openerPanel {
-            openerPanel.openLinkInNewTab(request: request)
-        } else if let url = request.url {
+            openerPanel.openLinkInNewTab(url: url)
+        } else {
             NSWorkspace.shared.open(url)
         }
     }
@@ -398,7 +395,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
     func webViewDidClose(_ webView: WKWebView) {
         #if DEBUG
-        cmuxDebugLog("popup.webViewDidClose")
+        dlog("popup.webViewDidClose")
         #endif
         controller?.closePopup()
     }
@@ -430,8 +427,8 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             )
         }
 
-        if navigationAction.request.url != nil {
-            controller?.openInOpenerTab(navigationAction.request)
+        if let url = navigationAction.request.url {
+            controller?.openInOpenerTab(url)
         }
         return nil
     }
@@ -567,7 +564,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         if browserShouldOpenURLExternally(url) {
             NSWorkspace.shared.open(url)
             #if DEBUG
-            cmuxDebugLog("popup.nav.external url=\(url.absoluteString)")
+            dlog("popup.nav.external url=\(url.absoluteString)")
             #endif
             decisionHandler(.cancel)
             return
@@ -576,7 +573,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         // Insecure HTTP → show same prompt as main browser
         if browserShouldBlockInsecureHTTPURL(url) {
             #if DEBUG
-            cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
+            dlog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
             controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
             return
@@ -629,14 +626,14 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         #if DEBUG
-        cmuxDebugLog("popup.download.didBecome source=navigationAction")
+        dlog("popup.download.didBecome source=navigationAction")
         #endif
         download.delegate = downloadDelegate
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         #if DEBUG
-        cmuxDebugLog("popup.download.didBecome source=navigationResponse")
+        dlog("popup.download.didBecome source=navigationResponse")
         #endif
         download.delegate = downloadDelegate
     }

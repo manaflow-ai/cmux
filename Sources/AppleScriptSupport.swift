@@ -539,9 +539,9 @@ final class ScriptTerminal: NSObject {
     var workingDirectory: String {
         guard NSApp.isAppleScriptEnabled else { return "" }
         // TerminalPanel.directory is never updated (updateDirectory is never called).
-        // Read from Workspace.panelDirectories instead, which is kept up to date
+        // Read from Workspace's canonical surface state instead, which is kept up to date
         // via updatePanelDirectory() from OSC 7 / shell integration.
-        return workspace?.panelDirectories[terminalId] ?? terminal?.directory ?? ""
+        return workspace?.panelDirectory(panelId: terminalId) ?? terminal?.directory ?? ""
     }
 
     func input(text: String) -> Bool {

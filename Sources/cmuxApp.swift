@@ -1,7 +1,7 @@
 import AppKit
+import Observation
 import SwiftUI
 import Darwin
-import Bonsplit
 import UniformTypeIdentifiers
 
 @main
@@ -9,7 +9,11 @@ struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
+    @StateObject private var sidebarSelectionState = SidebarSelectionState()
+    @StateObject private var fileExplorerState = FileExplorerState()
+    @StateObject private var cmuxConfigStore = CmuxConfigStore()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
@@ -186,14 +190,31 @@ struct cmuxApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainWindowBootstrapView()
+            ContentView(updateViewModel: appDelegate.updateViewModel, windowId: primaryWindowId)
+                .environmentObject(tabManager)
+                .environmentObject(notificationStore)
+                .environmentObject(sidebarState)
+                .environmentObject(sidebarSelectionState)
+                .environmentObject(fileExplorerState)
+                .environmentObject(cmuxConfigStore)
                 .onAppear {
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                         UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
                     }
 #endif
-                    bootstrapMainWindowScene()
+                    // Start the Unix socket controller for programmatic access
+                    updateSocketController()
+                    appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+                    appDelegate.fileExplorerState = fileExplorerState
+                    cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
+                    cmuxConfigStore.loadAll()
+                    applyAppearance()
+                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
+                        DispatchQueue.main.async {
+                            appDelegate.openPreferencesWindow(debugSource: "uiTestShowSettings")
+                        }
+                    }
                 }
                 .onChange(of: appearanceMode) { _ in
                     applyAppearance()
@@ -335,33 +356,6 @@ struct cmuxApp: App {
                     Button("Debug Window Controls…") {
                         DebugWindowControlsWindowController.shared.show()
                     }
-                    Button("Feed Preview…") {
-                        FeedPreviewWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.feedTextEditorDebug",
-                            defaultValue: "Feed Text Editor Lab…"
-                        )
-                    ) {
-                        FeedTextEditorDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.feedButtonStyleDebug",
-                            defaultValue: "Feed Button Style Debug…"
-                        )
-                    ) {
-                        FeedButtonStyleDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
-                            localized: "debug.menu.startupAppearanceDebug",
-                            defaultValue: "Startup Appearance Debug…"
-                        )
-                    ) {
-                        StartupAppearanceDebugWindowController.shared.show()
-                    }
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
@@ -373,6 +367,9 @@ struct cmuxApp: App {
                     }
                     Button("Split Button Layout Debug…") {
                         SplitButtonLayoutDebugWindowController.shared.show()
+                    }
+                    Button("Workspace Tab Chrome Debug…") {
+                        WorkspaceTabChromeDebugWindowController.shared.show()
                     }
                     Button(
                         String(
@@ -452,12 +449,16 @@ struct cmuxApp: App {
 
                 splitCommandButton(title: String(localized: "menu.file.newWorkspace", defaultValue: "New Workspace"), shortcut: menuShortcut(for: .newTab)) {
                     if let appDelegate = AppDelegate.shared {
-                        appDelegate.performNewWorkspaceAction(
-                            tabManager: activeTabManager,
-                            debugSource: "menu.newWorkspace"
-                        )
+                        if appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "menu.newWorkspace") == nil {
+#if DEBUG
+                            FocusLogStore.shared.append(
+                                "cmdn.route phase=fallback_new_window src=menu.newWorkspace reason=workspace_creation_returned_nil"
+                            )
+#endif
+                            appDelegate.openNewMainWindow(nil)
+                        }
                     } else {
-                        activeTabManager.addWorkspace()
+                        activeTabManager.addTab()
                     }
                 }
 
@@ -514,12 +515,6 @@ struct cmuxApp: App {
                     workspaceCommandMenuContent(manager: activeTabManager)
                 }
 
-                splitCommandButton(title: String(localized: "menu.file.reopenPreviousSession", defaultValue: "Reopen Previous Session"), shortcut: menuShortcut(for: .reopenPreviousSession)) {
-                    if AppDelegate.shared?.reopenPreviousSession() != true {
-                        NSSound.beep()
-                    }
-                }
-
                 splitCommandButton(title: String(localized: "menu.file.reopenClosedBrowserPanel", defaultValue: "Reopen Closed Browser Panel"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
                     _ = activeTabManager.reopenMostRecentlyClosedBrowserPanel()
                 }
@@ -528,35 +523,24 @@ struct cmuxApp: App {
             // Find
             CommandGroup(after: .textEditing) {
                 Menu(String(localized: "menu.find.title", defaultValue: "Find")) {
-                    let restoreFindTargetFocus = {
-                        _ = AppDelegate.shared?.restoreFocusedMainPanelFocusFromRightSidebar(
-                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                        )
-                    }
-
                     splitCommandButton(title: String(localized: "menu.find.find", defaultValue: "Find…"), shortcut: menuShortcut(for: .find)) {
 #if DEBUG
-                        cmuxDebugLog("find.menu Cmd+F fired")
+                        dlog("find.menu Cmd+F fired")
 #endif
-                        _ = AppDelegate.shared?.performFindShortcutInActiveMainWindow(
-                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                        )
+                        activeTabManager.startSearch()
                     }
 
                     splitCommandButton(title: String(localized: "menu.find.findNext", defaultValue: "Find Next"), shortcut: menuShortcut(for: .findNext)) {
-                        restoreFindTargetFocus()
                         activeTabManager.findNext()
                     }
 
                     splitCommandButton(title: String(localized: "menu.find.findPrevious", defaultValue: "Find Previous"), shortcut: menuShortcut(for: .findPrevious)) {
-                        restoreFindTargetFocus()
                         activeTabManager.findPrevious()
                     }
 
                     Divider()
 
                     splitCommandButton(title: String(localized: "menu.find.hideFindBar", defaultValue: "Hide Find Bar"), shortcut: menuShortcut(for: .hideFind)) {
-                        restoreFindTargetFocus()
                         activeTabManager.hideFind()
                     }
                     .disabled(!(activeTabManager.isFindVisible))
@@ -564,7 +548,6 @@ struct cmuxApp: App {
                     Divider()
 
                     splitCommandButton(title: String(localized: "menu.find.useSelectionForFind", defaultValue: "Use Selection for Find"), shortcut: menuShortcut(for: .useSelectionForFind)) {
-                        restoreFindTargetFocus()
                         activeTabManager.searchSelection()
                     }
                     .disabled(!(activeTabManager.canUseSelectionForFind))
@@ -576,16 +559,6 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                     if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
                         sidebarState.toggle()
-                    }
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Focus Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
-                    if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow() != true {
-                        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                        ) != true {
-                            NSSound.beep()
-                        }
                     }
                 }
 
@@ -730,10 +703,6 @@ struct cmuxApp: App {
                 }
             }
         }
-
-        Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
-            ConfigSettingsView()
-        }
     }
 
     private func showAboutPanel() {
@@ -765,18 +734,13 @@ struct cmuxApp: App {
         let mode = SocketControlSettings.effectiveMode(userMode: currentSocketMode)
         if mode != .off {
             TerminalController.shared.start(
-                tabManager: activeTabManager,
+                tabManager: tabManager,
                 socketPath: SocketControlSettings.socketPath(),
                 accessMode: mode
             )
         } else {
             TerminalController.shared.stop()
         }
-    }
-
-    private func bootstrapMainWindowScene() {
-        appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
-        applyAppearance()
     }
 
     private var currentSocketMode: SocketControlMode {
@@ -1050,35 +1014,18 @@ struct cmuxApp: App {
         AppDelegate.shared?.toggleNotificationsPopover(animated: false)
     }
 
-#if DEBUG
     private func openAllDebugWindows() {
         BrowserImportHintDebugWindowController.shared.show()
         BrowserProfilePopoverDebugWindowController.shared.show()
         SettingsAboutTitlebarDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
         BackgroundDebugWindowController.shared.show()
-        StartupAppearanceDebugWindowController.shared.show()
         MenuBarExtraDebugWindowController.shared.show()
-        FeedPreviewWindowController.shared.show()
+        WorkspaceTabChromeDebugWindowController.shared.show()
+        TabBarBackdropLabWindowController.shared.show()
+#if DEBUG
         FeedTextEditorDebugWindowController.shared.show()
-        FeedButtonStyleDebugWindowController.shared.show()
-    }
 #endif
-}
-
-private struct MainWindowBootstrapView: View {
-    var body: some View {
-        Color.clear
-            .frame(width: 1, height: 1)
-            .background(WindowAccessor { window in
-                window.identifier = NSUserInterfaceItemIdentifier("cmux.bootstrap")
-                window.isRestorable = false
-                window.orderOut(nil)
-                Task { @MainActor [weak window] in
-                    window?.orderOut(nil)
-                    window?.close()
-                }
-            })
     }
 }
 
@@ -1093,7 +1040,8 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.sidebarDebug",
     "cmux.menubarDebug",
     "cmux.backgroundDebug",
-    "cmux.startupAppearanceDebug",
+    "cmux.workspaceTabChromeDebug",
+    "cmux.tabBarBackdropLab",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1263,13 +1211,14 @@ private struct SettingsAboutTitlebarDebugOptions: Equatable {
 }
 
 @MainActor
-private final class SettingsAboutTitlebarDebugStore: ObservableObject {
+@Observable
+private final class SettingsAboutTitlebarDebugStore {
     static let shared = SettingsAboutTitlebarDebugStore()
 
-    @Published var settingsOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .settings) {
+    var settingsOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .settings) {
         didSet { applyToOpenWindows(for: .settings) }
     }
-    @Published var aboutOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .about) {
+    var aboutOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .about) {
         didSet { applyToOpenWindows(for: .about) }
     }
 
@@ -1439,7 +1388,7 @@ private final class SettingsAboutTitlebarDebugWindowController: NSWindowControll
 }
 
 private struct SettingsAboutTitlebarDebugView: View {
-    @ObservedObject private var store = SettingsAboutTitlebarDebugStore.shared
+    private let store = SettingsAboutTitlebarDebugStore.shared
 
     var body: some View {
         ScrollView {
@@ -1584,7 +1533,6 @@ private enum DebugWindowConfigSnapshot {
         shortcutHintPaneTabYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.paneHintYKey, fallback: ShortcutHintDebugSettings.defaultPaneHintY)))
         shortcutHintAlwaysShow=\(boolValue(defaults, key: ShortcutHintDebugSettings.alwaysShowHintsKey, fallback: ShortcutHintDebugSettings.defaultAlwaysShowHints))
         shortcutHintShowOnCommandHold=\(boolValue(defaults, key: ShortcutHintDebugSettings.showHintsOnCommandHoldKey, fallback: ShortcutHintDebugSettings.defaultShowHintsOnCommandHold))
-        shortcutHintShowOnControlHold=\(boolValue(defaults, key: ShortcutHintDebugSettings.showHintsOnControlHoldKey, fallback: ShortcutHintDebugSettings.defaultShowHintsOnControlHold))
         """
 
         let backgroundPayload = """
@@ -1632,7 +1580,6 @@ private enum DebugWindowConfigSnapshot {
     }
 }
 
-#if DEBUG
 private final class DebugWindowControlsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = DebugWindowControlsWindowController()
 
@@ -1728,14 +1675,6 @@ private struct DebugWindowControlsView: View {
                         Button("Background Debug…") {
                             BackgroundDebugWindowController.shared.show()
                         }
-                        Button(
-                            String(
-                                localized: "debug.menu.startupAppearanceDebug",
-                                defaultValue: "Startup Appearance Debug…"
-                            )
-                        ) {
-                            StartupAppearanceDebugWindowController.shared.show()
-                        }
                         Button("Menu Bar Extra Debug…") {
                             MenuBarExtraDebugWindowController.shared.show()
                         }
@@ -1747,6 +1686,7 @@ private struct DebugWindowControlsView: View {
                         ) {
                             TabBarBackdropLabWindowController.shared.show()
                         }
+#if DEBUG
                         Button(
                             String(
                                 localized: "debug.menu.feedTextEditorDebug",
@@ -1755,15 +1695,14 @@ private struct DebugWindowControlsView: View {
                         ) {
                             FeedTextEditorDebugWindowController.shared.show()
                         }
+#endif
                         Button("Open All Debug Windows") {
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
                             SettingsAboutTitlebarDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
                             BackgroundDebugWindowController.shared.show()
-                            StartupAppearanceDebugWindowController.shared.show()
                             MenuBarExtraDebugWindowController.shared.show()
-                            FeedTextEditorDebugWindowController.shared.show()
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1962,7 +1901,6 @@ private struct DebugWindowControlsView: View {
         pasteboard.setString(payload, forType: .string)
     }
 }
-#endif
 
 private final class BrowserImportHintDebugWindowController: NSWindowController, NSWindowDelegate {
     static let shared = BrowserImportHintDebugWindowController()
@@ -2482,7 +2420,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func show(navigationTarget: SettingsNavigationTarget? = nil) {
         guard let window else { return }
 #if DEBUG
-        cmuxDebugLog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
+        dlog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
         SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
         if !window.isVisible {
@@ -2495,7 +2433,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             }
         }
 #if DEBUG
-        cmuxDebugLog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
+        dlog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
     }
 
@@ -2686,6 +2624,7 @@ private struct FileExplorerStyleDebugView: View {
 extension Notification.Name {
     static let fileExplorerStyleDidChange = Notification.Name("fileExplorerStyleDidChange")
     static let titlebarShortcutHintsVisibilityChanged = Notification.Name("titlebarShortcutHintsVisibilityChanged")
+    static let workspaceTabChromeDebugSettingsDidChange = Notification.Name("workspaceTabChromeDebugSettingsDidChange")
 }
 
 private final class FileExplorerStyleDebugWindowController: NSWindowController, NSWindowDelegate {
@@ -3394,6 +3333,806 @@ private struct SplitButtonLayoutDebugView: View {
     }
 }
 
+// MARK: - Workspace Tab Chrome Debug Window
+
+final class WorkspaceTabChromeDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = WorkspaceTabChromeDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 1560, height: 980),
+            styleMask: [.titled, .closable, .resizable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Workspace Tab Chrome Debug"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.hidesOnDeactivate = false
+        window.isFloatingPanel = true
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.workspaceTabChromeDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: WorkspaceTabChromeDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func show() {
+        guard let window else { return }
+        window.center()
+        showWindow(nil)
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
+        if #available(macOS 14.0, *) {
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
+        } else {
+            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        }
+        if let windowIdPath = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_TAB_CHROME_WINDOW_ID_FILE"],
+           !windowIdPath.isEmpty {
+            try? "\(window.windowNumber)\n".write(
+                to: URL(fileURLWithPath: windowIdPath),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+    }
+}
+
+private struct WorkspaceTabChromeDebugRenderedScenario: Identifiable {
+    let scenario: WorkspaceLayoutTabChromeDebugScenario
+    let appKitImage: NSImage
+    let referenceImage: NSImage
+    let diffImage: NSImage
+    let metrics: WorkspaceLayoutTabChromeDebugDiffMetrics
+
+    var id: String { scenario.id }
+}
+
+@MainActor
+private func workspaceTabChromeDebugRenderedScenario(
+    from scenario: WorkspaceLayoutTabChromeDebugScenario
+) -> WorkspaceTabChromeDebugRenderedScenario? {
+    guard let appKitImage = workspaceLayoutRenderAppKitTabChromeImage(scenario: scenario),
+          let referenceImage = workspaceLayoutRenderReferenceTabChromeImage(scenario: scenario),
+          let diff = workspaceLayoutTabChromeDebugDiff(
+            appKitImage: appKitImage,
+            referenceImage: referenceImage
+          ) else {
+        return nil
+    }
+    return WorkspaceTabChromeDebugRenderedScenario(
+        scenario: scenario,
+        appKitImage: appKitImage,
+        referenceImage: referenceImage,
+        diffImage: diff.image,
+        metrics: diff.metrics
+    )
+}
+
+@MainActor
+private func workspaceTabChromeDebugRenderedScenarios() -> [WorkspaceTabChromeDebugRenderedScenario] {
+    workspaceLayoutTabChromeDebugScenarios().compactMap(workspaceTabChromeDebugRenderedScenario(from:))
+}
+
+@MainActor
+private func workspaceTabChromeDebugPreviewScenario(
+    isSelected: Bool,
+    isHovered: Bool,
+    isCloseHovered: Bool,
+    isClosePressed: Bool
+) -> WorkspaceLayoutTabChromeDebugScenario {
+    let appearance = workspaceLayoutTabChromeDebugAppearance()
+    let tab = WorkspaceLayout.Tab.rendered(title: "~/fun/cmuxterm-hq", icon: "terminal.fill", kind: .terminal)
+
+    return WorkspaceLayoutTabChromeDebugScenario(
+        id: "interactive-preview",
+        title: String(
+            localized: "debug.workspaceTabChrome.preview.scenarioTitle",
+            defaultValue: "Interactive Preview"
+        ),
+        tab: tab,
+        isSelected: isSelected,
+        isHovered: isHovered,
+        isCloseHovered: isCloseHovered || isClosePressed,
+        isClosePressed: isClosePressed,
+        showsZoomIndicator: false,
+        isZoomHovered: false,
+        isZoomPressed: false,
+        appearance: appearance
+    )
+}
+
+private struct WorkspaceTabChromeDebugView: View {
+    @AppStorage(WorkspaceLayoutTabChromeDebugSettings.closeGlyphDXKey)
+    private var closeGlyphDX = WorkspaceLayoutTabChromeDebugSettings.defaultCloseGlyphDX
+    @AppStorage(WorkspaceLayoutTabChromeDebugSettings.closeGlyphDYKey)
+    private var closeGlyphDY = WorkspaceLayoutTabChromeDebugSettings.defaultCloseGlyphDY
+    @AppStorage(WorkspaceLayoutTabChromeDebugSettings.closeCircleDXKey)
+    private var closeCircleDX = WorkspaceLayoutTabChromeDebugSettings.defaultCloseCircleDX
+    @AppStorage(WorkspaceLayoutTabChromeDebugSettings.closeCircleDYKey)
+    private var closeCircleDY = WorkspaceLayoutTabChromeDebugSettings.defaultCloseCircleDY
+    @AppStorage(WorkspaceLayoutTabChromeDebugSettings.closeCircleSizeDeltaKey)
+    private var closeCircleSizeDelta = WorkspaceLayoutTabChromeDebugSettings.defaultCloseCircleSizeDelta
+    @State private var previewIsSelected = true
+    @State private var previewIsHovered = false
+    @State private var previewCloseHovered = true
+    @State private var previewClosePressed = false
+    @State private var previewRenderedScenario: WorkspaceTabChromeDebugRenderedScenario?
+    @State private var renderedScenarios: [WorkspaceTabChromeDebugRenderedScenario] = []
+    @State private var overlayOpacity = 0.55
+    @State private var exportStatus: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Workspace Tab Chrome")
+                        .font(.headline)
+                    Text("AppKit candidate vs. reference tab rendering across representative states.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                HStack(spacing: 8) {
+                    Text("Overlay")
+                    Slider(value: $overlayOpacity, in: 0...1)
+                        .frame(width: 160)
+                    Text(String(format: "%.0f%%", overlayOpacity * 100))
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+
+                Button("Refresh") {
+                    renderAll()
+                }
+
+                Button("Export PNGs") {
+                    exportPNGs()
+                }
+            }
+
+            if !renderedScenarios.isEmpty {
+                let perfectCount = renderedScenarios.filter { $0.metrics.matchingPixels }.count
+                Text("\(perfectCount)/\(renderedScenarios.count) states pixel-perfect")
+                    .font(.caption)
+                    .foregroundColor(perfectCount == renderedScenarios.count ? .green : .secondary)
+            }
+
+            if !exportStatus.isEmpty {
+                Text(exportStatus)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            GroupBox(
+                String(
+                    localized: "debug.workspaceTabChrome.closeGlyph.sectionTitle",
+                    defaultValue: "Close Glyph"
+                )
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    tuningSliderRow(
+                        String(
+                            localized: "debug.workspaceTabChrome.closeGlyph.xLabel",
+                            defaultValue: "X"
+                        ),
+                        value: $closeGlyphDX
+                    )
+                    tuningSliderRow(
+                        String(
+                            localized: "debug.workspaceTabChrome.closeGlyph.yLabel",
+                            defaultValue: "Y"
+                        ),
+                        value: $closeGlyphDY
+                    )
+
+                    HStack(spacing: 10) {
+                        Button(
+                            String(
+                                localized: "settings.sidebarAppearance.reset.button",
+                                defaultValue: "Reset"
+                            )
+                        ) {
+                            closeGlyphDX = WorkspaceLayoutTabChromeDebugSettings.defaultCloseGlyphDX
+                            closeGlyphDY = WorkspaceLayoutTabChromeDebugSettings.defaultCloseGlyphDY
+                            applyLiveUpdate()
+                        }
+
+                        Text(
+                            String(
+                                localized: "debug.workspaceTabChrome.closeGlyph.help",
+                                defaultValue: "Updates live tabs and the debug previews."
+                            )
+                        )
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.top, 2)
+            }
+
+            GroupBox(
+                String(
+                    localized: "debug.workspaceTabChrome.closeCircle.sectionTitle",
+                    defaultValue: "Close Circle"
+                )
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    tuningSliderRow(
+                        String(
+                            localized: "debug.workspaceTabChrome.closeGlyph.xLabel",
+                            defaultValue: "X"
+                        ),
+                        value: $closeCircleDX
+                    )
+                    tuningSliderRow(
+                        String(
+                            localized: "debug.workspaceTabChrome.closeGlyph.yLabel",
+                            defaultValue: "Y"
+                        ),
+                        value: $closeCircleDY
+                    )
+                    tuningSliderRow(
+                        String(
+                            localized: "debug.workspaceTabChrome.closeCircle.sizeLabel",
+                            defaultValue: "Size"
+                        ),
+                        value: $closeCircleSizeDelta,
+                        range: WorkspaceLayoutTabChromeDebugSettings.closeCircleSizeDeltaRange,
+                        clamp: WorkspaceLayoutTabChromeDebugSettings.clampedCircleSizeDelta
+                    )
+
+                    HStack(spacing: 10) {
+                        Button(
+                            String(
+                                localized: "settings.sidebarAppearance.reset.button",
+                                defaultValue: "Reset"
+                            )
+                        ) {
+                            closeCircleDX = WorkspaceLayoutTabChromeDebugSettings.defaultCloseCircleDX
+                            closeCircleDY = WorkspaceLayoutTabChromeDebugSettings.defaultCloseCircleDY
+                            closeCircleSizeDelta = WorkspaceLayoutTabChromeDebugSettings.defaultCloseCircleSizeDelta
+                            applyLiveUpdate()
+                        }
+
+                        Text(
+                            String(
+                                localized: "debug.workspaceTabChrome.closeGlyph.help",
+                                defaultValue: "Updates live tabs and the debug previews."
+                            )
+                        )
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.top, 2)
+            }
+
+            GroupBox(
+                String(
+                    localized: "debug.workspaceTabChrome.preview.sectionTitle",
+                    defaultValue: "Interactive Preview"
+                )
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 14) {
+                        Toggle(
+                            String(
+                                localized: "debug.workspaceTabChrome.preview.selected",
+                                defaultValue: "Selected"
+                            ),
+                            isOn: $previewIsSelected
+                        )
+                        .toggleStyle(.checkbox)
+
+                        Toggle(
+                            String(
+                                localized: "debug.workspaceTabChrome.preview.tabHover",
+                                defaultValue: "Tab Hover"
+                            ),
+                            isOn: $previewIsHovered
+                        )
+                        .toggleStyle(.checkbox)
+
+                        Toggle(
+                        String(
+                                localized: "debug.workspaceTabChrome.preview.closeHover",
+                                defaultValue: "Close Hover"
+                            ),
+                            isOn: $previewCloseHovered
+                        )
+                        .toggleStyle(.checkbox)
+
+                        Toggle(
+                            String(
+                                localized: "debug.workspaceTabChrome.preview.closePressed",
+                                defaultValue: "Close Pressed"
+                            ),
+                            isOn: $previewClosePressed
+                        )
+                        .toggleStyle(.checkbox)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Live AppKit")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        WorkspaceTabChromeLiveInteractivePreviewCanvas(
+                            appearance: workspaceLayoutTabChromeDebugAppearance(),
+                            isSelected: previewIsSelected,
+                            isHovered: previewIsHovered,
+                            isCloseHovered: previewCloseHovered,
+                            isClosePressed: previewClosePressed
+                        )
+                    }
+
+                    if let previewRenderedScenario {
+                        WorkspaceTabChromeDebugScenarioSection(
+                            rendered: previewRenderedScenario,
+                            overlayOpacity: overlayOpacity
+                        )
+                    }
+
+                    WorkspaceTabChromeCloseGlyphPreviewStrip(
+                        appearance: workspaceLayoutTabChromeDebugAppearance(),
+                        closeGlyphDX: closeGlyphDX,
+                        closeGlyphDY: closeGlyphDY,
+                        closeCircleDX: closeCircleDX,
+                        closeCircleDY: closeCircleDY,
+                        closeCircleSizeDelta: closeCircleSizeDelta
+                    )
+                }
+                .padding(.top, 2)
+            }
+
+            ScrollView([.vertical, .horizontal]) {
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(renderedScenarios) { rendered in
+                        WorkspaceTabChromeDebugScenarioSection(
+                            rendered: rendered,
+                            overlayOpacity: overlayOpacity
+                        )
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear {
+            if renderedScenarios.isEmpty {
+                renderAll()
+            }
+            applyLiveUpdate()
+        }
+        .onChange(of: closeGlyphDX) { _, _ in applyLiveUpdate() }
+        .onChange(of: closeGlyphDY) { _, _ in applyLiveUpdate() }
+        .onChange(of: closeCircleDX) { _, _ in applyLiveUpdate() }
+        .onChange(of: closeCircleDY) { _, _ in applyLiveUpdate() }
+        .onChange(of: closeCircleSizeDelta) { _, _ in applyLiveUpdate() }
+        .onChange(of: previewIsSelected) { _, _ in renderPreview() }
+        .onChange(of: previewIsHovered) { _, _ in renderPreview() }
+        .onChange(of: previewCloseHovered) { _, _ in renderPreview() }
+        .onChange(of: previewClosePressed) { _, _ in renderPreview() }
+    }
+
+    private func renderAll() {
+        renderedScenarios = workspaceTabChromeDebugRenderedScenarios()
+    }
+
+    private func renderPreview() {
+        previewRenderedScenario = workspaceTabChromeDebugRenderedScenario(
+            from: workspaceTabChromeDebugPreviewScenario(
+                isSelected: previewIsSelected,
+                isHovered: previewIsHovered,
+                isCloseHovered: previewCloseHovered,
+                isClosePressed: previewClosePressed
+            )
+        )
+    }
+
+    private func tuningSliderRow(
+        _ label: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double> = WorkspaceLayoutTabChromeDebugSettings.closeGlyphOffsetRange,
+        clamp: @escaping (Double) -> Double = WorkspaceLayoutTabChromeDebugSettings.clamped
+    ) -> some View {
+        let clampedValue = Binding<Double>(
+            get: { value.wrappedValue },
+            set: { value.wrappedValue = clamp($0) }
+        )
+
+        return HStack(spacing: 8) {
+            Text(label)
+            Slider(
+                value: clampedValue,
+                in: range,
+                step: 0.01
+            )
+            TextField(
+                "",
+                value: clampedValue,
+                format: .number.precision(.fractionLength(2...3))
+            )
+                .font(.caption)
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 72)
+        }
+    }
+
+    private func exportPNGs() {
+        let formatter = ISO8601DateFormatter()
+        let stamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-tab-chrome-\(stamp)", isDirectory: true)
+        do {
+            _ = try workspaceLayoutExportTabChromeDebugArtifacts(to: directory)
+            exportStatus = directory.path
+            NSWorkspace.shared.activateFileViewerSelecting([directory])
+        } catch {
+            exportStatus = "Export failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func applyLiveUpdate() {
+        NotificationCenter.default.post(name: .workspaceTabChromeDebugSettingsDidChange, object: nil)
+        renderPreview()
+        renderAll()
+    }
+}
+
+private struct WorkspaceTabChromeCloseGlyphPreviewStrip: View {
+    let appearance: WorkspaceLayoutConfiguration.Appearance
+    let closeGlyphDX: Double
+    let closeGlyphDY: Double
+    let closeCircleDX: Double
+    let closeCircleDY: Double
+    let closeCircleSizeDelta: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(
+                String(
+                    localized: "debug.workspaceTabChrome.preview.closeState",
+                    defaultValue: "Close Button"
+                )
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+
+            HStack(alignment: .top, spacing: 12) {
+                closeGlyphCell(
+                    title: String(
+                        localized: "debug.workspaceTabChrome.preview.closeState.idle",
+                        defaultValue: "Idle"
+                    ),
+                    appearance: appearance,
+                    isHovered: false,
+                    isPressed: false
+                )
+                closeGlyphCell(
+                    title: String(
+                        localized: "debug.workspaceTabChrome.preview.closeState.hover",
+                        defaultValue: "Hover"
+                    ),
+                    appearance: appearance,
+                    isHovered: true,
+                    isPressed: false
+                )
+                closeGlyphCell(
+                    title: String(
+                        localized: "debug.workspaceTabChrome.preview.closeState.pressed",
+                        defaultValue: "Pressed"
+                    ),
+                    appearance: appearance,
+                    isHovered: true,
+                    isPressed: true
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func closeGlyphCell(
+        title: String,
+        appearance: WorkspaceLayoutConfiguration.Appearance,
+        isHovered: Bool,
+        isPressed: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: TabBarColors.nsColorPaneBackground(for: appearance)))
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(height: TabBarMetrics.activeIndicatorHeight)
+                    Spacer(minLength: 0)
+                }
+                WorkspaceTabChromeCloseGlyphPreviewCanvas(
+                    appearance: appearance,
+                    isHovered: isHovered,
+                    isPressed: isPressed,
+                    closeGlyphDX: closeGlyphDX,
+                    closeGlyphDY: closeGlyphDY,
+                    closeCircleDX: closeCircleDX,
+                    closeCircleDY: closeCircleDY,
+                    closeCircleSizeDelta: closeCircleSizeDelta
+                )
+                .frame(width: 72, height: 72)
+            }
+            .frame(width: 96, height: 96)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
+            )
+        }
+    }
+}
+
+private struct WorkspaceTabChromeCloseGlyphPreviewCanvas: NSViewRepresentable {
+    let appearance: WorkspaceLayoutConfiguration.Appearance
+    let isHovered: Bool
+    let isPressed: Bool
+    let closeGlyphDX: Double
+    let closeGlyphDY: Double
+    let closeCircleDX: Double
+    let closeCircleDY: Double
+    let closeCircleSizeDelta: Double
+
+    func makeNSView(context: Context) -> WorkspaceLayoutAccessoryDebugPreviewView {
+        WorkspaceLayoutAccessoryDebugPreviewView(
+            frame: CGRect(x: 0, y: 0, width: 72, height: 72),
+            symbolName: "xmark",
+            pointSize: TabBarMetrics.closeIconSize,
+            isHovered: isHovered,
+            isPressed: isPressed,
+            appearance: appearance
+        )
+    }
+
+    func updateNSView(_ nsView: WorkspaceLayoutAccessoryDebugPreviewView, context: Context) {
+        _ = closeGlyphDX
+        _ = closeGlyphDY
+        _ = closeCircleDX
+        _ = closeCircleDY
+        _ = closeCircleSizeDelta
+        nsView.update(
+            symbolName: "xmark",
+            pointSize: TabBarMetrics.closeIconSize,
+            isHovered: isHovered,
+            isPressed: isPressed,
+            appearance: appearance
+        )
+    }
+}
+
+private struct WorkspaceTabChromeLiveInteractivePreviewCanvas: NSViewRepresentable {
+    let appearance: WorkspaceLayoutConfiguration.Appearance
+    let isSelected: Bool
+    let isHovered: Bool
+    let isCloseHovered: Bool
+    let isClosePressed: Bool
+
+    func makeNSView(context: Context) -> WorkspaceLayoutNativeTabButtonDebugPreviewHost {
+        let host = WorkspaceLayoutNativeTabButtonDebugPreviewHost(frame: .zero)
+        host.update(
+            title: "~/fun/cmuxterm-hq",
+            icon: "terminal.fill",
+            kind: .terminal,
+            appearance: appearance,
+            isSelected: isSelected,
+            isHovered: isHovered,
+            isCloseHovered: isCloseHovered,
+            isClosePressed: isClosePressed
+        )
+        return host
+    }
+
+    func updateNSView(_ nsView: WorkspaceLayoutNativeTabButtonDebugPreviewHost, context: Context) {
+        nsView.update(
+            title: "~/fun/cmuxterm-hq",
+            icon: "terminal.fill",
+            kind: .terminal,
+            appearance: appearance,
+            isSelected: isSelected,
+            isHovered: isHovered,
+            isCloseHovered: isCloseHovered,
+            isClosePressed: isClosePressed
+        )
+    }
+}
+
+private struct WorkspaceTabChromeDebugSnapshotView: View {
+    let renderedScenarios: [WorkspaceTabChromeDebugRenderedScenario]
+    let overlayOpacity: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Workspace Tab Chrome")
+                        .font(.headline)
+                    Text("AppKit candidate vs. reference tab rendering across representative states.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Text("Overlay \(String(format: "%.0f%%", overlayOpacity * 100))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if !renderedScenarios.isEmpty {
+                let perfectCount = renderedScenarios.filter { $0.metrics.matchingPixels }.count
+                Text("\(perfectCount)/\(renderedScenarios.count) states pixel-perfect")
+                    .font(.caption)
+                    .foregroundColor(perfectCount == renderedScenarios.count ? .green : .secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(renderedScenarios) { rendered in
+                    WorkspaceTabChromeDebugScenarioSection(
+                        rendered: rendered,
+                        overlayOpacity: overlayOpacity
+                    )
+                }
+            }
+        }
+        .padding(16)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+@MainActor
+private func workspaceTabChromeDebugSnapshotImage(overlayOpacity: Double = 0.55) -> NSImage? {
+    let renderedScenarios = workspaceTabChromeDebugRenderedScenarios()
+    let hostingView = NSHostingView(
+        rootView: WorkspaceTabChromeDebugSnapshotView(
+            renderedScenarios: renderedScenarios,
+            overlayOpacity: overlayOpacity
+        )
+    )
+    let fittingSize = hostingView.fittingSize
+    guard fittingSize.width > 0, fittingSize.height > 0 else {
+        return nil
+    }
+
+    hostingView.frame = NSRect(origin: .zero, size: fittingSize)
+    hostingView.layoutSubtreeIfNeeded()
+
+    guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
+        return nil
+    }
+    hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+
+    let image = NSImage(size: fittingSize)
+    image.addRepresentation(bitmap)
+    return image
+}
+
+@MainActor
+func workspaceTabChromeDebugWriteSnapshot(to url: URL, overlayOpacity: Double = 0.55) throws {
+    guard let image = workspaceTabChromeDebugSnapshotImage(overlayOpacity: overlayOpacity),
+          let tiff = image.tiffRepresentation,
+          let bitmap = NSBitmapImageRep(data: tiff),
+          let pngData = bitmap.representation(using: .png, properties: [:]) else {
+        throw NSError(
+            domain: "cmux.workspaceTabChromeDebug",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to render workspace tab chrome debug snapshot."]
+        )
+    }
+
+    let directory = url.deletingLastPathComponent()
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try pngData.write(to: url)
+}
+
+private struct WorkspaceTabChromeDebugScenarioSection: View {
+    let rendered: WorkspaceTabChromeDebugRenderedScenario
+    let overlayOpacity: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(rendered.scenario.title)
+                    .font(.headline)
+                Text(rendered.scenario.id)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(metricSummary)
+                    .font(.caption)
+                    .foregroundColor(rendered.metrics.matchingPixels ? .green : .secondary)
+            }
+
+            HStack(alignment: .top, spacing: 14) {
+                chromeCell(title: "AppKit", image: rendered.appKitImage)
+                chromeCell(title: "Reference", image: rendered.referenceImage)
+                overlayCell
+                chromeCell(title: "Diff", image: rendered.diffImage)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+    }
+
+    private var metricSummary: String {
+        let metrics = rendered.metrics
+        return "diff \(metrics.differingPixelCount)/\(metrics.totalPixelCount), max \(metrics.maxChannelDelta), mean \(String(format: "%.2f", metrics.meanAbsoluteChannelDelta))"
+    }
+
+    @ViewBuilder
+    private func chromeCell(title: String, image: NSImage) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            chromeCanvas {
+                Image(nsImage: image)
+                    .interpolation(.none)
+                    .antialiased(false)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var overlayCell: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Overlay")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            chromeCanvas {
+                ZStack {
+                    Image(nsImage: rendered.referenceImage)
+                        .interpolation(.none)
+                        .antialiased(false)
+                    Image(nsImage: rendered.appKitImage)
+                        .interpolation(.none)
+                        .antialiased(false)
+                        .opacity(overlayOpacity)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chromeCanvas<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        let width = max(rendered.appKitImage.size.width, max(rendered.referenceImage.size.width, rendered.diffImage.size.width))
+        let height = max(rendered.appKitImage.size.height, max(rendered.referenceImage.size.height, rendered.diffImage.size.height))
+        ZStack {
+            Rectangle()
+                .fill(Color(nsColor: .windowBackgroundColor))
+            content()
+        }
+        .frame(width: width, height: height)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color.black.opacity(0.12), lineWidth: 1)
+        )
+    }
+}
+
 // MARK: - Tab Bar Backdrop Lab Window
 
 private final class TabBarBackdropLabWindowController: NSWindowController, NSWindowDelegate {
@@ -3401,7 +4140,7 @@ private final class TabBarBackdropLabWindowController: NSWindowController, NSWin
 
     private init() {
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1040),
+            contentRect: NSRect(x: 0, y: 0, width: 1320, height: 880),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -3441,7 +4180,7 @@ private struct TabBarBackdropLabVariant: Identifiable {
     let id: String
     let title: String
     let detail: String
-    let effect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect
+    let effect: WorkspaceLayoutConfiguration.Appearance.SplitButtonBackdropEffect
     let chromeHex: String
     let tabBarHex: String
     let splitButtonBackdropHex: String
@@ -3451,17 +4190,12 @@ private struct TabBarBackdropLabVariant: Identifiable {
     let surfaceColor: NSColor
     let separatorColor: NSColor
     let opacity: CGFloat
-
-    var renderIdentity: String {
-        "\(id)-\(chromeHex)-\(tabBarHex)-\(splitButtonBackdropHex)-\(paneHex)-\(borderHex)-\(String(format: "%.3f", opacity))-\(String(format: "%.1f", effect.fadeWidth))-\(String(format: "%.1f", effect.contentFadeWidth))-\(String(format: "%.1f", effect.solidWidth))-\(String(format: "%.2f", effect.fadeRampStartFraction))-\(String(format: "%.2f", effect.leadingOpacity))-\(String(format: "%.2f", effect.trailingOpacity))-\(String(format: "%.2f", effect.contentOcclusionFraction))-\(effect.masksTabContent ? 1 : 0)"
-    }
 }
 
 private struct TabBarBackdropLabView: View {
     @State private var opacity: Double
     @State private var sidebarWidth: Double = 74
-    @State private var sampleWidth: Double = 460
-    @State private var candidateSoftness: Double = Double(Workspace.bonsplitSplitButtonBackdropSoftness)
+    @State private var candidateSoftness: Double = Double(Workspace.splitButtonBackdropSoftness)
 
     init() {
         let currentOpacity = Double(WindowAppearanceSnapshot.clampedOpacity(GhosttyApp.shared.defaultBackgroundOpacity))
@@ -3480,16 +4214,16 @@ private struct TabBarBackdropLabView: View {
         WindowChromeSeparatorColor.color(forChromeBackground: terminalColor)
     }
 
-    private var candidateBackdropEffect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
+    private var candidateBackdropEffect: WorkspaceLayoutConfiguration.Appearance.SplitButtonBackdropEffect {
         let softness = CGFloat(min(max(0, candidateSoftness), 1))
-        let productionSoftness = Workspace.bonsplitSplitButtonBackdropSoftness
-        let production = Workspace.bonsplitSplitButtonBackdropEffect()
+        let productionSoftness = Workspace.splitButtonBackdropSoftness
+        let production = Workspace.splitButtonBackdropEffect()
         func interpolate(strong: CGFloat, production: CGFloat, soft: CGFloat) -> CGFloat {
             if softness <= productionSoftness {
-                let progress = softness / productionSoftness
+                let progress = productionSoftness <= 0 ? 1 : softness / productionSoftness
                 return strong + ((production - strong) * progress)
             }
-            let progress = (softness - productionSoftness) / (1 - productionSoftness)
+            let progress = (softness - productionSoftness) / max(0.0001, 1 - productionSoftness)
             return production + ((soft - production) * progress)
         }
 
@@ -3498,7 +4232,7 @@ private struct TabBarBackdropLabView: View {
             fadeWidth: interpolate(strong: 20, production: production.fadeWidth, soft: 240),
             contentFadeWidth: interpolate(strong: 0, production: production.contentFadeWidth, soft: 80),
             solidWidth: interpolate(strong: 72, production: production.solidWidth, soft: 0),
-            fadeRampStartFraction: interpolate(strong: 0, production: production.fadeRampStartFraction, soft: 0.98),
+            fadeRampStartFraction: interpolate(strong: 0, production: production.fadeRampStartFraction, soft: 0.95),
             leadingOpacity: production.leadingOpacity,
             trailingOpacity: interpolate(strong: 1.0, production: production.trailingOpacity, soft: 0.25),
             contentOcclusionFraction: interpolate(strong: 0, production: production.contentOcclusionFraction, soft: 1),
@@ -3511,21 +4245,20 @@ private struct TabBarBackdropLabView: View {
         let paneHex = "#00000000"
         let borderHex = separatorColor.hexString(includeAlpha: true)
         let opacityValue = CGFloat(opacity)
-        let candidate = candidateBackdropEffect
 
         return [
             variant(
                 id: "candidate",
                 title: String(localized: "debug.tabBarBackdropLab.variant.candidate", defaultValue: "Candidate"),
                 detail: String(localized: "debug.tabBarBackdropLab.variant.candidate.detail", defaultValue: "Translucent chrome with tab occlusion."),
-                effect: candidate,
+                effect: candidateBackdropEffect,
                 chromeHex: chromeHex,
                 paneHex: paneHex,
                 borderHex: borderHex,
                 opacity: opacityValue
             ),
             variant(
-                id: "candidateWideFade",
+                id: "wideFade",
                 title: String(localized: "debug.tabBarBackdropLab.variant.candidateWideFade", defaultValue: "Wide fade"),
                 detail: String(localized: "debug.tabBarBackdropLab.variant.candidateWideFade.detail", defaultValue: "Same model with a softer edge."),
                 effect: .init(
@@ -3544,255 +4277,73 @@ private struct TabBarBackdropLabView: View {
                 opacity: opacityValue
             ),
             variant(
-                id: "candidateSoftEnd",
-                title: String(localized: "debug.tabBarBackdropLab.variant.candidateSoftEnd", defaultValue: "Soft end"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.candidateSoftEnd.detail", defaultValue: "Same mask with lighter button fill."),
-                effect: .init(
-                    style: .translucentChrome,
-                    fadeWidth: 100,
-                    contentFadeWidth: 42,
-                    solidWidth: 14,
-                    fadeRampStartFraction: 0.84,
-                    leadingOpacity: 0,
-                    trailingOpacity: 0.82,
-                    masksTabContent: true
-                ),
+                id: "transparent",
+                title: String(localized: "debug.tabBarBackdropLab.variant.sharedBackdrop", defaultValue: "Shared backdrop"),
+                detail: String(localized: "debug.tabBarBackdropLab.variant.sharedBackdrop.detail", defaultValue: "Transparent local pane surfaces."),
+                effect: .init(style: .hidden, masksTabContent: false),
                 chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "candidateTightEdge",
-                title: String(localized: "debug.tabBarBackdropLab.variant.candidateTightEdge", defaultValue: "Tight edge"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.candidateTightEdge.detail", defaultValue: "More coverage at the fade start."),
-                effect: .init(
-                    style: .translucentChrome,
-                    fadeWidth: 90,
-                    contentFadeWidth: 34,
-                    solidWidth: 24,
-                    fadeRampStartFraction: 0.70,
-                    leadingOpacity: 0.08,
-                    trailingOpacity: 1.0,
-                    masksTabContent: true
-                ),
-                chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "candidateLowContrast",
-                title: String(localized: "debug.tabBarBackdropLab.variant.candidateLowContrast", defaultValue: "Low contrast"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.candidateLowContrast.detail", defaultValue: "Lower-opacity solid region."),
-                effect: .init(
-                    style: .translucentChrome,
-                    fadeWidth: 102,
-                    contentFadeWidth: 38,
-                    solidWidth: 12,
-                    fadeRampStartFraction: 0.86,
-                    leadingOpacity: 0,
-                    trailingOpacity: 0.72,
-                    masksTabContent: true
-                ),
-                chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "translucentChrome",
-                title: String(localized: "debug.tabBarBackdropLab.variant.translucentChrome", defaultValue: "6 Translucent chrome"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.translucentChrome.detail", defaultValue: "Shows the bleed-through problem."),
-                effect: .init(
-                    style: .translucentChrome,
-                    fadeWidth: 96,
-                    contentFadeWidth: 42,
-                    solidWidth: 18,
-                    fadeRampStartFraction: 0.82,
-                    leadingOpacity: 0,
-                    trailingOpacity: 1.0,
-                    masksTabContent: false
-                ),
-                chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "translucentNoFade",
-                title: String(localized: "debug.tabBarBackdropLab.variant.translucentNoFade", defaultValue: "No fade"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.translucentNoFade.detail", defaultValue: "Hard translucent edge for contrast."),
-                effect: .init(
-                    style: .translucentChrome,
-                    fadeWidth: 0,
-                    solidWidth: 30,
-                    leadingOpacity: 1.0,
-                    trailingOpacity: 1.0,
-                    masksTabContent: true
-                ),
-                chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "hidden",
-                title: String(localized: "debug.tabBarBackdropLab.variant.hidden", defaultValue: "7 No backdrop"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.hidden.detail", defaultValue: "Control sample. Tabs remain visible below the buttons."),
-                effect: .init(style: .hidden, fadeWidth: 24, leadingOpacity: 0, trailingOpacity: 0, masksTabContent: false),
-                chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "precompositedPane",
-                title: String(localized: "debug.tabBarBackdropLab.variant.precompositedPane", defaultValue: "0 Opaque pane composite"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.precompositedPane.detail", defaultValue: "Old candidate. Covers too hard."),
-                effect: .init(style: .precompositedPaneBackground, fadeWidth: 24, leadingOpacity: 0, trailingOpacity: 1.0, masksTabContent: false),
-                chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "opaquePane",
-                title: String(localized: "debug.tabBarBackdropLab.variant.opaquePane", defaultValue: "1 Raw pane opaque"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.opaquePane.detail", defaultValue: "Forces the pane fill to full opacity."),
-                effect: .init(style: .opaquePaneBackground, fadeWidth: 24, leadingOpacity: 0, trailingOpacity: 1.0, masksTabContent: false),
-                chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "opaqueBar",
-                title: String(localized: "debug.tabBarBackdropLab.variant.opaqueBar", defaultValue: "2 Raw bar opaque"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.opaqueBar.detail", defaultValue: "Uses the tab chrome color at full opacity."),
-                effect: .init(style: .opaqueBarBackground, fadeWidth: 24, leadingOpacity: 0, trailingOpacity: 1.0, masksTabContent: false),
-                chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "precompositedBar",
-                title: String(localized: "debug.tabBarBackdropLab.variant.precompositedBar", defaultValue: "5 Opaque bar composite"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.precompositedBar.detail", defaultValue: "Composites tab chrome over the window background."),
-                effect: .init(style: .precompositedBarBackground, fadeWidth: 24, leadingOpacity: 0, trailingOpacity: 1.0, masksTabContent: false),
-                chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "windowBackground",
-                title: String(localized: "debug.tabBarBackdropLab.variant.windowBackground", defaultValue: "3 Window background"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.windowBackground.detail", defaultValue: "Uses AppKit windowBackgroundColor."),
-                effect: .init(style: .windowBackground, fadeWidth: 24, leadingOpacity: 0, trailingOpacity: 1.0, masksTabContent: false),
-                chromeHex: chromeHex,
-                paneHex: paneHex,
-                borderHex: borderHex,
-                opacity: opacityValue
-            ),
-            variant(
-                id: "controlBackground",
-                title: String(localized: "debug.tabBarBackdropLab.variant.controlBackground", defaultValue: "4 Control background"),
-                detail: String(localized: "debug.tabBarBackdropLab.variant.controlBackground.detail", defaultValue: "Uses AppKit controlBackgroundColor."),
-                effect: .init(style: .controlBackground, fadeWidth: 24, leadingOpacity: 0, trailingOpacity: 1.0, masksTabContent: false),
-                chromeHex: chromeHex,
+                tabBarHex: "#00000000",
+                splitButtonBackdropHex: "#00000000",
                 paneHex: paneHex,
                 borderHex: borderHex,
                 opacity: opacityValue
             ),
         ]
-    }
-
-    private var sampleWidthValue: CGFloat {
-        CGFloat(sampleWidth)
-    }
-
-    private var gridColumns: [GridItem] {
-        [
-            GridItem(.fixed(sampleWidthValue), spacing: 16, alignment: .top),
-            GridItem(.fixed(sampleWidthValue), spacing: 16, alignment: .top),
-            GridItem(.fixed(sampleWidthValue), spacing: 16, alignment: .top),
-        ]
-    }
-
-    private var gridContentWidth: CGFloat {
-        sampleWidthValue * 3 + 32
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(String(localized: "debug.tabBarBackdropLab.title", defaultValue: "Tab Bar Backdrop Lab"))
-                        .font(.headline)
-                    Text(String(localized: "debug.tabBarBackdropLab.subtitle", defaultValue: "Live Bonsplit tab bars with overflow tabs under the split buttons. The window background is transparent."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(String(localized: "debug.tabBarBackdropLab.title", defaultValue: "Tab Bar Backdrop Lab"))
+                    .font(.title2.weight(.semibold))
+                Text(String(localized: "debug.tabBarBackdropLab.subtitle", defaultValue: "Live WorkspaceSplit tab bars with overflow tabs under the split buttons. The window background is transparent."))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
-                HStack(alignment: .center, spacing: 18) {
+                HStack(spacing: 18) {
                     labSlider(
-                        title: String(localized: "debug.tabBarBackdropLab.opacity", defaultValue: "Surface opacity"),
+                        title: String(localized: "debug.tabBarBackdropLab.opacity", defaultValue: "Opacity"),
                         value: $opacity,
-                        range: 0.2...1.0,
-                        displayValue: "\(Int(opacity * 100))%",
-                        width: 150
-                    )
-                    labSlider(
-                        title: String(localized: "debug.tabBarBackdropLab.width", defaultValue: "Sample width"),
-                        value: $sampleWidth,
-                        range: 390...580,
-                        displayValue: "\(Int(sampleWidth))",
-                        width: 140
-                    )
-                    labSlider(
-                        title: String(localized: "debug.tabBarBackdropLab.candidateSoftness", defaultValue: "Candidate softness"),
-                        value: $candidateSoftness,
-                        range: 0...1,
-                        displayValue: "\(Int(candidateSoftness * 100))%",
+                        range: 0.25...1,
+                        displayValue: String(format: "%.2f", opacity),
                         width: 180
                     )
+                    labSlider(
+                        title: String(localized: "debug.tabBarBackdropLab.sidebarWidth", defaultValue: "Sidebars"),
+                        value: $sidebarWidth,
+                        range: 48...140,
+                        displayValue: "\(Int(sidebarWidth))",
+                        width: 160
+                    )
+                    labSlider(
+                        title: String(localized: "debug.tabBarBackdropLab.softness", defaultValue: "Softness"),
+                        value: $candidateSoftness,
+                        range: 0...1,
+                        displayValue: String(format: "%.2f", candidateSoftness),
+                        width: 160
+                    )
                 }
-            }
-            .padding(12)
-            .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-            ScrollView {
-                LazyVGrid(
-                    columns: gridColumns,
-                    alignment: .leading,
-                    spacing: 16
-                ) {
+                LazyVStack(alignment: .leading, spacing: 18) {
                     ForEach(variants) { variant in
                         TabBarBackdropLabSample(
                             variant: variant,
                             sidebarWidth: CGFloat(sidebarWidth)
                         )
-                        .id(variant.renderIdentity)
-                        .frame(width: sampleWidthValue, alignment: .topLeading)
                     }
                 }
-                .frame(minWidth: gridContentWidth, alignment: .leading)
-                .padding(.bottom, 24)
             }
-            .scrollIndicators(.visible)
+            .padding(18)
         }
-        .padding(18)
         .background(Color.clear)
-        .frame(minWidth: 1320, minHeight: 820)
+        .frame(minWidth: 1120, minHeight: 720)
     }
 
     private func variant(
         id: String,
         title: String,
         detail: String,
-        effect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect,
+        effect: WorkspaceLayoutConfiguration.Appearance.SplitButtonBackdropEffect,
         chromeHex: String,
         tabBarHex: String? = nil,
         splitButtonBackdropHex: String? = nil,
@@ -3837,12 +4388,29 @@ private struct TabBarBackdropLabView: View {
 private struct TabBarBackdropLabSample: View {
     let variant: TabBarBackdropLabVariant
     let sidebarWidth: CGFloat
-    @State private var controller: BonsplitController
 
-    init(variant: TabBarBackdropLabVariant, sidebarWidth: CGFloat) {
-        self.variant = variant
-        self.sidebarWidth = sidebarWidth
-        _controller = State(initialValue: Self.makeController(for: variant))
+    private var appearance: WorkspaceLayoutConfiguration.Appearance {
+        WorkspaceLayoutConfiguration.Appearance(
+            tabBarHeight: 33,
+            tabMinWidth: 138,
+            tabMaxWidth: 210,
+            tabTitleFontSize: 11,
+            minimumPaneWidth: 120,
+            minimumPaneHeight: 80,
+            showSplitButtons: true,
+            splitButtonsOnHover: false,
+            splitButtonBackdropEffect: variant.effect,
+            animationDuration: 0,
+            enableAnimations: false,
+            chromeColors: .init(
+                backgroundHex: variant.chromeHex,
+                tabBarBackgroundHex: variant.tabBarHex,
+                splitButtonBackdropHex: variant.splitButtonBackdropHex,
+                paneBackgroundHex: variant.paneHex,
+                borderHex: variant.borderHex
+            ),
+            usesSharedBackdrop: variant.tabBarHex == "#00000000"
+        )
     }
 
     var body: some View {
@@ -3850,10 +4418,9 @@ private struct TabBarBackdropLabSample: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(variant.title)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.primary)
                 Text(variant.detail)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(.secondary)
                     .lineLimit(1)
             }
 
@@ -3873,14 +4440,14 @@ private struct TabBarBackdropLabSample: View {
                     )
                     .frame(height: 24)
 
-                    BonsplitView(controller: controller) { tab, _ in
+                    VStack(spacing: 0) {
+                        TabBarBackdropLabTabStrip(appearance: appearance)
+                            .frame(height: appearance.tabBarHeight)
                         TabBarBackdropLabTerminalPane(
-                            title: tab.title,
+                            title: String(localized: "debug.tabBarBackdropLab.tab.backdropCheck", defaultValue: "split button backdrop check"),
                             color: variant.terminalColor,
                             opacity: variant.opacity
                         )
-                    } emptyPane: { _ in
-                        Color.clear
                     }
                 }
                 .frame(height: 132)
@@ -3901,79 +4468,66 @@ private struct TabBarBackdropLabSample: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .onAppear {
-            applyVariant()
-        }
-        .onChange(of: variant.renderIdentity) { _, _ in
-            applyVariant()
-        }
     }
+}
 
-    private func applyVariant() {
-        controller.configuration = Self.makeConfiguration(for: variant)
-    }
+private struct TabBarBackdropLabTabStrip: View {
+    let appearance: WorkspaceLayoutConfiguration.Appearance
 
-    private static func makeAppearance(for variant: TabBarBackdropLabVariant) -> BonsplitConfiguration.Appearance {
-        BonsplitConfiguration.Appearance(
-            tabBarHeight: 33,
-            tabMinWidth: 138,
-            tabMaxWidth: 210,
-            tabTitleFontSize: 11,
-            tabSpacing: 0,
-            minimumPaneWidth: 120,
-            minimumPaneHeight: 80,
-            showSplitButtons: true,
-            splitButtons: BonsplitConfiguration.SplitActionButton.defaults,
-            splitButtonsOnHover: false,
-            splitButtonBackdropEffect: variant.effect,
-            animationDuration: 0.0,
-            enableAnimations: false,
-            chromeColors: .init(
-                backgroundHex: variant.chromeHex,
-                tabBarBackgroundHex: variant.tabBarHex,
-                splitButtonBackdropHex: variant.splitButtonBackdropHex,
-                paneBackgroundHex: variant.paneHex,
-                borderHex: variant.borderHex
-            )
-        )
-    }
+    private let titles = [
+        String(localized: "debug.tabBarBackdropLab.tab.agentBrowserLogs", defaultValue: "agent-browser logs"),
+        String(localized: "debug.tabBarBackdropLab.tab.terminalTransparency", defaultValue: "cmux terminal transparency"),
+        String(localized: "debug.tabBarBackdropLab.tab.underlayText", defaultValue: "underlay tab text visible here"),
+        String(localized: "debug.tabBarBackdropLab.tab.rightEdgeOverflow", defaultValue: "right edge overflow sample"),
+        String(localized: "debug.tabBarBackdropLab.tab.hiddenBelowControls", defaultValue: "tabs hidden below controls")
+    ]
 
-    private static func makeConfiguration(for variant: TabBarBackdropLabVariant) -> BonsplitConfiguration {
-        BonsplitConfiguration(
-            allowSplits: true,
-            allowCloseTabs: true,
-            allowTabReordering: false,
-            allowCrossPaneTabMove: false,
-            autoCloseEmptyPanes: false,
-            contentViewLifecycle: .recreateOnSwitch,
-            newTabPosition: .end,
-            appearance: makeAppearance(for: variant)
-        )
-    }
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            HStack(spacing: appearance.tabSpacing) {
+                ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
+                    Text(title)
+                        .font(.system(size: appearance.tabTitleFontSize))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundColor(TabBarColors.activeText(for: appearance))
+                        .padding(.horizontal, 10)
+                        .frame(width: index == 0 ? 170 : 200, height: max(24, appearance.tabBarHeight - 7), alignment: .leading)
+                        .background(index == 0 ? TabBarColors.activeTabBackground(for: appearance) : TabBarColors.hoveredTabBackground(for: appearance))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 88)
 
-    private static func makeController(for variant: TabBarBackdropLabVariant) -> BonsplitController {
-        let controller = BonsplitController(configuration: makeConfiguration(for: variant))
-
-        let titles = [
-            String(localized: "debug.tabBarBackdropLab.tab.agentBrowserLogs", defaultValue: "agent-browser logs"),
-            String(localized: "debug.tabBarBackdropLab.tab.terminalTransparency", defaultValue: "cmux terminal transparency"),
-            String(localized: "debug.tabBarBackdropLab.tab.underlayText", defaultValue: "underlay tab text visible here"),
-            String(localized: "debug.tabBarBackdropLab.tab.backdropCheck", defaultValue: "split button backdrop check"),
-            String(localized: "debug.tabBarBackdropLab.tab.rightEdgeOverflow", defaultValue: "right edge overflow sample"),
-            String(localized: "debug.tabBarBackdropLab.tab.hiddenBelowControls", defaultValue: "tabs hidden below controls")
-        ]
-        let tabs = titles.enumerated().compactMap { index, title in
-            controller.createTab(
-                title: title,
-                icon: index == 0 ? "terminal" : "doc.text",
-                isDirty: index == 2,
-                showsNotificationBadge: index == 4
+            HStack(spacing: 4) {
+                Image(systemName: "plus")
+                Image(systemName: "rectangle.split.2x1")
+                Image(systemName: "rectangle.split.1x2")
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(TabBarColors.splitActionIcon(for: appearance, isPressed: false))
+            .padding(.horizontal, 9)
+            .frame(height: appearance.tabBarHeight)
+            .background(
+                LinearGradient(
+                    stops: [
+                        .init(color: Color(nsColor: TabBarColors.nsColorSplitButtonBackdropSurface(for: appearance)).opacity(0), location: 0),
+                        .init(color: Color(nsColor: TabBarColors.nsColorSplitButtonBackdropSurface(for: appearance)), location: 0.65),
+                        .init(color: Color(nsColor: TabBarColors.nsColorSplitButtonBackdropSurface(for: appearance)), location: 1),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
             )
         }
-        if let selected = tabs.dropFirst(4).first ?? tabs.first {
-            controller.selectTab(selected)
+        .background(TabBarColors.barBackground(for: appearance))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(TabBarColors.separator(for: appearance))
+                .frame(height: 1)
         }
-        return controller
     }
 }
 
@@ -4040,11 +4594,11 @@ private struct TabBarBackdropLabTerminalPane: View {
             Color(nsColor: color.withAlphaComponent(opacity))
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(String(localized: "debug.tabBarBackdropLab.terminal.prompt", defaultValue: "lawrence in ~/cmux")) \(title)")
-                    .foregroundStyle(Color.green)
+                    .foregroundColor(.green)
                 Text(String(localized: "debug.tabBarBackdropLab.terminal.overflow", defaultValue: "tab titles intentionally overflow under the split buttons"))
-                    .foregroundStyle(Color.white.opacity(0.78))
+                    .foregroundColor(.white.opacity(0.78))
                 Text(String(localized: "debug.tabBarBackdropLab.terminal.compare", defaultValue: "drag / resize / compare the transparent edges"))
-                    .foregroundStyle(Color.white.opacity(0.52))
+                    .foregroundColor(.white.opacity(0.52))
                 Spacer(minLength: 0)
             }
             .font(.system(size: 11, design: .monospaced))
@@ -4200,291 +4754,6 @@ private struct BackgroundDebugView: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(payload, forType: .string)
-    }
-}
-
-private final class StartupAppearanceDebugWindowController: NSWindowController, NSWindowDelegate {
-    static let shared = StartupAppearanceDebugWindowController()
-
-    private init() {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 500),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = String(
-            localized: "debug.startupAppearance.window.title",
-            defaultValue: "Startup Appearance Debug"
-        )
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.startupAppearanceDebug")
-        window.center()
-        window.contentView = NSHostingView(rootView: StartupAppearanceDebugView())
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-    }
-}
-
-private enum StartupAppearancePreviewMode: String, CaseIterable, Identifiable {
-    case stored
-    case light
-    case dark
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .stored:
-            return String(
-                localized: "debug.startupAppearance.mode.stored",
-                defaultValue: "Stored App Setting"
-            )
-        case .light:
-            return String(
-                localized: "debug.startupAppearance.mode.light",
-                defaultValue: "Force Light"
-            )
-        case .dark:
-            return String(
-                localized: "debug.startupAppearance.mode.dark",
-                defaultValue: "Force Dark"
-            )
-        }
-    }
-}
-
-private struct StartupAppearanceDebugView: View {
-    @State private var selectedProfile = GhosttyStartupAppearancePreviewState.profile
-    @State private var selectedAppearance = StartupAppearancePreviewMode.stored
-    @State private var lastAppliedProfile = GhosttyStartupAppearancePreviewState.profile
-    @State private var lastAppliedAppearance = StartupAppearancePreviewMode.stored
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(
-                    String(
-                        localized: "debug.startupAppearance.window.title",
-                        defaultValue: "Startup Appearance Debug"
-                    )
-                )
-                    .font(.headline)
-
-                GroupBox(
-                    String(
-                        localized: "debug.startupAppearance.preview.heading",
-                        defaultValue: "Preview"
-                    )
-                ) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Picker(
-                            String(
-                                localized: "debug.startupAppearance.startupConfig.label",
-                                defaultValue: "Startup config"
-                            ),
-                            selection: $selectedProfile
-                        ) {
-                            ForEach(GhosttyStartupAppearancePreviewProfile.allCases) { profile in
-                                Text(profile.displayName).tag(profile)
-                            }
-                        }
-                        .pickerStyle(.menu)
-
-                        Text(selectedProfile.detail)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Picker(
-                            String(
-                                localized: "debug.startupAppearance.appearance.label",
-                                defaultValue: "Appearance"
-                            ),
-                            selection: $selectedAppearance
-                        ) {
-                            ForEach(StartupAppearancePreviewMode.allCases) { mode in
-                                Text(mode.displayName).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        HStack(spacing: 12) {
-                            Button(
-                                String(
-                                    localized: "debug.startupAppearance.applyPreview.button",
-                                    defaultValue: "Apply Preview"
-                                )
-                            ) {
-                                applyPreview()
-                            }
-                            .keyboardShortcut(.defaultAction)
-
-                            Button(
-                                String(
-                                    localized: "debug.startupAppearance.restoreRealStartup.button",
-                                    defaultValue: "Restore Real Startup"
-                                )
-                            ) {
-                                restoreRealStartup()
-                            }
-                        }
-                    }
-                    .padding(.top, 2)
-                }
-
-                GroupBox(
-                    String(
-                        localized: "debug.startupAppearance.selectedConfig.heading",
-                        defaultValue: "Selected Config"
-                    )
-                ) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ScrollView {
-                            Text(selectedConfigText)
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .topLeading)
-                                .padding(8)
-                        }
-                        .frame(minHeight: 92, maxHeight: 150)
-                        .background(Color(nsColor: .textBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-
-                        Button(
-                            String(
-                                localized: "debug.startupAppearance.copySelectedConfig.button",
-                                defaultValue: "Copy Selected Config"
-                            )
-                        ) {
-                            copySelectedConfig()
-                        }
-                        .disabled(selectedPreviewConfigText == nil)
-                    }
-                    .padding(.top, 2)
-                }
-
-                GroupBox(
-                    String(
-                        localized: "debug.startupAppearance.applied.heading",
-                        defaultValue: "Applied"
-                    )
-                ) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 4) {
-                            Text(
-                                String(
-                                    localized: "debug.startupAppearance.applied.configLabel",
-                                    defaultValue: "Config:"
-                                )
-                            )
-                            Text(lastAppliedProfile.displayName)
-                        }
-                        HStack(spacing: 4) {
-                            Text(
-                                String(
-                                    localized: "debug.startupAppearance.applied.appearanceLabel",
-                                    defaultValue: "Appearance:"
-                                )
-                            )
-                            Text(lastAppliedAppearance.displayName)
-                        }
-                        Text(
-                            String(
-                                localized: "debug.startupAppearance.applied.help",
-                                defaultValue: "Reloads the running app through Ghostty config update, matching startup theme resolution without editing config files."
-                            )
-                        )
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var selectedPreviewConfigText: String? {
-        selectedProfile.previewConfigContents()
-    }
-
-    private var selectedConfigText: String {
-        selectedPreviewConfigText ?? String(
-            localized: "debug.startupAppearance.realConfigFallback",
-            defaultValue: "Loads real user config files."
-        )
-    }
-
-    private func applyPreview() {
-        applyAppearance(selectedAppearance)
-        GhosttyStartupAppearancePreviewState.profile = selectedProfile
-        GhosttyConfig.invalidateLoadCache()
-        GhosttyApp.shared.reloadConfiguration(
-            source: "debug.startupAppearancePreview",
-            reloadSettingsFromFile: false
-        )
-        lastAppliedProfile = selectedProfile
-        lastAppliedAppearance = selectedAppearance
-    }
-
-    private func restoreRealStartup() {
-        selectedProfile = .realUserConfig
-        selectedAppearance = .stored
-        applyAppearance(.stored)
-        GhosttyStartupAppearancePreviewState.profile = .realUserConfig
-        GhosttyConfig.invalidateLoadCache()
-        GhosttyApp.shared.reloadConfiguration(
-            source: "debug.startupAppearanceRestore",
-            reloadSettingsFromFile: false
-        )
-        lastAppliedProfile = .realUserConfig
-        lastAppliedAppearance = .stored
-    }
-
-    private func applyAppearance(_ mode: StartupAppearancePreviewMode) {
-        switch mode {
-        case .stored:
-            switch AppearanceSettings.resolvedMode() {
-            case .system, .auto:
-                NSApplication.shared.appearance = nil
-            case .light:
-                NSApplication.shared.appearance = NSAppearance(named: .aqua)
-            case .dark:
-                NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
-            }
-        case .light:
-            NSApplication.shared.appearance = NSAppearance(named: .aqua)
-        case .dark:
-            NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
-        }
-    }
-
-    private func copySelectedConfig() {
-        guard let config = selectedPreviewConfigText else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(config, forType: .string)
     }
 }
 
@@ -5276,7 +5545,6 @@ struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
-    @Environment(\.openWindow) private var openWindow
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -5353,8 +5621,6 @@ struct SettingsView: View {
     private var openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser
     @AppStorage(ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
     private var showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
-    @AppStorage(ShortcutHintDebugSettings.showHintsOnControlHoldKey)
-    private var showShortcutHintsOnControlHold = ShortcutHintDebugSettings.defaultShowHintsOnControlHold
     @AppStorage("sidebarShowSSH") private var sidebarShowSSH = true
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
@@ -5367,7 +5633,6 @@ struct SettingsView: View {
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
-    @ObservedObject private var authManager = AuthManager.shared
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
@@ -5390,6 +5655,7 @@ struct SettingsView: View {
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
+    @State private var trustedDirectoriesDraft: String = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -5652,6 +5918,14 @@ struct SettingsView: View {
         browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
     }
 
+    private func saveTrustedDirectories() {
+        let paths = trustedDirectoriesDraft
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        CmuxDirectoryTrust.shared.replaceAll(with: paths)
+    }
+
     private var hasCustomNotificationSoundFilePath: Bool {
         !notificationSoundCustomFilePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -5842,7 +6116,7 @@ struct SettingsView: View {
     private func handleNotificationPermissionAction() {
         let state = notificationStore.authorizationState.statusLabel
 #if DEBUG
-        cmuxDebugLog("notification.ui enableTapped state=\(state)")
+        dlog("notification.ui enableTapped state=\(state)")
 #endif
         NSLog("notification.ui enableTapped state=%@", state)
         switch notificationStore.authorizationState {
@@ -5891,11 +6165,6 @@ struct SettingsView: View {
             ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
-                    SettingsCard {
-                        AuthSettingsRow(authManager: authManager)
-                    }
-
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
                     SettingsCard {
                         SettingsCardRow(
@@ -6019,23 +6288,6 @@ struct SettingsView: View {
                             )
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .action,
-                            String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
-                            subtitle: String(
-                                localized: "settings.app.configWindow.subtitle",
-                                defaultValue: "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
-                            )
-                        ) {
-                            Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config Window")) {
-                                openWindow(id: ConfigSettingsView.windowID)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
                         }
 
                         SettingsCardDivider()
@@ -6889,6 +7141,39 @@ struct SettingsView: View {
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
                     }
 
+                    SettingsSectionHeader(title: String(localized: "settings.section.customCommands", defaultValue: "Custom Commands"))
+                    SettingsCard {
+                        VStack(alignment: .leading, spacing: 6) {
+                            SettingsCardRow(
+                                configurationReview: .json("customCommands.trustedDirectories"),
+                                String(localized: "settings.customCommands.trustedDirectories", defaultValue: "Trusted Directories"),
+                                subtitle: String(localized: "settings.customCommands.trustedDirectories.subtitle", defaultValue: "Commands from cmux.json in these directories run without confirmation. One path per line.")
+                            ) {
+                                EmptyView()
+                            }
+
+                            TextEditor(text: $trustedDirectoriesDraft)
+                                .font(.system(.body, design: .monospaced))
+                                .frame(minHeight: 60, maxHeight: 120)
+                                .scrollContentBackground(.hidden)
+                                .padding(6)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                                )
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 12)
+                                .onChange(of: trustedDirectoriesDraft) { _ in
+                                    saveTrustedDirectories()
+                                }
+                        }
+
+                        SettingsCardDivider()
+                        SettingsCardNote(String(localized: "settings.customCommands.trustedDirectories.note", defaultValue: "Place a cmux.json in your project root to define custom commands. Trust a directory from the confirmation dialog, or add paths here. For git repos, trusting the root covers all subdirectories."))
+                    }
+
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
                         .id(SettingsNavigationTarget.browser)
                         .accessibilityIdentifier("SettingsBrowserSection")
@@ -7196,20 +7481,11 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("shortcuts.showModifierHoldHints"),
                             String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
-                            subtitle: (showShortcutHintsOnCommandHold || showShortcutHintsOnControlHold)
+                            subtitle: showShortcutHintsOnCommandHold
                                 ? String(localized: "settings.shortcuts.showHints.subtitleOn", defaultValue: "Holding Cmd (sidebar/titlebar) or Ctrl/Cmd (pane tabs) shows shortcut hint pills.")
                                 : String(localized: "settings.shortcuts.showHints.subtitleOff", defaultValue: "Holding Cmd or Ctrl keeps shortcut hint pills hidden.")
                         ) {
-                            Toggle(
-                                "",
-                                isOn: Binding(
-                                    get: { showShortcutHintsOnCommandHold || showShortcutHintsOnControlHold },
-                                    set: { newValue in
-                                        showShortcutHintsOnCommandHold = newValue
-                                        showShortcutHintsOnControlHold = newValue
-                                    }
-                                )
-                            )
+                            Toggle("", isOn: $showShortcutHintsOnCommandHold)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -7515,7 +7791,6 @@ struct SettingsView: View {
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
-        showShortcutHintsOnControlHold = ShortcutHintDebugSettings.defaultShowHintsOnControlHold
         sidebarShowSSH = true
         sidebarShowPorts = true
         sidebarShowLog = true
@@ -7623,84 +7898,6 @@ private struct SettingsSectionHeader: View {
             .foregroundColor(.secondary)
             .padding(.leading, 2)
             .padding(.bottom, -2)
-    }
-}
-
-private struct AuthSettingsRow: View {
-    @ObservedObject var authManager: AuthManager
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(titleText)
-                    .font(.system(size: 13, weight: .medium))
-                if let subtitle = subtitleText {
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-            }
-            Spacer(minLength: 12)
-            if authManager.isLoading || authManager.isRestoringSession {
-                ProgressView().controlSize(.small)
-            }
-            Button(action: buttonAction) {
-                Text(buttonTitle)
-            }
-            .controlSize(.small)
-            .disabled(authManager.isLoading || authManager.isRestoringSession)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-    }
-
-    private var titleText: String {
-        if authManager.isAuthenticated {
-            if let email = authManager.currentUser?.primaryEmail, !email.isEmpty {
-                return email
-            }
-            return String(
-                localized: "settings.account.signedIn.title",
-                defaultValue: "Signed in"
-            )
-        }
-        return String(
-            localized: "settings.account.signedOut.title",
-            defaultValue: "Not signed in"
-        )
-    }
-
-    private var subtitleText: String? {
-        if authManager.isAuthenticated {
-            return authManager.currentUser?.displayName
-        }
-        return String(
-            localized: "settings.account.signedOut.subtitle",
-            defaultValue: "Sign in with your cmux account to enable sync across devices."
-        )
-    }
-
-    private var buttonTitle: String {
-        if authManager.isAuthenticated {
-            return String(
-                localized: "settings.account.signOut",
-                defaultValue: "Sign Out"
-            )
-        }
-        return String(
-            localized: "settings.account.signIn",
-            defaultValue: "Sign In…"
-        )
-    }
-
-    private func buttonAction() {
-        if authManager.isAuthenticated {
-            Task { @MainActor in
-                await authManager.signOut()
-            }
-        } else {
-            authManager.beginSignIn()
-        }
     }
 }
 
@@ -8230,11 +8427,12 @@ private struct ShortcutSettingRow: View {
     }
 
     var body: some View {
-        ShortcutRecorderSettingsControl(
-            action: action,
-            shortcut: $shortcut,
+        KeyboardShortcutRecorder(
+            label: action.label,
             subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: action),
+            shortcut: $shortcut,
             displayString: { action.displayedShortcutString(for: $0) },
+            transformRecordedShortcut: { action.normalizedRecordedShortcut($0) },
             isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(action)
         )
             .onChange(of: shortcut) { newValue in
@@ -8246,71 +8444,6 @@ private struct ShortcutSettingRow: View {
                     shortcut = latest
                 }
             }
-    }
-}
-
-private struct ShortcutRecorderSettingsControl: View {
-    let action: KeyboardShortcutSettings.Action
-    @Binding var shortcut: StoredShortcut
-    var subtitle: String? = nil
-    var displayString: (StoredShortcut) -> String = { $0.displayString }
-    var isDisabled: Bool = false
-
-    @State private var rejectedAttempt: ShortcutRecorderRejectedAttempt?
-
-    var body: some View {
-        KeyboardShortcutRecorder(
-            label: action.label,
-            subtitle: subtitle,
-            shortcut: $shortcut,
-            displayString: displayString,
-            transformRecordedShortcut: { action.normalizedRecordedShortcutResult($0) },
-            validationMessage: validationPresentation?.message,
-            validationButtonTitle: validationPresentation?.swapButtonTitle,
-            onValidationButtonPressed: validationPresentation?.canSwap == true
-                ? { swapConflictingShortcut() }
-                : nil,
-            undoButtonTitle: validationPresentation?.undoButtonTitle,
-            onUndoButtonPressed: rejectedAttempt != nil ? { rejectedAttempt = nil } : nil,
-            hasPendingRejection: rejectedAttempt != nil,
-            isDisabled: isDisabled,
-            onRecorderFeedbackChanged: { rejectedAttempt = $0 }
-        )
-        .onChange(of: shortcut) { _ in
-            rejectedAttempt = nil
-        }
-        .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification)) { _ in
-            if KeyboardShortcutRecorderActivity.isAnyRecorderActive {
-                rejectedAttempt = nil
-            }
-        }
-    }
-
-    private var validationPresentation: ShortcutRecorderValidationPresentation? {
-        ShortcutRecorderValidationPresentation(
-            attempt: rejectedAttempt,
-            action: action,
-            currentShortcut: shortcut
-        )
-    }
-
-    private func swapConflictingShortcut() {
-        guard case let .conflictsWithAction(conflictingAction)? = rejectedAttempt?.reason,
-              let proposedShortcut = rejectedAttempt?.proposedShortcut else {
-            return
-        }
-
-        KeyboardShortcutRecorderActivity.stopAllRecording()
-
-        let previousShortcut = shortcut
-        KeyboardShortcutSettings.swapShortcutConflict(
-            proposedShortcut: proposedShortcut,
-            currentAction: action,
-            conflictingAction: conflictingAction,
-            previousShortcut: previousShortcut
-        )
-        shortcut = proposedShortcut
-        rejectedAttempt = nil
     }
 }
 
@@ -8358,10 +8491,11 @@ private struct GlobalHotkeySection: View {
 
             SettingsCardDivider()
 
-            ShortcutRecorderSettingsControl(
-                action: SystemWideHotkeySettings.action,
-                shortcut: $shortcut,
+            KeyboardShortcutRecorder(
+                label: String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows"),
                 subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action),
+                shortcut: $shortcut,
+                transformRecordedShortcut: { SystemWideHotkeySettings.action.normalizedRecordedShortcut($0) },
                 isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(SystemWideHotkeySettings.action)
             )
                 .padding(.horizontal, 14)
@@ -8404,11 +8538,13 @@ private struct SettingsRootView: View {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
         applyCurrentSettingsWindowStyle(to: window)
 
-        let accessories = window.titlebarAccessoryViewControllers
-        for index in accessories.indices.reversed() {
-            guard let identifier = accessories[index].view.identifier?.rawValue else { continue }
-            guard identifier.hasPrefix("cmux.") else { continue }
-            window.removeTitlebarAccessoryViewController(at: index)
+        if window.cmuxSupportsTitlebarAccessoryControllers {
+            let accessories = window.titlebarAccessoryViewControllers
+            for index in accessories.indices.reversed() {
+                guard let identifier = accessories[index].view.identifier?.rawValue else { continue }
+                guard identifier.hasPrefix("cmux.") else { continue }
+                window.removeTitlebarAccessoryViewController(at: index)
+            }
         }
         AppDelegate.shared?.applyWindowDecorations(to: window)
     }

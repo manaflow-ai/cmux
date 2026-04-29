@@ -1,11 +1,11 @@
 import XCTest
 import Combine
 import AppKit
+import AuthenticationServices
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -228,6 +228,42 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertFalse(spy.invoked)
     }
 
+    func testPlainTextKeyEquivalentStaysOnNativeWebKitPathWhenWebViewIsFirstResponder() throws {
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = try XCTUnwrap(makeKeyDownEvent(key: "z", modifiers: [], keyCode: 6))
+
+        var forwardedToWebKit = false
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, currentEvent in
+            guard currentWebView === webView, currentEvent === event else { return nil }
+            forwardedToWebKit = true
+            return false
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        XCTAssertFalse(webView.performKeyEquivalent(with: event))
+        XCTAssertTrue(forwardedToWebKit)
+    }
+
+    func testSpaceKeyEquivalentBypassesNativeWebKitPathWhenWebViewIsFirstResponder() throws {
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        for modifiers in [NSEvent.ModifierFlags(), NSEvent.ModifierFlags.shift] {
+            let event = try XCTUnwrap(makeKeyDownEvent(key: " ", modifiers: modifiers, keyCode: 49))
+            var forwardedToWebKit = false
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, currentEvent in
+                guard currentWebView === webView, currentEvent === event else { return nil }
+                forwardedToWebKit = true
+                return true
+            }
+
+            XCTAssertFalse(webView.performKeyEquivalent(with: event))
+            XCTAssertFalse(forwardedToWebKit, "Space should proceed to keyDown, not WebKit key-equivalent handling")
+        }
+    }
+
     func testCmdReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "\r", modifiers: [.command])
@@ -267,6 +303,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
         webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         window.makeKeyAndOrderFront(nil)
@@ -300,6 +337,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
         webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         window.makeKeyAndOrderFront(nil)
@@ -333,6 +371,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
         webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
@@ -369,6 +408,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
         webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
@@ -406,6 +446,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
         webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
@@ -637,6 +678,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
         webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
@@ -807,6 +849,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             window.orderOut(nil)
         }
 
+        webView.allowsFirstResponderAcquisition = true
         XCTAssertTrue(window.makeFirstResponder(webView))
         guard let event = makeKeyDownEvent(
             key: "`",
@@ -863,6 +906,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             window.orderOut(nil)
         }
 
+        webView.allowsFirstResponderAcquisition = true
         XCTAssertTrue(window.makeFirstResponder(inspectorView))
         guard let event = makeKeyDownEvent(
             key: "f",
@@ -1142,11 +1186,11 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
     func testCopyPayloadUsesPersistedValues() {
         let defaults = makeIsolatedDefaults()
         defaults.set(BrowserDevToolsIconOption.scope.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)
-        defaults.set(BrowserDevToolsIconColorOption.bonsplitActive.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
+        defaults.set(BrowserDevToolsIconColorOption.workspaceSplitActive.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
 
         let payload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
         XCTAssertTrue(payload.contains("browserDevToolsIconName=scope"))
-        XCTAssertTrue(payload.contains("browserDevToolsIconColor=bonsplitActive"))
+        XCTAssertTrue(payload.contains("browserDevToolsIconColor=workspaceSplitActive"))
     }
 }
 
@@ -1501,19 +1545,7 @@ final class BrowserPopupDecisionTests: XCTestCase {
         )
     }
 
-    func testOtherNavigationKeyDownGestureStillCreatesPopup() {
-        XCTAssertTrue(
-            browserNavigationShouldCreatePopup(
-                navigationType: .other,
-                modifierFlags: [],
-                buttonNumber: 0,
-                currentEventType: .keyDown,
-                currentEventButtonNumber: 0
-            )
-        )
-    }
-
-    func testOtherNavigationWithoutExplicitNewTabIntentCreatesPopup() {
+    func testOtherNavigationPlainLeftClickCreatesPopup() {
         XCTAssertTrue(
             browserNavigationShouldCreatePopup(
                 navigationType: .other,
@@ -1564,213 +1596,36 @@ final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
 }
 
 
-final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
-    func testKeyboardKeyDownSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
-        XCTAssertTrue(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
-                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyDown,
-                popupFeaturesWereSpecified: false
+final class BrowserWebAuthnCapabilityDecisionTests: XCTestCase {
+    func testCrossOriginFrameWithoutAuthorizationDoesNotAdvertisePlatformPasskeys() {
+        XCTAssertEqual(
+            browserWebAuthnAdvertisedPlatformPasskeyAvailability(
+                authorizationState: .notDetermined,
+                deviceConfiguredForPasskeys: nil,
+                callerMayPromptForPlatformAuthorization: false
+            ),
+            false
+        )
+    }
+
+    func testPromptableFrameFallsBackWhenDeviceConfigurationIsUnknown() {
+        XCTAssertNil(
+            browserWebAuthnAdvertisedPlatformPasskeyAvailability(
+                authorizationState: .notDetermined,
+                deviceConfiguredForPasskeys: nil,
+                callerMayPromptForPlatformAuthorization: true
             )
         )
     }
 
-    func testKeyboardSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
-        XCTAssertTrue(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
-                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testLeftClickSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
-        XCTAssertTrue(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
-                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .leftMouseUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testCrossSiteKeyboardPopupStaysPopup() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://accounts.google.com/o/oauth2/v2/auth"),
-                openerURL: URL(string: "https://app.example.com/login"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testExplicitCommandNewTabGestureDoesNotRetargetIntoCurrentTab() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
-                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                modifierFlags: [.command],
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testMixedSchemePopupStaysPopupEvenWhenRegistrableDomainMatches() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://login.example.com/oauth"),
-                openerURL: URL(string: "http://example.com/login"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testGitHubPagesTenantsStayPopup() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://foo.github.io/search"),
-                openerURL: URL(string: "https://bar.github.io/login"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testAppspotTenantsStayPopup() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://a.appspot.com/search"),
-                openerURL: URL(string: "https://b.appspot.com/login"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testCloudFrontTenantsStayPopup() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://foo.cloudfront.net/search"),
-                openerURL: URL(string: "https://bar.cloudfront.net/login"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testS3TenantsStayPopup() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://a.s3.amazonaws.com/search"),
-                openerURL: URL(string: "https://b.s3.amazonaws.com/login"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testSameHostKeyboardPopupStaysPopup() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://www.example.com/chooser"),
-                openerURL: URL(string: "https://www.example.com/settings"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testCrossPortSameHostPopupStaysPopup() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://localhost:3000/search"),
-                openerURL: URL(string: "https://localhost:5000/login"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testDistinctBareCountryCodeSecondLevelHostsStayPopup() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://foo.co.uk/search"),
-                openerURL: URL(string: "https://bar.co.uk/login"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testCrossRegistrableDomainsUnderCommonMultiPartSuffixStayPopup() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://foo.example.co.uk/search"),
-                openerURL: URL(string: "https://bar.attacker.co.uk/login"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
-        )
-    }
-
-    func testPopupFeaturesKeepKeyboardRequestOnPopupPath() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "GET",
-                requestURL: URL(string: "https://www.bilibili.com/search"),
-                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: true
-            )
-        )
-    }
-
-    func testPOSTKeyboardRequestStaysPopup() {
-        XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-                navigationType: .other,
-                requestMethod: "POST",
-                requestURL: URL(string: "https://www.bilibili.com/search"),
-                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyUp,
-                popupFeaturesWereSpecified: false
-            )
+    func testAuthorizedBrowserUsesKnownDeviceConfiguration() {
+        XCTAssertEqual(
+            browserWebAuthnAdvertisedPlatformPasskeyAvailability(
+                authorizationState: .authorized,
+                deviceConfiguredForPasskeys: true,
+                callerMayPromptForPlatformAuthorization: false
+            ),
+            true
         )
     }
 }
@@ -2043,10 +1898,10 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
     func testResetSidebarContextClearsBrowserPanelsIntoNewTabState() throws {
         let workspace = Workspace()
-        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let paneId = try XCTUnwrap(workspace.paneIds.first)
         let contextPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let browser = try XCTUnwrap(
-            workspace.newBrowserSurface(
+            workspace.createBrowserPanel(
                 inPane: paneId,
                 url: URL(string: "https://example.com"),
                 focus: false
@@ -2084,7 +1939,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
                 timestamp: Date()
             )
         )
-        workspace.surfaceListeningPorts[contextPanelId] = [3000]
+        workspace.setSurfaceListeningPorts(panelId: contextPanelId, ports: [3000])
         workspace.recomputeListeningPorts()
 
         XCTAssertTrue(browser.shouldRenderWebView)
@@ -2109,10 +1964,10 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertTrue(workspace.metadataBlocks.isEmpty)
         XCTAssertNil(workspace.progress)
         XCTAssertNil(workspace.gitBranch)
-        XCTAssertTrue(workspace.panelGitBranches.isEmpty)
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().compactMapValues(\.gitBranch).isEmpty)
         XCTAssertNil(workspace.pullRequest)
-        XCTAssertTrue(workspace.panelPullRequests.isEmpty)
-        XCTAssertTrue(workspace.surfaceListeningPorts.isEmpty)
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().compactMapValues(\.pullRequest).isEmpty)
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().filter { !$0.value.listeningPorts.isEmpty }.isEmpty)
         XCTAssertTrue(workspace.listeningPorts.isEmpty)
         XCTAssertFalse(browser.shouldRenderWebView)
         XCTAssertNil(browser.preferredURLStringForOmnibar())
@@ -2423,6 +2278,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             paneId: paneId,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
+            retainedHostView: nil,
             shouldFocusWebView: false,
             isPanelFocused: true,
             portalZPriority: 0,
@@ -2465,6 +2321,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             paneId: paneId,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
+            retainedHostView: nil,
             shouldFocusWebView: false,
             isPanelFocused: true,
             portalZPriority: 0,
@@ -2526,6 +2383,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             paneId: paneId,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
+            retainedHostView: nil,
             shouldFocusWebView: false,
             isPanelFocused: true,
             portalZPriority: 0,
@@ -2609,6 +2467,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             paneId: paneId,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
+            retainedHostView: nil,
             shouldFocusWebView: false,
             isPanelFocused: true,
             portalZPriority: 0,
@@ -2839,6 +2698,149 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
 
 final class BrowserIMEKeyDownRoutingTests: XCTestCase {
     @MainActor
+    func testWindowPerformKeyEquivalentForwardsSpaceToBrowserKeyDown() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
+        container.addSubview(webView)
+
+        let responder = BrowserMarkedTextProbeTextView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        webView.addSubview(responder)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: false,
+            keyCode: 49
+        ) else {
+            XCTFail("Failed to construct Space event")
+            return
+        }
+
+        let consumed = window.performKeyEquivalent(with: event)
+
+        XCTAssertTrue(consumed, "Plain browser Space should be handled by direct keyDown forwarding")
+        XCTAssertEqual(responder.keyDownEvents.count, 1, "Space should reach the browser responder exactly once")
+    }
+
+    @MainActor
+    func testWebViewKeyDownForwardsPlainSpaceToContentCandidateWhenWrapperIsFirstResponder() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
+        container.addSubview(webView)
+
+        let responder = BrowserMarkedTextProbeTextView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        webView.addSubview(responder)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: false,
+            keyCode: 49
+        ) else {
+            XCTFail("Failed to construct Space event")
+            return
+        }
+
+        webView.keyDown(with: event)
+
+        XCTAssertTrue(window.firstResponder === webView)
+        XCTAssertEqual(responder.keyDownEvents.count, 1)
+        XCTAssertEqual(responder.keyDownEvents.first?.characters, " ")
+    }
+
+    @MainActor
+    func testWebViewKeyDownDoesNotForwardPlainLettersToContentCandidate() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
+        container.addSubview(webView)
+
+        let responder = BrowserMarkedTextProbeTextView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        webView.addSubview(responder)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ) else {
+            XCTFail("Failed to construct letter event")
+            return
+        }
+
+        webView.keyDown(with: event)
+
+        XCTAssertTrue(window.firstResponder === webView)
+        XCTAssertEqual(responder.keyDownEvents.count, 0)
+    }
+
+    @MainActor
     func testWindowPerformKeyEquivalentDoesNotForwardReturnDuringMarkedTextComposition() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
@@ -2854,6 +2856,7 @@ final class BrowserIMEKeyDownRoutingTests: XCTestCase {
 
         let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
         webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         let responder = BrowserMarkedTextProbeTextView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
@@ -2903,6 +2906,7 @@ final class BrowserIMEKeyDownRoutingTests: XCTestCase {
 
         let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
         webView.autoresizingMask = [.width, .height]
+        webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         let responder = BrowserMarkedTextProbeTextView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
@@ -3050,8 +3054,173 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
             )
         )
     }
+
+    func testRoutesForSpaceWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserSpaceViaFirstResponderKeyDown(
+                keyCode: 49,
+                firstResponderIsBrowser: true,
+                flags: []
+            )
+        )
+    }
+
+    func testRoutesForShiftSpaceWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserSpaceViaFirstResponderKeyDown(
+                keyCode: 49,
+                firstResponderIsBrowser: true,
+                flags: [.shift]
+            )
+        )
+    }
+
+    func testDoesNotRouteSpaceWhenBrowserFirstResponderHasMarkedText() {
+        XCTAssertFalse(
+            shouldDispatchBrowserSpaceViaFirstResponderKeyDown(
+                keyCode: 49,
+                firstResponderIsBrowser: true,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+    }
+
+    func testDoesNotRouteModifiedSpaceWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserSpaceViaFirstResponderKeyDown(
+                keyCode: 49,
+                firstResponderIsBrowser: true,
+                flags: [.command]
+            )
+        )
+        XCTAssertFalse(
+            shouldDispatchBrowserSpaceViaFirstResponderKeyDown(
+                keyCode: 49,
+                firstResponderIsBrowser: true,
+                flags: [.option]
+            )
+        )
+        XCTAssertFalse(
+            shouldDispatchBrowserSpaceViaFirstResponderKeyDown(
+                keyCode: 49,
+                firstResponderIsBrowser: true,
+                flags: [.control]
+            )
+        )
+    }
 }
 
+final class BrowserPlainTextKeyEquivalentRoutingTests: XCTestCase {
+    func testBypassesPlainLetterKeyEquivalentWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldBypassBrowserPlainTextKeyEquivalent(
+                keyCode: 0,
+                firstResponderIsBrowser: true,
+                flags: [],
+                characters: "a",
+                charactersIgnoringModifiers: "a"
+            )
+        )
+    }
+
+    func testBypassesShiftLetterKeyEquivalentWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldBypassBrowserPlainTextKeyEquivalent(
+                keyCode: 0,
+                firstResponderIsBrowser: true,
+                flags: [.shift],
+                characters: "A",
+                charactersIgnoringModifiers: "a"
+            )
+        )
+    }
+
+    func testDoesNotBypassPlainLetterWhenFirstResponderIsNotBrowser() {
+        XCTAssertFalse(
+            shouldBypassBrowserPlainTextKeyEquivalent(
+                keyCode: 0,
+                firstResponderIsBrowser: false,
+                flags: [],
+                characters: "a",
+                charactersIgnoringModifiers: "a"
+            )
+        )
+    }
+
+    func testDoesNotBypassPlainLetterWhenBrowserFirstResponderHasMarkedText() {
+        XCTAssertFalse(
+            shouldBypassBrowserPlainTextKeyEquivalent(
+                keyCode: 0,
+                firstResponderIsBrowser: true,
+                firstResponderHasMarkedText: true,
+                flags: [],
+                characters: "a",
+                charactersIgnoringModifiers: "a"
+            )
+        )
+    }
+
+    func testDoesNotBypassModifiedLetterShortcuts() {
+        XCTAssertFalse(
+            shouldBypassBrowserPlainTextKeyEquivalent(
+                keyCode: 0,
+                firstResponderIsBrowser: true,
+                flags: [.command],
+                characters: "a",
+                charactersIgnoringModifiers: "a"
+            )
+        )
+        XCTAssertFalse(
+            shouldBypassBrowserPlainTextKeyEquivalent(
+                keyCode: 0,
+                firstResponderIsBrowser: true,
+                flags: [.option],
+                characters: "å",
+                charactersIgnoringModifiers: "a"
+            )
+        )
+        XCTAssertFalse(
+            shouldBypassBrowserPlainTextKeyEquivalent(
+                keyCode: 0,
+                firstResponderIsBrowser: true,
+                flags: [.control],
+                characters: "\u{1}",
+                charactersIgnoringModifiers: "a"
+            )
+        )
+    }
+
+    func testDoesNotBypassDedicatedBrowserKeyRoutes() {
+        XCTAssertFalse(
+            shouldBypassBrowserPlainTextKeyEquivalent(
+                keyCode: 49,
+                firstResponderIsBrowser: true,
+                flags: [],
+                characters: " ",
+                charactersIgnoringModifiers: " "
+            )
+        )
+        XCTAssertFalse(
+            shouldBypassBrowserPlainTextKeyEquivalent(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [],
+                characters: "\r",
+                charactersIgnoringModifiers: "\r"
+            )
+        )
+        XCTAssertFalse(
+            shouldBypassBrowserPlainTextKeyEquivalent(
+                keyCode: 125,
+                firstResponderIsBrowser: true,
+                flags: [],
+                characters: "\u{F701}",
+                charactersIgnoringModifiers: "\u{F701}"
+            )
+        )
+    }
+}
 
 final class BrowserZoomShortcutActionTests: XCTestCase {
     func testZoomInSupportsEqualsAndPlusVariants() {
@@ -3315,7 +3484,7 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
     func testRejectsInternalPaneDragEvenWhenFilePromiseTypesArePresent() {
         XCTAssertTrue(
             CmuxWebView.shouldRejectInternalPaneDrag([
-                DragOverlayRoutingPolicy.bonsplitTabTransferType,
+                DragOverlayRoutingPolicy.splitTabTransferType,
                 NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
             ])
         )
@@ -3656,5 +3825,101 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
                 nextResponderIsOtherTextField: false
             )
         )
+    }
+}
+
+final class BrowserFindOverlayPresentationTests: XCTestCase {
+    func testLocalInlineBrowserUsesSwiftUIFindOverlay() {
+        XCTAssertEqual(
+            resolveBrowserFindOverlayPresentationMode(
+                hasSearchState: true,
+                shouldRenderWebView: true,
+                usesLocalInlineHosting: true
+            ),
+            .swiftUI
+        )
+    }
+
+    func testPortalBrowserUsesPortalFindOverlay() {
+        XCTAssertEqual(
+            resolveBrowserFindOverlayPresentationMode(
+                hasSearchState: true,
+                shouldRenderWebView: true,
+                usesLocalInlineHosting: false
+            ),
+            .appKitPortal
+        )
+    }
+
+    func testPlaceholderBrowserUsesSwiftUIFindOverlay() {
+        XCTAssertEqual(
+            resolveBrowserFindOverlayPresentationMode(
+                hasSearchState: true,
+                shouldRenderWebView: false,
+                usesLocalInlineHosting: false
+            ),
+            .swiftUI
+        )
+    }
+
+    func testNoSearchStateUsesNoOverlay() {
+        XCTAssertEqual(
+            resolveBrowserFindOverlayPresentationMode(
+                hasSearchState: false,
+                shouldRenderWebView: true,
+                usesLocalInlineHosting: true
+            ),
+            .none
+        )
+    }
+
+    func testBrowserSearchOverlayPanelIdResolvesFieldEditorDelegate() throws {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let field = NSTextField(frame: NSRect(x: 20, y: 40, width: 200, height: 24))
+        let panelId = UUID()
+        setBrowserSearchOverlayPanelId(panelId, on: field)
+        window.contentView?.addSubview(field)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+
+        let firstResponder = try XCTUnwrap(window.firstResponder)
+        XCTAssertEqual(browserSearchOverlayPanelId(for: firstResponder), panelId)
+        XCTAssertEqual(browserSearchOverlayPanelId(for: field), panelId)
+    }
+
+    func testBrowserSearchOverlayPanelIdResolvesFieldEditorItself() throws {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let field = NSTextField(frame: NSRect(x: 20, y: 40, width: 200, height: 24))
+        window.contentView?.addSubview(field)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+
+        let firstResponder = try XCTUnwrap(window.firstResponder as? NSTextView)
+        let panelId = UUID()
+        setBrowserSearchOverlayPanelId(panelId, on: firstResponder)
+
+        XCTAssertEqual(browserSearchOverlayPanelId(for: firstResponder), panelId)
     }
 }

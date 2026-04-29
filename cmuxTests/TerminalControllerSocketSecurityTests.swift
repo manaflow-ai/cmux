@@ -205,7 +205,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTFail("Expected selected workspace with a focused panel")
             return
         }
-        guard let targetPanel = workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal) else {
+        guard let targetPanel = workspace.splitTerminalPanel(fromPanelId: focusedPanelId, orientation: .horizontal) else {
             XCTFail("Expected split panel to be created")
             return
         }
@@ -279,7 +279,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(reportTTYResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(reportTTYResponse)")
         let reportTTYResult = try XCTUnwrap(reportTTYResponse["result"] as? [String: Any], "Unexpected JSON-RPC response: \(reportTTYResponse)")
         XCTAssertEqual(reportTTYResult["surface_id"] as? String, focusedPanelId.uuidString)
-        XCTAssertEqual(workspace.surfaceTTYNames[focusedPanelId], "ttys999")
+        XCTAssertEqual(workspace.surfaceTTYName(panelId: focusedPanelId), "ttys999")
 
         let portsKickResponse = try await sendV2RequestAsync(
             method: "surface.ports_kick",
@@ -327,7 +327,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(reportTTYError["code"] as? String, "not_found")
         let reportTTYData = try XCTUnwrap(reportTTYError["data"] as? [String: Any], "Expected error data payload")
         XCTAssertEqual(reportTTYData["surface_id"] as? String, unknownSurfaceId.uuidString)
-        XCTAssertTrue(workspace.surfaceTTYNames.isEmpty)
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().compactMapValues(\.ttyName).isEmpty)
 
         let portsKickResponse = try await sendV2RequestAsync(
             method: "surface.ports_kick",

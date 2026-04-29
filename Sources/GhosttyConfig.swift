@@ -20,8 +20,7 @@ struct GhosttyConfig {
     var surfaceTabBarFontSize: CGFloat = 11
     var theme: String?
     var workingDirectory: String?
-    // Ghostty measures scrollback-limit in bytes, not lines.
-    var scrollbackLimit: Int = 10_000_000
+    var scrollbackLimit: Int = 10000
     var unfocusedSplitOpacity: Double = 0.7
     var unfocusedSplitFill: NSColor?
     var splitDividerColor: NSColor?
@@ -206,44 +205,11 @@ struct GhosttyConfig {
             "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
         ].map { NSString(string: $0).expandingTildeInPath } + cmuxConfigPaths()
 
-        #if DEBUG
-        let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
-        if startupPreviewProfile.loadsRealUserConfig {
-            for path in configPaths {
-                if let contents = readConfigFile(at: path) {
-                    config.parse(contents)
-                }
-            }
-
-            if config.theme == nil,
-               GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
-                config.applyCmuxDefaultAppearance(
-                    environment: ProcessInfo.processInfo.environment,
-                    bundleResourceURL: Bundle.main.resourceURL,
-                    preferredColorScheme: preferredColorScheme
-                )
-            }
-        } else if let contents = startupPreviewProfile.previewConfigContents(
-            preferredColorScheme: preferredColorScheme
-        ) {
-            config.parse(contents)
-        }
-        #else
         for path in configPaths {
             if let contents = readConfigFile(at: path) {
                 config.parse(contents)
             }
         }
-
-        if config.theme == nil,
-           GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
-            config.applyCmuxDefaultAppearance(
-                environment: ProcessInfo.processInfo.environment,
-                bundleResourceURL: Bundle.main.resourceURL,
-                preferredColorScheme: preferredColorScheme
-            )
-        }
-        #endif
 
         // Load theme if specified
         if let themeName = config.theme {
@@ -403,9 +369,9 @@ struct GhosttyConfig {
                 case "theme":
                     theme = value
                 case "working-directory":
-                    workingDirectory = value
+                    workingDirectory = cmuxNormalizedWorkingDirectory(value)
                 case "scrollback-limit":
-                    if let limit = Self.parseIntegerLiteral(value) {
+                    if let limit = Int(value) {
                         scrollbackLimit = limit
                     }
                 case "background":
@@ -467,16 +433,6 @@ struct GhosttyConfig {
                 }
             }
         }
-    }
-
-    private static func parseIntegerLiteral(_ value: String) -> Int? {
-        // Strip digit-group separators (for example 10_000_000).
-        // Hex and float literals are intentionally unsupported here.
-        let normalized = value.replacingOccurrences(of: "_", with: "")
-        guard let parsed = Int(normalized), parsed >= 0 else {
-            return nil
-        }
-        return parsed
     }
 
     mutating func loadTheme(_ name: String) {

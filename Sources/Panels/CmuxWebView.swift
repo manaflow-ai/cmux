@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
@@ -21,6 +20,33 @@ extension WKWebView {
         guard let expectedWindow else { return true }
         return window !== expectedWindow
     }
+}
+
+enum CmuxWebContentFirstResponderResult: Equatable {
+    case content
+    case wrapperOnly
+    case failed
+
+    var didFocusContent: Bool {
+        self == .content
+    }
+
+    var didFocusResponder: Bool {
+        self != .failed
+    }
+
+#if DEBUG
+    var debugDescription: String {
+        switch self {
+        case .content:
+            return "content"
+        case .wrapperOnly:
+            return "wrapper_only"
+        case .failed:
+            return "failed"
+        }
+    }
+#endif
 }
 
 struct BrowserImageCopyPasteboardPayload {
@@ -104,9 +130,8 @@ enum BrowserImageCopyPasteboardBuilder {
 
 /// WKWebView tends to consume some Command-key equivalents (e.g. Cmd+N/Cmd+W),
 /// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
-/// shortcuts first by default, but allow browser content to try browser-local
-/// Find-family shortcuts. Cmd+F stays app-owned so cmux can choose browser find
-/// or right-sidebar file search from the current focus owner.
+/// shortcuts first by default, but allow browser content to try the Find command
+/// family before cmux falls back to its own browser find overlay.
 final class CmuxWebView: WKWebView {
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
@@ -118,204 +143,6 @@ final class CmuxWebView: WKWebView {
 
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
-    private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
-    private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
-    private static let pasteAsPlainTextSharedHelpersScriptSource = """
-    const __cmuxPasteAsPlainTextHelpers = (() => {
-      const existing = window.__cmuxPasteAsPlainTextHelpers;
-      if (existing) return existing;
-
-      const supportedTextInputTypes = new Set([
-        "",
-        "text",
-        "search",
-        "tel",
-        "url",
-        "email",
-        "password",
-        "number",
-        "date",
-        "datetime-local",
-        "month",
-        "time",
-        "week"
-      ]);
-
-      const deepestActiveElement = (root) => {
-        let active = root?.activeElement ?? null;
-        while (active) {
-          const shadowActive = active.shadowRoot?.activeElement ?? null;
-          if (shadowActive && shadowActive !== active) {
-            active = shadowActive;
-            continue;
-          }
-
-          const tagName = typeof active.tagName === "string" ? active.tagName.toUpperCase() : "";
-          if (tagName === "IFRAME") {
-            try {
-              const frameActive = active.contentDocument?.activeElement ?? null;
-              if (frameActive && frameActive !== active) {
-                active = frameActive;
-                continue;
-              }
-            } catch (_) {}
-          }
-
-          break;
-        }
-        return active;
-      };
-
-      const isPlainTextTextControl = (el) => {
-        if (!el || el.disabled || el.readOnly) return false;
-
-        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
-        if (tagName === "TEXTAREA") return true;
-        if (tagName !== "INPUT") return false;
-
-        const type = typeof el.type === "string" ? el.type.toLowerCase() : "text";
-        return supportedTextInputTypes.has(type);
-      };
-
-      const isFocusedCrossOriginFrameElement = (el) => {
-        const tagName = typeof el?.tagName === "string" ? el.tagName.toUpperCase() : "";
-        if (tagName !== "IFRAME") return false;
-        try {
-          void el.contentDocument;
-          return false;
-        } catch (_) {
-          return true;
-        }
-      };
-
-      const resolvedCandidateElement = (el) => {
-        if (!el) return deepestActiveElement(document);
-
-        const shadowActive = el.shadowRoot?.activeElement ?? null;
-        if (shadowActive && shadowActive !== el) {
-          return deepestActiveElement(el.shadowRoot) ?? shadowActive;
-        }
-
-        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
-        if (tagName === "IFRAME") {
-          try {
-            return deepestActiveElement(el.contentDocument) ?? el;
-          } catch (_) {}
-        }
-
-        return el;
-      };
-
-      const editableTarget = (el) => {
-        const candidate = resolvedCandidateElement(el);
-        if (!candidate) return null;
-        if (isPlainTextTextControl(candidate)) return candidate;
-        if (isFocusedCrossOriginFrameElement(candidate)) return candidate;
-        if (candidate.isContentEditable) return candidate;
-        return candidate.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null;
-      };
-
-      const helpers = {
-        deepestActiveElement,
-        isPlainTextTextControl,
-        isFocusedCrossOriginFrameElement,
-        resolvedCandidateElement,
-        editableTarget,
-        canPasteAsPlainTextInto(el) {
-          return !!editableTarget(el);
-        }
-      };
-      window.__cmuxPasteAsPlainTextHelpers = helpers;
-      return helpers;
-    })();
-    """
-    static let pasteAsPlainTextFocusTrackingBootstrapScriptSource = """
-    (() => {
-      try {
-        if (window.__cmuxPasteAsPlainTextFocusTrackerInstalled) return true;
-        window.__cmuxPasteAsPlainTextFocusTrackerInstalled = true;
-
-        const handler = (() => {
-          try {
-            return window.webkit?.messageHandlers?.\(pasteAsPlainTextFocusMessageHandlerName) ?? null;
-          } catch (_) {
-            return null;
-          }
-        })();
-
-        \(pasteAsPlainTextSharedHelpersScriptSource)
-
-        const publishState = { lastCanPaste: null };
-
-        const publish = (canPaste) => {
-          if (publishState.lastCanPaste === canPaste) return;
-          publishState.lastCanPaste = canPaste;
-          window.__cmuxPasteAsPlainTextTargetAvailable = canPaste;
-          try {
-            handler?.postMessage({ canPaste });
-          } catch (_) {}
-        };
-
-        window.__cmuxCanPasteAsPlainTextIntoCurrentFocus = () => {
-          return __cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(document.activeElement);
-        };
-
-        const publishForElement = (el) => {
-          publish(__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(el));
-        };
-
-        document.addEventListener("focusin", (ev) => {
-          publishForElement(ev && ev.target ? ev.target : document.activeElement);
-        }, true);
-        document.addEventListener("focusout", () => {
-          requestAnimationFrame(() => publishForElement(document.activeElement));
-        }, true);
-        document.addEventListener("selectionchange", () => {
-          publishForElement(document.activeElement);
-        }, true);
-        document.addEventListener("input", () => {
-          publishForElement(document.activeElement);
-        }, true);
-        document.addEventListener("change", () => {
-          publishForElement(document.activeElement);
-        }, true);
-        document.addEventListener("mousedown", (ev) => {
-          const target = ev && ev.target ? ev.target : null;
-          if (!__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(target)) {
-            publish(false);
-          }
-        }, true);
-        window.addEventListener("beforeunload", () => {
-          publish(false);
-        }, true);
-
-        publishForElement(document.activeElement);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    })();
-    """
-
-    private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
-        func userContentController(
-            _ userContentController: WKUserContentController,
-            didReceive message: WKScriptMessage
-        ) {
-            guard let webView = message.webView as? CmuxWebView else {
-                return
-            }
-            guard let body = message.body as? [String: Any],
-                  let canPaste = body["canPaste"] as? Bool else {
-                return
-            }
-            Task { @MainActor [weak webView] in
-                webView?.updatePasteAsPlainTextTargetAvailable(canPaste)
-            }
-        }
-    }
-
-    private static let sharedPasteAsPlainTextFocusMessageHandler = PasteAsPlainTextFocusMessageHandler()
 
     static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
         guard let webView = webView as? CmuxWebView else { return false }
@@ -349,7 +176,12 @@ final class CmuxWebView: WKWebView {
 
     private static var contextMenuFallbackKey: UInt8 = 0
     private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
-
+    private static let webContentInputSelectors: [Selector] = [
+        NSSelectorFromString("insertText:replacementRange:"),
+        NSSelectorFromString("insertText:"),
+        NSSelectorFromString("doCommandBySelector:"),
+        NSSelectorFromString("setMarkedText:selectedRange:replacementRange:"),
+    ]
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
@@ -357,10 +189,10 @@ final class CmuxWebView: WKWebView {
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     /// Guard against background panes stealing first responder (e.g. page autofocus).
-    /// BrowserPanelView updates this as pane focus state changes.
-    var allowsFirstResponderAcquisition: Bool = true
+    /// BrowserPanel owns this policy and updates it before app-initiated focus handoffs.
+    var allowsFirstResponderAcquisition: Bool = false
     private var pointerFocusAllowanceDepth: Int = 0
-    private var pasteAsPlainTextTargetAvailable = false
+    private var spaceContentCandidateForwardingDepth: Int = 0
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
@@ -369,44 +201,10 @@ final class CmuxWebView: WKWebView {
 
     override init(frame: NSRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)
-        installPasteAsPlainTextFocusTracking()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        installPasteAsPlainTextFocusTracking()
-    }
-
-    private func installPasteAsPlainTextFocusTracking() {
-        let userContentController = configuration.userContentController
-        if objc_getAssociatedObject(
-            userContentController,
-            &Self.pasteAsPlainTextFocusHandlerInstalledKey
-        ) != nil {
-            return
-        }
-
-        userContentController.add(
-            Self.sharedPasteAsPlainTextFocusMessageHandler,
-            name: Self.pasteAsPlainTextFocusMessageHandlerName
-        )
-        objc_setAssociatedObject(
-            userContentController,
-            &Self.pasteAsPlainTextFocusHandlerInstalledKey,
-            NSNumber(value: true),
-            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        )
-    }
-
-    private func updatePasteAsPlainTextTargetAvailable(_ available: Bool) {
-        guard pasteAsPlainTextTargetAvailable != available else { return }
-        pasteAsPlainTextTargetAvailable = available
-#if DEBUG
-        cmuxDebugLog(
-            "browser.pasteAsPlainText.target " +
-            "web=\(ObjectIdentifier(self)) available=\(available ? 1 : 0)"
-        )
-#endif
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -417,10 +215,11 @@ final class CmuxWebView: WKWebView {
         guard allowsFirstResponderAcquisitionEffective else {
 #if DEBUG
             let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-            cmuxDebugLog(
+            dlog(
                 "browser.focus.blockedBecome web=\(ObjectIdentifier(self)) " +
                 "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
-                "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
+                "pointerDepth=\(pointerFocusAllowanceDepth) " +
+                "eventType=\(eventType)"
             )
 #endif
             return false
@@ -431,10 +230,11 @@ final class CmuxWebView: WKWebView {
         }
 #if DEBUG
         let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-        cmuxDebugLog(
+        dlog(
             "browser.focus.become web=\(ObjectIdentifier(self)) result=\(result ? 1 : 0) " +
             "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
-            "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
+            "pointerDepth=\(pointerFocusAllowanceDepth) " +
+            "eventType=\(eventType)"
         )
 #endif
         return result
@@ -445,7 +245,7 @@ final class CmuxWebView: WKWebView {
     func withPointerFocusAllowance<T>(_ body: () -> T) -> T {
         pointerFocusAllowanceDepth += 1
 #if DEBUG
-        cmuxDebugLog(
+        dlog(
             "browser.focus.pointerAllowance.enter web=\(ObjectIdentifier(self)) " +
             "depth=\(pointerFocusAllowanceDepth)"
         )
@@ -453,7 +253,7 @@ final class CmuxWebView: WKWebView {
         defer {
             pointerFocusAllowanceDepth = max(0, pointerFocusAllowanceDepth - 1)
 #if DEBUG
-            cmuxDebugLog(
+            dlog(
                 "browser.focus.pointerAllowance.exit web=\(ObjectIdentifier(self)) " +
                 "depth=\(pointerFocusAllowanceDepth)"
             )
@@ -462,82 +262,245 @@ final class CmuxWebView: WKWebView {
         return body()
     }
 
+    @discardableResult
+    func requestWebContentFirstResponder(in window: NSWindow) -> CmuxWebContentFirstResponderResult {
+        focusWrapperFirstResponder(
+            in: window,
+            event: "browser.focus.acquireWebContent",
+            reason: nil,
+            forceWrapperReactivation: false
+        )
+    }
+
+    @discardableResult
+    func reassertWebContentFirstResponder(
+        in window: NSWindow,
+        reason: String,
+        forceWrapperReactivation: Bool = false
+    ) -> CmuxWebContentFirstResponderResult {
+        focusWrapperFirstResponder(
+            in: window,
+            event: "browser.focus.reassertWebContent",
+            reason: reason,
+            forceWrapperReactivation: forceWrapperReactivation
+        )
+    }
+
+    @discardableResult
+    private func focusWrapperFirstResponder(
+        in window: NSWindow,
+        event: String,
+        reason: String?,
+        forceWrapperReactivation: Bool
+    ) -> CmuxWebContentFirstResponderResult {
+        if let firstResponderView = window.firstResponder as? NSView,
+           firstResponderView !== self,
+           firstResponderView.isDescendant(of: self) {
+            if forceWrapperReactivation {
+                let focusedWrapper = window.makeFirstResponder(self)
+                if focusedWrapper {
+                    NotificationCenter.default.post(name: .browserDidBecomeFirstResponderWebView, object: self)
+                }
+                return focusedWrapper ? .wrapperOnly : .failed
+            }
+#if DEBUG
+            dlog(
+                "\(event) web=\(ObjectIdentifier(self)) " +
+                "\(reason.map { "reason=\($0) " } ?? "")" +
+                "mode=already_content " +
+                "responder=\(String(describing: type(of: firstResponderView))) " +
+                "candidates=\(debugWebContentFocusCandidateSummary(in: window))"
+            )
+#endif
+            NotificationCenter.default.post(name: .browserDidBecomeFirstResponderWebView, object: self)
+            return .content
+        }
+
+        if window.firstResponder === self {
+            if forceWrapperReactivation {
+                return .wrapperOnly
+            }
+#if DEBUG
+            dlog(
+                "\(event) web=\(ObjectIdentifier(self)) " +
+                "\(reason.map { "reason=\($0) " } ?? "")" +
+                "mode=already_wrapper " +
+                "candidates=\(debugWebContentFocusCandidateSummary(in: window))"
+            )
+#endif
+            NotificationCenter.default.post(name: .browserDidBecomeFirstResponderWebView, object: self)
+            return .wrapperOnly
+        }
+
+#if DEBUG
+        let previousResponder = window.firstResponder
+#endif
+        let focusedWrapper = window.makeFirstResponder(self)
+#if DEBUG
+        dlog(
+            "\(event) web=\(ObjectIdentifier(self)) " +
+            "\(reason.map { "reason=\($0) " } ?? "")" +
+            "mode=\(forceWrapperReactivation ? "wrapper_reassert" : "wrapper") " +
+            "result=\(focusedWrapper ? 1 : 0) " +
+            "previous=\(previousResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
+            "candidates=\(debugWebContentFocusCandidateSummary(in: window))"
+        )
+#endif
+        if focusedWrapper {
+            NotificationCenter.default.post(name: .browserDidBecomeFirstResponderWebView, object: self)
+        }
+        return focusedWrapper ? .wrapperOnly : .failed
+    }
+
+    private struct WebContentFirstResponderCandidate {
+        let view: NSView
+        let depth: Int
+        let score: Int
+        let isCurrentFirstResponder: Bool
+    }
+
+    private func webContentFirstResponderCandidates(in window: NSWindow) -> [NSView] {
+        let currentFirstResponder = window.firstResponder as? NSView
+        var candidates: [WebContentFirstResponderCandidate] = []
+
+        func appendCandidate(_ view: NSView, depth: Int) {
+            guard view !== self,
+                  view.window === window,
+                  !view.isHiddenOrHasHiddenAncestor,
+                  Self.isWebContentFirstResponderCandidate(view),
+                  !candidates.contains(where: { $0.view === view }) else {
+                return
+            }
+
+            candidates.append(
+                WebContentFirstResponderCandidate(
+                    view: view,
+                    depth: depth,
+                    score: Self.webContentFirstResponderCandidateScore(view, depth: depth),
+                    isCurrentFirstResponder: currentFirstResponder === view
+                )
+            )
+        }
+
+        if let currentFirstResponder,
+           currentFirstResponder.isDescendant(of: self) {
+            appendCandidate(currentFirstResponder, depth: Self.webContentFirstResponderDepth(currentFirstResponder, in: self))
+        }
+
+        var stack: [(NSView, Int)] = subviews.map { ($0, 1) }
+        while let (view, depth) = stack.popLast() {
+            appendCandidate(view, depth: depth)
+            stack.append(contentsOf: view.subviews.map { ($0, depth + 1) })
+        }
+
+        return candidates
+            .sorted { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score > rhs.score }
+                if lhs.depth != rhs.depth { return lhs.depth > rhs.depth }
+                if lhs.isCurrentFirstResponder != rhs.isCurrentFirstResponder {
+                    return lhs.isCurrentFirstResponder
+                }
+                return String(describing: ObjectIdentifier(lhs.view)) < String(describing: ObjectIdentifier(rhs.view))
+            }
+            .map(\.view)
+    }
+
+    private static func isWebContentFirstResponderCandidate(_ view: NSView) -> Bool {
+        if webContentInputSelectors.contains(where: { view.responds(to: $0) }) {
+            return true
+        }
+
+        guard view.acceptsFirstResponder else { return false }
+        let className = String(describing: type(of: view))
+        return className.contains("WKContent") || className == "WKView"
+    }
+
+    private static func webContentFirstResponderDepth(_ view: NSView, in root: NSView) -> Int {
+        var depth = 0
+        var current: NSView? = view
+        while let candidate = current, candidate !== root {
+            depth += 1
+            current = candidate.superview
+        }
+        return depth
+    }
+
+    private static func webContentFirstResponderCandidateScore(_ view: NSView, depth: Int) -> Int {
+        let className = String(describing: type(of: view))
+        let respondsInput = webContentInputSelectors.contains { view.responds(to: $0) }
+        let depthScore = min(depth, 50)
+
+        if className.contains("WKContent") {
+            return 500 + depthScore
+        }
+        if className == "WKView" {
+            return 450 + depthScore
+        }
+        if className.contains("Content") {
+            return 400 + depthScore
+        }
+        if respondsInput && !className.contains("Flipped") {
+            return 350 + depthScore
+        }
+        if className.contains("WK") && !className.contains("Flipped") {
+            return 300 + depthScore
+        }
+        if respondsInput {
+            return 200 + depthScore
+        }
+        return depthScore
+    }
+
+#if DEBUG
+    private func debugWebContentFocusCandidateSummary(in window: NSWindow) -> String {
+        var summaries: [String] = []
+        var stack: [(NSView, Int)] = subviews.reversed().map { ($0, 1) }
+        while let (view, depth) = stack.popLast(), summaries.count < 24 {
+            let className = String(describing: type(of: view))
+            let accepts = view.acceptsFirstResponder
+            let respondsInput = Self.webContentInputSelectors.contains { view.responds(to: $0) }
+            let candidate = Self.isWebContentFirstResponderCandidate(view)
+            if candidate ||
+                accepts ||
+                respondsInput ||
+                className.contains("WK") ||
+                className.contains("Content") {
+                summaries.append(
+                    "\(depth):\(className)" +
+                    "{win=\(view.window === window ? 1 : 0)," +
+                    "hidden=\(view.isHiddenOrHasHiddenAncestor ? 1 : 0)," +
+                    "accepts=\(accepts ? 1 : 0)," +
+                    "input=\(respondsInput ? 1 : 0)," +
+                    "candidate=\(candidate ? 1 : 0)," +
+                    "score=\(Self.webContentFirstResponderCandidateScore(view, depth: depth))}"
+                )
+            }
+            stack.append(contentsOf: view.subviews.reversed().map { ($0, depth + 1) })
+        }
+        return summaries.isEmpty ? "none" : summaries.joined(separator: "|")
+    }
+#endif
+
     private static func isPasteAsPlainTextCommandEquivalent(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         return event.keyCode == pasteAsPlainTextKeyCode && normalizedFlags == [.command, .shift]
     }
 
-    private func webKitPasteAsPlainTextFallback(_ sender: Any?) {
+    @discardableResult
+    private func webKitPasteAsPlainTextFallback(_ sender: Any?) -> Bool {
         let selector = NSSelectorFromString("pasteAsPlainText:")
         guard let method = class_getInstanceMethod(WKWebView.self, selector) else {
-            return
+            return false
         }
 
         typealias PasteAsPlainTextFn = @convention(c) (AnyObject, Selector, Any?) -> Void
         let implementation = method_getImplementation(method)
         unsafeBitCast(implementation, to: PasteAsPlainTextFn.self)(self, selector, sender)
+        return true
     }
 
-    // Key-equivalent handling is synchronous, so this bounded preflight pumps the main run loop.
-    // Keep callers limited to fast, side-effect-free reads from page-owned state.
-    private func evaluateJavaScriptSynchronously(
-        _ script: String,
-        timeout: TimeInterval = 0.25
-    ) -> (completed: Bool, result: Any?, error: Error?) {
-        var completed = false
-        var result: Any?
-        var error: Error?
-
-        evaluateJavaScript(script) { jsResult, jsError in
-            result = jsResult
-            error = jsError
-            completed = true
-        }
-
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
-        while !completed {
-            let remaining = deadline - ProcessInfo.processInfo.systemUptime
-            guard remaining > 0 else { break }
-
-            let sliceEnd = Date(timeIntervalSinceNow: min(remaining, 0.01))
-            _ = RunLoop.current.run(mode: .default, before: sliceEnd)
-            if !completed {
-                _ = RunLoop.current.run(mode: .eventTracking, before: sliceEnd)
-            }
-        }
-
-        return (completed, result, error)
-    }
-
-    private func pageCanAcceptPlainTextPaste() -> Bool {
-        let script = """
-        (() => {
-            try {
-                const fn = window.__cmuxCanPasteAsPlainTextIntoCurrentFocus;
-                return typeof fn === 'function' ? !!fn() : false;
-            } catch (_) {
-                return false;
-            }
-        })();
-        """
-
-        let evaluation = evaluateJavaScriptSynchronously(script)
-        let canPaste = evaluation.completed && ((evaluation.result as? Bool) ?? false)
-#if DEBUG
-        let errorDescription = evaluation.completed
-            ? (evaluation.error?.localizedDescription ?? "nil")
-            : "timeout"
-        cmuxDebugLog(
-            "browser.pasteAsPlainText.preflight " +
-            "web=\(ObjectIdentifier(self)) canPaste=\(canPaste ? 1 : 0) " +
-            "error=\(errorDescription)"
-        )
-#endif
-        return canPaste
-    }
-
-    private func shouldSkipRepeatedPasteAsPlainTextPreflight(for event: NSEvent) -> Bool {
+    private func shouldSkipRepeatedPasteAsPlainTextHandling(for event: NSEvent) -> Bool {
         guard event.timestamp > 0,
               let lastTimestamp = lastPasteAsPlainTextPerformKeyEventTimestamp else {
             return false
@@ -548,15 +511,15 @@ final class CmuxWebView: WKWebView {
 
     @discardableResult
     private func performPasteAsPlainTextFromPasteboard(_ sender: Any? = nil) -> Bool {
-        guard pasteAsPlainTextTargetAvailable,
-              NSPasteboard.general.string(forType: .string) != nil,
-              pageCanAcceptPlainTextPaste() else {
+        guard NSPasteboard.general.string(forType: .string) != nil else {
             return false
         }
 
-        webKitPasteAsPlainTextFallback(sender)
+        guard webKitPasteAsPlainTextFallback(sender) else {
+            return false
+        }
 #if DEBUG
-        cmuxDebugLog(
+        dlog(
             "browser.pasteAsPlainText " +
             "web=\(ObjectIdentifier(self)) routedNative=1"
         )
@@ -573,16 +536,69 @@ final class CmuxWebView: WKWebView {
 
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(pasteAsPlainText(_:)) {
-            return pasteAsPlainTextTargetAvailable
-                && NSPasteboard.general.string(forType: .string) != nil
+            return NSPasteboard.general.string(forType: .string) != nil
         }
         return super.validateUserInterfaceItem(item)
     }
+
+#if DEBUG
+    func debugLogSpaceFocusProbe(stage: String, event: NSEvent? = nil, extra: String = "") {
+        let currentWindow = window
+        let firstResponder = currentWindow?.firstResponder
+        let firstResponderDescription = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let firstResponderInWebView: Bool = {
+            guard let view = firstResponder as? NSView else { return false }
+            return view === self || view.isDescendant(of: self)
+        }()
+        let eventFields: String
+        if let event {
+            eventFields = Self.debugEventFields(event)
+        } else {
+            eventFields = "keyCode=nil"
+        }
+        let extraSuffix = extra.isEmpty ? "" : " \(extra)"
+        dlog(
+            "browser.space.native stage=\(stage) web=\(ObjectIdentifier(self)) " +
+            "win=\(currentWindow?.windowNumber ?? -1) fr=\(firstResponderDescription) " +
+            "frInWeb=\(firstResponderInWebView ? 1 : 0) " +
+            "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+            "pointerDepth=\(pointerFocusAllowanceDepth) " +
+            "\(eventFields)\(extraSuffix)"
+        )
+    }
+
+    private static func debugHex(_ value: String?) -> String {
+        guard let value else { return "nil" }
+        guard !value.isEmpty else { return "empty" }
+        return value.unicodeScalars
+            .map { String(format: "%04X", $0.value) }
+            .joined(separator: ",")
+    }
+
+    private static func debugEventFields(_ event: NSEvent) -> String {
+        switch event.type {
+        case .keyDown, .keyUp:
+            return "keyCode=\(event.keyCode) charsHex=\(debugHex(event.characters)) " +
+                "ignoringHex=\(debugHex(event.charactersIgnoringModifiers)) " +
+                "mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)"
+        case .flagsChanged:
+            return "keyCode=\(event.keyCode) charsHex=nil ignoringHex=nil " +
+                "mods=\(event.modifierFlags.rawValue) repeat=0"
+        default:
+            return "eventType=\(event.type.rawValue) keyCode=nil charsHex=nil ignoringHex=nil " +
+                "mods=\(event.modifierFlags.rawValue) repeat=0"
+        }
+    }
+
+#endif
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         var handled = false
+        if event.keyCode == 49 {
+            debugLogSpaceFocusProbe(stage: "web.performKeyEquivalent.enter", event: event)
+        }
         defer {
             CmuxTypingTiming.logDuration(
                 path: "browser.web.performKeyEquivalent",
@@ -590,12 +606,33 @@ final class CmuxWebView: WKWebView {
                 event: event,
                 extra: "handled=\(handled ? 1 : 0)"
             )
+            if event.keyCode == 49 {
+                debugLogSpaceFocusProbe(
+                    stage: "web.performKeyEquivalent.exit",
+                    event: event,
+                    extra: "handled=\(handled ? 1 : 0)"
+                )
+            }
         }
 #endif
         if event.keyCode == 36 || event.keyCode == 76 {
             // Always bypass app/menu key-equivalent routing for Return/Enter so WebKit
             // receives the keyDown path used by form submission handlers.
             return false
+        }
+        if event.keyCode == 49 {
+            let normalizedFlags = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function, .capsLock])
+            if normalizedFlags.isEmpty || normalizedFlags == [.shift] {
+                // Space is text input or page-scroll input in WebKit, not a cmux key equivalent.
+                // Returning false here covers responder-chain states where NSWindow did not
+                // classify the current first responder as browser-owned before asking WKWebView.
+#if DEBUG
+                debugLogSpaceFocusProbe(stage: "web.performKeyEquivalent.bypassSpace", event: event)
+#endif
+                return false
+            }
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -649,14 +686,17 @@ final class CmuxWebView: WKWebView {
             return result
         }
 
-        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalentBeforeMainMenu(event) == true {
+        // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
+        if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
 #if DEBUG
             handled = true
 #endif
             return true
         }
 
-        if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
+        // Handle app-level shortcuts that are not menu-backed (for example split commands).
+        // Without this, WebKit can consume Cmd-based shortcuts before the app monitor sees them.
+        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             handled = true
 #endif
@@ -681,6 +721,9 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         var route = "super"
+        if event.keyCode == 49 {
+            debugLogSpaceFocusProbe(stage: "web.keyDown.enter", event: event)
+        }
         defer {
             CmuxTypingTiming.logDuration(
                 path: "browser.web.keyDown",
@@ -688,10 +731,13 @@ final class CmuxWebView: WKWebView {
                 event: event,
                 extra: "route=\(route)"
             )
+            if event.keyCode == 49 {
+                debugLogSpaceFocusProbe(stage: "web.keyDown.exit", event: event, extra: "route=\(route)")
+            }
         }
 #endif
         if Self.isPasteAsPlainTextCommandEquivalent(event) {
-            if shouldSkipRepeatedPasteAsPlainTextPreflight(for: event) {
+            if shouldSkipRepeatedPasteAsPlainTextHandling(for: event) {
 #if DEBUG
                 route = "super"
 #endif
@@ -704,6 +750,13 @@ final class CmuxWebView: WKWebView {
                     return
                 }
             }
+        }
+
+        if dispatchPlainSpaceKeyDownToWebContentCandidateIfNeeded(event) {
+#if DEBUG
+            route = "contentCandidate.spaceKeyDown"
+#endif
+            return
         }
 
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
@@ -719,17 +772,68 @@ final class CmuxWebView: WKWebView {
         super.keyDown(with: event)
     }
 
+    @discardableResult
+    private func dispatchPlainSpaceKeyDownToWebContentCandidateIfNeeded(_ event: NSEvent) -> Bool {
+        guard shouldDispatchBrowserSpaceViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsBrowser: true,
+            firstResponderHasMarkedText: browserResponderHasMarkedText(self),
+            flags: event.modifierFlags
+        ) else {
+            return false
+        }
+        guard spaceContentCandidateForwardingDepth == 0 else {
+            return false
+        }
+        guard let currentWindow = window,
+              let candidate = webContentFirstResponderCandidates(in: currentWindow).first else {
+            return false
+        }
+
+        spaceContentCandidateForwardingDepth += 1
+        defer {
+            spaceContentCandidateForwardingDepth = max(0, spaceContentCandidateForwardingDepth - 1)
+        }
+
+        candidate.keyDown(with: event)
+        return true
+    }
+
+    override func insertText(_ insertString: Any) {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        if let text = insertString as? String, text == " " {
+            debugLogSpaceFocusProbe(stage: "web.insertText.space.enter", event: NSApp.currentEvent)
+        }
+        defer {
+            let event = NSApp.currentEvent
+            if let event {
+                CmuxTypingTiming.logDuration(
+                    path: "browser.web.insertText",
+                    startedAt: typingTimingStart,
+                    event: event,
+                    extra: "route=super"
+                )
+            }
+            if let text = insertString as? String, text == " " {
+                debugLogSpaceFocusProbe(stage: "web.insertText.space.exit", event: event)
+            }
+        }
+#endif
+        super.insertText(insertString)
+    }
+
     // MARK: - Focus on click
 
     // The SwiftUI Color.clear overlay (.onTapGesture) that focuses panes can't receive
     // clicks when a WKWebView is underneath — AppKit delivers the click to the deepest
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
-    // bonsplit focus tracks which pane the user clicked in.
+    // WorkspaceSplit focus tracks which pane the user clicked in.
     override func mouseDown(with event: NSEvent) {
 #if DEBUG
         let windowNumber = window?.windowNumber ?? -1
         let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        cmuxDebugLog(
+        dlog(
             "browser.focus.mouseDown web=\(ObjectIdentifier(self)) " +
             "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
             "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
@@ -750,7 +854,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        cmuxDebugLog(
+        dlog(
             "browser.mouse.otherDown web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
@@ -760,13 +864,13 @@ final class CmuxWebView: WKWebView {
         switch event.buttonNumber {
         case 3:
 #if DEBUG
-            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
+            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
 #endif
             goBack()
             return
         case 4:
 #if DEBUG
-            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
+            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
 #endif
             goForward()
             return
@@ -783,7 +887,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        cmuxDebugLog(
+        dlog(
             "browser.mouse.otherUp web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
@@ -839,114 +943,9 @@ final class CmuxWebView: WKWebView {
 
     private func debugContextDownload(_ message: @autoclosure () -> String) {
 #if DEBUG
-        cmuxDebugLog(Self.redactedContextDownloadDebugMessage(message()))
+        dlog(message())
 #endif
     }
-
-    #if DEBUG
-    private static let contextDownloadFieldPattern = try! NSRegularExpression(
-        pattern: "(^| )([A-Za-z][A-Za-z0-9_-]*)=",
-        options: []
-    )
-
-    private static func redactedContextDownloadDebugMessage(_ message: String) -> String {
-        let nsMessage = message as NSString
-        let fullRange = NSRange(location: 0, length: nsMessage.length)
-        let matches = contextDownloadFieldPattern.matches(in: message, range: fullRange)
-        guard !matches.isEmpty else { return message }
-
-        var result = ""
-        var cursor = 0
-        var matchIndex = 0
-
-        while matchIndex < matches.count {
-            let match = matches[matchIndex]
-            let fieldStart = match.range.location
-            if cursor < fieldStart {
-                result += nsMessage.substring(
-                    with: NSRange(location: cursor, length: fieldStart - cursor)
-                )
-            }
-
-            let separatorRange = match.range(at: 1)
-            if separatorRange.length > 0 {
-                result += " "
-            }
-
-            let keyRange = match.range(at: 2)
-            let key = nsMessage.substring(with: keyRange)
-            let valueStart = match.range.location + match.range.length
-            let sensitive = shouldRedactContextDownloadField(key)
-            let valueEnd: Int
-
-            if sensitive && key.lowercased() == "payload" {
-                valueEnd = nsMessage.length
-                matchIndex = matches.count
-            } else {
-                valueEnd = matchIndex + 1 < matches.count
-                    ? matches[matchIndex + 1].range.location
-                    : nsMessage.length
-                matchIndex += 1
-            }
-
-            let valueLength = max(0, valueEnd - valueStart)
-            let value = nsMessage.substring(with: NSRange(location: valueStart, length: valueLength))
-
-            if sensitive {
-                result += "\(key)=\(redactedContextDownloadValue(key: key, value: value))"
-            } else {
-                result += nsMessage.substring(
-                    with: NSRange(location: keyRange.location, length: valueEnd - keyRange.location)
-                )
-            }
-
-            cursor = valueEnd
-        }
-
-        if cursor < nsMessage.length {
-            result += nsMessage.substring(
-                with: NSRange(location: cursor, length: nsMessage.length - cursor)
-            )
-        }
-
-        return result
-    }
-
-    private static func shouldRedactContextDownloadField(_ key: String) -> Bool {
-        let normalized = key.lowercased()
-        return normalized == "referer" ||
-            normalized == "path" ||
-            normalized == "payload" ||
-            normalized.hasSuffix("url")
-    }
-
-    private static func redactedContextDownloadValue(key: String, value: String) -> String {
-        guard value != "nil", !value.isEmpty else { return value }
-
-        if shouldTreatContextDownloadFieldAsURL(key),
-           let url = URL(string: value),
-           let scheme = url.scheme?.lowercased(),
-           !scheme.isEmpty {
-            switch scheme {
-            case "http", "https":
-                return "\(scheme)://\(url.host ?? "unknown")"
-            case "data":
-                return "data:<redacted>"
-            case "file":
-                return "file:<redacted>"
-            default:
-                return "\(scheme):<redacted>"
-            }
-        }
-
-        return "<redacted>"
-    }
-
-    private static func shouldTreatContextDownloadFieldAsURL(_ key: String) -> Bool {
-        let normalized = key.lowercased()
-        return normalized == "referer" || normalized.hasSuffix("url")
-    }
-    #endif
 
     private static func selectorName(_ selector: Selector?) -> String {
         guard let selector else { return "nil" }
@@ -1983,15 +1982,15 @@ final class CmuxWebView: WKWebView {
     // MARK: - Drag-and-drop passthrough
 
     // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
-    // Bonsplit tab drags use NSString (public.utf8-plain-text) which conforms to public.text,
+    // WorkspaceSplit tab drags use NSString (public.utf8-plain-text) which conforms to public.text,
     // so AppKit's view-hierarchy-based drag routing delivers the session to WKWebView instead
     // of SwiftUI's sibling .onDrop overlays. Rejecting in draggingEntered doesn't help because
     // AppKit only bubbles up through superviews, not siblings.
     //
-    // Fix: filter out text-based types that conflict with bonsplit tab drags, but keep
+    // Fix: filter out text-based types that conflict with WorkspaceSplit tab drags, but keep
     // file URL types so Finder file drops and HTML drag-and-drop work.
     private static let blockedDragTypes: Set<NSPasteboard.PasteboardType> = [
-        .string, // public.utf8-plain-text — matches bonsplit's NSString tab drags
+        .string, // public.utf8-plain-text — matches WorkspaceSplit's NSString tab drags
         NSPasteboard.PasteboardType("public.text"),
         NSPasteboard.PasteboardType("public.plain-text"),
         NSPasteboard.PasteboardType("com.splittabbar.tabtransfer"),
@@ -1999,7 +1998,7 @@ final class CmuxWebView: WKWebView {
     ]
 
     static func shouldRejectInternalPaneDrag(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+        DragOverlayRoutingPolicy.hasSplitTabTransfer(pasteboardTypes)
             || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
     }
 

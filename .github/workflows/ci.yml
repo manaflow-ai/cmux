@@ -566,6 +566,13 @@ jobs:
             spm-release-
             spm-
 
+      - name: Clear stale Release module caches
+        run: |
+          set -euo pipefail
+          rm -rf build-universal/ModuleCache.noindex
+          rm -rf build-universal/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules
+          find build-universal/Build/Intermediates.noindex -name '*Bridging-header.pch' -delete 2>/dev/null || true
+
       - name: Build universal app (Release)
         run: |
           set -euo pipefail

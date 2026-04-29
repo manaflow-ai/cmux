@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import Combine
 import SwiftUI
 
@@ -359,7 +358,7 @@ struct TitlebarControlsView: View {
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
-                cmuxDebugLog("titlebar.toggleSidebar")
+                dlog("titlebar.toggleSidebar")
                 #endif
                 onToggleSidebar()
             }) {
@@ -371,7 +370,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
-                cmuxDebugLog("titlebar.notifications")
+                dlog("titlebar.notifications")
                 #endif
                 onToggleNotifications()
             }) {
@@ -398,7 +397,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
-                cmuxDebugLog("titlebar.newTab")
+                dlog("titlebar.newTab")
                 #endif
                 onNewTab()
             }) {
@@ -507,10 +506,10 @@ struct TitlebarControlsView: View {
                     .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
                     .frame(width: item.width, alignment: .leading)
                     .offset(x: item.leftEdge, y: yOffset)
-                    .shortcutHintTransition()
             }
         }
-        .shortcutHintVisibilityAnimation(value: shouldShowTitlebarShortcutHints)
+        .animation(.easeOut(duration: 0.12), value: shouldShowTitlebarShortcutHints)
+        .transition(.opacity)
         .allowsHitTesting(false)
     }
 
@@ -558,9 +557,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                     anchorView: viewModel.notificationsAnchorView
                 )
             },
-            onNewTab: {
-                AppDelegate.shared?.performNewWorkspaceAction(debugSource: "titlebar.hiddenNewWorkspace")
-            },
+            onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() },
             visibilityMode: .onHover
         )
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
@@ -686,13 +683,13 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
     }
 
     private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
-        guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: modifierFlags),
-              ShortcutHintModifierPolicy.isCurrentWindow(
-                hostWindowNumber: hostWindow?.windowNumber,
-                hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
-                eventWindowNumber: eventWindow?.windowNumber,
-                keyWindowNumber: NSApp.keyWindow?.windowNumber
-              ) else {
+        guard ShortcutHintModifierPolicy.shouldShowHints(
+            for: modifierFlags,
+            hostWindowNumber: hostWindow?.windowNumber,
+            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
+            eventWindowNumber: eventWindow?.windowNumber,
+            keyWindowNumber: NSApp.keyWindow?.windowNumber
+        ) else {
             cancelPendingHintShow(resetVisible: true)
             return
         }
@@ -701,20 +698,19 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
     }
 
     private func queueHintShow() {
-        if pendingShowWorkItem != nil || isModifierPressed {
-            return
-        }
+        guard !isModifierPressed else { return }
+        guard pendingShowWorkItem == nil else { return }
 
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingShowWorkItem = nil
-            guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: NSEvent.modifierFlags),
-                  ShortcutHintModifierPolicy.isCurrentWindow(
-                    hostWindowNumber: self.hostWindow?.windowNumber,
-                    hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
-                    eventWindowNumber: nil,
-                    keyWindowNumber: NSApp.keyWindow?.windowNumber
-                  ) else { return }
+            guard ShortcutHintModifierPolicy.shouldShowHints(
+                for: NSEvent.modifierFlags,
+                hostWindowNumber: self.hostWindow?.windowNumber,
+                hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
+                eventWindowNumber: nil,
+                keyWindowNumber: NSApp.keyWindow?.windowNumber
+            ) else { return }
             self.isModifierPressed = true
         }
 
@@ -794,7 +790,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         self.notificationStore = notificationStore
         let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
         let toggleNotifications: () -> Void = { _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
-        let newTab = { _ = AppDelegate.shared?.performNewWorkspaceAction(debugSource: "titlebar.accessoryNewWorkspace") }
+        let newTab = { _ = AppDelegate.shared?.tabManager?.addTab() }
         hostingView = NonDraggableHostingView(
             rootView: TitlebarControlsView(
                 notificationStore: notificationStore,
@@ -1280,21 +1276,25 @@ final class UpdateTitlebarAccessoryController {
         let currentMode = WorkspacePresentationModeSettings.mode()
         guard currentMode != lastKnownPresentationMode else { return }
         lastKnownPresentationMode = currentMode
-        // Ensure accessories exist on all windows. TitlebarControlsAccessoryViewController
-        // handles its own visibility (hidden in minimal, visible in standard) via its
-        // UserDefaults observer, so we just need to make sure it's attached.
+        if currentMode == .minimal {
+            for window in NSApp.windows {
+                removeAccessoryIfPresent(from: window)
+            }
+            return
+        }
+
         attachToExistingWindows()
 
         // When switching back to standard mode while a window is in fullscreen,
         // hide the accessories because fullscreen uses SwiftUI overlay controls.
-        if currentMode == .standard {
-            let controlsId = self.controlsIdentifier
-            for window in NSApp.windows where window.styleMask.contains(.fullScreen) {
-                for accessory in window.titlebarAccessoryViewControllers
-                    where accessory.view.identifier == controlsId {
-                    accessory.isHidden = true
-                    accessory.view.alphaValue = 0
-                }
+        let controlsId = self.controlsIdentifier
+        for window in NSApp.windows
+            where window.styleMask.contains(.fullScreen)
+            && window.cmuxSupportsTitlebarAccessoryControllers {
+            for accessory in window.titlebarAccessoryViewControllers
+                where accessory.view.identifier == controlsId {
+                accessory.isHidden = true
+                accessory.view.alphaValue = 0
             }
         }
     }
@@ -1331,6 +1331,14 @@ final class UpdateTitlebarAccessoryController {
 
     private func attachIfNeeded(to window: NSWindow) {
         guard !isSettingsWindow(window) else { return }
+        guard window.cmuxSupportsTitlebarAccessoryControllers else {
+            forgetWindow(window)
+            return
+        }
+        if WorkspacePresentationModeSettings.mode() == .minimal {
+            removeAccessoryIfPresent(from: window)
+            return
+        }
 
         // Window identifiers are assigned by SwiftUI via WindowAccessor, which can run
         // after didBecomeKey/didBecomeMain notifications. Retry briefly to avoid missing
@@ -1379,6 +1387,10 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func removeAccessoryIfPresent(from window: NSWindow) {
+        guard window.cmuxSupportsTitlebarAccessoryControllers else {
+            forgetWindow(window)
+            return
+        }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
             return id == controlsIdentifier
@@ -1411,6 +1423,11 @@ final class UpdateTitlebarAccessoryController {
             UpdateLogStore.shared.append("removed titlebar accessories from window id=\(ident)")
         }
 #endif
+    }
+
+    private func forgetWindow(_ window: NSWindow) {
+        attachedWindows.remove(window)
+        pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
     }
 
     private func isSettingsWindow(_ window: NSWindow) -> Bool {

@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import SwiftUI
 
 private func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
@@ -271,14 +270,14 @@ func windowDragHandleShouldCaptureHit(
                 ]
             )
             #if DEBUG
-            cmuxDebugLog(
+            dlog(
                 "titlebar.dragHandle.hitTest suppressionRecovered clearedDepth=\(clearedDepth) point=\(windowDragHandleFormatPoint(point))"
             )
             #endif
         } else {
         #if DEBUG
             let depth = windowDragSuppressionDepth(window: dragHandleWindow)
-            cmuxDebugLog(
+            dlog(
                 "titlebar.dragHandle.hitTest capture=false reason=suppressed depth=\(depth) point=\(windowDragHandleFormatPoint(point))"
             )
         #endif
@@ -297,7 +296,7 @@ func windowDragHandleShouldCaptureHit(
         let eventTypeDescription = eventType.map { String(describing: $0) } ?? "nil"
         let eventWindowNumber = eventWindow?.windowNumber ?? -1
         let dragWindowNumber = dragHandleWindow?.windowNumber ?? -1
-        cmuxDebugLog(
+        dlog(
             "titlebar.dragHandle.hitTest capture=false reason=passiveEvent eventType=\(eventTypeDescription) eventWindow=\(eventWindowNumber) dragWindow=\(dragWindowNumber) point=\(windowDragHandleFormatPoint(point))"
         )
         #endif
@@ -306,14 +305,14 @@ func windowDragHandleShouldCaptureHit(
 
     guard dragHandleView.bounds.contains(point) else {
         #if DEBUG
-        cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=outside point=\(windowDragHandleFormatPoint(point))")
+        dlog("titlebar.dragHandle.hitTest capture=false reason=outside point=\(windowDragHandleFormatPoint(point))")
         #endif
         return false
     }
 
     guard let superview = dragHandleView.superview else {
         #if DEBUG
-        cmuxDebugLog("titlebar.dragHandle.hitTest capture=true reason=noSuperview point=\(windowDragHandleFormatPoint(point))")
+        dlog("titlebar.dragHandle.hitTest capture=true reason=noSuperview point=\(windowDragHandleFormatPoint(point))")
         #endif
         return true
     }
@@ -324,7 +323,7 @@ func windowDragHandleShouldCaptureHit(
     // violation in the Swift runtime.
     guard !_windowDragHandleIsResolvingSiblingHits else {
         #if DEBUG
-        cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=reentrant point=\(windowDragHandleFormatPoint(point))")
+        dlog("titlebar.dragHandle.hitTest capture=false reason=reentrant point=\(windowDragHandleFormatPoint(point))")
         #endif
         return false
     }
@@ -347,14 +346,14 @@ func windowDragHandleShouldCaptureHit(
             let passiveHostHit = windowDragHandleShouldTreatTopHitAsPassiveHost(hitView)
             if passiveHostHit {
                 #if DEBUG
-                cmuxDebugLog(
+                dlog(
                     "titlebar.dragHandle.hitTest capture=defer point=\(windowDragHandleFormatPoint(point)) sibling=\(type(of: sibling)) hit=\(type(of: hitView)) passiveHost=true"
                 )
                 #endif
                 continue
             }
             #if DEBUG
-            cmuxDebugLog(
+            dlog(
                 "titlebar.dragHandle.hitTest capture=false point=\(windowDragHandleFormatPoint(point)) siblingCount=\(siblingCount) sibling=\(type(of: sibling)) hit=\(type(of: hitView)) passiveHost=false"
             )
             #endif
@@ -374,7 +373,7 @@ func windowDragHandleShouldCaptureHit(
     }
 
     #if DEBUG
-    cmuxDebugLog("titlebar.dragHandle.hitTest capture=true point=\(windowDragHandleFormatPoint(point)) siblingCount=\(siblingCount)")
+    dlog("titlebar.dragHandle.hitTest capture=true point=\(windowDragHandleFormatPoint(point)) siblingCount=\(siblingCount)")
     #endif
     return true
 }
@@ -410,7 +409,7 @@ struct WindowDragHandleView: NSViewRepresentable {
                 eventWindow: currentEvent?.window
             )
             #if DEBUG
-            cmuxDebugLog(
+            dlog(
                 "titlebar.dragHandle.hitTestResult capture=\(shouldCapture) point=\(windowDragHandleFormatPoint(point)) window=\(window != nil)"
             )
             #endif
@@ -421,7 +420,7 @@ struct WindowDragHandleView: NSViewRepresentable {
             #if DEBUG
             let point = convert(event.locationInWindow, from: nil)
             let depth = windowDragSuppressionDepth(window: window)
-            cmuxDebugLog(
+            dlog(
                 "titlebar.dragHandle.mouseDown point=\(windowDragHandleFormatPoint(point)) clickCount=\(event.clickCount) depth=\(depth)"
             )
             #endif
@@ -429,7 +428,7 @@ struct WindowDragHandleView: NSViewRepresentable {
             if event.clickCount >= 2 {
                 let action = performStandardTitlebarDoubleClick(window: window)
                 #if DEBUG
-                cmuxDebugLog("titlebar.dragHandle.mouseDownDoubleClick action=\(String(describing: action))")
+                dlog("titlebar.dragHandle.mouseDownDoubleClick action=\(String(describing: action))")
                 #endif
                 if action != nil {
                     return
@@ -438,7 +437,7 @@ struct WindowDragHandleView: NSViewRepresentable {
 
             guard !isWindowDragSuppressed(window: window) else {
                 #if DEBUG
-                cmuxDebugLog("titlebar.dragHandle.mouseDownIgnored reason=suppressed")
+                dlog("titlebar.dragHandle.mouseDownIgnored reason=suppressed")
                 #endif
                 return
             }
@@ -449,7 +448,7 @@ struct WindowDragHandleView: NSViewRepresentable {
                 }
                 #if DEBUG
                 let restored = previousMovableState.map { String($0) } ?? "nil"
-                cmuxDebugLog("titlebar.dragHandle.mouseDownComplete restoredMovable=\(restored) nowMovable=\(window.isMovable)")
+                dlog("titlebar.dragHandle.mouseDownComplete restoredMovable=\(restored) nowMovable=\(window.isMovable)")
                 #endif
             } else {
                 super.mouseDown(with: event)

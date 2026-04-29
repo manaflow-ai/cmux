@@ -4,7 +4,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -178,8 +177,7 @@ final class ReactGrabPastebackTargetTests: XCTestCase {
             XCTFail("Expected initial terminal panel")
             return
         }
-        guard let browserPanel = workspace.newBrowserSplit(
-            from: terminalId,
+        guard let browserPanel = workspace.splitBrowserPanel(fromPanelId: terminalId,
             orientation: .horizontal
         ) else {
             XCTFail("Expected browser split panel")
@@ -201,8 +199,7 @@ final class ReactGrabPastebackTargetTests: XCTestCase {
     func testDoesNotFallbackWhenPreferredTerminalTargetIsMissing() {
         let workspace = Workspace(title: "Tests")
         guard let terminalId = workspace.focusedPanelId,
-              let browserPanel = workspace.newBrowserSplit(
-                from: terminalId,
+              let browserPanel = workspace.splitBrowserPanel(fromPanelId: terminalId,
                 orientation: .horizontal
               ) else {
             XCTFail("Expected initial workspace split")
@@ -223,8 +220,7 @@ final class ReactGrabPastebackTargetTests: XCTestCase {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let terminalId = workspace.focusedPanelId,
-              let browserPanel = workspace.newBrowserSplit(
-                from: terminalId,
+              let browserPanel = workspace.splitBrowserPanel(fromPanelId: terminalId,
                 orientation: .horizontal
               ) else {
             XCTFail("Expected initial workspace with terminal and browser split")
@@ -242,8 +238,7 @@ final class ReactGrabPastebackTargetTests: XCTestCase {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let terminalId = workspace.focusedPanelId,
-              let browserPanel = workspace.newBrowserSplit(
-                from: terminalId,
+              let browserPanel = workspace.splitBrowserPanel(fromPanelId: terminalId,
                 orientation: .horizontal
               ) else {
             XCTFail("Expected initial workspace with terminal and browser split")
@@ -252,10 +247,10 @@ final class ReactGrabPastebackTargetTests: XCTestCase {
 
         workspace.focusPanel(terminalId)
         XCTAssertTrue(workspace.toggleSplitZoom(panelId: terminalId))
-        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertTrue(workspace.isSplitZoomed)
 
         XCTAssertTrue(manager.toggleReactGrabFromCurrentFocus())
-        XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertFalse(workspace.isSplitZoomed)
         XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
         XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalId)
     }
@@ -444,25 +439,6 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
                 chars: "\u{10}",
-                keyCode: 35
-            ),
-            -1
-        )
-    }
-
-    func testNavigationIgnoresCapsLockModifier() {
-        XCTAssertEqual(
-            commandPaletteSelectionDeltaForKeyboardNavigation(
-                flags: [.capsLock],
-                chars: "",
-                keyCode: 125
-            ),
-            1
-        )
-        XCTAssertEqual(
-            commandPaletteSelectionDeltaForKeyboardNavigation(
-                flags: [.control, .capsLock],
-                chars: "p",
                 keyCode: 35
             ),
             -1
@@ -658,19 +634,6 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
 final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
     private final class NonViewTextDelegate: NSObject, NSTextViewDelegate {}
     private final class UnrelatedViewTextDelegate: NSView, NSTextViewDelegate {}
-    private final class DelegateTrackingTextView: NSTextView {
-        private(set) var delegateReadCount = 0
-
-        override var delegate: NSTextViewDelegate? {
-            get {
-                delegateReadCount += 1
-                return super.delegate
-            }
-            set {
-                super.delegate = newValue
-            }
-        }
-    }
 
     func testTreatsGhosttySurfaceViewAsFocusStealer() {
         let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
@@ -695,17 +658,6 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
 
         XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textField))
-    }
-
-    func testDoesNotReadTextViewDelegateForFocusStealerClassification() {
-        let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
-
-        XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView))
-        XCTAssertEqual(
-            textView.delegateReadCount,
-            0,
-            "Command palette focus-stealer classification must avoid NSTextView.delegate because AppKit exposes it as unsafe-unretained"
-        )
     }
 
     func testTreatsTextViewInsideTerminalHostedViewAsFocusStealerWhenDelegateIsNotAView() {
@@ -839,13 +791,12 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
-    func testShortcutHintRequiresEnabledCommandOrControlOnlyModifier() {
+    func testShortcutHintRequiresEnabledCommandOnlyModifier() {
         withDefaultsSuite { defaults in
             defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
 
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .shift], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control, .shift], defaults: defaults))
@@ -855,86 +806,25 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         }
     }
 
-    func testShortcutHintShowsForControlModifier() {
-        withDefaultsSuite { defaults in
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
-
-            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
-        }
-    }
-
-    func testControlOnlyShortcutHintRequiresControlModifier() {
-        withDefaultsSuite { defaults in
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
-
-            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.command], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control, .shift], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control, .option], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [], defaults: defaults))
-        }
-    }
-
-    func testControlOnlyShortcutHintRespectsControlVisibilitySetting() {
-        withDefaultsSuite { defaults in
-            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
-
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control], defaults: defaults))
-        }
-    }
-
-    func testCommandOnlyShortcutHintRequiresCommandModifier() {
-        withDefaultsSuite { defaults in
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-
-            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.control], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command, .shift], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command, .option], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [], defaults: defaults))
-        }
-    }
-
-    func testCommandOnlyShortcutHintRespectsCommandVisibilitySetting() {
+    func testCommandHintCanBeDisabledInSettings() {
         withDefaultsSuite { defaults in
             defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command], defaults: defaults))
-        }
-    }
-
-    func testCommandHintCanBeDisabledIndependently() {
-        withDefaultsSuite { defaults in
-            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
 
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
         }
     }
 
-    func testControlHintCanBeDisabledIndependently() {
+    func testCommandHintDefaultsToEnabledWhenSettingMissing() {
         withDefaultsSuite { defaults in
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
+            defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
         }
     }
 
-    func testCommandAndControlHintsDefaultToEnabledWhenSettingsAreMissing() {
-        withDefaultsSuite { defaults in
-            defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-            defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
-
-            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
-        }
-    }
-
-    func testShortcutHintIgnoresCustomizedWorkspaceShortcutModifiers() {
+    func testShortcutHintStaysCommandOnlyWhenWorkspaceShortcutIsCustomized() {
         let action = KeyboardShortcutSettings.Action.selectWorkspaceByNumber
         let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
         defer {
@@ -948,14 +838,13 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 
         withDefaultsSuite { defaults in
             defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
 
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
         }
     }
 
-    func testShortcutHintIgnoresWorkspaceShortcutChords() {
+    func testShortcutHintStaysCommandOnlyWhenWorkspaceShortcutUsesChord() {
         let action = KeyboardShortcutSettings.Action.selectWorkspaceByNumber
         let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
         defer {
@@ -980,10 +869,9 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 
         withDefaultsSuite { defaults in
             defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
 
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
         }
     }
 
@@ -1023,7 +911,6 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
     func testWindowScopedShortcutHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
         withDefaultsSuite { defaults in
             defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
 
             XCTAssertTrue(
                 ShortcutHintModifierPolicy.shouldShowHints(
@@ -1048,6 +935,17 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
             )
 
             XCTAssertTrue(
+                ShortcutHintModifierPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 42,
+                    defaults: defaults
+                )
+            )
+
+            XCTAssertFalse(
                 ShortcutHintModifierPolicy.shouldShowHints(
                     for: [.control],
                     hostWindowNumber: 42,
@@ -1074,224 +972,135 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 }
 
 
-final class RightSidebarModeShortcutHintTests: XCTestCase {
-    private let touchedShortcutActions: [KeyboardShortcutSettings.Action] = [
-        .focusRightSidebar,
-        .switchRightSidebarToFiles,
-        .switchRightSidebarToFind,
-        .switchRightSidebarToSessions,
-        .switchRightSidebarToFeed,
-    ]
-    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
-    private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
-    private var temporaryDirectoryURL: URL?
-
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
-        savedShortcutData = Dictionary(
-            uniqueKeysWithValues: touchedShortcutActions.map { action in
-                (action, UserDefaults.standard.data(forKey: action.defaultsKey))
-            }
-        )
-
-        let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        temporaryDirectoryURL = directoryURL
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: directoryURL.appendingPathComponent("settings.json", isDirectory: false).path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-        for action in touchedShortcutActions {
-            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+final class WorkspaceLayoutPaneTabShortcutHintPolicyTests: XCTestCase {
+    func testPaneTabShortcutHintDefaultsToConfiguredSurfaceShortcut() {
+        let action = KeyboardShortcutSettings.Action.selectSurfaceByNumber
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
         }
-        KeyboardShortcutSettings.notifySettingsFileDidChange()
-    }
 
-    override func tearDownWithError() throws {
-        for action in touchedShortcutActions {
-            if case let .some(.some(data)) = savedShortcutData[action] {
-                UserDefaults.standard.set(data, forKey: action.defaultsKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: action.defaultsKey)
-            }
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "1", command: false, shift: false, option: false, control: true),
+            for: action
+        )
+
+        withDefaultsSuite { defaults in
+            defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertEqual(
+                WorkspaceLayoutPaneTabShortcutHintPolicy.hintModifier(
+                    for: [.control],
+                    defaults: defaults
+                )?.symbol,
+                "⌃"
+            )
+            XCTAssertEqual(
+                WorkspaceLayoutPaneTabShortcutHintPolicy.hintModifier(
+                    for: [.command],
+                    defaults: defaults
+                )?.symbol,
+                "⌃"
+            )
         }
-        KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-        KeyboardShortcutSettings.notifySettingsFileDidChange()
-        if let temporaryDirectoryURL {
-            try? FileManager.default.removeItem(at: temporaryDirectoryURL)
+    }
+
+    func testPaneTabShortcutHintTracksCustomizedModifiers() {
+        let action = KeyboardShortcutSettings.Action.selectSurfaceByNumber
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
         }
-        try super.tearDownWithError()
-    }
 
-    func testModeShortcutActionsMatchModeSwitchingActions() {
-        XCTAssertEqual(RightSidebarMode.files.shortcutAction, .switchRightSidebarToFiles)
-        XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
-        XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
-        XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
-    }
-
-    func testModeShortcutUsesConfiguredBindings() {
-        let customFilesShortcut = StoredShortcut(
-            key: "4",
-            command: false,
-            shift: false,
-            option: false,
-            control: true
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "1", command: true, shift: false, option: false, control: false),
+            for: action
         )
-        KeyboardShortcutSettings.setShortcut(customFilesShortcut, for: .switchRightSidebarToFiles)
 
-        XCTAssertEqual(
-            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
-            .files
-        )
-        XCTAssertNil(
-            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18))
-        )
-    }
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
-    func testFocusRightSidebarShortcutCanBeOverwrittenForHintRendering() {
-        let customShortcut = StoredShortcut(
-            key: "e",
-            command: true,
-            shift: true,
-            option: true,
-            control: false
-        )
-        KeyboardShortcutSettings.setShortcut(customShortcut, for: .focusRightSidebar)
-
-        let resolvedShortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
-        XCTAssertEqual(resolvedShortcut, customShortcut)
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.focusRightSidebar.displayedShortcutString(for: resolvedShortcut),
-            customShortcut.displayString
-        )
-    }
-
-    private func makeKeyDownEvent(
-        key: String,
-        modifiers: NSEvent.ModifierFlags,
-        keyCode: UInt16
-    ) -> NSEvent {
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: modifiers,
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: key,
-            charactersIgnoringModifiers: key,
-            isARepeat: false,
-            keyCode: keyCode
-        ) else {
-            fatalError("Failed to construct key event")
+            XCTAssertEqual(
+                WorkspaceLayoutPaneTabShortcutHintPolicy.hintModifier(
+                    for: [.command],
+                    defaults: defaults
+                )?.symbol,
+                "⌘"
+            )
+            XCTAssertNil(
+                WorkspaceLayoutPaneTabShortcutHintPolicy.hintModifier(
+                    for: [.control],
+                    defaults: defaults
+                )
+            )
         }
-        return event
-    }
-}
-
-final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
-    private final class TestRightSidebarResponder: NSView, FeedKeyboardFocusResponder {
-        override var acceptsFirstResponder: Bool { true }
     }
 
-    @MainActor
-    func testHiddenRightSidebarClearsFocusIntentWhenNoTerminalCanRestore() {
-        let controller = MainWindowFocusController(
-            windowId: UUID(),
-            window: nil,
-            tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+    func testPaneTabShortcutHintCanBeDisabled() {
+        withDefaultsSuite { defaults in
+            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertNil(
+                WorkspaceLayoutPaneTabShortcutHintPolicy.hintModifier(
+                    for: [.control],
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    func testPaneTabShortcutHintIgnoresChordedShortcut() {
+        let action = KeyboardShortcutSettings.Action.selectSurfaceByNumber
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "1",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                chordKey: "2",
+                chordCommand: false,
+                chordShift: false,
+                chordOption: false,
+                chordControl: true
+            ),
+            for: action
         )
-        let workspaceId = UUID()
-        let panelId = UUID()
 
-        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
-        controller.noteRightSidebarInteraction(mode: .feed)
-        XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
-        XCTAssertFalse(controller.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded())
-        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+            XCTAssertNil(
+                WorkspaceLayoutPaneTabShortcutHintPolicy.hintModifier(
+                    for: [.control],
+                    defaults: defaults
+                )
+            )
+        }
     }
 
-    @MainActor
-    func testHiddenRightSidebarDoesNotRestoreWhenTerminalAlreadyOwnsFocus() {
-        let controller = MainWindowFocusController(
-            windowId: UUID(),
-            window: nil,
-            tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
-        )
-        let workspaceId = UUID()
-        let panelId = UUID()
-
-        controller.noteTerminalInteraction(workspaceId: workspaceId, panelId: panelId)
-
-        XCTAssertFalse(controller.shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: nil))
-        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    func testPaneTabShortcutDigitMapsLastDigitToLastTab() {
+        XCTAssertEqual(workspaceLayoutTabControlShortcutDigit(for: 0, tabCount: 12), 1)
+        XCTAssertEqual(workspaceLayoutTabControlShortcutDigit(for: 7, tabCount: 12), 8)
+        XCTAssertNil(workspaceLayoutTabControlShortcutDigit(for: 8, tabCount: 12))
+        XCTAssertEqual(workspaceLayoutTabControlShortcutDigit(for: 11, tabCount: 12), 9)
     }
 
-    @MainActor
-    func testMainPanelInteractionKeepsFeedSelectionInactive() {
-        let controller = MainWindowFocusController(
-            windowId: UUID(),
-            window: nil,
-            tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
-        )
-        let itemId = UUID()
-        let workspaceId = UUID()
-        let panelId = UUID()
+    private func withDefaultsSuite(_ body: (UserDefaults) -> Void) {
+        let suiteName = "WorkspaceLayoutPaneTabShortcutHintPolicyTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
 
-        XCTAssertTrue(controller.selectFeedItem(itemId, focusFeed: false))
-        XCTAssertEqual(controller.feedFocusSnapshot().selectedItemId, itemId)
-        XCTAssertTrue(controller.feedFocusSnapshot().isKeyboardActive)
-
-        controller.noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
-
-        XCTAssertEqual(controller.feedFocusSnapshot().selectedItemId, itemId)
-        XCTAssertFalse(controller.feedFocusSnapshot().isKeyboardActive)
-        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
-        XCTAssertEqual(controller.focusToggleDestination(), .rightSidebar)
-    }
-
-    @MainActor
-    func testFocusShortcutToggleUsesActualRightSidebarResponderOverStaleIntent() {
-        let controller = MainWindowFocusController(
-            windowId: UUID(),
-            window: nil,
-            tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
-        )
-        let responder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-
-        let workspaceId = UUID()
-        let panelId = UUID()
-        controller.noteTerminalInteraction(workspaceId: workspaceId, panelId: panelId)
-
-        XCTAssertEqual(controller.focusToggleDestination(currentResponder: responder), .terminal)
-        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
-    }
-
-    @MainActor
-    func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
-        let controller = MainWindowFocusController(
-            windowId: UUID(),
-            window: nil,
-            tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
-        )
-        let workspaceId = UUID()
-        let panelId = UUID()
-
-        controller.noteRightSidebarInteraction(mode: .feed)
-        XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
-
-        XCTAssertFalse(controller.toggleRightSidebarOrTerminalFocus())
-        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+        defaults.removePersistentDomain(forName: suiteName)
+        body(defaults)
+        defaults.removePersistentDomain(forName: suiteName)
     }
 }
 
@@ -1313,7 +1122,6 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
         XCTAssertFalse(ShortcutHintDebugSettings.defaultAlwaysShowHints)
         XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnCommandHold)
-        XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnControlHold)
     }
 
     func testShowHintsOnCommandHoldSettingRespectsStoredValue() {
@@ -1336,27 +1144,7 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
     }
 
-    func testShowHintsOnControlHoldSettingRespectsStoredValue() {
-        let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create defaults suite")
-            return
-        }
-
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
-        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnControlHoldEnabled(defaults: defaults))
-
-        defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
-        XCTAssertFalse(ShortcutHintDebugSettings.showHintsOnControlHoldEnabled(defaults: defaults))
-
-        defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
-        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnControlHoldEnabled(defaults: defaults))
-    }
-
-    func testResetVisibilityDefaultsRestoresAlwaysShowAndHoldFlags() {
+    func testResetVisibilityDefaultsRestoresAlwaysShowAndCommandHoldFlags() {
         let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create defaults suite")
@@ -1368,7 +1156,6 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: ShortcutHintDebugSettings.alwaysShowHintsKey)
         defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-        defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey)
 
         ShortcutHintDebugSettings.resetVisibilityDefaults(defaults: defaults)
 
@@ -1379,10 +1166,6 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertEqual(
             defaults.object(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey) as? Bool,
             ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
-        )
-        XCTAssertEqual(
-            defaults.object(forKey: ShortcutHintDebugSettings.showHintsOnControlHoldKey) as? Bool,
-            ShortcutHintDebugSettings.defaultShowHintsOnControlHold
         )
     }
 }

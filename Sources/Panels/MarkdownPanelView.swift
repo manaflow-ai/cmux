@@ -5,9 +5,7 @@ import MarkdownUI
 /// SwiftUI view that renders a MarkdownPanel's content using MarkdownUI.
 struct MarkdownPanelView: View {
     @ObservedObject var panel: MarkdownPanel
-    let isFocused: Bool
     let isVisibleInUI: Bool
-    let portalPriority: Int
     let onRequestPanelFocus: () -> Void
 
     @State private var focusFlashOpacity: Double = 0.0

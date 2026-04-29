@@ -193,6 +193,63 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
     }
 }
 
+final class TitlebarAccessoryWindowSupportTests: XCTestCase {
+    private func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    @MainActor
+    func testMainLikeBorderlessWindowDoesNotAttachTitlebarAccessories() {
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.standard.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.unsupported-titlebar")
+        defer { window.close() }
+
+        XCTAssertFalse(window.cmuxSupportsTitlebarAccessoryControllers)
+
+        let controller = UpdateTitlebarAccessoryController(viewModel: UpdateViewModel())
+        controller.attach(to: window)
+    }
+
+    @MainActor
+    func testMinimalModeSkipsUnsupportedWindowAccessoryRemoval() {
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        XCTAssertFalse(window.cmuxSupportsTitlebarAccessoryControllers)
+
+        let controller = UpdateTitlebarAccessoryController(viewModel: UpdateViewModel())
+        controller.attach(to: window)
+    }
+}
+
 final class AppIconAppearanceObserverTests: XCTestCase {
     private final class ObservationToken: AppIconAppearanceObservation {
         private(set) var invalidateCallCount = 0

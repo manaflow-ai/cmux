@@ -4,7 +4,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
 import UserNotifications
 import Combine
 
@@ -59,141 +58,95 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
+}
 
-    @MainActor
-    func testSolidFillKeepsSelectedBackgroundForActiveCustomColoredWorkspaceRow() {
-        let manager = TabManager()
-        guard let workspace = manager.tabs.first else {
-            XCTFail("Expected TabManager to initialise with a workspace")
-            return
-        }
 
-        var observedSidebarInvalidation = false
-        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
-            observedSidebarInvalidation = true
-        }
-
-        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
-
-        XCTAssertEqual(workspace.customColor, "#C0392B")
-        XCTAssertTrue(observedSidebarInvalidation)
-
-        let background = sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: .solidFill,
-            isActive: true,
-            isMultiSelected: false,
-            customColorHex: workspace.customColor,
-            colorScheme: .light,
-            sidebarSelectionColorHex: nil
+@MainActor
+final class WorkspaceSplitPolicyTests: XCTestCase {
+    func testCloseTabHonorsDisabledClosePolicy() throws {
+        let controller = WorkspaceLayoutController(
+            configuration: WorkspaceLayoutConfiguration(allowCloseTabs: false)
         )
+        let tab = try XCTUnwrap(controller.createTab(title: "One"))
 
-        XCTAssertEqual(
-            background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
-        )
-        XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
-        withExtendedLifetime(cancellable) {}
+        XCTAssertFalse(controller.closeTab(tab))
+        XCTAssertNotNil(controller.rootNode.findTab(tab))
     }
 
-    @MainActor
-    func testLeftRailKeepsSelectedBackgroundForActiveCustomColoredWorkspaceRow() {
-        let manager = TabManager()
-        guard let workspace = manager.tabs.first else {
-            XCTFail("Expected TabManager to initialise with a workspace")
-            return
-        }
-
-        var observedSidebarInvalidation = false
-        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
-            observedSidebarInvalidation = true
-        }
-
-        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
-
-        XCTAssertEqual(workspace.customColor, "#C0392B")
-        XCTAssertTrue(observedSidebarInvalidation)
-
-        let background = sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: .leftRail,
-            isActive: true,
-            isMultiSelected: false,
-            customColorHex: workspace.customColor,
-            colorScheme: .light,
-            sidebarSelectionColorHex: nil
+    func testSamePaneMoveHonorsDisabledReorderPolicy() throws {
+        let controller = WorkspaceLayoutController(
+            configuration: WorkspaceLayoutConfiguration(allowTabReordering: false)
         )
+        let first = try XCTUnwrap(controller.createTab(title: "One"))
+        let second = try XCTUnwrap(controller.createTab(title: "Two"))
+        let paneId = try XCTUnwrap(controller.focusedPaneId)
 
-        XCTAssertEqual(
-            background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
-        )
-        XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
-        withExtendedLifetime(cancellable) {}
+        XCTAssertEqual(controller.rootNode.findPane(paneId)?.tabIds, [first.id, second.id])
+        XCTAssertFalse(controller.reorderTab(first, toIndex: 2))
+        XCTAssertFalse(controller.moveTab(first, toPane: paneId, atIndex: 2))
+        XCTAssertEqual(controller.rootNode.findPane(paneId)?.tabIds, [first.id, second.id])
     }
 
-    @MainActor
-    func testLeftRailLeavesInactiveCustomColoredWorkspaceRowTransparent() {
-        let manager = TabManager()
-        guard let workspace = manager.tabs.first else {
-            XCTFail("Expected TabManager to initialise with a workspace")
-            return
-        }
-
-        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
-
-        let background = sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: .leftRail,
-            isActive: false,
-            isMultiSelected: false,
-            customColorHex: workspace.customColor,
-            colorScheme: .light,
-            sidebarSelectionColorHex: nil
+    func testCrossPaneMoveHonorsDisabledCrossPanePolicy() throws {
+        let controller = WorkspaceLayoutController(
+            configuration: WorkspaceLayoutConfiguration(allowCrossPaneTabMove: false)
+        )
+        let tab = try XCTUnwrap(controller.createTab(title: "One"))
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        let targetPaneId = try XCTUnwrap(
+            controller.splitPane(sourcePaneId, orientation: .horizontal)
         )
 
-        XCTAssertNil(background.color)
-        XCTAssertEqual(background.opacity, 0, accuracy: 0.001)
+        XCTAssertFalse(controller.moveTab(tab, toPane: targetPaneId))
+        XCTAssertEqual(controller.rootNode.findPane(sourcePaneId)?.tabIds, [tab.id])
+        XCTAssertEqual(controller.rootNode.findPane(targetPaneId)?.tabIds, [])
     }
 
-    @MainActor
-    func testLeftRailResolvesExplicitRailColorForCustomColoredWorkspaceRow() {
-        let manager = TabManager()
-        guard let workspace = manager.tabs.first else {
-            XCTFail("Expected TabManager to initialise with a workspace")
-            return
-        }
-
-        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
-
-        let railColor = sidebarWorkspaceRowExplicitRailNSColor(
-            activeTabIndicatorStyle: .leftRail,
-            customColorHex: workspace.customColor,
-            colorScheme: .light
+    func testCrossPaneMovePreservesEmptySourcePaneWhenAutoCloseDisabled() throws {
+        let controller = WorkspaceLayoutController(
+            configuration: WorkspaceLayoutConfiguration(autoCloseEmptyPanes: false)
+        )
+        let tab = try XCTUnwrap(controller.createTab(title: "One"))
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        let targetPaneId = try XCTUnwrap(
+            controller.splitPane(sourcePaneId, orientation: .horizontal)
         )
 
-        XCTAssertNotNil(railColor)
-        XCTAssertEqual(railColor?.hexString(), "#C0392B")
+        XCTAssertTrue(controller.moveTab(tab, toPane: targetPaneId))
+        XCTAssertEqual(controller.rootNode.findPane(sourcePaneId)?.tabIds, [])
+        XCTAssertEqual(controller.rootNode.findPane(targetPaneId)?.tabIds, [tab.id])
+        XCTAssertEqual(Set(controller.allPaneIds), Set([sourcePaneId, targetPaneId]))
     }
 
-    @MainActor
-    func testSolidFillUsesInactiveCustomWorkspaceColorAsBackground() {
-        let manager = TabManager()
-        guard let workspace = manager.tabs.first else {
-            XCTFail("Expected TabManager to initialise with a workspace")
-            return
-        }
-
-        manager.setTabColor(tabId: workspace.id, color: "#C0392B")
-
-        let background = sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: .solidFill,
-            isActive: false,
-            isMultiSelected: false,
-            customColorHex: workspace.customColor,
-            colorScheme: .light,
-            sidebarSelectionColorHex: nil
+    func testCloseTabPreservesEmptyPaneWhenAutoCloseDisabled() throws {
+        let controller = WorkspaceLayoutController(
+            configuration: WorkspaceLayoutConfiguration(autoCloseEmptyPanes: false)
+        )
+        let tab = try XCTUnwrap(controller.createTab(title: "One"))
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        let targetPaneId = try XCTUnwrap(
+            controller.splitPane(sourcePaneId, orientation: .horizontal)
         )
 
-        XCTAssertEqual(background.color?.hexString(), "#C0392B")
-        XCTAssertEqual(background.opacity, 0.7, accuracy: 0.001)
+        XCTAssertTrue(controller.closeTab(tab, inPane: sourcePaneId))
+        XCTAssertEqual(controller.rootNode.findPane(sourcePaneId)?.tabIds, [])
+        XCTAssertNotNil(controller.rootNode.findPane(targetPaneId))
+        XCTAssertEqual(Set(controller.allPaneIds), Set([sourcePaneId, targetPaneId]))
+    }
+
+    func testCloseLastPaneReplacesItWithEmptyPaneWhenAllowed() throws {
+        let controller = WorkspaceLayoutController(
+            configuration: WorkspaceLayoutConfiguration(allowCloseLastPane: true)
+        )
+        let originalPaneId = try XCTUnwrap(controller.focusedPaneId)
+
+        XCTAssertTrue(controller.closePane(originalPaneId))
+        XCTAssertNil(controller.rootNode.findPane(originalPaneId))
+        XCTAssertEqual(controller.allPaneIds.count, 1)
+
+        let replacementPaneId = try XCTUnwrap(controller.focusedPaneId)
+        XCTAssertNotEqual(replacementPaneId, originalPaneId)
+        XCTAssertEqual(controller.rootNode.findPane(replacementPaneId)?.tabIds, [])
     }
 }
 
@@ -437,7 +390,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testShortcutRecorderStopsRecordingWhenFirstStrokeConfirmationIsRejected() {
 #if DEBUG
         let button = ShortcutRecorderNSButton(frame: .zero)
-        button.transformRecordedShortcut = { _ in .rejected(.reservedBySystem) }
+        button.transformRecordedShortcut = { _ in nil }
         button.debugSetPendingChordStart(
             ShortcutStroke(
                 key: "x",
@@ -455,203 +408,11 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
 #endif
     }
-
-    func testShortcutRecorderReportsFirstStrokeConflictImmediately() {
-#if DEBUG
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        let button = ShortcutRecorderNSButton(frame: .zero)
-        let conflictingShortcut = StoredShortcut(
-            key: "t",
-            command: true,
-            shift: false,
-            option: false,
-            control: false,
-            keyCode: 17
-        )
-        var rejectedAttempt: ShortcutRecorderRejectedAttempt?
-
-        button.transformRecordedShortcut = { shortcut in
-            XCTAssertEqual(shortcut, conflictingShortcut)
-            return .rejected(.conflictsWithAction(.newSurface))
-        }
-        button.onRecorderFeedbackChanged = { rejectedAttempt = $0 }
-        button.performClick(nil)
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: "t",
-            charactersIgnoringModifiers: "t",
-            isARepeat: false,
-            keyCode: 17
-        ) else {
-            XCTFail("Failed to construct Command-T event")
-            return
-        }
-
-        XCTAssertNil(button.debugHandleRecordingEvent(event))
-        XCTAssertEqual(
-            rejectedAttempt,
-            ShortcutRecorderRejectedAttempt(
-                reason: .conflictsWithAction(.newSurface),
-                proposedShortcut: conflictingShortcut
-            )
-        )
-        XCTAssertFalse(button.debugIsRecording)
-#else
-        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
-#endif
-    }
-
-    func testShortcutRecorderCommitsAcceptedFirstStrokeImmediately() {
-#if DEBUG
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        let button = ShortcutRecorderNSButton(frame: .zero)
-        let recordedShortcut = StoredShortcut(
-            key: "l",
-            command: true,
-            shift: true,
-            option: false,
-            control: false,
-            keyCode: 37
-        )
-        var committedShortcut: StoredShortcut?
-        var feedbackEvents: [ShortcutRecorderRejectedAttempt?] = []
-
-        button.transformRecordedShortcut = { shortcut in
-            XCTAssertEqual(shortcut, recordedShortcut)
-            return .accepted(shortcut)
-        }
-        button.onShortcutRecorded = { committedShortcut = $0 }
-        button.onRecorderFeedbackChanged = { feedbackEvents.append($0) }
-        button.performClick(nil)
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command, .shift],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: "L",
-            charactersIgnoringModifiers: "l",
-            isARepeat: false,
-            keyCode: 37
-        ) else {
-            XCTFail("Failed to construct Command-Shift-L event")
-            return
-        }
-
-        XCTAssertNil(button.debugHandleRecordingEvent(event))
-        XCTAssertEqual(committedShortcut, recordedShortcut)
-        XCTAssertEqual(button.shortcut, recordedShortcut)
-        XCTAssertFalse(button.debugIsRecording)
-        XCTAssertTrue(feedbackEvents.contains { $0 == nil })
-#else
-        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
-#endif
-    }
-
-    func testShortcutRecorderCapturesKeyEquivalentWhileRecording() {
-#if DEBUG
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        let button = ShortcutRecorderNSButton(frame: .zero)
-        let recordedShortcut = StoredShortcut(
-            key: "t",
-            command: true,
-            shift: false,
-            option: false,
-            control: false,
-            keyCode: 17
-        )
-        var committedShortcut: StoredShortcut?
-
-        button.transformRecordedShortcut = { shortcut in
-            XCTAssertEqual(shortcut, recordedShortcut)
-            return .accepted(shortcut)
-        }
-        button.onShortcutRecorded = { committedShortcut = $0 }
-        button.performClick(nil)
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: "t",
-            charactersIgnoringModifiers: "t",
-            isARepeat: false,
-            keyCode: 17
-        ) else {
-            XCTFail("Failed to construct Command-T event")
-            return
-        }
-
-        XCTAssertTrue(button.performKeyEquivalent(with: event))
-        XCTAssertEqual(committedShortcut, recordedShortcut)
-        XCTAssertFalse(button.debugIsRecording)
-#else
-        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
-#endif
-    }
-
-    func testShortcutRecorderStopAllNotificationStopsActiveRecorder() {
-#if DEBUG
-        let button = ShortcutRecorderNSButton(frame: .zero)
-        button.debugSetPendingChordStart(
-            ShortcutStroke(
-                key: "l",
-                command: true,
-                shift: false,
-                option: false,
-                control: false
-            )
-        )
-
-        KeyboardShortcutRecorderActivity.stopAllRecording()
-
-        XCTAssertFalse(button.debugIsRecording)
-#else
-        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
-#endif
-    }
 }
 
 final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
-
-    func testShortcutConfigStringCanonicalizesNumberedDigitsWhenRequested() {
-        let stroke = ShortcutStroke(
-            key: "7",
-            command: true,
-            shift: false,
-            option: false,
-            control: false
-        )
-
-        XCTAssertEqual(stroke.configString(), "cmd+7")
-        XCTAssertEqual(stroke.configString(preserveDigit: false), "cmd+1")
-    }
-
-    func testShortcutConfigParsingRoundTripsFunctionAndMediaKeys() {
-        XCTAssertEqual(ShortcutStroke.parseConfig("cmd+f5")?.key, "f5")
-        XCTAssertEqual(ShortcutStroke.parseConfig("cmd+media.playPause")?.key, "media.playPause")
-        XCTAssertEqual(ShortcutStroke.parseConfig("cmd+playPause")?.key, "media.playPause")
-        XCTAssertNil(ShortcutStroke.parseConfig("cmd+f21"))
-    }
 
     override func setUp() {
         super.setUp()
@@ -703,54 +464,6 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "1")
         )
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
-    }
-
-    func testSettingsFileStoreParsesRightSidebarShortcutBindings() throws {
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "focusRightSidebar": "cmd+opt+shift+e",
-                "switchRightSidebarToFiles": "ctrl+4",
-                "switchRightSidebarToFind": "ctrl+5",
-                "switchRightSidebarToSessions": "ctrl+6",
-                "switchRightSidebarToFeed": "ctrl+7"
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
-
-        let store = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        XCTAssertEqual(
-            store.override(for: .focusRightSidebar),
-            StoredShortcut(key: "e", command: true, shift: true, option: true, control: false)
-        )
-        XCTAssertEqual(
-            store.override(for: .switchRightSidebarToFiles),
-            StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
-        )
-        XCTAssertEqual(
-            store.override(for: .switchRightSidebarToFind),
-            StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
-        )
-        XCTAssertEqual(
-            store.override(for: .switchRightSidebarToSessions),
-            StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
-        )
-        XCTAssertEqual(
-            store.override(for: .switchRightSidebarToFeed),
-            StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
-        )
     }
 
     func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
@@ -1683,25 +1396,6 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 }
 
 final class StoredShortcutMatchingTests: XCTestCase {
-    private func makeMediaKeyEvent(
-        keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags = [],
-        keyState: UInt8 = 0x0A
-    ) -> NSEvent? {
-        let data1 = Int((UInt32(keyCode) << 16) | (UInt32(keyState) << 8))
-        return NSEvent.otherEvent(
-            with: .systemDefined,
-            location: .zero,
-            modifierFlags: modifierFlags,
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            subtype: Int16(8),
-            data1: data1,
-            data2: -1
-        )
-    }
-
     func testMatchingIgnoresCapsLock() {
         let shortcut = StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
 
@@ -1799,210 +1493,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
         XCTAssertEqual(stroke.carbonHotKeyRegistration?.keyCode, 13)
     }
 
-    func testShortcutRecordingResultRejectsBareLetterWithoutModifier() {
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: "a",
-            charactersIgnoringModifiers: "a",
-            isARepeat: false,
-            keyCode: 0
-        ) else {
-            XCTFail("Failed to construct bare letter event")
-            return
-        }
-
-        XCTAssertEqual(
-            ShortcutStroke.recordingResult(from: event, requireModifier: true),
-            .rejected(.bareKeyNotAllowed)
-        )
-    }
-
-    func testShortcutRecordingResultAcceptsBareFunctionKeyWithoutModifier() {
-        let f1Characters = String(UnicodeScalar(NSF1FunctionKey)!)
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: f1Characters,
-            charactersIgnoringModifiers: f1Characters,
-            isARepeat: false,
-            keyCode: 122
-        ) else {
-            XCTFail("Failed to construct F1 event")
-            return
-        }
-
-        XCTAssertEqual(
-            ShortcutStroke.recordingResult(from: event, requireModifier: true),
-            .accepted(ShortcutStroke(key: "f1", command: false, shift: false, option: false, control: false, keyCode: 122))
-        )
-    }
-
-    func testShortcutRecordingResultSafelyIgnoresNonMediaSystemDefinedEvent() {
-        guard let event = NSEvent.otherEvent(
-            with: .systemDefined,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            subtype: 0,
-            data1: 0,
-            data2: 0
-        ) else {
-            XCTFail("Failed to construct non-media system-defined event")
-            return
-        }
-
-        XCTAssertFalse(ShortcutStroke.isEscapeCancelEvent(event))
-        XCTAssertEqual(
-            ShortcutStroke.recordingResult(from: event, requireModifier: true),
-            .unsupportedKey
-        )
-    }
-
-    func testMediaShortcutDoesNotMatchOrdinaryKeyDownWithSameKeyCode() {
-        let shortcut = ShortcutStroke(
-            key: "media.volumeUp",
-            command: false,
-            shift: false,
-            option: false,
-            control: false,
-            keyCode: 0
-        )
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: "a",
-            charactersIgnoringModifiers: "a",
-            isARepeat: false,
-            keyCode: 0
-        ) else {
-            XCTFail("Failed to construct A key event")
-            return
-        }
-
-        XCTAssertFalse(shortcut.matches(event: event))
-    }
-
-    func testMediaShortcutMatchesSystemDefinedMediaEvent() {
-        let shortcut = ShortcutStroke(
-            key: "media.volumeUp",
-            command: false,
-            shift: false,
-            option: false,
-            control: false,
-            keyCode: 0
-        )
-
-        guard let event = makeMediaKeyEvent(keyCode: 0) else {
-            XCTFail("Failed to construct media key event")
-            return
-        }
-
-        XCTAssertTrue(shortcut.matches(event: event))
-    }
-
-    func testShortcutRecorderResolutionReportsConflictingAction() {
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        let shortcut = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
-
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.openBrowser.normalizedRecordedShortcutResult(shortcut),
-            .rejected(.conflictsWithAction(.newSurface))
-        )
-    }
-
-    func testShortcutRecorderResolutionRejectsNumberedShortcutAgainstReservedDigitFamily() {
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(key: "3", command: true, shift: false, option: false, control: false),
-            for: .openBrowser
-        )
-
-        let shortcut = StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)
-
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.selectWorkspaceByNumber.normalizedRecordedShortcutResult(shortcut),
-            .rejected(.conflictsWithAction(.openBrowser))
-        )
-    }
-
-    func testShortcutRecorderResolutionRejectsSingleStrokeThatMatchesChordPrefix() {
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(
-                key: "k",
-                command: true,
-                shift: false,
-                option: false,
-                control: false,
-                chordKey: "c",
-                chordCommand: true,
-                chordShift: false,
-                chordOption: false,
-                chordControl: false
-            ),
-            for: .openBrowser
-        )
-
-        let shortcut = StoredShortcut(key: "k", command: true, shift: false, option: false, control: false)
-
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.newTab.normalizedRecordedShortcutResult(shortcut),
-            .rejected(.conflictsWithAction(.openBrowser))
-        )
-    }
-
-    func testShortcutRecorderResolutionRejectsChordThatMatchesExistingSingleStrokePrefix() {
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(key: "k", command: true, shift: false, option: false, control: false),
-            for: .openBrowser
-        )
-
-        let shortcut = StoredShortcut(
-            key: "k",
-            command: true,
-            shift: false,
-            option: false,
-            control: false,
-            chordKey: "c",
-            chordCommand: true,
-            chordShift: false,
-            chordOption: false,
-            chordControl: false
-        )
-
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.newTab.normalizedRecordedShortcutResult(shortcut),
-            .rejected(.conflictsWithAction(.openBrowser))
-        )
-    }
-
-    func testSystemWideHotkeyNormalizationReportsCmuxActionConflictByRecordedPhysicalKey() {
+    func testSystemWideHotkeyNormalizationRejectsReservedShortcutByRecordedPhysicalKey() {
         KeyboardShortcutSettings.resetAll()
         defer { KeyboardShortcutSettings.resetAll() }
 
@@ -2015,87 +1506,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
             keyCode: 13
         )
 
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(shortcut),
-            .rejected(.conflictsWithAction(.quit))
-        )
-    }
-
-    func testSystemWideHotkeyNormalizationReportsReservedHotkeyReason() {
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        let shortcut = StoredShortcut(key: ".", command: true, shift: false, option: false, control: false)
-
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(shortcut),
-            .rejected(.reservedBySystem)
-        )
-    }
-
-    func testShortcutRecorderValidationPresentationSurfacesBareKeyMessage() {
-        let presentation = ShortcutRecorderValidationPresentation(
-            attempt: ShortcutRecorderRejectedAttempt(reason: .bareKeyNotAllowed, proposedShortcut: nil),
-            action: .openBrowser,
-            currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut
-        )
-
-        XCTAssertEqual(presentation?.message, "Shortcuts must include ⌘ ⌥ ⌃ or ⇧")
-        XCTAssertNil(presentation?.swapButtonTitle)
-        XCTAssertFalse(presentation?.canSwap ?? true)
-        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
-    }
-
-    func testShortcutRecorderValidationPresentationSurfacesConflictActionAndSwapAffordance() {
-        let presentation = ShortcutRecorderValidationPresentation(
-            attempt: ShortcutRecorderRejectedAttempt(
-                reason: .conflictsWithAction(.newSurface),
-                proposedShortcut: StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
-            ),
-            action: .openBrowser,
-            currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
-            isManagedBySettingsFile: { _ in false },
-            shortcutForAction: { $0.defaultShortcut }
-        )
-
-        XCTAssertEqual(presentation?.message, "This shortcut conflicts with New Surface (⌘T). Swap shortcuts?")
-        XCTAssertEqual(presentation?.swapButtonTitle, "Swap")
-        XCTAssertTrue(presentation?.canSwap ?? false)
-        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
-    }
-
-    func testShortcutRecorderValidationPresentationUsesNumberedDisplayOnlyForNumberedConflicts() {
-        let presentation = ShortcutRecorderValidationPresentation(
-            attempt: ShortcutRecorderRejectedAttempt(
-                reason: .conflictsWithAction(.selectWorkspaceByNumber),
-                proposedShortcut: StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)
-            ),
-            action: .openBrowser,
-            currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
-            isManagedBySettingsFile: { _ in false },
-            shortcutForAction: { $0.defaultShortcut }
-        )
-
-        XCTAssertEqual(
-            presentation?.message,
-            "This shortcut conflicts with Select Workspace 1…9 (⌘1…9)."
-        )
-        XCTAssertNil(presentation?.swapButtonTitle)
-        XCTAssertFalse(presentation?.canSwap ?? true)
-        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
-    }
-
-    func testShortcutRecorderValidationPresentationSurfacesReservedSystemMessage() {
-        let presentation = ShortcutRecorderValidationPresentation(
-            attempt: ShortcutRecorderRejectedAttempt(reason: .reservedBySystem, proposedShortcut: nil),
-            action: .showHideAllWindows,
-            currentShortcut: KeyboardShortcutSettings.Action.showHideAllWindows.defaultShortcut
-        )
-
-        XCTAssertEqual(presentation?.message, "This keystroke is reserved by macOS.")
-        XCTAssertNil(presentation?.swapButtonTitle)
-        XCTAssertFalse(presentation?.canSwap ?? true)
-        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
+        XCTAssertNil(KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcut(shortcut))
     }
 }
 
@@ -2231,7 +1642,6 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialTerminalCommand: String?,
-            initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String]
         ) -> Workspace {
             beforeCreateWorkspace?()
@@ -2241,7 +1651,6 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
                 initialTerminalCommand: initialTerminalCommand,
-                initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
             )
         }
@@ -2492,7 +1901,6 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialTerminalCommand: String?,
-            initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String]
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
@@ -2502,7 +1910,6 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
                 initialTerminalCommand: initialTerminalCommand,
-                initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
             )
         }
@@ -2985,7 +2392,7 @@ final class WorkspaceTeardownTests: XCTestCase {
         workspace.setPanelCustomTitle(panelId: initialPanelId, title: "Initial custom title")
         workspace.setPanelPinned(panelId: initialPanelId, pinned: true)
 
-        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
+        guard let splitPanel = workspace.splitTerminalPanel(fromPanelId: initialPanelId, orientation: .horizontal) else {
             XCTFail("Expected split panel to be created")
             return
         }
@@ -2995,18 +2402,1244 @@ final class WorkspaceTeardownTests: XCTestCase {
         workspace.markPanelUnread(initialPanelId)
 
         XCTAssertFalse(workspace.panels.isEmpty)
-        XCTAssertFalse(workspace.panelTitles.isEmpty)
-        XCTAssertFalse(workspace.panelCustomTitles.isEmpty)
-        XCTAssertFalse(workspace.pinnedPanelIds.isEmpty)
-        XCTAssertFalse(workspace.manualUnreadPanelIds.isEmpty)
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().values.contains { $0.title != nil })
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().values.contains { $0.customTitle != nil })
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().values.contains(where: \.isPinned))
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().values.contains(where: \.isManuallyUnread))
 
         workspace.teardownAllPanels()
 
         XCTAssertTrue(workspace.panels.isEmpty)
-        XCTAssertTrue(workspace.panelTitles.isEmpty)
-        XCTAssertTrue(workspace.panelCustomTitles.isEmpty)
-        XCTAssertTrue(workspace.pinnedPanelIds.isEmpty)
-        XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().values.allSatisfy { $0.title == nil })
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().values.allSatisfy { $0.customTitle == nil })
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().values.allSatisfy { !$0.isPinned })
+        XCTAssertTrue(workspace.surfaceStatesSnapshot().values.allSatisfy { !$0.isManuallyUnread })
+    }
+}
+
+@MainActor
+final class WorkspaceLayoutSimplificationTests: XCTestCase {
+    private func temporaryMarkdownFile() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-layout-simplification-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fileURL = root.appendingPathComponent("note.md")
+        try "# workspace\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
+    private func firstPaneSnapshot(
+        from snapshot: WorkspaceLayoutRenderSnapshot
+    ) -> WorkspaceLayoutPaneRenderSnapshot? {
+        switch snapshot.root {
+        case .pane(let pane):
+            return pane
+        case .split(let split):
+            if case .pane(let first) = split.first {
+                return first
+            }
+            if case .pane(let second) = split.second {
+                return second
+            }
+            return nil
+        }
+    }
+
+    private func firstSplitSnapshot(
+        from snapshot: WorkspaceLayoutRenderSnapshot
+    ) -> WorkspaceLayoutSplitRenderSnapshot? {
+        guard case .split(let split) = snapshot.root else { return nil }
+        return split
+    }
+
+    private func viewport(
+        in snapshot: WorkspaceLayoutRenderSnapshot,
+        for paneId: PaneID
+    ) -> WorkspaceLayoutViewportSnapshot? {
+        snapshot.viewports.first { $0.paneId == paneId }
+    }
+
+    func testSurfaceAndPanelIdentityRoundTripUsesCanonicalID() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        guard let surfaceId = workspace.surfaceIdFromPanelId(panelId) else {
+            XCTFail("Expected surface ID for focused panel")
+            return
+        }
+
+        XCTAssertEqual(surfaceId.id, panelId)
+        XCTAssertEqual(workspace.panel(for: surfaceId)?.id, panelId)
+    }
+
+    func testRenderTabChromeProjectsWorkspaceOwnedChromeState() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: panelId, title: "runtime title"))
+        workspace.setPanelCustomTitle(panelId: panelId, title: "custom title")
+        workspace.setPanelPinned(panelId: panelId, pinned: true)
+        workspace.markPanelUnread(panelId)
+        let projectionState = workspace.makeTabChromeProjectionState(notificationStore: nil)
+
+        let rendered = workspace.renderTabChrome(
+            for: WorkspaceLayout.Tab(
+                id: TabID(id: panelId),
+                title: "stale title",
+                hasCustomTitle: false,
+                icon: "wrong.icon",
+                iconImageData: Data([0x01]),
+                kind: .browser,
+                isDirty: true,
+                showsNotificationBadge: false,
+                isLoading: true,
+                isPinned: false
+            ),
+            using: projectionState
+        )
+
+        XCTAssertEqual(rendered.id.id, panelId)
+        XCTAssertEqual(rendered.title, "custom title")
+        XCTAssertTrue(rendered.hasCustomTitle)
+        XCTAssertEqual(rendered.icon, "terminal.fill")
+        XCTAssertNil(rendered.iconImageData)
+        XCTAssertEqual(rendered.kind, .terminal)
+        XCTAssertFalse(rendered.isDirty)
+        XCTAssertTrue(rendered.showsNotificationBadge)
+        XCTAssertFalse(rendered.isLoading)
+        XCTAssertTrue(rendered.isPinned)
+    }
+
+    func testRenderTabChromeLeavesUnknownSurfaceUnchanged() {
+        let workspace = Workspace()
+        let tab = WorkspaceLayout.Tab(
+            id: TabID(),
+            title: "Placeholder",
+            hasCustomTitle: true,
+            icon: "questionmark.circle",
+            iconImageData: Data([0x02]),
+            kind: .markdown,
+            isDirty: true,
+            showsNotificationBadge: true,
+            isLoading: true,
+            isPinned: true
+        )
+
+        XCTAssertEqual(
+            workspace.renderTabChrome(
+                for: tab,
+                using: workspace.makeTabChromeProjectionState(notificationStore: nil)
+            ),
+            tab
+        )
+    }
+
+    func testTabChromeProjectionStateReflectsUpdatedPanelTitle() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: panelId, title: "projected title"))
+        let projectionState = workspace.makeTabChromeProjectionState(notificationStore: nil)
+
+        let rendered = workspace.renderTabChrome(
+            for: WorkspaceLayout.Tab(id: TabID(id: panelId), title: "stale title"),
+            using: projectionState
+        )
+
+        XCTAssertEqual(rendered.title, "projected title")
+    }
+
+    func testWorkspaceLayoutTabStoresSerializedFallbackFields() {
+        let tab = WorkspaceLayout.Tab(
+            title: "Fallback title",
+            hasCustomTitle: true,
+            icon: "globe",
+            iconImageData: Data([0xAA]),
+            kind: .browser,
+            isDirty: true,
+            showsNotificationBadge: true,
+            isLoading: true,
+            isPinned: true
+        )
+
+        XCTAssertEqual(tab.title, "Fallback title")
+        XCTAssertTrue(tab.hasCustomTitle)
+        XCTAssertEqual(tab.icon, "globe")
+        XCTAssertEqual(tab.iconImageData, Data([0xAA]))
+        XCTAssertEqual(tab.kind, .browser)
+        XCTAssertTrue(tab.isDirty)
+        XCTAssertTrue(tab.showsNotificationBadge)
+        XCTAssertTrue(tab.isLoading)
+        XCTAssertTrue(tab.isPinned)
+    }
+
+    func testRenderSnapshotProjectsWorkspaceOwnedChromeState() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        workspace.setPanelCustomTitle(panelId: panelId, title: "Snapshot custom title")
+        workspace.setPanelPinned(panelId: panelId, pinned: true)
+        workspace.markPanelUnread(panelId)
+        let snapshot = workspace.makeLayoutRenderSnapshot(
+            context: WorkspaceLayoutRenderContext(
+                notificationStore: nil,
+                isWorkspaceVisible: true,
+                isWorkspaceInputActive: true,
+                isMinimalMode: false,
+                appearance: PanelAppearance(
+                    dividerColor: .clear,
+                    unfocusedOverlayNSColor: .clear,
+                    unfocusedOverlayOpacity: 0
+                ),
+                workspacePortalPriority: 0,
+                usesWorkspacePaneOverlay: false,
+                showSplitButtons: true
+            )
+        )
+
+        guard let pane = firstPaneSnapshot(from: snapshot),
+              let renderedTab = pane.chrome.tabs.first?.tab else {
+            XCTFail("Expected pane snapshot with a rendered tab")
+            return
+        }
+
+        XCTAssertEqual(renderedTab.id.id, panelId)
+        XCTAssertEqual(renderedTab.title, "Snapshot custom title")
+        XCTAssertTrue(renderedTab.hasCustomTitle)
+        XCTAssertTrue(renderedTab.showsNotificationBadge)
+        XCTAssertTrue(renderedTab.isPinned)
+        XCTAssertEqual(pane.chrome.selectedTabId, panelId)
+    }
+
+    func testTreeSnapshotProjectsWorkspaceOwnedTabTitles() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: panelId, title: "runtime title"))
+        workspace.setPanelCustomTitle(panelId: panelId, title: "custom title")
+
+        guard case .pane(let pane) = workspace.treeSnapshot(),
+              let tab = pane.tabs.first else {
+            XCTFail("Expected pane tree snapshot with one tab")
+            return
+        }
+
+        XCTAssertEqual(tab.id, panelId.uuidString)
+        XCTAssertEqual(tab.title, "custom title")
+    }
+
+    func testRenderSnapshotUsesWorkspaceSelectedPaneContent() throws {
+        let workspace = Workspace()
+        let fileURL = try temporaryMarkdownFile()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        guard let paneId = workspace.paneIds.first,
+              let terminalPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial pane and focused panel")
+            return
+        }
+
+        let result = workspace.performLayoutCommand(
+            .createMarkdown(inPane: paneId, filePath: fileURL.path, focus: false)
+        )
+        guard let markdownPanel = result.markdownPanel else {
+            XCTFail("Expected markdown panel")
+            return
+        }
+
+        let context = WorkspaceLayoutRenderContext(
+            notificationStore: nil,
+            isWorkspaceVisible: true,
+            isWorkspaceInputActive: true,
+            isMinimalMode: false,
+            appearance: PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            ),
+            workspacePortalPriority: 0,
+            usesWorkspacePaneOverlay: false,
+            showSplitButtons: true
+        )
+
+        let initialSnapshot = workspace.makeLayoutRenderSnapshot(context: context)
+        guard let initialPane = firstPaneSnapshot(from: initialSnapshot) else {
+            XCTFail("Expected pane snapshot")
+            return
+        }
+        XCTAssertEqual(initialPane.chrome.tabs.count, 2)
+        XCTAssertEqual(initialPane.contentId, terminalPanelId)
+        if case .terminal = initialPane.content {
+        } else {
+            XCTFail("Expected selected terminal content to be emitted in the pane snapshot")
+        }
+        XCTAssertNil(viewport(in: initialSnapshot, for: paneId))
+
+        XCTAssertTrue(workspace.selectSurface(markdownPanel.id))
+
+        let markdownSnapshot = workspace.makeLayoutRenderSnapshot(context: context)
+        guard let markdownPane = firstPaneSnapshot(from: markdownSnapshot) else {
+            XCTFail("Expected pane snapshot after selecting markdown")
+            return
+        }
+        guard let markdownViewport = viewport(in: markdownSnapshot, for: paneId) else {
+            XCTFail("Expected viewport snapshot after selecting markdown")
+            return
+        }
+        XCTAssertEqual(markdownPane.chrome.tabs.count, 2)
+        XCTAssertEqual(markdownPane.contentId, markdownPanel.id)
+        if case .markdown = markdownPane.content {
+        } else {
+            XCTFail("Expected selected markdown content to be emitted in the pane snapshot")
+        }
+        XCTAssertEqual(markdownViewport.contentId, markdownPanel.id)
+        if case .markdown = markdownViewport.content {
+        } else {
+            XCTFail("Expected selected markdown content to be emitted")
+        }
+    }
+
+    func testHiddenWorkspaceRenderSnapshotKeepsMarkdownViewport() throws {
+        let workspace = Workspace()
+        let fileURL = try temporaryMarkdownFile()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        guard let paneId = workspace.paneIds.first else {
+            XCTFail("Expected initial pane")
+            return
+        }
+
+        let result = workspace.performLayoutCommand(
+            .createMarkdown(inPane: paneId, filePath: fileURL.path, focus: true)
+        )
+        guard let markdownPanel = result.markdownPanel else {
+            XCTFail("Expected markdown panel")
+            return
+        }
+
+        let context = WorkspaceLayoutRenderContext(
+            notificationStore: nil,
+            isWorkspaceVisible: false,
+            isWorkspaceInputActive: false,
+            isMinimalMode: false,
+            appearance: PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            ),
+            workspacePortalPriority: 0,
+            usesWorkspacePaneOverlay: false,
+            showSplitButtons: true
+        )
+
+        let snapshot = workspace.makeLayoutRenderSnapshot(context: context)
+        guard let markdownViewport = viewport(in: snapshot, for: paneId) else {
+            XCTFail("Expected hidden workspace to keep the selected markdown viewport mounted")
+            return
+        }
+
+        XCTAssertEqual(markdownViewport.contentId, markdownPanel.id)
+        if case .markdown = markdownViewport.content {
+        } else {
+            XCTFail("Expected selected markdown viewport content")
+        }
+    }
+
+    func testUnreadPaneRingSettingGatesTerminalContentDescriptor() {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: NotificationPaneRingSettings.enabledKey)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: NotificationPaneRingSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: NotificationPaneRingSettings.enabledKey)
+            }
+        }
+
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused terminal")
+            return
+        }
+
+        let notificationStore = TerminalNotificationStore.shared
+        notificationStore.replaceNotificationsForTesting([])
+        notificationStore.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        defer {
+            notificationStore.replaceNotificationsForTesting([])
+            notificationStore.resetNotificationDeliveryHandlerForTesting()
+        }
+        notificationStore.addNotification(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            title: "Unread",
+            subtitle: "",
+            body: "Unread terminal"
+        )
+
+        func terminalContentWhenRingSetting(enabled: Bool) -> WorkspaceTerminalPaneContent? {
+            defaults.set(enabled, forKey: NotificationPaneRingSettings.enabledKey)
+            let context = WorkspaceLayoutRenderContext(
+                notificationStore: notificationStore,
+                isWorkspaceVisible: true,
+                isWorkspaceInputActive: true,
+                isMinimalMode: false,
+                appearance: PanelAppearance(
+                    dividerColor: .clear,
+                    unfocusedOverlayNSColor: .clear,
+                    unfocusedOverlayOpacity: 0
+                ),
+                workspacePortalPriority: 0,
+                usesWorkspacePaneOverlay: false,
+                showSplitButtons: true
+            )
+            guard let pane = firstPaneSnapshot(from: workspace.makeLayoutRenderSnapshot(context: context)),
+                  case .terminal(let content) = pane.content else {
+                return nil
+            }
+            return content
+        }
+
+        XCTAssertTrue(terminalContentWhenRingSetting(enabled: true)?.hasUnreadNotification == true)
+        XCTAssertTrue(terminalContentWhenRingSetting(enabled: false)?.hasUnreadNotification == false)
+    }
+
+    func testSelectedBrowserRenderSnapshotOmitsViewportAndUsesDirectPaneContent() {
+        let workspace = Workspace()
+        guard let paneId = workspace.paneIds.first,
+              let browserPanel = workspace.createBrowserPanel(
+                inPane: paneId,
+                url: URL(string: "about:blank"),
+                focus: false
+              ) else {
+            XCTFail("Expected browser panel")
+            return
+        }
+
+        XCTAssertTrue(workspace.selectSurface(browserPanel.id))
+
+        let snapshot = workspace.makeLayoutRenderSnapshot(
+            context: WorkspaceLayoutRenderContext(
+                notificationStore: nil,
+                isWorkspaceVisible: true,
+                isWorkspaceInputActive: true,
+                isMinimalMode: false,
+                appearance: PanelAppearance(
+                    dividerColor: .clear,
+                    unfocusedOverlayNSColor: .clear,
+                    unfocusedOverlayOpacity: 0
+                ),
+                workspacePortalPriority: 0,
+                usesWorkspacePaneOverlay: false,
+                showSplitButtons: true
+            )
+        )
+
+        guard let pane = firstPaneSnapshot(from: snapshot) else {
+            XCTFail("Expected pane snapshot")
+            return
+        }
+        XCTAssertEqual(pane.contentId, browserPanel.id)
+        if case .browser = pane.content {
+        } else {
+            XCTFail("Expected selected browser content in the pane snapshot")
+        }
+        XCTAssertNil(viewport(in: snapshot, for: paneId))
+    }
+
+    func testRootHostMountsSelectedTerminalDirectlyInPaneHost() throws {
+        _ = NSApplication.shared
+
+        let workspace = Workspace()
+        guard let paneId = workspace.focusedPaneId,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal pane")
+            return
+        }
+
+        let renderContext = WorkspaceLayoutRenderContext(
+            notificationStore: nil,
+            isWorkspaceVisible: true,
+            isWorkspaceInputActive: true,
+            isMinimalMode: false,
+            appearance: PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            ),
+            workspacePortalPriority: 0,
+            usesWorkspacePaneOverlay: false,
+            showSplitButtons: true
+        )
+        let rootHost = WorkspaceLayoutRootHostView(
+            hostBridge: workspace.layoutInteractionHandlers,
+            renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+            surfaceRegistry: workspace.surfaceRegistry
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        rootHost.frame = contentView.bounds
+        rootHost.autoresizingMask = [.width, .height]
+        contentView.addSubview(rootHost)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        rootHost.layoutSubtreeIfNeeded()
+
+        let mountedExpectation = expectation(description: "terminal mounted directly")
+        func pollMounted() {
+            if panel.hostedView.window === window &&
+                panel.hostedView.superview != nil &&
+                !panel.hostedView.isHidden {
+                mountedExpectation.fulfill()
+            } else {
+                DispatchQueue.main.async {
+                    pollMounted()
+                }
+            }
+        }
+        pollMounted()
+        wait(for: [mountedExpectation], timeout: 2.0)
+
+        XCTAssertTrue(rootHost.debugPaneUsesDirectTerminalHost(paneId))
+        XCTAssertFalse(rootHost.debugViewportMountIdentities.contains(WorkspacePaneMountIdentity.terminal(panel.id)))
+    }
+
+    func testRootHostMountsSelectedBrowserDirectlyInPaneHostBelowTabBar() throws {
+        _ = NSApplication.shared
+
+        let workspace = Workspace()
+        guard let paneId = workspace.focusedPaneId,
+              let browserPanel = workspace.createBrowserPanel(
+                inPane: paneId,
+                url: URL(string: "about:blank"),
+                focus: true
+              ) else {
+            XCTFail("Expected focused browser pane")
+            return
+        }
+
+        let renderContext = WorkspaceLayoutRenderContext(
+            notificationStore: nil,
+            isWorkspaceVisible: true,
+            isWorkspaceInputActive: true,
+            isMinimalMode: false,
+            appearance: PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            ),
+            workspacePortalPriority: 0,
+            usesWorkspacePaneOverlay: false,
+            showSplitButtons: true
+        )
+        let rootHost = WorkspaceLayoutRootHostView(
+            hostBridge: workspace.layoutInteractionHandlers,
+            renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+            surfaceRegistry: workspace.surfaceRegistry
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        rootHost.frame = contentView.bounds
+        rootHost.autoresizingMask = [.width, .height]
+        contentView.addSubview(rootHost)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        rootHost.layoutSubtreeIfNeeded()
+
+        let mountedExpectation = expectation(description: "browser pane mounted directly")
+        func pollMounted() {
+            if rootHost.debugPaneMountedDirectContentIdentity(paneId) == .browser(browserPanel.id) &&
+                rootHost.debugPaneDirectContentBounds(paneId).height > 0 {
+                mountedExpectation.fulfill()
+            } else {
+                DispatchQueue.main.async {
+                    pollMounted()
+                }
+            }
+        }
+        pollMounted()
+        wait(for: [mountedExpectation], timeout: 2.0)
+
+        XCTAssertEqual(rootHost.debugPaneMountedDirectContentIdentity(paneId), .browser(browserPanel.id))
+        XCTAssertFalse(rootHost.debugViewportMountIdentities.contains(WorkspacePaneMountIdentity.browser(browserPanel.id)))
+        XCTAssertNotEqual(
+            BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)?.visibleInUI,
+            true,
+            "Visible browser pane should not still be presented through the portal path"
+        )
+
+        let contentBounds = rootHost.debugPaneDirectContentBounds(paneId)
+        let layoutSnapshot = workspace.splitController.layoutSnapshot()
+        guard let paneGeometry = layoutSnapshot.panes.first(where: { $0.paneId == paneId.id.uuidString }) else {
+            XCTFail("Expected pane geometry")
+            return
+        }
+
+        let paneFrame = CGRect(
+            x: CGFloat(paneGeometry.frame.x) - CGFloat(layoutSnapshot.containerFrame.x),
+            y: CGFloat(paneGeometry.frame.y) - CGFloat(layoutSnapshot.containerFrame.y),
+            width: CGFloat(paneGeometry.frame.width),
+            height: CGFloat(paneGeometry.frame.height)
+        )
+        let expectedHeight = max(
+            0,
+            paneFrame.height - min(
+                workspace.splitController.configuration.appearance.tabBarHeight,
+                max(0, paneFrame.height - 1)
+            )
+        )
+
+        XCTAssertEqual(contentBounds.width, paneFrame.width, accuracy: 0.001)
+        XCTAssertEqual(contentBounds.height, expectedHeight, accuracy: 0.001)
+    }
+
+    func testHiddenWorkspaceRenderSnapshotOmitsViewportMounts() {
+        let workspace = Workspace()
+
+        let snapshot = workspace.makeLayoutRenderSnapshot(
+            context: WorkspaceLayoutRenderContext(
+                notificationStore: nil,
+                isWorkspaceVisible: false,
+                isWorkspaceInputActive: false,
+                isMinimalMode: false,
+                appearance: PanelAppearance(
+                    dividerColor: .clear,
+                    unfocusedOverlayNSColor: .clear,
+                    unfocusedOverlayOpacity: 0
+                ),
+                workspacePortalPriority: 0,
+                usesWorkspacePaneOverlay: false,
+                showSplitButtons: true
+            )
+        )
+
+        XCTAssertTrue(snapshot.viewports.isEmpty)
+        XCTAssertNotNil(firstPaneSnapshot(from: snapshot))
+    }
+
+    func testRenderSnapshotCarriesSplitGeometryFromControllerState() throws {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        let context = WorkspaceLayoutRenderContext(
+            notificationStore: nil,
+            isWorkspaceVisible: true,
+            isWorkspaceInputActive: true,
+            isMinimalMode: false,
+            appearance: PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            ),
+            workspacePortalPriority: 0,
+            usesWorkspacePaneOverlay: false,
+            showSplitButtons: true
+        )
+
+        let result = workspace.performLayoutCommand(
+            .splitTerminal(fromPanelId: panelId, orientation: .horizontal)
+        )
+        XCTAssertNotNil(result.terminalPanel, "Expected split terminal panel")
+
+        let initialSnapshot = workspace.makeLayoutRenderSnapshot(context: context)
+        guard let split = firstSplitSnapshot(from: initialSnapshot) else {
+            XCTFail("Expected split root snapshot after splitting")
+            return
+        }
+
+        XCTAssertEqual(split.orientation, .horizontal)
+        XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.001)
+        XCTAssertEqual(split.animationOrigin, .fromSecond)
+
+        workspace.consumeSplitEntryAnimation(split.splitId)
+        let consumedSnapshot = workspace.makeLayoutRenderSnapshot(context: context)
+        XCTAssertNil(
+            firstSplitSnapshot(from: consumedSnapshot)?.animationOrigin,
+            "Expected the render snapshot to stop carrying consumed split-entry animation state"
+        )
+
+        XCTAssertTrue(workspace.setDividerPosition(0.33, forSplit: split.splitId))
+        let resizedSnapshot = workspace.makeLayoutRenderSnapshot(context: context)
+        let resizedDividerPosition = try XCTUnwrap(
+            firstSplitSnapshot(from: resizedSnapshot)?.dividerPosition,
+            "Expected divider position in resized split snapshot"
+        )
+        XCTAssertEqual(Double(resizedDividerPosition), 0.33, accuracy: 0.001)
+    }
+
+    func testRenderSnapshotCarriesPresentationStateFromWorkspace() throws {
+        let workspace = Workspace()
+        guard let paneId = workspace.paneIds.first,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial pane and focused panel")
+            return
+        }
+
+        workspace.tabBarLeadingInset = 19
+        workspace.layoutInteractionHandlers.beginTabDrag(tabId: TabID(id: panelId), sourcePaneId: paneId)
+
+        let snapshot = workspace.makeLayoutRenderSnapshot(
+            context: WorkspaceLayoutRenderContext(
+                notificationStore: nil,
+                isWorkspaceVisible: true,
+                isWorkspaceInputActive: false,
+                isMinimalMode: true,
+                appearance: PanelAppearance(
+                    dividerColor: .clear,
+                    unfocusedOverlayNSColor: .clear,
+                    unfocusedOverlayOpacity: 0
+                ),
+                workspacePortalPriority: 0,
+                usesWorkspacePaneOverlay: false,
+                showSplitButtons: true
+            )
+        )
+
+        XCTAssertFalse(snapshot.presentation.isInteractive)
+        XCTAssertTrue(snapshot.presentation.isMinimalMode)
+        XCTAssertEqual(snapshot.presentation.appearance.tabBarLeadingInset, 19, accuracy: 0.001)
+        XCTAssertEqual(snapshot.presentation.localTabDrag?.tabId, TabID(id: panelId))
+        XCTAssertEqual(snapshot.presentation.localTabDrag?.sourcePaneId, paneId)
+
+        workspace.layoutInteractionHandlers.clearDragState()
+        let clearedSnapshot = workspace.makeLayoutRenderSnapshot(
+            context: WorkspaceLayoutRenderContext(
+                notificationStore: nil,
+                isWorkspaceVisible: true,
+                isWorkspaceInputActive: true,
+                isMinimalMode: false,
+                appearance: PanelAppearance(
+                    dividerColor: .clear,
+                    unfocusedOverlayNSColor: .clear,
+                    unfocusedOverlayOpacity: 0
+                ),
+                workspacePortalPriority: 0,
+                usesWorkspacePaneOverlay: false,
+                showSplitButtons: true
+            )
+        )
+        XCTAssertNil(clearedSnapshot.presentation.localTabDrag)
+    }
+
+    func testRootHostPropagatesLocalTabDragImmediatelyWithoutSnapshotRefresh() throws {
+        let workspace = Workspace()
+        guard let paneId = workspace.focusedPaneId,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused pane and panel")
+            return
+        }
+
+        let renderContext = WorkspaceLayoutRenderContext(
+            notificationStore: nil,
+            isWorkspaceVisible: true,
+            isWorkspaceInputActive: true,
+            isMinimalMode: false,
+            appearance: PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            ),
+            workspacePortalPriority: 0,
+            usesWorkspacePaneOverlay: false,
+            showSplitButtons: true
+        )
+        let renderSnapshot = workspace.makeLayoutRenderSnapshot(
+            context: renderContext
+        )
+        let rootHost = WorkspaceLayoutRootHostView(
+            hostBridge: workspace.layoutInteractionHandlers,
+            renderSnapshot: renderSnapshot,
+            surfaceRegistry: workspace.surfaceRegistry
+        )
+
+        XCTAssertNil(rootHost.debugPaneLocalTabDrag(paneId))
+
+        let draggedTabId = TabID(id: panelId)
+        let expectedDrag = WorkspaceLayoutLocalDragSnapshot(
+            tabId: draggedTabId,
+            sourcePaneId: paneId
+        )
+        rootHost.debugBeginLocalTabDrag(tabId: draggedTabId, sourcePaneId: paneId)
+
+        XCTAssertEqual(rootHost.debugPaneLocalTabDrag(paneId), expectedDrag)
+        XCTAssertEqual(workspace.makeLayoutRenderSnapshot(context: renderContext).presentation.localTabDrag, expectedDrag)
+
+        rootHost.debugClearLocalTabDrag()
+
+        XCTAssertNil(rootHost.debugPaneLocalTabDrag(paneId))
+        XCTAssertNil(workspace.makeLayoutRenderSnapshot(context: renderContext).presentation.localTabDrag)
+    }
+
+    func testEffectiveTabDropTargetIndexRejectsSamePaneNoOpReorderTargets() {
+        let paneId = PaneID(id: UUID())
+        let firstTabId = TabID(id: UUID())
+        let secondTabId = TabID(id: UUID())
+        let thirdTabId = TabID(id: UUID())
+        let localDrag = WorkspaceLayoutLocalDragSnapshot(
+            tabId: secondTabId,
+            sourcePaneId: paneId
+        )
+
+        XCTAssertNil(
+            workspaceLayoutEffectiveTabDropTargetIndex(
+                rawTargetIndex: 1,
+                tabIds: [firstTabId, secondTabId, thirdTabId],
+                paneId: paneId,
+                localTabDrag: localDrag
+            )
+        )
+        XCTAssertNil(
+            workspaceLayoutEffectiveTabDropTargetIndex(
+                rawTargetIndex: 2,
+                tabIds: [firstTabId, secondTabId, thirdTabId],
+                paneId: paneId,
+                localTabDrag: localDrag
+            )
+        )
+        XCTAssertEqual(
+            workspaceLayoutEffectiveTabDropTargetIndex(
+                rawTargetIndex: 0,
+                tabIds: [firstTabId, secondTabId, thirdTabId],
+                paneId: paneId,
+                localTabDrag: localDrag
+            ),
+            0
+        )
+        XCTAssertEqual(
+            workspaceLayoutEffectiveTabDropTargetIndex(
+                rawTargetIndex: 3,
+                tabIds: [firstTabId, secondTabId, thirdTabId],
+                paneId: paneId,
+                localTabDrag: localDrag
+            ),
+            3
+        )
+    }
+
+    func testPaneDropOverlayCoordinatorTransitionsVisibleToHidingOnlyOnceOnClear() {
+        let paneId = PaneID(id: UUID())
+        var coordinator = WorkspacePaneDropOverlayCoordinator()
+
+        XCTAssertTrue(coordinator.setZone(.left, for: paneId))
+        let visiblePresentation = coordinator.overlayPresentation(for: paneId)
+        XCTAssertEqual(visiblePresentation.phase, .visible)
+        XCTAssertEqual(visiblePresentation.zone, .left)
+        XCTAssertEqual(coordinator.activeDropZone(for: paneId), .left)
+
+        XCTAssertTrue(coordinator.clearZone(for: paneId))
+        let hidingPresentation = coordinator.overlayPresentation(for: paneId)
+        XCTAssertEqual(hidingPresentation.phase, .hiding)
+        XCTAssertEqual(hidingPresentation.zone, .left)
+        XCTAssertNil(coordinator.activeDropZone(for: paneId))
+
+        XCTAssertFalse(coordinator.clearZone(for: paneId))
+        XCTAssertEqual(coordinator.overlayPresentation(for: paneId), hidingPresentation)
+    }
+
+    func testPaneDropOverlayCoordinatorIgnoresStaleHideCompletion() {
+        let paneId = PaneID(id: UUID())
+        var coordinator = WorkspacePaneDropOverlayCoordinator()
+
+        XCTAssertTrue(coordinator.setZone(.right, for: paneId))
+        XCTAssertTrue(coordinator.clearZone(for: paneId))
+        let hidingPresentation = coordinator.overlayPresentation(for: paneId)
+
+        XCTAssertFalse(coordinator.completeHide(for: paneId, generation: hidingPresentation.generation + 1))
+        XCTAssertEqual(coordinator.overlayPresentation(for: paneId), hidingPresentation)
+
+        XCTAssertTrue(coordinator.completeHide(for: paneId, generation: hidingPresentation.generation))
+        XCTAssertEqual(coordinator.overlayPresentation(for: paneId), .hidden)
+    }
+
+    func testPaneDropOverlayCoordinatorClearsImmediatelyOnSuccessfulDrop() {
+        let paneId = PaneID(id: UUID())
+        var coordinator = WorkspacePaneDropOverlayCoordinator()
+
+        XCTAssertTrue(coordinator.setZone(.right, for: paneId))
+        let visiblePresentation = coordinator.overlayPresentation(for: paneId)
+        XCTAssertEqual(visiblePresentation.phase, .visible)
+        XCTAssertEqual(visiblePresentation.zone, .right)
+
+        XCTAssertTrue(coordinator.clearZoneImmediately(for: paneId))
+        XCTAssertEqual(coordinator.overlayPresentation(for: paneId), .hidden)
+        XCTAssertNil(coordinator.activeDropZone(for: paneId))
+    }
+
+    func testRenderSnapshotProjectsContextMenuStateFromWorkspaceFacts() throws {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        let result = workspace.performLayoutCommand(
+            .splitTerminal(fromPanelId: panelId, orientation: .horizontal)
+        )
+        XCTAssertNotNil(result.terminalPanel, "Expected split terminal panel")
+
+        let snapshot = workspace.makeLayoutRenderSnapshot(
+            context: WorkspaceLayoutRenderContext(
+                notificationStore: nil,
+                isWorkspaceVisible: true,
+                isWorkspaceInputActive: true,
+                isMinimalMode: false,
+                appearance: PanelAppearance(
+                    dividerColor: .clear,
+                    unfocusedOverlayNSColor: .clear,
+                    unfocusedOverlayOpacity: 0
+                ),
+                workspacePortalPriority: 0,
+                usesWorkspacePaneOverlay: false,
+                showSplitButtons: true
+            )
+        )
+
+        guard let split = firstSplitSnapshot(from: snapshot),
+              case .pane(let firstPane) = split.first,
+              case .pane(let secondPane) = split.second,
+              let firstContext = firstPane.chrome.tabs.first?.contextMenuState,
+              let secondContext = secondPane.chrome.tabs.first?.contextMenuState else {
+            XCTFail("Expected split snapshot with pane-level context menu state")
+            return
+        }
+
+        XCTAssertTrue(firstContext.hasSplits)
+        XCTAssertTrue(secondContext.hasSplits)
+        XCTAssertFalse(firstContext.canMoveToLeftPane)
+        XCTAssertTrue(firstContext.canMoveToRightPane)
+        XCTAssertTrue(secondContext.canMoveToLeftPane)
+        XCTAssertFalse(secondContext.canMoveToRightPane)
+        XCTAssertFalse(firstContext.isZoomed)
+        XCTAssertFalse(secondContext.isZoomed)
+    }
+
+    func testProgrammaticDividerUpdatePublishesCachedGeometrySnapshot() throws {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        let result = workspace.performLayoutCommand(
+            .splitTerminal(fromPanelId: panelId, orientation: .horizontal)
+        )
+        XCTAssertNotNil(result.terminalPanel, "Expected split terminal panel")
+
+        let renderSnapshot = workspace.makeLayoutRenderSnapshot(
+            context: WorkspaceLayoutRenderContext(
+                notificationStore: nil,
+                isWorkspaceVisible: true,
+                isWorkspaceInputActive: true,
+                isMinimalMode: false,
+                appearance: PanelAppearance(
+                    dividerColor: .clear,
+                    unfocusedOverlayNSColor: .clear,
+                    unfocusedOverlayOpacity: 0
+                ),
+                workspacePortalPriority: 0,
+                usesWorkspacePaneOverlay: false,
+                showSplitButtons: true
+            )
+        )
+        let splitId = try XCTUnwrap(
+            firstSplitSnapshot(from: renderSnapshot)?.splitId,
+            "Expected split snapshot"
+        )
+
+        workspace.layoutInteractionHandlers.setContainerFrame(CGRect(x: 0, y: 0, width: 1200, height: 800))
+        workspace.layoutInteractionHandlers.notifyGeometryChange(isDragging: false)
+
+        let baselineSnapshot = try XCTUnwrap(
+            workspace.tmuxLayoutSnapshot,
+            "Expected cached geometry snapshot after initial publish"
+        )
+        let baselineFrames = Dictionary(
+            baselineSnapshot.panes.map { ($0.paneId, $0.frame) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        XCTAssertTrue(workspace.setDividerPosition(0.33, forSplit: splitId))
+
+        let updatedSnapshot = try XCTUnwrap(
+            workspace.tmuxLayoutSnapshot,
+            "Expected cached geometry snapshot after divider update"
+        )
+        XCTAssertEqual(updatedSnapshot.panes.count, 2)
+        XCTAssertTrue(
+            updatedSnapshot.panes.contains { pane in
+                guard let baselineFrame = baselineFrames[pane.paneId] else { return false }
+                return pane.frame != baselineFrame
+            },
+            "Expected divider update to publish new pane geometry"
+        )
+    }
+
+    func testPerformLayoutCommandSplitTerminalCreatesSecondPane() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        let result = workspace.performLayoutCommand(
+            .splitTerminal(fromPanelId: panelId, orientation: .horizontal)
+        )
+
+        guard let newPanel = result.terminalPanel else {
+            XCTFail("Expected split terminal panel")
+            return
+        }
+
+        XCTAssertNotEqual(newPanel.id, panelId)
+        XCTAssertNotNil(workspace.panels[newPanel.id])
+        XCTAssertEqual(workspace.paneCount, 2)
+    }
+
+    func testPerformLayoutCommandCreateMarkdownCreatesPanelInPane() throws {
+        let workspace = Workspace()
+        let fileURL = try temporaryMarkdownFile()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        guard let paneId = workspace.paneIds.first else {
+            XCTFail("Expected pane in new workspace")
+            return
+        }
+
+        let result = workspace.performLayoutCommand(
+            .createMarkdown(inPane: paneId, filePath: fileURL.path, focus: false)
+        )
+
+        guard let panel = result.markdownPanel else {
+            XCTFail("Expected markdown panel")
+            return
+        }
+
+        XCTAssertEqual(panel.filePath, fileURL.path)
+        XCTAssertNotNil(workspace.panels[panel.id])
+        XCTAssertEqual(workspace.paneId(forPanelId: panel.id), paneId)
+    }
+
+    func testPerformLayoutCommandSplitMarkdownCreatesSecondPane() throws {
+        let workspace = Workspace()
+        let fileURL = try temporaryMarkdownFile()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        let result = workspace.performLayoutCommand(
+            .splitMarkdown(fromPanelId: panelId, orientation: .horizontal, filePath: fileURL.path)
+        )
+
+        guard let panel = result.markdownPanel else {
+            XCTFail("Expected split markdown panel")
+            return
+        }
+
+        XCTAssertEqual(panel.filePath, fileURL.path)
+        XCTAssertNotEqual(panel.id, panelId)
+        XCTAssertNotNil(workspace.panels[panel.id])
+        XCTAssertEqual(workspace.paneCount, 2)
+    }
+
+    func testLayoutControllerPaneReadsAreValueCopies() throws {
+        let initialPane = PaneState(tabIds: [UUID()])
+        let controller = WorkspaceLayoutController(rootNode: .pane(initialPane))
+        let paneId = try XCTUnwrap(controller.allPaneIds.first, "Expected initial pane")
+        let stalePane = try XCTUnwrap(controller.rootNode.findPane(paneId), "Expected pane snapshot")
+
+        _ = controller.createTab(title: "two", inPane: paneId, select: false)
+
+        XCTAssertEqual(stalePane.tabIds.count, 1)
+        XCTAssertEqual(controller.tabIds(inPane: paneId).count, 2)
+    }
+
+    func testLayoutControllerSplitReadsAreValueCopies() throws {
+        let initialPane = PaneState(tabIds: [UUID()])
+        let controller = WorkspaceLayoutController(rootNode: .pane(initialPane))
+        let paneId = try XCTUnwrap(controller.allPaneIds.first, "Expected initial pane")
+        let newPaneId = controller.splitPane(paneId, orientation: .horizontal)
+
+        XCTAssertNotNil(newPaneId, "Expected split to succeed")
+
+        guard case .split(let liveSplit) = controller.rootNode else {
+            XCTFail("Expected split root after splitting")
+            return
+        }
+
+        let splitId = liveSplit.id
+        let staleSplit = try XCTUnwrap(controller.rootNode.findSplit(splitId), "Expected split snapshot")
+
+        XCTAssertTrue(controller.setDividerPosition(0.33, forSplit: splitId))
+
+        XCTAssertEqual(staleSplit.dividerPosition, 0.5, accuracy: 0.001)
+        let liveDividerPosition = try XCTUnwrap(
+            controller.rootNode.findSplit(splitId)?.dividerPosition,
+            "Expected updated divider position"
+        )
+        XCTAssertEqual(Double(liveDividerPosition), 0.33, accuracy: 0.001)
+    }
+
+    func testLayoutControllerSplitPaneReturnsNilForUnknownPaneId() throws {
+        let initialPane = PaneState(tabIds: [UUID()])
+        let controller = WorkspaceLayoutController(rootNode: .pane(initialPane))
+        let stalePaneId = PaneID(id: UUID())
+
+        XCTAssertNil(controller.splitPane(stalePaneId, orientation: .horizontal))
+        XCTAssertEqual(controller.allPaneIds.count, 1)
+    }
+
+    func testLayoutControllerSplitPaneWithTabReturnsNilForUnknownPaneId() throws {
+        let existingTabId = UUID()
+        let initialPane = PaneState(tabIds: [existingTabId], selectedTabId: existingTabId)
+        let controller = WorkspaceLayoutController(rootNode: .pane(initialPane))
+        let stalePaneId = PaneID(id: UUID())
+        let newTabId = TabID(id: UUID())
+
+        XCTAssertNil(
+            controller.splitPane(
+                stalePaneId,
+                orientation: .horizontal,
+                withTabId: newTabId,
+                insertFirst: false
+            )
+        )
+        let paneId = try XCTUnwrap(controller.allPaneIds.first)
+        XCTAssertEqual(controller.tabIds(inPane: paneId), [TabID(id: existingTabId)])
+    }
+
+    func testLayoutControllerClosePaneReturnsFalseForUnknownPaneId() throws {
+        let leftPane = PaneState(tabIds: [UUID()])
+        let rightPane = PaneState(tabIds: [UUID()])
+        let controller = WorkspaceLayoutController(
+            rootNode: .split(
+                SplitState(
+                    orientation: .horizontal,
+                    first: .pane(leftPane),
+                    second: .pane(rightPane)
+                )
+            )
+        )
+
+        XCTAssertFalse(controller.closePane(PaneID(id: UUID())))
+        XCTAssertEqual(Set(controller.allPaneIds), Set([leftPane.id, rightPane.id]))
+    }
+
+    func testLayoutControllerStartsWithGenuinelyEmptyPane() throws {
+        let controller = WorkspaceLayoutController()
+        let paneId = try XCTUnwrap(controller.allPaneIds.first, "Expected initial pane")
+
+        XCTAssertEqual(controller.allPaneIds.count, 1)
+        XCTAssertTrue(controller.tabIds(inPane: paneId).isEmpty)
+        XCTAssertNil(controller.selectedTabId(inPane: paneId))
+        XCTAssertTrue(controller.allTabIds.isEmpty)
+    }
+
+    func testMovingOnlyTabIntoSplitLeavesSourcePaneEmpty() throws {
+        let surfaceId = UUID()
+        let paneId = PaneID()
+        let controller = WorkspaceLayoutController(
+            rootNode: .pane(
+                PaneState(
+                    id: paneId,
+                    tabIds: [surfaceId],
+                    selectedTabId: surfaceId
+                )
+            )
+        )
+
+        let newPaneId = try XCTUnwrap(
+            controller.splitPane(
+                paneId,
+                orientation: .horizontal,
+                movingTab: TabID(id: surfaceId),
+                insertFirst: false
+            ),
+            "Expected split to succeed"
+        )
+
+        XCTAssertTrue(controller.tabIds(inPane: paneId).isEmpty)
+        XCTAssertNil(controller.selectedTabId(inPane: paneId))
+        XCTAssertEqual(controller.tabIds(inPane: newPaneId), [TabID(id: surfaceId)])
+        XCTAssertEqual(controller.allTabIds, [TabID(id: surfaceId)])
+    }
+
+    func testMovingTabSplitRejectsUnknownTargetAndPreservesSourcePane() throws {
+        let surfaceId = UUID()
+        let sourcePaneId = PaneID()
+        let controller = WorkspaceLayoutController(
+            rootNode: .pane(
+                PaneState(
+                    id: sourcePaneId,
+                    tabIds: [surfaceId],
+                    selectedTabId: surfaceId
+                )
+            )
+        )
+        let staleTargetPaneId = PaneID(id: UUID())
+
+        XCTAssertNil(
+            controller.splitPane(
+                staleTargetPaneId,
+                orientation: .horizontal,
+                movingTab: TabID(id: surfaceId),
+                insertFirst: false
+            )
+        )
+
+        XCTAssertEqual(controller.allPaneIds, [sourcePaneId])
+        XCTAssertEqual(controller.tabIds(inPane: sourcePaneId), [TabID(id: surfaceId)])
+        XCTAssertEqual(controller.selectedTabId(inPane: sourcePaneId), TabID(id: surfaceId))
+    }
+
+    func testWorkspaceLayoutRemoveSubviewIfOwnedPreservesReparentedChild() {
+        let oldContainer = NSView(frame: .zero)
+        let newContainer = NSView(frame: .zero)
+        let child = NSView(frame: .zero)
+        newContainer.addSubview(child)
+
+        workspaceLayoutRemoveSubviewIfOwned(child, from: oldContainer)
+
+        XCTAssertTrue(child.superview === newContainer)
+
+        workspaceLayoutRemoveSubviewIfOwned(child, from: newContainer)
+
+        XCTAssertNil(child.superview)
     }
 }
 
@@ -3057,14 +3690,14 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
     func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
         let workspace = Workspace()
-        guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
+        guard let sourcePaneId = workspace.focusedPaneId else {
             XCTFail("Expected focused pane in new workspace")
             return
         }
 
         let staleCurrentDirectory = workspace.currentDirectory
         let requestedDirectory = "/tmp/cmux-requested-split-cwd-\(UUID().uuidString)"
-        guard let sourcePanel = workspace.newTerminalSurface(
+        guard let sourcePanel = workspace.createTerminalPanel(
             inPane: sourcePaneId,
             focus: false,
             workingDirectory: requestedDirectory
@@ -3075,7 +3708,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         XCTAssertEqual(sourcePanel.requestedWorkingDirectory, requestedDirectory)
         XCTAssertNil(
-            workspace.panelDirectories[sourcePanel.id],
+            workspace.panelDirectory(panelId: sourcePanel.id),
             "Expected requested cwd to exist before shell integration reports a live cwd"
         )
         XCTAssertEqual(
@@ -3084,8 +3717,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             "Expected focused workspace cwd to remain stale before panel directory updates"
         )
 
-        guard let splitPanel = workspace.newTerminalSplit(
-            from: sourcePanel.id,
+        guard let splitPanel = workspace.splitTerminalPanel(fromPanelId: sourcePanel.id,
             orientation: .horizontal,
             focus: false
         ) else {
@@ -3120,8 +3752,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
         )
 
-        let splitPanel = workspace.newTerminalSplit(
-            from: sourcePanelId,
+        let splitPanel = workspace.splitTerminalPanel(fromPanelId: sourcePanelId,
             orientation: .horizontal,
             focus: false
         )
@@ -3154,7 +3785,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
         )
 
-        let createdPanel = workspace.newTerminalSurface(
+        let createdPanel = workspace.createTerminalPanel(
             inPane: sourcePaneId,
             focus: false
         )
@@ -3167,11 +3798,1197 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
     }
 }
 
+@MainActor
+final class WorkspaceSurfaceRegistryTests: XCTestCase {
+    private func waitForCondition(
+        timeout: TimeInterval = 2,
+        pollInterval: TimeInterval = 0.01,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+        return condition()
+    }
+
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    private func makeRenderContext() -> WorkspaceLayoutRenderContext {
+        WorkspaceLayoutRenderContext(
+            notificationStore: nil,
+            isWorkspaceVisible: true,
+            isWorkspaceInputActive: true,
+            isMinimalMode: false,
+            appearance: PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            ),
+            workspacePortalPriority: 0,
+            usesWorkspacePaneOverlay: false,
+            showSplitButtons: true
+        )
+    }
+
+    private func terminalDescriptor(for panelId: UUID) -> WorkspaceTerminalPaneContent {
+        WorkspaceTerminalPaneContent(
+            surfaceId: panelId,
+            isFocused: true,
+            isVisibleInUI: true,
+            isSplit: false,
+            appearance: WorkspaceTerminalPaneAppearance(PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            )),
+            hasUnreadNotification: false,
+            onFocus: {},
+            onTriggerFlash: {}
+        )
+    }
+
+    private func browserDescriptor(
+        for panelId: UUID,
+        paneId: PaneID
+    ) -> WorkspaceBrowserPaneContent {
+        WorkspaceBrowserPaneContent(
+            surfaceId: panelId,
+            paneId: paneId,
+            isFocused: true,
+            isVisibleInUI: true,
+            prefersLocalInlineHosting: true,
+            portalPriority: 0,
+            onRequestPanelFocus: {}
+        )
+    }
+
+    private func markdownDescriptor(for panelId: UUID) -> WorkspaceMarkdownPaneContent {
+        WorkspaceMarkdownPaneContent(
+            surfaceId: panelId,
+            isVisibleInUI: true,
+            onRequestPanelFocus: {}
+        )
+    }
+
+    private func placeholderDescriptor(paneId: PaneID = PaneID()) -> WorkspacePlaceholderPaneContent {
+        WorkspacePlaceholderPaneContent(
+            paneId: paneId,
+            onCreateTerminal: {},
+            onCreateBrowser: {}
+        )
+    }
+
+    private func temporaryMarkdownFile() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-registry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fileURL = root.appendingPathComponent("note.md")
+        try "# retained markdown host\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
+    func testOffWindowTerminalMountKeepsHostedViewInstalled() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let slotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+
+        workspace.surfaceRegistry.mountContent(
+            .terminal(terminalDescriptor(for: panel.id)),
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        XCTAssertTrue(
+            panel.hostedView.superview === slotView,
+            "Expected off-window mount to keep the terminal hosted view installed instead of leaving the pane empty"
+        )
+        XCTAssertFalse(slotView.isHidden)
+        XCTAssertNil(
+            panel.surface.surface,
+            "Expected runtime surface attachment to remain deferred until the host enters a window"
+        )
+    }
+
+    func testTerminalMountAttachesAfterWindowEntryRefresh() throws {
+        _ = NSApplication.shared
+
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let slotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+        let descriptor = terminalDescriptor(for: panel.id)
+
+        workspace.surfaceRegistry.mountContent(
+            .terminal(descriptor),
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+        XCTAssertNil(panel.surface.surface)
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        slotView.frame = contentView.bounds
+        slotView.autoresizingMask = [.width, .height]
+        contentView.addSubview(slotView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        slotView.layoutSubtreeIfNeeded()
+
+        workspace.surfaceRegistry.mountContent(
+            .terminal(descriptor),
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        XCTAssertTrue(
+            waitForCondition {
+                panel.hostedView.window === window &&
+                panel.hostedView.superview === slotView &&
+                !panel.hostedView.isHidden
+            },
+            "Expected the retained terminal host to stay attached and visible after entering a window"
+        )
+        XCTAssertTrue(panel.hostedView.window === window)
+        XCTAssertTrue(panel.hostedView.superview === slotView)
+        XCTAssertFalse(panel.hostedView.isHidden)
+    }
+
+    func testTerminalViewportLifecycleReconcileCreatesRuntimeAfterWindowEntry() throws {
+        _ = NSApplication.shared
+
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let slotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+        let descriptor = terminalDescriptor(for: panel.id)
+
+        workspace.surfaceRegistry.mountContent(
+            .terminal(descriptor),
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        XCTAssertNil(panel.surface.surface)
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        slotView.frame = contentView.bounds
+        slotView.autoresizingMask = [.width, .height]
+        contentView.addSubview(slotView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        slotView.layoutSubtreeIfNeeded()
+
+        workspace.surfaceRegistry.reconcileViewportLifecycle(
+            .terminal(descriptor),
+            contentId: panel.id,
+            in: slotView,
+            reason: "test.windowEntry"
+        )
+
+        XCTAssertTrue(
+            waitForCondition { panel.surface.surface != nil },
+            "Expected viewport lifecycle reconcile to create the runtime surface once the host entered a window"
+        )
+    }
+
+    func testTerminalViewportLifecycleReconcileDefersRuntimeUntilGeometryIsUsable() throws {
+        _ = NSApplication.shared
+
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let slotView = WorkspaceLayoutPaneContentSlotView(frame: .zero)
+        let descriptor = terminalDescriptor(for: panel.id)
+
+        workspace.surfaceRegistry.mountContent(
+            .terminal(descriptor),
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        contentView.addSubview(slotView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        slotView.layoutSubtreeIfNeeded()
+
+        workspace.surfaceRegistry.reconcileViewportLifecycle(
+            .terminal(descriptor),
+            contentId: panel.id,
+            in: slotView,
+            reason: "test.zeroGeometry"
+        )
+
+        XCTAssertNil(
+            panel.surface.surface,
+            "Expected visible runtime realization to wait for usable geometry instead of creating at zero size"
+        )
+
+        slotView.frame = contentView.bounds
+        slotView.autoresizingMask = [.width, .height]
+        contentView.layoutSubtreeIfNeeded()
+        slotView.layoutSubtreeIfNeeded()
+
+        workspace.surfaceRegistry.reconcileViewportLifecycle(
+            .terminal(descriptor),
+            contentId: panel.id,
+            in: slotView,
+            reason: "test.geometryReady"
+        )
+
+        XCTAssertTrue(
+            waitForCondition { panel.surface.surface != nil },
+            "Expected runtime realization once visible geometry became usable"
+        )
+    }
+
+    func testTerminalRuntimeReadyCallbackFiresAfterViewportLifecycleReconcile() throws {
+        _ = NSApplication.shared
+
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let slotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+        let descriptor = terminalDescriptor(for: panel.id)
+        let readyExpectation = expectation(description: "runtime ready")
+
+        workspace.surfaceRegistry.mountContent(
+            .terminal(descriptor),
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        let token = panel.surface.onRuntimeReady {
+            readyExpectation.fulfill()
+        }
+        XCTAssertNotNil(token)
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        slotView.frame = contentView.bounds
+        slotView.autoresizingMask = [.width, .height]
+        contentView.addSubview(slotView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        slotView.layoutSubtreeIfNeeded()
+
+        workspace.surfaceRegistry.reconcileViewportLifecycle(
+            .terminal(descriptor),
+            contentId: panel.id,
+            in: slotView,
+            reason: "test.runtimeReady"
+        )
+
+        wait(for: [readyExpectation], timeout: 2.0)
+        XCTAssertNotNil(panel.surface.surface)
+    }
+
+    func testBackgroundRuntimeRequestBeforeWindowEntryPersistsUntilHostCanRealize() throws {
+        _ = NSApplication.shared
+
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let slotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+        let hiddenDescriptor = WorkspaceTerminalPaneContent(
+            surfaceId: panel.id,
+            isFocused: false,
+            isVisibleInUI: false,
+            isSplit: false,
+            appearance: WorkspaceTerminalPaneAppearance(PanelAppearance(
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0
+            )),
+            hasUnreadNotification: false,
+            onFocus: {},
+            onTriggerFlash: {}
+        )
+
+        workspace.surfaceRegistry.mountContent(
+            .terminal(hiddenDescriptor),
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        XCTAssertNil(panel.surface.surface)
+
+        panel.surface.requestBackgroundSurfaceStartIfNeeded()
+        XCTAssertNil(
+            panel.surface.surface,
+            "Background runtime demand should persist instead of creating a runtime before window entry"
+        )
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        slotView.frame = contentView.bounds
+        slotView.autoresizingMask = [.width, .height]
+        contentView.addSubview(slotView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        slotView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            waitForCondition { panel.surface.surface != nil },
+            "Expected a background runtime demand made before window entry to be fulfilled once the host entered a window"
+        )
+    }
+
+    func testPlaceholderMountInstallsContentViewAndUnmountClearsIt() {
+        let workspace = Workspace()
+        let paneId = PaneID()
+        let descriptor = placeholderDescriptor(paneId: paneId)
+        let slotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+
+        workspace.surfaceRegistry.mountContent(
+            .placeholder(descriptor),
+            contentId: paneId.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        XCTAssertEqual(slotView.subviews.count, 1)
+        XCTAssertFalse(slotView.isHidden)
+
+        workspace.surfaceRegistry.unmountContent(
+            .placeholder(descriptor),
+            contentId: paneId.id,
+            from: slotView
+        )
+
+        XCTAssertTrue(slotView.subviews.isEmpty)
+    }
+
+    func testPlaceholderStaleUnmountDoesNotDiscardMovedHost() {
+        let workspace = Workspace()
+        let paneId = PaneID()
+        let descriptor = placeholderDescriptor(paneId: paneId)
+        let content = WorkspacePaneContent.placeholder(descriptor)
+        let contentId = paneId.id
+        let oldSlotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+        let newSlotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+
+        workspace.surfaceRegistry.mountContent(
+            content,
+            contentId: contentId,
+            in: oldSlotView,
+            activeDropZone: nil
+        )
+        let hostedView = oldSlotView.subviews.first
+
+        workspace.surfaceRegistry.mountContent(
+            content,
+            contentId: contentId,
+            in: newSlotView,
+            activeDropZone: nil
+        )
+        workspace.surfaceRegistry.unmountContent(
+            content,
+            contentId: contentId,
+            from: oldSlotView
+        )
+
+        XCTAssertTrue(hostedView?.superview === newSlotView)
+        XCTAssertEqual(newSlotView.subviews.count, 1)
+    }
+
+    func testBrowserMountReusesRetainedContentViewAndUnmountClearsIt() throws {
+        let workspace = Workspace()
+        guard let paneId = workspace.focusedPaneId,
+              let panel = workspace.createBrowserPanel(inPane: paneId, focus: false) else {
+            XCTFail("Expected browser panel")
+            return
+        }
+
+        let descriptor = browserDescriptor(for: panel.id, paneId: paneId)
+        let content = WorkspacePaneContent.browser(descriptor)
+        let slotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+
+        workspace.surfaceRegistry.mountContent(
+            content,
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        let initialView = try XCTUnwrap(
+            slotView.subviews.first,
+            "Expected browser mount to install a retained content view"
+        )
+        XCTAssertTrue(initialView is BrowserPanelWorkspaceContentView)
+        XCTAssertEqual(slotView.subviews.count, 1)
+        XCTAssertFalse(slotView.isHidden)
+
+        workspace.surfaceRegistry.mountContent(
+            content,
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        XCTAssertEqual(slotView.subviews.count, 1)
+        XCTAssertTrue(
+            slotView.subviews.first === initialView,
+            "Expected browser remount to reuse the retained workspace content view"
+        )
+
+        workspace.surfaceRegistry.unmountContent(
+            content,
+            contentId: panel.id,
+            from: slotView
+        )
+
+        XCTAssertTrue(slotView.subviews.isEmpty)
+    }
+
+    func testBrowserMountPreservesRetainedWebViewHostAcrossSlotMove() throws {
+        let workspace = Workspace()
+        guard let paneId = workspace.focusedPaneId,
+              let panel = workspace.createBrowserPanel(inPane: paneId, focus: false) else {
+            XCTFail("Expected browser panel")
+            return
+        }
+
+        let sourceSlotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+        let destinationSlotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 280, height: 200)
+        )
+        let sourceContent = WorkspacePaneContent.browser(
+            browserDescriptor(for: panel.id, paneId: paneId)
+        )
+        let destinationPaneId = PaneID()
+        let destinationContent = WorkspacePaneContent.browser(
+            browserDescriptor(for: panel.id, paneId: destinationPaneId)
+        )
+
+        workspace.surfaceRegistry.mountContent(
+            sourceContent,
+            contentId: panel.id,
+            in: sourceSlotView,
+            activeDropZone: nil
+        )
+
+        let sourceHost = try XCTUnwrap(
+            sourceSlotView.subviews.first as? BrowserPanelWorkspaceContentView,
+            "Expected retained browser content view in source slot"
+        )
+        let retainedWebViewHost = sourceHost.debugRetainedWebViewHost
+
+        workspace.surfaceRegistry.unmountContent(
+            sourceContent,
+            contentId: panel.id,
+            from: sourceSlotView
+        )
+        workspace.surfaceRegistry.mountContent(
+            destinationContent,
+            contentId: panel.id,
+            in: destinationSlotView,
+            activeDropZone: nil
+        )
+
+        let destinationHost = try XCTUnwrap(
+            destinationSlotView.subviews.first as? BrowserPanelWorkspaceContentView,
+            "Expected retained browser content view in destination slot"
+        )
+
+        XCTAssertTrue(
+            destinationHost === sourceHost,
+            "Expected browser pane move to reuse the retained browser workspace content view"
+        )
+        XCTAssertTrue(
+            destinationHost.debugRetainedWebViewHost === retainedWebViewHost,
+            "Expected browser pane move to preserve the same retained webview host"
+        )
+    }
+
+    func testMarkdownMountReusesRetainedContentViewAndUnmountClearsIt() throws {
+        let workspace = Workspace()
+        let fileURL = try temporaryMarkdownFile()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        guard let paneId = workspace.focusedPaneId,
+              let panel = workspace.createMarkdownPanel(
+                inPane: paneId,
+                filePath: fileURL.path,
+                focus: false
+              ) else {
+            XCTFail("Expected markdown panel")
+            return
+        }
+
+        let descriptor = markdownDescriptor(for: panel.id)
+        let content = WorkspacePaneContent.markdown(descriptor)
+        let slotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+
+        workspace.surfaceRegistry.mountContent(
+            content,
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        let initialView = try XCTUnwrap(
+            slotView.subviews.first,
+            "Expected markdown mount to install a retained hosting view"
+        )
+        XCTAssertEqual(slotView.subviews.count, 1)
+        XCTAssertFalse(slotView.isHidden)
+
+        workspace.surfaceRegistry.mountContent(
+            content,
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        XCTAssertEqual(slotView.subviews.count, 1)
+        XCTAssertTrue(
+            slotView.subviews.first === initialView,
+            "Expected markdown remount to reuse the retained hosting view"
+        )
+
+        workspace.surfaceRegistry.unmountContent(
+            content,
+            contentId: panel.id,
+            from: slotView
+        )
+
+        XCTAssertTrue(slotView.subviews.isEmpty)
+    }
+
+    func testSharedSlotTransitionReplacesTerminalWithPlaceholder() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let slotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+        let terminalContent = WorkspacePaneContent.terminal(terminalDescriptor(for: panel.id))
+        let paneId = PaneID()
+        let placeholderContent = WorkspacePaneContent.placeholder(
+            placeholderDescriptor(paneId: paneId)
+        )
+
+        workspace.surfaceRegistry.mountContent(
+            terminalContent,
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+        XCTAssertTrue(panel.hostedView.superview === slotView)
+
+        workspace.surfaceRegistry.unmountContent(
+            terminalContent,
+            contentId: panel.id,
+            from: slotView
+        )
+        workspace.surfaceRegistry.mountContent(
+            placeholderContent,
+            contentId: paneId.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+
+        XCTAssertNil(panel.hostedView.superview)
+        XCTAssertEqual(slotView.subviews.count, 1)
+    }
+
+    func testRemoveSurfaceDetachesTerminalHostedView() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let slotView = WorkspaceLayoutPaneContentSlotView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
+        )
+
+        workspace.surfaceRegistry.mountContent(
+            .terminal(terminalDescriptor(for: panel.id)),
+            contentId: panel.id,
+            in: slotView,
+            activeDropZone: nil
+        )
+        XCTAssertTrue(panel.hostedView.superview === slotView)
+
+        workspace.surfaceRegistry.removeSurface(surfaceId: panel.id)
+
+        XCTAssertNil(panel.hostedView.superview)
+        XCTAssertTrue(slotView.subviews.isEmpty)
+    }
+
+    func testSplitThenCloseSelectedPaneKeepsSurvivingTerminalVisible() throws {
+        _ = NSApplication.shared
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected selected workspace with a focused terminal")
+            return
+        }
+
+        let renderContext = makeRenderContext()
+        let rootHost = WorkspaceLayoutRootHostView(
+            hostBridge: workspace.layoutInteractionHandlers,
+            renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+            surfaceRegistry: workspace.surfaceRegistry
+        )
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        rootHost.frame = contentView.bounds
+        rootHost.autoresizingMask = [.width, .height]
+        contentView.addSubview(rootHost)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        rootHost.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            waitForCondition {
+                sourcePanel.hostedView.window === window &&
+                sourcePanel.hostedView.superview != nil &&
+                !sourcePanel.hostedView.isHidden
+            },
+            "Expected the initial terminal to be mounted and visible"
+        )
+
+        guard let splitPanelId = manager.createSplit(direction: .right),
+              let splitPanel = workspace.terminalPanel(for: splitPanelId) else {
+            XCTFail("Expected cmd+d path to create a split terminal")
+            return
+        }
+
+        rootHost.update(
+            hostBridge: workspace.layoutInteractionHandlers,
+            renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+            surfaceRegistry: workspace.surfaceRegistry
+        )
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        rootHost.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            waitForCondition {
+                splitPanel.hostedView.window === window &&
+                splitPanel.hostedView.superview != nil &&
+                !splitPanel.hostedView.isHidden
+            },
+            "Expected the split terminal to become the visible selected pane"
+        )
+
+        XCTAssertTrue(
+            workspace.closePanel(splitPanelId, force: true),
+            "Expected cmd+w close path to succeed for the selected split terminal"
+        )
+
+        rootHost.update(
+            hostBridge: workspace.layoutInteractionHandlers,
+            renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+            surfaceRegistry: workspace.surfaceRegistry
+        )
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        rootHost.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(workspace.paneCount, 1)
+        XCTAssertTrue(
+            waitForCondition {
+                sourcePanel.hostedView.window === window &&
+                sourcePanel.hostedView.superview != nil &&
+                !sourcePanel.hostedView.isHidden
+            },
+            "Expected the surviving terminal to remain visible after closing the selected split"
+        )
+        XCTAssertNil(splitPanel.hostedView.superview)
+    }
+
+    func testRepeatedSplitThenCloseSelectedPaneKeepsSurvivingTerminalVisible() throws {
+        _ = NSApplication.shared
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected selected workspace with a focused terminal")
+            return
+        }
+
+        let renderContext = makeRenderContext()
+        let rootHost = WorkspaceLayoutRootHostView(
+            hostBridge: workspace.layoutInteractionHandlers,
+            renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+            surfaceRegistry: workspace.surfaceRegistry
+        )
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        rootHost.frame = contentView.bounds
+        rootHost.autoresizingMask = [.width, .height]
+        contentView.addSubview(rootHost)
+
+        func refreshHost() {
+            rootHost.update(
+                hostBridge: workspace.layoutInteractionHandlers,
+                renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+                surfaceRegistry: workspace.surfaceRegistry
+            )
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            rootHost.layoutSubtreeIfNeeded()
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        refreshHost()
+
+        XCTAssertTrue(
+            waitForCondition {
+                sourcePanel.hostedView.window === window &&
+                sourcePanel.hostedView.superview != nil &&
+                !sourcePanel.hostedView.isHidden
+            },
+            "Expected the initial terminal to be mounted and visible"
+        )
+
+        for cycle in 1...3 {
+            guard let splitPanelId = manager.createSplit(direction: .right),
+                  let splitPanel = workspace.terminalPanel(for: splitPanelId) else {
+                XCTFail("Expected cmd+d path to create a split terminal on cycle \(cycle)")
+                return
+            }
+
+            refreshHost()
+
+            XCTAssertTrue(
+                waitForCondition {
+                    splitPanel.hostedView.window === window &&
+                    splitPanel.hostedView.superview != nil &&
+                    !splitPanel.hostedView.isHidden
+                },
+                "Expected the split terminal to become visible on cycle \(cycle)"
+            )
+
+            XCTAssertTrue(
+                workspace.closePanel(splitPanelId, force: true),
+                "Expected cmd+w close path to succeed on cycle \(cycle)"
+            )
+
+            refreshHost()
+
+            XCTAssertEqual(
+                workspace.paneCount,
+                1,
+                "Expected one pane after closing split on cycle \(cycle)"
+            )
+            XCTAssertTrue(
+                waitForCondition {
+                    sourcePanel.hostedView.window === window &&
+                    sourcePanel.hostedView.superview != nil &&
+                    !sourcePanel.hostedView.isHidden
+                },
+                "Expected the surviving terminal to remain visible on cycle \(cycle)"
+            )
+            XCTAssertNil(
+                splitPanel.hostedView.superview,
+                "Expected the closed split terminal to stay detached on cycle \(cycle)"
+            )
+        }
+    }
+
+    func testSplitThenCloseRefocusedSourcePaneKeepsSplitVisible() throws {
+        _ = NSApplication.shared
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId),
+              let sourcePaneId = workspace.focusedPaneId else {
+            XCTFail("Expected selected workspace with a focused terminal")
+            return
+        }
+
+        let renderContext = makeRenderContext()
+        let rootHost = WorkspaceLayoutRootHostView(
+            hostBridge: workspace.layoutInteractionHandlers,
+            renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+            surfaceRegistry: workspace.surfaceRegistry
+        )
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        rootHost.frame = contentView.bounds
+        rootHost.autoresizingMask = [.width, .height]
+        contentView.addSubview(rootHost)
+
+        func refreshHost() {
+            rootHost.update(
+                hostBridge: workspace.layoutInteractionHandlers,
+                renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+                surfaceRegistry: workspace.surfaceRegistry
+            )
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            rootHost.layoutSubtreeIfNeeded()
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        refreshHost()
+
+        XCTAssertTrue(
+            waitForCondition {
+                sourcePanel.hostedView.window === window &&
+                sourcePanel.hostedView.superview != nil &&
+                !sourcePanel.hostedView.isHidden
+            },
+            "Expected the initial terminal to be mounted and visible"
+        )
+
+        guard let splitPanelId = manager.createSplit(direction: .right),
+              let splitPanel = workspace.terminalPanel(for: splitPanelId) else {
+            XCTFail("Expected cmd+d path to create a split terminal")
+            return
+        }
+
+        refreshHost()
+
+        XCTAssertTrue(
+            waitForCondition {
+                splitPanel.hostedView.window === window &&
+                splitPanel.hostedView.superview != nil &&
+                !splitPanel.hostedView.isHidden
+            },
+            "Expected the split terminal to become visible after creation"
+        )
+
+        XCTAssertTrue(workspace.focusPane(sourcePaneId))
+        workspace.focusPanel(sourcePanelId)
+        refreshHost()
+
+        XCTAssertEqual(workspace.focusedPanelId, sourcePanelId)
+        XCTAssertTrue(
+            waitForCondition {
+                sourcePanel.hostedView.window === window &&
+                sourcePanel.hostedView.superview != nil &&
+                !sourcePanel.hostedView.isHidden
+            },
+            "Expected the source terminal to become visible again after refocus"
+        )
+
+        XCTAssertTrue(
+            workspace.closePanel(sourcePanelId, force: true),
+            "Expected closing the refocused source pane to succeed"
+        )
+
+        refreshHost()
+
+        XCTAssertEqual(workspace.paneCount, 1)
+        XCTAssertEqual(workspace.focusedPanelId, splitPanelId)
+        XCTAssertTrue(
+            waitForCondition {
+                splitPanel.hostedView.window === window &&
+                splitPanel.hostedView.superview != nil &&
+                !splitPanel.hostedView.isHidden
+            },
+            "Expected the split terminal to remain visible after closing the refocused source pane"
+        )
+        XCTAssertNil(sourcePanel.hostedView.superview)
+    }
+
+    func testVerticalSplitThenCloseSelectedPaneKeepsSurvivingTerminalVisible() throws {
+        _ = NSApplication.shared
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected selected workspace with a focused terminal")
+            return
+        }
+
+        let renderContext = makeRenderContext()
+        let rootHost = WorkspaceLayoutRootHostView(
+            hostBridge: workspace.layoutInteractionHandlers,
+            renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+            surfaceRegistry: workspace.surfaceRegistry
+        )
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        rootHost.frame = contentView.bounds
+        rootHost.autoresizingMask = [.width, .height]
+        contentView.addSubview(rootHost)
+
+        func refreshHost() {
+            rootHost.update(
+                hostBridge: workspace.layoutInteractionHandlers,
+                renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+                surfaceRegistry: workspace.surfaceRegistry
+            )
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            rootHost.layoutSubtreeIfNeeded()
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        refreshHost()
+
+        XCTAssertTrue(
+            waitForCondition {
+                sourcePanel.hostedView.window === window &&
+                sourcePanel.hostedView.superview != nil &&
+                !sourcePanel.hostedView.isHidden
+            },
+            "Expected the initial terminal to be mounted and visible"
+        )
+
+        guard let splitPanelId = manager.createSplit(direction: .down),
+              let splitPanel = workspace.terminalPanel(for: splitPanelId) else {
+            XCTFail("Expected cmd+shift+d path to create a split terminal")
+            return
+        }
+
+        refreshHost()
+
+        XCTAssertTrue(
+            waitForCondition {
+                splitPanel.hostedView.window === window &&
+                splitPanel.hostedView.superview != nil &&
+                !splitPanel.hostedView.isHidden
+            },
+            "Expected the vertical split terminal to become the visible selected pane"
+        )
+
+        XCTAssertTrue(
+            workspace.closePanel(splitPanelId, force: true),
+            "Expected cmd+w close path to succeed for the selected vertical split terminal"
+        )
+
+        refreshHost()
+
+        XCTAssertEqual(workspace.paneCount, 1)
+        XCTAssertTrue(
+            waitForCondition {
+                sourcePanel.hostedView.window === window &&
+                sourcePanel.hostedView.superview != nil &&
+                !sourcePanel.hostedView.isHidden
+            },
+            "Expected the surviving terminal to remain visible after closing the selected vertical split"
+        )
+        XCTAssertNil(splitPanel.hostedView.superview)
+    }
+
+    func testVerticalSplitThenCloseRefocusedSourcePaneKeepsSplitVisible() throws {
+        _ = NSApplication.shared
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId),
+              let sourcePaneId = workspace.focusedPaneId else {
+            XCTFail("Expected selected workspace with a focused terminal")
+            return
+        }
+
+        let renderContext = makeRenderContext()
+        let rootHost = WorkspaceLayoutRootHostView(
+            hostBridge: workspace.layoutInteractionHandlers,
+            renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+            surfaceRegistry: workspace.surfaceRegistry
+        )
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        rootHost.frame = contentView.bounds
+        rootHost.autoresizingMask = [.width, .height]
+        contentView.addSubview(rootHost)
+
+        func refreshHost() {
+            rootHost.update(
+                hostBridge: workspace.layoutInteractionHandlers,
+                renderSnapshot: workspace.makeLayoutRenderSnapshot(context: renderContext),
+                surfaceRegistry: workspace.surfaceRegistry
+            )
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            rootHost.layoutSubtreeIfNeeded()
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        refreshHost()
+
+        XCTAssertTrue(
+            waitForCondition {
+                sourcePanel.hostedView.window === window &&
+                sourcePanel.hostedView.superview != nil &&
+                !sourcePanel.hostedView.isHidden
+            },
+            "Expected the initial terminal to be mounted and visible"
+        )
+
+        guard let splitPanelId = manager.createSplit(direction: .down),
+              let splitPanel = workspace.terminalPanel(for: splitPanelId) else {
+            XCTFail("Expected cmd+shift+d path to create a split terminal")
+            return
+        }
+
+        refreshHost()
+
+        XCTAssertTrue(
+            waitForCondition {
+                splitPanel.hostedView.window === window &&
+                splitPanel.hostedView.superview != nil &&
+                !splitPanel.hostedView.isHidden
+            },
+            "Expected the vertical split terminal to become visible after creation"
+        )
+
+        XCTAssertTrue(workspace.focusPane(sourcePaneId))
+        workspace.focusPanel(sourcePanelId)
+        refreshHost()
+
+        XCTAssertEqual(workspace.focusedPanelId, sourcePanelId)
+        XCTAssertTrue(
+            waitForCondition {
+                sourcePanel.hostedView.window === window &&
+                sourcePanel.hostedView.superview != nil &&
+                !sourcePanel.hostedView.isHidden
+            },
+            "Expected the source terminal to become visible again after refocus"
+        )
+
+        XCTAssertTrue(
+            workspace.closePanel(sourcePanelId, force: true),
+            "Expected closing the refocused source pane to succeed for the vertical split"
+        )
+
+        refreshHost()
+
+        XCTAssertEqual(workspace.paneCount, 1)
+        XCTAssertEqual(workspace.focusedPanelId, splitPanelId)
+        XCTAssertTrue(
+            waitForCondition {
+                splitPanel.hostedView.window === window &&
+                splitPanel.hostedView.superview != nil &&
+                !splitPanel.hostedView.isHidden
+            },
+            "Expected the vertical split terminal to remain visible after closing the refocused source pane"
+        )
+        XCTAssertNil(sourcePanel.hostedView.superview)
+    }
+}
+
 
 @MainActor
 final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
-    private func makeWindow() -> NSWindow {
-        NSWindow(
+    private final class FocusHandoffTestWindow: NSWindow {
+        var nilFirstResponderRequestCount = 0
+
+        override var isKeyWindow: Bool { true }
+
+        override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+            if responder == nil {
+                nilFirstResponderRequestCount += 1
+            }
+            return super.makeFirstResponder(responder)
+        }
+    }
+
+    private func makeWindow() -> FocusHandoffTestWindow {
+        FocusHandoffTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -3211,11 +5028,56 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         return nil
     }
 
+    func testSwitchingFromBrowserToTerminalPreservesBrowserResponderUntilTerminalFocus() throws {
+        let workspace = Workspace()
+        guard let terminalPanelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: terminalPanelId),
+              let browserPanel = workspace.splitBrowserPanel(
+                  fromPanelId: terminalPanelId,
+                  orientation: .horizontal,
+                  focus: true
+              ) else {
+            XCTFail("Expected terminal/browser split setup to succeed")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+
+        terminalPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        browserPanel.webView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.addSubview(terminalPanel.hostedView)
+        contentView.addSubview(browserPanel.webView)
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        let cmuxWebView = try XCTUnwrap(browserPanel.webView as? CmuxWebView)
+        cmuxWebView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(browserPanel.webView))
+        XCTAssertTrue(window.firstResponder === browserPanel.webView)
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+
+        let nilRequestsBeforeSwitch = window.nilFirstResponderRequestCount
+        workspace.focusPanel(terminalPanelId)
+
+        XCTAssertEqual(
+            window.nilFirstResponderRequestCount,
+            nilRequestsBeforeSwitch,
+            "Expected browser WebView first responder handoff to avoid a nil responder bounce"
+        )
+        XCTAssertFalse(window.firstResponder === browserPanel.webView)
+        XCTAssertTrue(window.firstResponder === surfaceView(in: terminalPanel.hostedView))
+    }
+
     func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+              let rightPanel = workspace.splitTerminalPanel(fromPanelId: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -3226,7 +5088,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Expected the new split panel to be selected before simulating stale focus state"
         )
 
-        // Simulate the split-pane failure mode: Bonsplit already points at the right panel,
+        // Simulate the split-pane failure mode: WorkspaceSplit already points at the right panel,
         // but the active terminal state is still stale on the left panel.
         leftPanel.surface.setFocus(true)
         leftPanel.hostedView.setActive(true)
@@ -3249,7 +5111,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+              let rightPanel = workspace.splitTerminalPanel(fromPanelId: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -3286,7 +5148,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Expected the clicked split pane to already be selected before simulating stale focus state"
         )
 
-        // Simulate the ghost-terminal race: the right pane is selected in Bonsplit, but stale
+        // Simulate the ghost-terminal race: the right pane is selected in WorkspaceSplit, but stale
         // active state remains on the left and the right pane's AppKit focus callback never fires
         // after split reparent/layout churn.
         leftPanel.surface.setFocus(true)
@@ -3324,7 +5186,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+              let rightPanel = workspace.splitTerminalPanel(fromPanelId: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -3358,7 +5220,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         leftPanel.hostedView.suppressReparentFocus()
 
         XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(leftPanel.hostedView.isSurfaceViewFirstResponder())
 
         XCTAssertFalse(
             leftPanel.surface.debugDesiredFocusState(),
@@ -3386,7 +5248,7 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let rightPanel = workspace.splitTerminalPanel(fromPanelId: leftPanelId, orientation: .horizontal),
               let leftPaneId = workspace.paneId(forPanelId: leftPanelId) else {
             XCTFail("Expected workspace split setup to succeed")
             return
@@ -3408,7 +5270,7 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
         guard let workspace = manager.selectedWorkspace,
               let terminalPanelId = workspace.focusedPanelId,
               let paneId = workspace.paneId(forPanelId: terminalPanelId),
-              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+              let browserPanel = workspace.createBrowserPanel(inPane: paneId, focus: true) else {
             XCTFail("Expected workspace browser setup to succeed")
             return
         }
@@ -3439,14 +5301,14 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let leftTerminalPanelId = workspace.focusedPanelId,
-              let rightTerminalPanel = workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal),
+              let rightTerminalPanel = workspace.splitTerminalPanel(fromPanelId: leftTerminalPanelId, orientation: .horizontal),
               let rightPaneId = workspace.paneId(forPanelId: rightTerminalPanel.id) else {
             XCTFail("Expected split setup to succeed")
             return
         }
 
         workspace.focusPanel(leftTerminalPanelId)
-        _ = workspace.newBrowserSurface(inPane: rightPaneId, focus: true)
+        _ = workspace.createBrowserPanel(inPane: rightPaneId, focus: true)
         XCTAssertNotEqual(workspace.focusedPanelId, leftTerminalPanelId)
 
         let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: rightPaneId)
@@ -3480,12 +5342,12 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
         }
 
         defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
-        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        defaults.set(TmuxOverlayExperimentTarget.workspacePane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
 
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+              let rightPanel = workspace.splitTerminalPanel(fromPanelId: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -3549,11 +5411,11 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
         appDelegate.notificationStore = notificationStore
         AppFocusState.overrideIsFocused = true
         defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
-        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        defaults.set(TmuxOverlayExperimentTarget.workspacePane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
 
         guard let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+              let rightPanel = workspace.splitTerminalPanel(fromPanelId: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -3589,14 +5451,20 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
 
 @MainActor
 final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
-    private final class RejectingCreateTabDelegate: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+    private final class RejectingCreateTabDelegate: WorkspaceLayoutDelegate {
+        func workspaceSplit(
+            shouldCreateTab tabId: TabID,
+            inPane pane: PaneID
+        ) -> Bool {
             false
         }
     }
 
-    private final class RejectingSplitPaneDelegate: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+    private final class RejectingSplitPaneDelegate: WorkspaceLayoutDelegate {
+        func workspaceSplit(
+            shouldSplitPane pane: PaneID,
+            orientation: SplitOrientation
+        ) -> Bool {
             false
         }
     }
@@ -3605,17 +5473,16 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         let workspace = Workspace()
         let profileA = try makeTemporaryBrowserProfile(named: "Alpha")
         let profileB = try makeTemporaryBrowserProfile(named: "Beta")
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.focusedPaneId)
         let browserA = try XCTUnwrap(
-            workspace.newBrowserSurface(
+            workspace.createBrowserPanel(
                 inPane: paneId,
                 focus: true,
                 preferredProfileID: profileA.id
             )
         )
         _ = try XCTUnwrap(
-            workspace.newBrowserSplit(
-                from: browserA.id,
+            workspace.splitBrowserPanel(fromPanelId: browserA.id,
                 orientation: .horizontal,
                 preferredProfileID: profileB.id,
                 focus: true
@@ -3629,11 +5496,11 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         )
 
         let leftSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserA.id))
-        workspace.bonsplitController.focusPane(paneId)
-        workspace.bonsplitController.selectTab(leftSurfaceId)
+        XCTAssertTrue(workspace.focusPane(paneId))
+        XCTAssertTrue(workspace.selectSurface(leftSurfaceId.id))
 
         let created = try XCTUnwrap(
-            workspace.newBrowserSurface(
+            workspace.createBrowserPanel(
                 inPane: paneId,
                 focus: false
             )
@@ -3651,9 +5518,9 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
         let unexpectedProfile = try makeTemporaryBrowserProfile(named: "Unexpected")
 
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.focusedPaneId)
         _ = try XCTUnwrap(
-            workspace.newBrowserSurface(
+            workspace.createBrowserPanel(
                 inPane: paneId,
                 focus: false,
                 preferredProfileID: preferredProfile.id
@@ -3662,8 +5529,8 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         XCTAssertEqual(workspace.preferredBrowserProfileID, preferredProfile.id)
 
         let rejectingDelegate = RejectingCreateTabDelegate()
-        workspace.bonsplitController.delegate = rejectingDelegate
-        let created = workspace.newBrowserSurface(
+        workspace.setLayoutDelegateForTesting(rejectingDelegate)
+        let created = workspace.createBrowserPanel(
             inPane: paneId,
             focus: false,
             preferredProfileID: unexpectedProfile.id
@@ -3682,9 +5549,9 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
         let unexpectedProfile = try makeTemporaryBrowserProfile(named: "Unexpected")
 
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.focusedPaneId)
         let browser = try XCTUnwrap(
-            workspace.newBrowserSurface(
+            workspace.createBrowserPanel(
                 inPane: paneId,
                 focus: true,
                 preferredProfileID: preferredProfile.id
@@ -3693,9 +5560,8 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         XCTAssertEqual(workspace.preferredBrowserProfileID, preferredProfile.id)
 
         let rejectingDelegate = RejectingSplitPaneDelegate()
-        workspace.bonsplitController.delegate = rejectingDelegate
-        let created = workspace.newBrowserSplit(
-            from: browser.id,
+        workspace.setLayoutDelegateForTesting(rejectingDelegate)
+        let created = workspace.splitBrowserPanel(fromPanelId: browser.id,
             orientation: .horizontal,
             preferredProfileID: unexpectedProfile.id,
             focus: false
@@ -3721,6 +5587,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
     }
 
+    private func temporaryMarkdownFile() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-panel-git-branch-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fileURL = root.appendingPathComponent("note.md")
+        try "# workspace\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
     func testBrowserSplitWithFocusFalsePreservesOriginalFocusedPanel() {
         let workspace = Workspace()
         guard let originalFocusedPanelId = workspace.focusedPanelId else {
@@ -3728,8 +5603,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
-        guard let browserSplitPanel = workspace.newBrowserSplit(
-            from: originalFocusedPanelId,
+        guard let browserSplitPanel = workspace.splitBrowserPanel(fromPanelId: originalFocusedPanelId,
             orientation: .horizontal,
             focus: false
         ) else {
@@ -3754,8 +5628,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
-        guard let terminalSplitPanel = workspace.newTerminalSplit(
-            from: originalFocusedPanelId,
+        guard let terminalSplitPanel = workspace.splitTerminalPanel(fromPanelId: originalFocusedPanelId,
             orientation: .horizontal,
             focus: false
         ) else {
@@ -3797,7 +5670,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Detaching the last surface should not auto-create a replacement panel"
         )
         XCTAssertNil(workspace.surfaceIdFromPanelId(panelId))
-        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: paneId).count, 0)
+        XCTAssertEqual(workspace.surfaceIds(inPane: paneId).count, 0)
 
         drainMainQueue()
         drainMainQueue()
@@ -3817,7 +5690,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
     func testDetachSurfaceWithRemainingPanelsSkipsDelayedFocusReconcile() {
         let workspace = Workspace()
         guard let originalPanelId = workspace.focusedPanelId,
-              let movedPanel = workspace.newTerminalSplit(from: originalPanelId, orientation: .horizontal) else {
+              let movedPanel = workspace.splitTerminalPanel(fromPanelId: originalPanelId, orientation: .horizontal) else {
             XCTFail("Expected two panels before detach")
             return
         }
@@ -3871,7 +5744,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
 
         let destination = Workspace()
-        guard let destinationPane = destination.bonsplitController.allPaneIds.first else {
+        guard let destinationPane = destination.paneIds.first else {
             XCTFail("Expected destination pane")
             return
         }
@@ -3884,13 +5757,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(attachedPanelId, panelId)
         XCTAssertEqual(destination.panelTitle(panelId: panelId), "detached-runtime-title")
 
-        guard let attachedTabId = destination.surfaceIdFromPanelId(panelId),
-              let attachedTab = destination.bonsplitController.tab(attachedTabId) else {
+        guard destination.surfaceIdFromPanelId(panelId) != nil else {
             XCTFail("Expected attached tab mapping")
             return
         }
-        XCTAssertEqual(attachedTab.title, "detached-runtime-title")
-        XCTAssertFalse(attachedTab.hasCustomTitle)
+        XCTAssertEqual(destination.panelTitle(panelId: panelId), "detached-runtime-title")
+        XCTAssertFalse(destination.hasPanelCustomTitle(panelId: panelId))
     }
 
     func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
@@ -3904,8 +5776,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
-        guard let browserSplitPanel = workspace.newBrowserSplit(
-            from: originalFocusedPanelId,
+        guard let browserSplitPanel = workspace.splitBrowserPanel(fromPanelId: originalFocusedPanelId,
             orientation: .horizontal,
             focus: false
         ) else {
@@ -3913,17 +5784,14 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
         guard let splitPaneId = workspace.paneId(forPanelId: browserSplitPanel.id),
-              let splitTabId = workspace.surfaceIdFromPanelId(browserSplitPanel.id),
-              let splitTab = workspace.bonsplitController
-              .tabs(inPane: splitPaneId)
-              .first(where: { $0.id == splitTabId }) else {
+              let splitTabId = workspace.surfaceIdFromPanelId(browserSplitPanel.id) else {
             XCTFail("Expected split pane/tab mapping")
             return
         }
 
-        // Simulate one delayed stale split-selection callback from bonsplit.
+        // Simulate one delayed stale split-selection callback from WorkspaceSplit.
         DispatchQueue.main.async {
-            workspace.splitTabBar(workspace.bonsplitController, didSelectTab: splitTab, inPane: splitPaneId)
+            workspace.workspaceSplit(didSelectTab: splitTabId, inPane: splitPaneId)
         }
 
         drainMainQueue()
@@ -3936,13 +5804,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Expected non-focus split to reassert the pre-split focused panel"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.focusedPaneId,
+            workspace.focusedPaneId,
             originalPaneId,
             "Expected focused pane to converge back to the pre-split pane"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
-            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            workspace.selectedSurfaceId(inPane: originalPaneId),
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId)?.id,
             "Expected selected tab to converge back to the pre-split focused panel"
         )
     }
@@ -3954,8 +5822,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
-        guard let browserSplitPanel = workspace.newBrowserSplit(
-            from: originalFocusedPanelId,
+        guard let browserSplitPanel = workspace.splitBrowserPanel(fromPanelId: originalFocusedPanelId,
             orientation: .horizontal,
             focus: false
         ) else {
@@ -3984,7 +5851,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
-        guard let newPanel = workspace.newTerminalSurface(inPane: originalPaneId, focus: false) else {
+        guard let newPanel = workspace.createTerminalPanel(inPane: originalPaneId, focus: false) else {
             XCTFail("Expected terminal surface to be created")
             return
         }
@@ -4000,8 +5867,8 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Expected non-focus terminal surface creation to preserve the existing focused panel"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
-            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            workspace.selectedSurfaceId(inPane: originalPaneId),
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId)?.id,
             "Expected selected tab to stay on the original focused panel"
         )
     }
@@ -4014,7 +5881,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
-        guard let newPanel = workspace.newBrowserSurface(inPane: originalPaneId, focus: false) else {
+        guard let newPanel = workspace.createBrowserPanel(inPane: originalPaneId, focus: false) else {
             XCTFail("Expected browser surface to be created")
             return
         }
@@ -4030,10 +5897,184 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Expected non-focus browser surface creation to preserve the existing focused panel"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
-            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            workspace.selectedSurfaceId(inPane: originalPaneId),
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId)?.id,
             "Expected selected tab to stay on the original focused panel"
         )
+    }
+
+    func testSplitPaneMovingTabHandlerSelfSplitLastTerminalCreatesReplacementTerminal() {
+        let workspace = Workspace()
+        guard let sourcePanelId = workspace.focusedPanelId,
+              let sourcePaneId = workspace.focusedPaneId else {
+            XCTFail("Expected initial focused terminal and pane")
+            return
+        }
+
+        guard let newPaneId = workspace.layoutInteractionHandlers.splitPaneMovingTabHandler(
+            sourcePaneId,
+            .vertical,
+            TabID(id: sourcePanelId),
+            false,
+            true
+        ) else {
+            XCTFail("Expected drag self-split to create a new pane")
+            return
+        }
+
+        let sourcePaneSurfaces = workspace.surfaceIds(inPane: sourcePaneId)
+        XCTAssertEqual(sourcePaneSurfaces.count, 1, "Expected source pane to keep a replacement surface")
+        XCTAssertEqual(workspace.surfaceIds(inPane: newPaneId), [sourcePanelId], "Expected moved terminal in the new pane")
+
+        guard let replacementPanelId = sourcePaneSurfaces.first else {
+            XCTFail("Expected replacement terminal")
+            return
+        }
+
+        XCTAssertNotEqual(replacementPanelId, sourcePanelId)
+        XCTAssertNotNil(workspace.terminalPanel(for: replacementPanelId))
+        XCTAssertEqual(workspace.selectedSurfaceId(inPane: sourcePaneId), replacementPanelId)
+    }
+
+    func testSplitPaneMovingTabHandlerSelfSplitLastBrowserCreatesReplacementBrowser() {
+        let workspace = Workspace()
+        guard let sourcePaneId = workspace.focusedPaneId,
+              let originalTerminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.createBrowserPanel(inPane: sourcePaneId, focus: true) else {
+            XCTFail("Expected initial pane and browser surface")
+            return
+        }
+
+        XCTAssertTrue(workspace.closePanel(originalTerminalId, force: true), "Expected bootstrap terminal to close")
+        drainMainQueue()
+        drainMainQueue()
+
+        guard let newPaneId = workspace.layoutInteractionHandlers.splitPaneMovingTabHandler(
+            sourcePaneId,
+            .vertical,
+            TabID(id: browserPanel.id),
+            false,
+            true
+        ) else {
+            XCTFail("Expected browser drag self-split to create a new pane")
+            return
+        }
+
+        let sourcePaneSurfaces = workspace.surfaceIds(inPane: sourcePaneId)
+        XCTAssertEqual(sourcePaneSurfaces.count, 1, "Expected source pane to keep a replacement browser")
+        XCTAssertEqual(workspace.surfaceIds(inPane: newPaneId), [browserPanel.id], "Expected moved browser in the new pane")
+
+        guard let replacementPanelId = sourcePaneSurfaces.first,
+              let replacementBrowser = workspace.browserPanel(for: replacementPanelId) else {
+            XCTFail("Expected replacement browser")
+            return
+        }
+
+        XCTAssertNotEqual(replacementPanelId, browserPanel.id)
+        XCTAssertEqual(replacementBrowser.profileID, browserPanel.profileID)
+        XCTAssertTrue(replacementBrowser.shouldRenderWebView)
+        XCTAssertEqual(workspace.selectedSurfaceId(inPane: sourcePaneId), replacementPanelId)
+    }
+
+    func testSplitPaneMovingTabHandlerSelfSplitLastMarkdownCreatesReplacementMarkdown() throws {
+        let workspace = Workspace()
+        let fileURL = try temporaryMarkdownFile()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        guard let sourcePaneId = workspace.focusedPaneId,
+              let originalTerminalId = workspace.focusedPanelId,
+              let markdownPanel = workspace.createMarkdownPanel(
+                inPane: sourcePaneId,
+                filePath: fileURL.path,
+                focus: true
+              ) else {
+            XCTFail("Expected initial pane and markdown surface")
+            return
+        }
+
+        XCTAssertTrue(workspace.closePanel(originalTerminalId, force: true), "Expected bootstrap terminal to close")
+        drainMainQueue()
+        drainMainQueue()
+
+        guard let newPaneId = workspace.layoutInteractionHandlers.splitPaneMovingTabHandler(
+            sourcePaneId,
+            .vertical,
+            TabID(id: markdownPanel.id),
+            false,
+            true
+        ) else {
+            XCTFail("Expected markdown drag self-split to create a new pane")
+            return
+        }
+
+        let sourcePaneSurfaces = workspace.surfaceIds(inPane: sourcePaneId)
+        XCTAssertEqual(sourcePaneSurfaces.count, 1, "Expected source pane to keep a replacement markdown panel")
+        XCTAssertEqual(workspace.surfaceIds(inPane: newPaneId), [markdownPanel.id], "Expected moved markdown in the new pane")
+
+        guard let replacementPanelId = sourcePaneSurfaces.first,
+              let replacementMarkdown = workspace.markdownPanel(for: replacementPanelId) else {
+            XCTFail("Expected replacement markdown panel")
+            return
+        }
+
+        XCTAssertNotEqual(replacementPanelId, markdownPanel.id)
+        XCTAssertEqual(replacementMarkdown.filePath, markdownPanel.filePath)
+        XCTAssertEqual(workspace.selectedSurfaceId(inPane: sourcePaneId), replacementPanelId)
+    }
+
+    func testSplitPaneMovingTabHandlerDoesNotCreateReplacementWhenSourcePaneStillHasOtherTabs() {
+        let workspace = Workspace()
+        guard let sourcePaneId = workspace.focusedPaneId,
+              let sourcePanelId = workspace.focusedPanelId,
+              let remainingPanel = workspace.createTerminalPanel(inPane: sourcePaneId, focus: false) else {
+            XCTFail("Expected source pane to contain two terminal tabs")
+            return
+        }
+
+        guard let newPaneId = workspace.layoutInteractionHandlers.splitPaneMovingTabHandler(
+            sourcePaneId,
+            .vertical,
+            TabID(id: sourcePanelId),
+            false,
+            true
+        ) else {
+            XCTFail("Expected split to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.surfaceIds(inPane: sourcePaneId), [remainingPanel.id])
+        XCTAssertEqual(workspace.surfaceIds(inPane: newPaneId), [sourcePanelId])
+    }
+
+    func testSplitSurfaceDoesNotApplyDragReplacementSemantics() {
+        let workspace = Workspace()
+        guard let sourcePaneId = workspace.focusedPaneId,
+              let originalTerminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.createBrowserPanel(inPane: sourcePaneId, focus: true) else {
+            XCTFail("Expected initial pane and browser surface")
+            return
+        }
+
+        XCTAssertTrue(workspace.closePanel(originalTerminalId, force: true), "Expected bootstrap terminal to close")
+        drainMainQueue()
+        drainMainQueue()
+
+        guard let newPaneId = workspace.splitSurface(
+            panelId: browserPanel.id,
+            inPane: sourcePaneId,
+            orientation: .vertical,
+            insertFirst: false,
+            focusNewPane: true
+        ) else {
+            XCTFail("Expected direct splitSurface call to succeed")
+            return
+        }
+
+        XCTAssertEqual(
+            workspace.surfaceIds(inPane: sourcePaneId).count,
+            0,
+            "Expected pure splitSurface to avoid drag-only replacement behavior"
+        )
+        XCTAssertEqual(workspace.surfaceIds(inPane: newPaneId), [browserPanel.id])
     }
 
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
@@ -4044,7 +6085,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
 
         workspace.updatePanelGitBranch(panelId: firstPanelId, branch: "main", isDirty: false)
-        guard let secondPanel = workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) else {
+        guard let secondPanel = workspace.splitTerminalPanel(fromPanelId: firstPanelId, orientation: .horizontal) else {
             XCTFail("Expected split panel to be created")
             return
         }
@@ -4068,7 +6109,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
 
         workspace.updatePanelGitBranch(panelId: leftPanelId, branch: "main", isDirty: false)
-        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+        guard let rightPanel = workspace.splitTerminalPanel(fromPanelId: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split panel to be created")
             return
         }
@@ -4211,7 +6252,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId,
               let paneId = workspace.paneId(forPanelId: firstPanelId),
-              let secondPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+              let secondPanel = workspace.createTerminalPanel(inPane: paneId, focus: false) else {
             XCTFail("Expected focused panel and a second panel")
             return
         }
@@ -4244,10 +6285,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let workspace = Workspace()
         guard let leftFirstPanelId = workspace.focusedPanelId,
               let leftPaneId = workspace.paneId(forPanelId: leftFirstPanelId),
-              let rightFirstPanel = workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal),
+              let rightFirstPanel = workspace.splitTerminalPanel(fromPanelId: leftFirstPanelId, orientation: .horizontal),
               let rightPaneId = workspace.paneId(forPanelId: rightFirstPanel.id),
-              let leftSecondPanel = workspace.newTerminalSurface(inPane: leftPaneId, focus: false),
-              let rightSecondPanel = workspace.newTerminalSurface(inPane: rightPaneId, focus: false) else {
+              let leftSecondPanel = workspace.createTerminalPanel(inPane: leftPaneId, focus: false),
+              let rightSecondPanel = workspace.createTerminalPanel(inPane: rightPaneId, focus: false) else {
             XCTFail("Expected panes and panels for ordering test")
             return
         }
@@ -4286,13 +6327,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         workspace.updatePanelDirectory(panelId: leftPanelId, directory: leftLiveDirectory)
 
-        guard let rightSplitPanel = workspace.newTerminalSplit(
-            from: leftPanelId,
+        guard let rightSplitPanel = workspace.splitTerminalPanel(fromPanelId: leftPanelId,
             orientation: .horizontal,
             focus: false
         ),
         let rightPaneId = workspace.paneId(forPanelId: rightSplitPanel.id),
-        let rightRequestedPanel = workspace.newTerminalSurface(
+        let rightRequestedPanel = workspace.createTerminalPanel(
             inPane: rightPaneId,
             focus: false,
             workingDirectory: rightRequestedDirectory
@@ -4348,7 +6388,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         guard let firstPanelId = workspace.focusedPanelId,
               let paneId = workspace.paneId(forPanelId: firstPanelId),
-              let requestedPanel = workspace.newTerminalSurface(
+              let requestedPanel = workspace.createTerminalPanel(
                   inPane: paneId,
                   focus: false,
                   workingDirectory: requestedDirectory
@@ -4376,10 +6416,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let workspace = Workspace()
         guard let leftFirstPanelId = workspace.focusedPanelId,
               let leftPaneId = workspace.paneId(forPanelId: leftFirstPanelId),
-              let rightFirstPanel = workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal),
+              let rightFirstPanel = workspace.splitTerminalPanel(fromPanelId: leftFirstPanelId, orientation: .horizontal),
               let rightPaneId = workspace.paneId(forPanelId: rightFirstPanel.id),
-              let leftSecondPanel = workspace.newTerminalSurface(inPane: leftPaneId, focus: false),
-              let rightSecondPanel = workspace.newTerminalSurface(inPane: rightPaneId, focus: false) else {
+              let leftSecondPanel = workspace.createTerminalPanel(inPane: leftPaneId, focus: false),
+              let rightSecondPanel = workspace.createTerminalPanel(inPane: rightPaneId, focus: false) else {
             XCTFail("Expected panes and panels for precomputed ordering test")
             return
         }
@@ -4428,7 +6468,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,
               let leftPaneId = workspace.paneId(forPanelId: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+              let rightPanel = workspace.splitTerminalPanel(fromPanelId: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected left/right split panes")
             return
         }
@@ -4437,168 +6477,8 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         workspace.updatePanelGitBranch(panelId: rightPanel.id, branch: "branch2", isDirty: false)
 
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch1", "branch2"])
-        XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
+        XCTAssertTrue(workspace.closePane(leftPaneId))
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch2"])
-    }
-}
-
-
-final class WorkspaceMountPolicyTests: XCTestCase {
-    func testDefaultPolicyMountsOnlySelectedWorkspace() {
-        let a = UUID()
-        let b = UUID()
-        let orderedTabIds: [UUID] = [a, b]
-
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
-            current: [a],
-            selected: b,
-            pinnedIds: [],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: false,
-            maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
-        )
-
-        XCTAssertEqual(next, [b])
-    }
-
-    func testSelectedWorkspaceMovesToFrontAndMountCountIsBounded() {
-        let a = UUID()
-        let b = UUID()
-        let c = UUID()
-        let orderedTabIds: [UUID] = [a, b, c]
-
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
-            current: [a, b, c],
-            selected: c,
-            pinnedIds: [],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: false,
-            maxMounted: 2
-        )
-
-        XCTAssertEqual(next, [c, a])
-    }
-
-    func testMissingWorkspacesArePruned() {
-        let a = UUID()
-        let b = UUID()
-
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
-            current: [b, a],
-            selected: nil,
-            pinnedIds: [],
-            orderedTabIds: [a],
-            isCycleHot: false,
-            maxMounted: 2
-        )
-
-        XCTAssertEqual(next, [a])
-    }
-
-    func testSelectedWorkspaceIsInsertedWhenAbsentFromCurrentCache() {
-        let a = UUID()
-        let b = UUID()
-        let orderedTabIds: [UUID] = [a, b]
-
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
-            current: [a],
-            selected: b,
-            pinnedIds: [],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: false,
-            maxMounted: 2
-        )
-
-        XCTAssertEqual(next, [b, a])
-    }
-
-    func testMaxMountedIsClampedToAtLeastOne() {
-        let a = UUID()
-        let b = UUID()
-        let orderedTabIds: [UUID] = [a, b]
-
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
-            current: [a, b],
-            selected: nil,
-            pinnedIds: [],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: false,
-            maxMounted: 0
-        )
-
-        XCTAssertEqual(next, [a])
-    }
-
-    func testCycleHotModeKeepsOnlySelectedWhenNoPinnedHandoff() {
-        let a = UUID()
-        let b = UUID()
-        let c = UUID()
-        let d = UUID()
-        let orderedTabIds: [UUID] = [a, b, c, d]
-
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
-            current: [a],
-            selected: c,
-            pinnedIds: [],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: true,
-            maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
-        )
-
-        XCTAssertEqual(next, [c])
-    }
-
-    func testCycleHotModeRespectsMaxMountedLimit() {
-        let a = UUID()
-        let b = UUID()
-        let c = UUID()
-        let orderedTabIds: [UUID] = [a, b, c]
-
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
-            current: [a, b, c],
-            selected: b,
-            pinnedIds: [],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: true,
-            maxMounted: 2
-        )
-
-        XCTAssertEqual(next, [b])
-    }
-
-    func testPinnedIdsAreRetainedAcrossReconcile() {
-        let a = UUID()
-        let b = UUID()
-        let c = UUID()
-        let orderedTabIds: [UUID] = [a, b, c]
-
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
-            current: [a],
-            selected: c,
-            pinnedIds: [a],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: false,
-            maxMounted: 2
-        )
-
-        XCTAssertEqual(next, [c, a])
-    }
-
-    func testCycleHotModeKeepsRetiringWorkspaceWhenPinned() {
-        let a = UUID()
-        let b = UUID()
-        let orderedTabIds: [UUID] = [a, b]
-
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
-            current: [a],
-            selected: b,
-            pinnedIds: [a],
-            orderedTabIds: orderedTabIds,
-            isCycleHot: true,
-            maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
-        )
-
-        XCTAssertEqual(next, [b, a])
     }
 }
 

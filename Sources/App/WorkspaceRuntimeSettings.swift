@@ -1,4 +1,5 @@
 import Darwin
+import CoreGraphics
 import Foundation
 
 enum WorkspaceTitlebarSettings {
@@ -32,6 +33,20 @@ enum WorkspacePresentationModeSettings {
 
     static func isMinimal(defaults: UserDefaults = .standard) -> Bool {
         mode(defaults: defaults) == .minimal
+    }
+}
+
+enum VerticalTabsSidebarLayoutMetrics {
+    static func workspaceScrollTopVisibilityInset(titlebarHeight: CGFloat, isMinimalMode: Bool) -> CGFloat {
+        isMinimalMode ? 0 : titlebarHeight + 8
+    }
+
+    static func sidebarTopScrimHeight(titlebarHeight: CGFloat, isMinimalMode: Bool) -> CGFloat {
+        isMinimalMode ? 0 : titlebarHeight + 20
+    }
+
+    static func titlebarDragHandleHeight(titlebarHeight: CGFloat, isMinimalMode: Bool) -> CGFloat {
+        isMinimalMode ? 0 : titlebarHeight
     }
 }
 

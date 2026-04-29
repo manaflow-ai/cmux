@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -1362,8 +1361,8 @@ private struct RelativeTimestampSchedule: TimelineSchedule {
 
 // MARK: - Drag payload
 
-/// Mirrors `Bonsplit.TabItem`'s Codable shape so we can produce a JSON payload
-/// that bonsplit's external-drop path will decode and accept.
+/// Mirrors WorkspaceSplit's legacy tab item payload so we can produce a JSON
+/// payload that the external-drop path will decode and accept.
 private struct MirrorTabItem: Codable {
     let id: UUID
     let title: String
@@ -1377,14 +1376,14 @@ private struct MirrorTabItem: Codable {
     let isPinned: Bool
 }
 
-/// Mirrors `Bonsplit.TabTransferData` exactly.
+/// Mirrors the legacy WorkspaceSplit tab transfer payload.
 private struct MirrorTabTransferData: Codable {
     let tab: MirrorTabItem
     let sourcePaneId: UUID
     let sourceProcessId: Int32
 }
 
-/// Build the encoded payload bonsplit's external-drop decoder accepts.
+/// Build the encoded payload WorkspaceSplit's external-drop decoder accepts.
 private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
     let mirror = MirrorTabTransferData(
         tab: MirrorTabItem(
@@ -1408,12 +1407,12 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
 /// NSItemProvider used by `.onDrag {}`. Registers ONLY
 /// `com.splittabbar.tabtransfer` so the terminal's NSDraggingDestination
 /// (which accepts `.string` / `public.utf8-plain-text`) is not hit-tested
-/// for our drag. With the terminal out of the way, bonsplit's SwiftUI
+/// for our drag. With the terminal out of the way, WorkspaceSplit's
 /// `.onDrop(of: [.tabTransfer])` overlay can render the blue insert/split
 /// zones across the entire pane (including its center).
 ///
 /// Also mirrors the encoded blob onto NSPasteboard(name: .drag) since
-/// bonsplit's external-drop decoder reads from that pasteboard directly
+/// WorkspaceSplit's external-drop decoder reads from that pasteboard directly
 /// and SwiftUI's NSItemProvider bridge doesn't always surface custom
 /// UTTypes there reliably.
 private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {

@@ -26,6 +26,67 @@ public enum PanelFocusIntent: Equatable {
     case browser(BrowserPanelFocusIntent)
 }
 
+enum WorkspaceFocusTarget: Equatable {
+    case panel(UUID)
+    case terminalSurface(UUID)
+    case terminalFindField(UUID)
+    case browserWebContent(UUID)
+    case browserAddressBar(UUID, requestId: UUID?)
+    case browserFindField(UUID, requestId: UUID?)
+    case none
+
+    var debugDescription: String {
+        switch self {
+        case .panel(let id):
+            return "panel(\(id.uuidString.prefix(5)))"
+        case .terminalSurface(let id):
+            return "terminalSurface(\(id.uuidString.prefix(5)))"
+        case .terminalFindField(let id):
+            return "terminalFindField(\(id.uuidString.prefix(5)))"
+        case .browserWebContent(let id):
+            return "browserWebContent(\(id.uuidString.prefix(5)))"
+        case .browserAddressBar(let id, let requestId):
+            return "browserAddressBar(\(id.uuidString.prefix(5)),request=\(requestId?.uuidString.prefix(8) ?? "nil"))"
+        case .browserFindField(let id, let requestId):
+            return "browserFindField(\(id.uuidString.prefix(5)),request=\(requestId?.uuidString.prefix(8) ?? "nil"))"
+        case .none:
+            return "none"
+        }
+    }
+}
+
+enum WorkspaceFocusActual: Equatable {
+    case panel(UUID)
+    case terminalSurface(UUID)
+    case terminalFindField(UUID)
+    case browserWebViewWrapper(UUID)
+    case browserWebContent(UUID)
+    case browserAddressBar(UUID)
+    case browserFindField(UUID)
+    case none
+
+    var debugDescription: String {
+        switch self {
+        case .panel(let id):
+            return "panel(\(id.uuidString.prefix(5)))"
+        case .terminalSurface(let id):
+            return "terminalSurface(\(id.uuidString.prefix(5)))"
+        case .terminalFindField(let id):
+            return "terminalFindField(\(id.uuidString.prefix(5)))"
+        case .browserWebViewWrapper(let id):
+            return "browserWebViewWrapper(\(id.uuidString.prefix(5)))"
+        case .browserWebContent(let id):
+            return "browserWebContent(\(id.uuidString.prefix(5)))"
+        case .browserAddressBar(let id):
+            return "browserAddressBar(\(id.uuidString.prefix(5)))"
+        case .browserFindField(let id):
+            return "browserFindField(\(id.uuidString.prefix(5)))"
+        case .none:
+            return "none"
+        }
+    }
+}
+
 public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case navigation
     case notificationArrival

@@ -11,25 +11,6 @@ private final class FakeWKInspectorContainerView: NSView {}
 private final class FocusableTestView: NSView {
     override var acceptsFirstResponder: Bool { true }
 }
-private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
-    var afterMenuMissCallCount = 0
-    var pasteCallCount = 0
-    var pasteAsPlainTextCallCount = 0
-    var performAfterMenuMissResult = true
-
-    override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
-        afterMenuMissCallCount += 1
-        return performAfterMenuMissResult
-    }
-
-    override func paste(_ sender: Any?) {
-        pasteCallCount += 1
-    }
-
-    override func pasteAsPlainText(_ sender: Any?) {
-        pasteAsPlainTextCallCount += 1
-    }
-}
 
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
@@ -1010,7 +991,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let orphanManager = TabManager()
         let orphanSidebarState = SidebarState()
         let orphanSidebarSelectionState = SidebarSelectionState()
-        let orphanFileExplorerState = FileExplorerState()
 
         autoreleasepool {
             var orphanWindow: NSWindow? = NSWindow(
@@ -1025,8 +1005,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 windowId: orphanWindowId,
                 tabManager: orphanManager,
                 sidebarState: orphanSidebarState,
-                sidebarSelectionState: orphanSidebarSelectionState,
-                fileExplorerState: orphanFileExplorerState
+                sidebarSelectionState: orphanSidebarSelectionState
             )
             orphanWindow = nil
         }
@@ -1055,7 +1034,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let orphanManager = TabManager()
         let orphanSidebarState = SidebarState()
         let orphanSidebarSelectionState = SidebarSelectionState()
-        let orphanFileExplorerState = FileExplorerState()
 
         autoreleasepool {
             var orphanWindow: NSWindow? = NSWindow(
@@ -1070,8 +1048,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 windowId: orphanWindowId,
                 tabManager: orphanManager,
                 sidebarState: orphanSidebarState,
-                sidebarSelectionState: orphanSidebarSelectionState,
-                fileExplorerState: orphanFileExplorerState
+                sidebarSelectionState: orphanSidebarSelectionState
             )
             orphanWindow = nil
         }
@@ -1296,7 +1273,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let originalPanelIds = Set(workspace.panels.keys)
 
-        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+        guard let rightPanel = workspace.splitTerminalPanel(fromPanelId: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -1307,7 +1284,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected split pane IDs")
             return
         }
-        let layoutBefore = workspace.bonsplitController.layoutSnapshot()
+        let layoutBefore = workspace.layoutSnapshot()
         guard let leftPaneBeforeFrame = layoutBefore.panes.first(where: { $0.paneId == leftPaneBefore.id.uuidString })?.frame,
               let rightPaneBeforeFrame = layoutBefore.panes.first(where: { $0.paneId == rightPaneBefore.id.uuidString })?.frame else {
             XCTFail("Expected pane frames before shortcut split")
@@ -1323,7 +1300,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         workspace.focusPanel(rightPanel.id)
-        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected Bonsplit selection to stay on the right pane")
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected WorkspaceSplit selection to stay on the right pane")
         leftPanel.hostedView.suppressReparentFocus()
         XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
         leftPanel.hostedView.clearSuppressReparentFocus()
@@ -1350,7 +1327,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected pane IDs after shortcut split")
             return
         }
-        let layoutAfter = workspace.bonsplitController.layoutSnapshot()
+        let layoutAfter = workspace.layoutSnapshot()
         guard let newPaneFrame = layoutAfter.panes.first(where: { $0.paneId == newPaneId.id.uuidString })?.frame,
               let rightPaneAfterFrame = layoutAfter.panes.first(where: { $0.paneId == rightPaneAfter.id.uuidString })?.frame else {
             XCTFail("Expected pane frames after shortcut split")
@@ -1723,7 +1700,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             ),
             0,
             accuracy: 0.5,
-            "Manually hosted minimal windows already have zero safe area, so the Bonsplit strip must not be pulled offscreen"
+            "Manually hosted minimal windows already have zero safe area, so the WorkspaceSplit strip must not be pulled offscreen"
         )
 
         XCTAssertEqual(
@@ -1782,8 +1759,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         // Recreate the regression shape: the window chrome state says minimal +
-        // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
-        sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
+        // collapsed sidebar, but the selected workspace's live WorkspaceSplit inset is stale.
+        sourceWorkspace.tabBarLeadingInset = 0
 
         guard let newWorkspaceId = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
             XCTFail("Expected workspace creation to route to the test window")
@@ -1798,7 +1775,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            newWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            newWorkspace.tabBarLeadingInset,
             80,
             accuracy: 0.5,
             "New minimal-mode workspaces should reserve traffic-light space immediately even when the source workspace inset is stale"
@@ -1820,7 +1797,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         // Simulate the new-window flow: createMainWindow with a snapshot that forces
         // sidebar collapsed. The initial workspace is created inside TabManager.init,
-        // before ContentView.onAppear can run syncTrafficLightInset — so the seed in
+        // before ContentView.onAppear can run syncTrafficLightInset, so the seed in
         // createMainWindow is what protects the first render.
         let snapshot = SessionWindowSnapshot(
             frame: nil,
@@ -1846,7 +1823,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // No RunLoop spin before reading the inset — the seed must be applied by the
         // time createMainWindow returns, not lazily after onAppear runs.
         XCTAssertEqual(
-            initialWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            initialWorkspace.tabBarLeadingInset,
             80,
             accuracy: 0.5,
             "New minimal-mode windows with collapsed sidebar should reserve traffic-light space on the initial workspace before first render"
@@ -2533,7 +2510,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedPaletteWindow?.windowNumber, window.windowNumber)
     }
 
-    func testCmdFFocusedBrowserOpensBrowserFind() {
+    func testCmdFFocusedBrowserKeepsWebContentFirstRouting() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -2552,7 +2529,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertNotNil(manager.focusedBrowserPanel)
         XCTAssertNil(manager.focusedBrowserPanel?.searchState)
-        let initialMode = appDelegate.fileExplorerState?.mode
 
         guard let event = makeKeyDownEvent(
             key: "f",
@@ -2565,16 +2541,139 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(
+        XCTAssertFalse(
             appDelegate.debugHandleCustomShortcut(event: event),
-            "Cmd+F should open browser find when browser web content is focused"
+            "Cmd+F should fall through so browser web content gets first chance"
         )
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        XCTAssertNotNil(manager.focusedBrowserPanel?.searchState)
-        XCTAssertEqual(appDelegate.fileExplorerState?.mode, initialMode)
+        XCTAssertNil(manager.focusedBrowserPanel?.searchState)
+    }
+
+    func testCmdEFocusedBrowserKeepsWebContentFirstRouting() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: terminalPanelId),
+              let browserPanel = workspace.splitBrowserPanel(
+                fromPanelId: terminalPanel.id,
+                orientation: .horizontal,
+                focus: true
+              ) else {
+            XCTFail("Expected visible terminal and browser panels")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id, "Expected split browser pane to stay focused for Cmd+E")
+
+        guard let event = makeKeyDownEvent(
+            key: "e",
+            modifiers: [.command],
+            keyCode: 14,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+E event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+E should fall through so browser web content gets first chance when a browser pane is focused"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testCmdLFocusesFocusedBrowserAddressBar() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: terminalPanelId),
+              let browserPanel = workspace.splitBrowserPanel(
+                fromPanelId: terminalPanel.id,
+                orientation: .horizontal,
+                focus: true
+              ) else {
+            XCTFail("Expected visible terminal and browser panels")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id, "Expected split browser pane to stay focused for Cmd+L")
+
+        let addressBarExpectation = expectation(description: "browserFocusAddressBar notification")
+        var notifiedPanelId: UUID?
+        let notificationToken = NotificationCenter.default.addObserver(
+            forName: .browserFocusAddressBar,
+            object: nil,
+            queue: nil
+        ) { notification in
+            notifiedPanelId = notification.object as? UUID
+            addressBarExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(notificationToken) }
+
+        guard let event = makeKeyDownEvent(
+            key: "l",
+            modifiers: [.command],
+            keyCode: 37,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+L event")
+            return
+        }
+
+#if DEBUG
+        let handled = appDelegate.debugHandleCustomShortcut(event: event)
+        XCTAssertTrue(
+            handled,
+            "Cmd+L should be handled while the focused pane is a browser"
+        )
+        guard handled else { return }
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [addressBarExpectation], timeout: 0.2)
+        XCTAssertEqual(
+            notifiedPanelId,
+            browserPanel.id,
+            "Cmd+L should notify the currently focused browser pane"
+        )
+        XCTAssertEqual(
+            appDelegate.focusedBrowserAddressBarPanelId(),
+            browserPanel.id,
+            "Cmd+L should focus the currently focused browser pane"
+        )
     }
 
     func testCmdPhysicalWWithDvorakCharactersDoesNotTriggerClosePanelShortcut() {
@@ -4243,8 +4342,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     // MARK: - Non-Latin keyboard layout shortcut tests
 
-    func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {
+    func testBrowserFirstFindShortcutRoutingRecognizesFindCommandFamily() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
+            ("cmd-f", [.command], "f", 3),
             ("cmd-g", [.command], "g", 5),
             ("cmd-shift-g", [.command, .shift], "g", 5),
             ("cmd-shift-f", [.command, .shift], "f", 3),
@@ -4265,31 +4365,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testBrowserFirstFindShortcutRoutingExcludesGlobalFindCommand() {
-        let event = makeKeyEvent(
-            modifierFlags: [.command],
-            characters: "f",
-            charactersIgnoringModifiers: "f",
-            keyCode: 3
-        )
-
-        XCTAssertFalse(
-            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
-            "Cmd+F belongs to cmux focus-aware find routing, not browser-first routing"
-        )
-    }
-
     func testBrowserFirstFindShortcutRoutingFallsBackToKeyCodeForNonLatinInput() {
         let event = makeKeyEvent(
             modifierFlags: [.command],
             characters: "",
-            charactersIgnoringModifiers: "п", // Cyrillic p from a non-Latin input source
-            keyCode: 5 // kVK_ANSI_G
+            charactersIgnoringModifiers: "а", // Cyrillic a from a non-Latin input source
+            keyCode: 3 // kVK_ANSI_F
         )
 
         XCTAssertTrue(
             shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
-            "Expected browser-first routing to keep Cmd+G eligible under non-Latin input"
+            "Expected browser-first routing to keep Cmd+F eligible under non-Latin input"
         )
     }
 
@@ -4324,9 +4410,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let event = makeKeyEvent(
             modifierFlags: [.command],
-            characters: "g",
-            charactersIgnoringModifiers: "g",
-            keyCode: 5
+            characters: "f",
+            charactersIgnoringModifiers: "f",
+            keyCode: 3
         )
 
         XCTAssertFalse(
@@ -4543,55 +4629,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testWindowPerformKeyEquivalentDefersTerminalPasteMenuMissToGhosttyBindingResolution() {
-        let previousMainMenu = NSApp.mainMenu
-        let probeWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
-        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
-
-        defer {
-            NSApp.mainMenu = previousMainMenu
-            probeWindow.orderOut(nil)
-        }
-
-        let emptyMenu = NSMenu(title: "Test")
-        emptyMenu.addItem(withTitle: "Placeholder", action: nil, keyEquivalent: "")
-        NSApp.mainMenu = emptyMenu
-
-        probeWindow.contentView = contentView
-        contentView.addSubview(probeView)
-        probeWindow.makeKeyAndOrderFront(nil)
-        probeWindow.displayIfNeeded()
-        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
-
-        guard let event = makeKeyDownEvent(
-            key: "v",
-            modifiers: [.command],
-            keyCode: 9,
-            windowNumber: probeWindow.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+V event")
-            return
-        }
-
-        XCTAssertTrue(
-            probeWindow.performKeyEquivalent(with: event),
-            "Cmd+V menu miss should still route through Ghostty binding resolution"
-        )
-        XCTAssertEqual(probeView.afterMenuMissCallCount, 1, "Ghostty binding resolution should run after the menu miss")
-        XCTAssertEqual(probeView.pasteCallCount, 0, "Window routing must not force paste before Ghostty inspects bindings")
-        XCTAssertEqual(
-            probeView.pasteAsPlainTextCallCount,
-            0,
-            "Window routing must not force plain-text paste before Ghostty inspects bindings"
-        )
-    }
-
     func testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -4671,213 +4708,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertGreaterThan(forwardedKeyDownCount, 0, "Typing repair should forward the keyDown into Ghostty")
 #endif
-    }
-
-    func testTerminalFirstResponderGuardBlocksMoveFocusWhenRightSidebarOwnsKeyboardFocus() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let contentView = window.contentView,
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId),
-              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
-            XCTFail("Expected focused terminal surface")
-            return
-        }
-
-        let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(strayView)
-        defer { strayView.removeFromSuperview() }
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-
-        XCTAssertTrue(window.makeFirstResponder(strayView), "Expected a foreign responder before blocking terminal focus")
-        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
-
-        XCTAssertFalse(
-            window.makeFirstResponder(terminalView),
-            "Coordinator-owned sidebar focus should block direct terminal first-responder requests"
-        )
-
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertTrue(window.firstResponder === strayView, "Blocked terminal moveFocus should keep the existing responder intact")
-        XCTAssertFalse(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Blocked terminal moveFocus must not leave the Ghostty surface as first responder"
-        )
-    }
-
-    func testFindShortcutFromFileTreeOpensRightSidebarFind() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let contentView = window.contentView,
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected focused terminal surface")
-            return
-        }
-
-        let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(sidebarResponder)
-        defer { sidebarResponder.removeFromSuperview() }
-
-        XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
-        appDelegate.fileExplorerState?.mode = .files
-        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .files, in: window)
-
-        guard let event = makeKeyDownEvent(
-            key: "f",
-            modifiers: [.command],
-            keyCode: 3,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+F event")
-            return
-        }
-
-#if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-
-        XCTAssertNil(terminalPanel.searchState, "Cmd+F from the file tree should not create terminal search state")
-        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .find)
-    }
-
-    func testFindShortcutFromTerminalOpensTerminalFind() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected focused terminal surface")
-            return
-        }
-
-        appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: terminalPanel.id, in: window)
-
-        guard let event = makeKeyDownEvent(
-            key: "f",
-            modifiers: [.command],
-            keyCode: 3,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+F event")
-            return
-        }
-
-#if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-
-        XCTAssertNotNil(terminalPanel.searchState, "Cmd+F from terminal focus should create terminal search state")
-    }
-
-    func testFindShortcutFromOtherRightSidebarModeDoesNotStealFocus() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let contentView = window.contentView,
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected focused terminal surface")
-            return
-        }
-
-        let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(sidebarResponder)
-        defer { sidebarResponder.removeFromSuperview() }
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
-        appDelegate.fileExplorerState?.mode = .feed
-        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
-        XCTAssertFalse(
-            appDelegate.allowsTerminalKeyboardFocus(
-                workspaceId: workspace.id,
-                panelId: terminalPanel.id,
-                in: window
-            ),
-            "Right sidebar ownership should block direct terminal focus before Cmd+F"
-        )
-
-        guard let event = makeKeyDownEvent(
-            key: "f",
-            modifiers: [.command],
-            keyCode: 3,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+F event")
-            return
-        }
-
-#if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-
-        XCTAssertFalse(
-            appDelegate.allowsTerminalKeyboardFocus(
-                workspaceId: workspace.id,
-                panelId: terminalPanel.id,
-                in: window
-            ),
-            "Cmd+F should keep keyboard ownership in the existing right sidebar section"
-        )
-        XCTAssertNil(terminalPanel.searchState, "Cmd+F should not create terminal search state")
-        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .feed)
-        XCTAssertFalse(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Cmd+F from a non-file right sidebar mode should not refocus the terminal responder"
-        )
     }
 
     func testWindowSendEventRepairsFocusedTerminalSearchTypingAfterResponderDrift() {

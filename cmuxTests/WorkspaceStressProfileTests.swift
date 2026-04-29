@@ -84,7 +84,6 @@ final class WorkspaceStressProfileTests: XCTestCase {
         var switchSamples: [TimedSample] = []
         var switchDispatchSamples: [TimedSample] = []
         var switchFirstDrainSamples: [TimedSample] = []
-        var switchUnfocusSamples: [TimedSample] = []
         var switchSecondDrainSamples: [TimedSample] = []
 
         let manager = timed("workspace-000-create", collectInto: &creationSamples) {
@@ -130,9 +129,6 @@ final class WorkspaceStressProfileTests: XCTestCase {
                     timed("pass-\(label(for: pass))-next-drain1-\(label(for: switchIndex))", collectInto: &switchFirstDrainSamples) {
                         drainMainQueue()
                     }
-                    timed("pass-\(label(for: pass))-next-unfocus-\(label(for: switchIndex))", collectInto: &switchUnfocusSamples) {
-                        manager.completePendingWorkspaceUnfocus(reason: "workspace_stress_profile")
-                    }
                     timed("pass-\(label(for: pass))-next-drain2-\(label(for: switchIndex))", collectInto: &switchSecondDrainSamples) {
                         drainMainQueue()
                     }
@@ -146,9 +142,6 @@ final class WorkspaceStressProfileTests: XCTestCase {
                     }
                     timed("pass-\(label(for: pass))-prev-drain1-\(label(for: switchIndex))", collectInto: &switchFirstDrainSamples) {
                         drainMainQueue()
-                    }
-                    timed("pass-\(label(for: pass))-prev-unfocus-\(label(for: switchIndex))", collectInto: &switchUnfocusSamples) {
-                        manager.completePendingWorkspaceUnfocus(reason: "workspace_stress_profile")
                     }
                     timed("pass-\(label(for: pass))-prev-drain2-\(label(for: switchIndex))", collectInto: &switchSecondDrainSamples) {
                         drainMainQueue()
@@ -164,7 +157,6 @@ final class WorkspaceStressProfileTests: XCTestCase {
         let switchSummary = TimingSummary(samples: switchSamples)
         let switchDispatchSummary = TimingSummary(samples: switchDispatchSamples)
         let switchFirstDrainSummary = TimingSummary(samples: switchFirstDrainSamples)
-        let switchUnfocusSummary = TimingSummary(samples: switchUnfocusSamples)
         let switchSecondDrainSummary = TimingSummary(samples: switchSecondDrainSamples)
 
         let report = [
@@ -174,7 +166,6 @@ final class WorkspaceStressProfileTests: XCTestCase {
             reportLine(title: "switch", summary: switchSummary, slowest: slowest(switchSamples)),
             reportLine(title: "switch.dispatch", summary: switchDispatchSummary, slowest: slowest(switchDispatchSamples)),
             reportLine(title: "switch.drain1", summary: switchFirstDrainSummary, slowest: slowest(switchFirstDrainSamples)),
-            reportLine(title: "switch.unfocus", summary: switchUnfocusSummary, slowest: slowest(switchUnfocusSamples)),
             reportLine(title: "switch.drain2", summary: switchSecondDrainSummary, slowest: slowest(switchSecondDrainSamples))
         ].joined(separator: "\n")
 
@@ -213,7 +204,6 @@ final class WorkspaceStressProfileTests: XCTestCase {
 
     private func settleWorkspaceSelection(_ manager: TabManager) {
         drainMainQueue()
-        manager.completePendingWorkspaceUnfocus(reason: "workspace_stress_profile")
         drainMainQueue()
     }
 

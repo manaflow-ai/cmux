@@ -92,6 +92,55 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
+func shouldDispatchBrowserSpaceViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsBrowser: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsBrowser else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+    guard keyCode == 49 else { return false }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    return normalizedFlags.isEmpty || normalizedFlags == [.shift]
+}
+
+func shouldBypassBrowserPlainTextKeyEquivalent(
+    keyCode: UInt16,
+    firstResponderIsBrowser: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags,
+    characters: String?,
+    charactersIgnoringModifiers: String?
+) -> Bool {
+    guard firstResponderIsBrowser else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags.isEmpty || normalizedFlags == [.shift] else { return false }
+
+    switch keyCode {
+    case 36, 49, 76, 125, 126:
+        return false
+    default:
+        break
+    }
+
+    let text = charactersIgnoringModifiers ?? characters ?? ""
+    guard !text.isEmpty else { return false }
+
+    return text.unicodeScalars.allSatisfy { scalar in
+        !CharacterSet.controlCharacters.contains(scalar)
+            && !CharacterSet.newlines.contains(scalar)
+            && scalar.properties.generalCategory != .privateUse
+    }
+}
+
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -493,19 +542,15 @@ private func browserFindCommandEquivalent(for event: NSEvent) -> BrowserFindComm
     }
 }
 
-/// For browser content, let the page try browser-local Find-family commands before cmux's menu fallback.
-/// Cmd+F is excluded because cmux chooses terminal, browser, or right-sidebar
-/// find from the current focus owner.
+/// For browser content, let the page try the Find command family before cmux's menu fallback.
+/// This preserves native web-app shortcuts like VS Code's Cmd+F while still allowing cmux's
+/// browser find overlay to keep owning its visible Find UI shortcuts.
 func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     _ event: NSEvent,
     responder: NSResponder? = nil,
     owningWebView: CmuxWebView? = nil
 ) -> Bool {
     guard let shortcut = browserFindCommandEquivalent(for: event) else {
-        return false
-    }
-
-    if case .find = shortcut {
         return false
     }
 
@@ -541,6 +586,12 @@ func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
         if textView.isFieldEditor,
            let ownerView = cmuxFieldEditorOwnerView(textView),
            let ghosttyView = cmuxOwningGhosttyView(for: ownerView) {
+            return ghosttyView
+        }
+
+        if !textView.isFieldEditor,
+           let delegateView = textView.delegate as? NSView,
+           let ghosttyView = cmuxOwningGhosttyView(for: delegateView) {
             return ghosttyView
         }
     }
