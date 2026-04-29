@@ -729,8 +729,13 @@ struct HiddenTitlebarSidebarControlsView: View {
 
         ZStack(alignment: .leading) {
             WindowAccessor { window in
-                hostWindowNumber = window.windowNumber
-                isHoveringWindowChrome = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
+                if hostWindowNumber != window.windowNumber {
+                    hostWindowNumber = window.windowNumber
+                }
+                let nextHoveringWindowChrome = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
+                if isHoveringWindowChrome != nextHoveringWindowChrome {
+                    isHoveringWindowChrome = nextHoveringWindowChrome
+                }
                 #if DEBUG
                 _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     payload["minimalSidebarHostWindowNumber"] = String(window.windowNumber)

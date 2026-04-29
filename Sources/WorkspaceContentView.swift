@@ -168,6 +168,7 @@ struct WorkspaceContentView: View {
         _ notificationPayloadHex: String?
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
+    @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
@@ -559,7 +560,7 @@ struct WorkspaceContentView: View {
         return next
     }
 
-    private static func ghosttyAppearanceSignature(_ config: GhosttyConfig) -> String {
+    private static func ghosttyAppearanceSignature(_ config: GhosttyConfig, usesHostLayerBackground: Bool) -> String {
         [
             config.backgroundColor.hexString(includeAlpha: true),
             String(format: "%.4f", config.backgroundOpacity),
@@ -567,6 +568,7 @@ struct WorkspaceContentView: View {
             String(format: "%.4f", config.unfocusedSplitOpacity),
             config.unfocusedSplitFill?.hexString(includeAlpha: true) ?? "nil",
             config.splitDividerColor?.hexString(includeAlpha: true) ?? "nil",
+            String(usesHostLayerBackground),
         ].joined(separator: "|")
     }
 
@@ -608,13 +610,20 @@ struct WorkspaceContentView: View {
         }
         deferredThemeRefresh = nil
 
-        let previousSignature = Self.ghosttyAppearanceSignature(config)
+        let previousSignature = Self.ghosttyAppearanceSignature(
+            config,
+            usesHostLayerBackground: lastAppliedUsesHostLayerBackground
+        )
         let previousBackgroundHex = config.backgroundColor.hexString()
         let next = Self.resolveGhosttyAppearanceConfig(
             reason: reason,
             backgroundOverride: backgroundOverride
         )
-        let nextSignature = Self.ghosttyAppearanceSignature(next)
+        let nextUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
+        let nextSignature = Self.ghosttyAppearanceSignature(
+            next,
+            usesHostLayerBackground: nextUsesHostLayerBackground
+        )
         let eventLabel = backgroundEventId.map(String.init) ?? "nil"
         let sourceLabel = backgroundSource ?? "nil"
         let payloadLabel = notificationPayloadHex ?? "nil"
@@ -637,6 +646,9 @@ struct WorkspaceContentView: View {
         withTransaction(Transaction(animation: nil)) {
             if configChanged {
                 config = next
+            }
+            if shouldApplyChrome {
+                lastAppliedUsesHostLayerBackground = nextUsesHostLayerBackground
             }
             if shouldRequestTitlebarRefresh {
                 onThemeRefreshRequest?(

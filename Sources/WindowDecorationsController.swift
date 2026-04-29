@@ -165,6 +165,7 @@ final class WindowDecorationsController {
             )
             #endif
             if event.type == .leftMouseDown,
+               isHovering,
                let slot = actionSlot {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
                 self.performMinimalModeSidebarControlAction(

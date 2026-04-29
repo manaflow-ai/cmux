@@ -3615,6 +3615,9 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { isVisible in
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
+            if let observedWindow {
+                AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
+            }
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
@@ -3641,6 +3644,7 @@ struct ContentView: View {
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
             if let observedWindow {
                 setTitlebarControlsHidden(isFullScreen, in: observedWindow)
+                AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
                 refreshWindowChromeMetrics(for: observedWindow)
                 observedWindow.contentView?.needsLayout = true
                 observedWindow.contentView?.superview?.needsLayout = true
