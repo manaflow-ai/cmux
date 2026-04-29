@@ -553,6 +553,7 @@ enum BrowserLinkOpenSettings {
     static let defaultBrowserExternalOpenPatterns: String = ""
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
@@ -560,6 +561,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func openSidebarPullRequestLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: openSidebarPullRequestLinksInCmuxBrowserKey) == nil {
             return defaultOpenSidebarPullRequestLinksInCmuxBrowser
         }
@@ -567,6 +569,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func openSidebarPortLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: openSidebarPortLinksInCmuxBrowserKey) == nil {
             return defaultOpenSidebarPortLinksInCmuxBrowser
         }
@@ -574,6 +577,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func interceptTerminalOpenCommandInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: interceptTerminalOpenCommandInCmuxBrowserKey) != nil {
             return defaults.bool(forKey: interceptTerminalOpenCommandInCmuxBrowserKey)
         }
@@ -613,6 +617,7 @@ enum BrowserLinkOpenSettings {
     static func shouldOpenExternally(_ rawURL: String, defaults: UserDefaults = .standard) -> Bool {
         let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return false }
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
 
         for rawPattern in externalOpenPatterns(defaults: defaults) {
             guard let (isRegex, value) = parseExternalPattern(rawPattern) else { continue }
@@ -680,6 +685,30 @@ enum BrowserLinkOpenSettings {
         }
 
         return (isRegex: false, value: trimmed)
+    }
+}
+
+enum BrowserAvailabilitySettings {
+    static let disabledKey = "browserDisabledOverride"
+    static let didChangeNotification = Notification.Name("cmux.browserAvailabilityDidChange")
+    static let defaultDisabled = false
+
+    static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.synchronize()
+        if defaults.object(forKey: disabledKey) == nil {
+            return defaultDisabled
+        }
+        return defaults.bool(forKey: disabledKey)
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        !isDisabled(defaults: defaults)
+    }
+
+    static func setDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(disabled, forKey: disabledKey)
+        defaults.synchronize()
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }
 
@@ -2162,6 +2191,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Whether the browser panel should render its WKWebView in the content area.
     /// New browser tabs stay in an empty "new tab" state until first navigation.
     @Published private(set) var shouldRenderWebView: Bool = false
+    private var restoredSessionShouldRenderWebView: Bool?
 
     /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
     var isShowingNewTabPage: Bool {
@@ -2654,6 +2684,7 @@ final class BrowserPanel: Panel, ObservableObject {
         profileID: UUID? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
+        renderInitialNavigation: Bool = true,
         bypassInsecureHTTPHostOnce: String? = nil,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         isRemoteWorkspace: Bool = false,
@@ -2779,7 +2810,10 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if let initialRequest {
-            shouldRenderWebView = true
+            restoredSessionShouldRenderWebView = nil
+            currentURL = initialRequest.url
+            shouldRenderWebView = renderInitialNavigation
+            guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
                shouldBlockInsecureHTTPNavigation(to: url) {
@@ -2795,7 +2829,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 )
             }
         } else if let url = initialURL {
-            shouldRenderWebView = true
+            restoredSessionShouldRenderWebView = nil
+            currentURL = url
+            shouldRenderWebView = renderInitialNavigation
+            guard renderInitialNavigation else { return }
             navigate(to: url)
         }
     }
@@ -3110,6 +3147,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
         let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+        let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
+        restoredSessionShouldRenderWebView = snapshot.shouldRenderWebView
 
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
@@ -3117,10 +3156,10 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURLString: snapshot.urlString
         )
 
-        currentURL = snapshot.shouldRenderWebView ? restoredURL : nil
-        shouldRenderWebView = snapshot.shouldRenderWebView
+        currentURL = restoredURL
+        shouldRenderWebView = shouldRenderRestoredWebView
 
-        guard snapshot.shouldRenderWebView, let restoredURL else {
+        guard shouldRenderRestoredWebView, let restoredURL else {
             refreshNavigationAvailability()
             return
         }
@@ -3130,6 +3169,11 @@ final class BrowserPanel: Panel, ObservableObject {
             recordTypedNavigation: false,
             preserveRestoredSessionHistory: true
         )
+    }
+
+    func shouldRenderWebViewForSessionSnapshot() -> Bool {
+        guard preferredURLStringForOmnibar() != nil else { return false }
+        return restoredSessionShouldRenderWebView ?? shouldRenderWebView
     }
 
     private func setupObservers(for webView: WKWebView) {
@@ -3811,6 +3855,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 recordTypedNavigation: recordTypedNavigation,
                 preserveRestoredSessionHistory: preserveRestoredSessionHistory
             )
+            restoredSessionShouldRenderWebView = nil
             shouldRenderWebView = true
             currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
             navigationDelegate?.lastAttemptedURL = url
@@ -3851,6 +3896,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        restoredSessionShouldRenderWebView = nil
         shouldRenderWebView = true
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
@@ -4124,6 +4170,7 @@ extension BrowserPanel {
 
         pageTitle = ""
         currentURL = nil
+        restoredSessionShouldRenderWebView = nil
         faviconPNGData = nil
         lastFaviconURLString = nil
         activePortalHostLease = nil
@@ -4283,6 +4330,13 @@ extension BrowserPanel {
             "bypass=\(seed.bypassInsecureHTTPHostOnce ?? "nil")"
         )
 #endif
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            _ = NSWorkspace.shared.open(seed.url)
+#if DEBUG
+            cmuxDebugLog("browser.newTab.open.external panel=\(id.uuidString.prefix(5)) reason=browser_disabled")
+#endif
+            return
+        }
         guard let app = AppDelegate.shared else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingAppDelegate")

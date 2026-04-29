@@ -357,7 +357,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let windowId = appDelegate.createMainWindow()
         defer {
-            SettingsWindowController.shared.close()
             closeWindow(withId: windowId)
         }
 

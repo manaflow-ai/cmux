@@ -65,6 +65,23 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
 }
 
 
+@MainActor
+final class BrowserPanelInitialNavigationTests: XCTestCase {
+    func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            renderInitialNavigation: false
+        )
+
+        XCTAssertEqual(panel.currentURL, url)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
+    }
+}
+
+
 final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     func testLightModeSlightlyDarkensThemeBackground() {
         assertResolvedColorMatchesExpectedBlend(for: .light, darkenMix: 0.04)

@@ -69,9 +69,7 @@ final class WindowDecorationsController {
     }
 
     private func trafficLightOffset(for window: NSWindow) -> NSPoint {
-        guard window.identifier?.rawValue == "cmux.settings" else { return .zero }
-        // Nudge controls slightly right/down to align with the custom Settings title row.
-        return NSPoint(x: 7, y: -4)
+        return .zero
     }
 
     private func shouldHideTrafficLights(for window: NSWindow) -> Bool {
