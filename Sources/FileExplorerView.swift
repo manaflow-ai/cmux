@@ -1166,6 +1166,9 @@ final class FileExplorerContainerView: NSView {
 
         // Header
         headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.onSearch = { [weak self] in
+            _ = self?.focusSearchField()
+        }
         addSubview(headerView)
 
         // Search bar
@@ -1963,8 +1966,10 @@ private final class FileExplorerSearchResultCellView: NSTableCellView {
 final class FileExplorerHeaderView: NSView {
     private let iconView = NSImageView()
     private let pathLabel = NSTextField(labelWithString: "")
+    private let searchButton = NSButton()
     private var displayPath = ""
     private var quickSearchQuery: String?
+    var onSearch: (() -> Void)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1986,8 +1991,24 @@ final class FileExplorerHeaderView: NSView {
         pathLabel.maximumNumberOfLines = 1
         pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        searchButton.translatesAutoresizingMaskIntoConstraints = false
+        searchButton.bezelStyle = .roundRect
+        searchButton.controlSize = .small
+        searchButton.isBordered = true
+        searchButton.imagePosition = .imageOnly
+        searchButton.image = NSImage(
+            systemSymbolName: "magnifyingglass",
+            accessibilityDescription: String(localized: "fileExplorer.search.button", defaultValue: "Search")
+        )?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .medium))
+        searchButton.contentTintColor = .labelColor
+        searchButton.toolTip = String(localized: "fileExplorer.search.buttonHelp", defaultValue: "Search Files")
+        searchButton.target = self
+        searchButton.action = #selector(searchButtonClicked(_:))
+        searchButton.setAccessibilityIdentifier("FileExplorerHeaderSearchButton")
+
         addSubview(iconView)
         addSubview(pathLabel)
+        addSubview(searchButton)
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 28),
@@ -1999,7 +2020,12 @@ final class FileExplorerHeaderView: NSView {
 
             pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
             pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            pathLabel.trailingAnchor.constraint(lessThanOrEqualTo: searchButton.leadingAnchor, constant: -6),
+
+            searchButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            searchButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            searchButton.widthAnchor.constraint(equalToConstant: 24),
+            searchButton.heightAnchor.constraint(equalToConstant: 22),
         ])
         applyHeaderState()
     }
@@ -2025,6 +2051,10 @@ final class FileExplorerHeaderView: NSView {
                 .withSymbolConfiguration(config)
             pathLabel.stringValue = displayPath
         }
+    }
+
+    @objc private func searchButtonClicked(_ sender: NSButton) {
+        onSearch?()
     }
 }
 
@@ -2237,7 +2267,8 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         }
 
         if RightSidebarKeyboardNavigation.isPlainSlash(event) {
-            beginQuickSearch()
+            endQuickSearch()
+            _ = fileExplorerCoordinator?.containerView?.focusSearchField()
             return
         }
 

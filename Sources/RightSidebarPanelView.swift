@@ -221,6 +221,7 @@ struct RightSidebarPanelView: View {
         .padding(.trailing, 6)
         .padding(.vertical, 4)
         .frame(height: titlebarHeight)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.94))
     }
 
     @ViewBuilder
@@ -393,24 +394,22 @@ private struct ModeBarButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            ZStack {
                 Image(systemName: mode.symbolName)
-                    .font(.system(size: 11, weight: .medium))
-                Text(mode.label)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if badgeCount > 0 {
-                    pendingChip
-                }
+                    .font(.system(size: 12, weight: .semibold))
             }
+            .frame(width: 28, height: 24)
             .foregroundStyle(foregroundColor)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(backgroundColor)
             )
+            .overlay(alignment: .topTrailing) {
+                if badgeCount > 0 {
+                    badgeView
+                        .offset(x: 4, y: -4)
+                }
+            }
             .overlay(alignment: .trailing) {
                 if showsShortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
@@ -458,24 +457,12 @@ private struct ModeBarButton: View {
         return Color.clear
     }
 
-    /// Subtle inline count chip that sits after the label instead of
-    /// floating a red capsule over the icon. Tinted orange (the "needs
-    /// attention" color used elsewhere in the Feed) and sized to match
-    /// the label's typography.
-    private var pendingChip: some View {
-        let countText = badgeCount > 9 ? "9+" : String(badgeCount)
-        return Text(countText)
-            .font(.system(size: 10, weight: .bold).monospacedDigit())
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: true)
-            .foregroundColor(.orange)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.orange.opacity(0.20))
-            )
-            .fixedSize(horizontal: true, vertical: true)
-            .layoutPriority(2)
+    private var badgeView: some View {
+        Text(badgeCount > 99 ? "99+" : "\(badgeCount)")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 3)
+            .frame(minWidth: 12, minHeight: 12)
+            .background(Capsule().fill(Color(nsColor: .systemOrange)))
     }
 }
