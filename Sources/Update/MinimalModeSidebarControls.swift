@@ -2,6 +2,30 @@ import AppKit
 import Combine
 import SwiftUI
 
+struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
+    let config: TitlebarControlsStyleConfig
+    var isEnabled = true
+    var requiresRevealedState = false
+    let onAction: (MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void
+
+    func makeNSView(context: Context) -> MinimalModeSidebarControlActionView {
+        let view = MinimalModeSidebarControlActionView()
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: MinimalModeSidebarControlActionView, context: Context) {
+        configure(nsView)
+    }
+
+    private func configure(_ view: MinimalModeSidebarControlActionView) {
+        view.config = config
+        view.isEnabled = isEnabled
+        view.requiresRevealedState = requiresRevealedState
+        view.onAction = onAction
+    }
+}
+
 enum TitlebarControlsHitRegions {
     static let outerLeadingPadding: CGFloat = 4
     static let buttonCount = 3
@@ -51,10 +75,10 @@ final class MinimalModeSidebarControlActionView: NSView {
     var telemetryPrefix = "minimalSidebarClickProxy"
     var onAction: ((MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void)?
     private var cancellables: Set<AnyCancellable> = []
-    private let buttons: [MinimalModeSidebarControlActionSlot: NSButton]
+    private let buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton]
 
     override init(frame frameRect: NSRect) {
-        var buttons: [MinimalModeSidebarControlActionSlot: NSButton] = [:]
+        var buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton] = [:]
         for slot in [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab] {
             buttons[slot] = Self.makeButton(for: slot)
         }
@@ -63,6 +87,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         for (slot, button) in buttons {
             button.target = self
             button.tag = slot.rawValue
+            button.actionOwner = self
             button.setAccessibilityParent(self)
             addSubview(button)
         }
@@ -71,7 +96,7 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
 
     required init?(coder: NSCoder) {
-        var buttons: [MinimalModeSidebarControlActionSlot: NSButton] = [:]
+        var buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton] = [:]
         for slot in [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab] {
             buttons[slot] = Self.makeButton(for: slot)
         }
@@ -81,6 +106,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             button.target = self
             button.action = #selector(buttonPressed(_:))
             button.tag = slot.rawValue
+            button.actionOwner = self
             button.setAccessibilityParent(self)
             addSubview(button)
         }
@@ -88,12 +114,14 @@ final class MinimalModeSidebarControlActionView: NSView {
         syncButtons()
     }
 
-    private static func makeButton(for slot: MinimalModeSidebarControlActionSlot) -> NSButton {
+    private static func makeButton(for slot: MinimalModeSidebarControlActionSlot) -> MinimalModeSidebarControlButton {
         let button = MinimalModeSidebarControlButton(slot: slot)
         button.isBordered = false
         button.isTransparent = true
         button.title = ""
         button.bezelStyle = .regularSquare
+        button.focusRingType = .none
+        button.refusesFirstResponder = true
         button.setButtonType(.momentaryChange)
         button.action = #selector(buttonPressed(_:))
         button.identifier = NSUserInterfaceItemIdentifier(slot.accessibilityIdentifier)
@@ -146,7 +174,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             super.mouseDown(with: event)
             return
         }
-        performAction(slot: slot, locationInWindow: event.locationInWindow)
+        performAction(slot: slot, anchorView: self, locationInWindow: event.locationInWindow)
     }
 
     override func layout() {
@@ -166,12 +194,20 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
 
     @objc private func buttonPressed(_ sender: NSButton) {
-        guard let slot = MinimalModeSidebarControlActionSlot(rawValue: sender.tag) else { return }
-        let localPoint = sender.frame.center
-        performAction(slot: slot, locationInWindow: convert(localPoint, to: nil))
+        guard let sender = sender as? MinimalModeSidebarControlButton else { return }
+        performButtonAction(sender)
     }
 
-    private func performAction(slot: MinimalModeSidebarControlActionSlot, locationInWindow: NSPoint) {
+    fileprivate func performButtonAction(_ sender: MinimalModeSidebarControlButton) {
+        let localPoint = sender.frame.center
+        performAction(slot: sender.slot, anchorView: sender, locationInWindow: convert(localPoint, to: nil))
+    }
+
+    private func performAction(
+        slot: MinimalModeSidebarControlActionSlot,
+        anchorView: NSView,
+        locationInWindow: NSPoint
+    ) {
         guard isEnabled else { return }
 
         #if DEBUG
@@ -188,7 +224,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         if let window {
             MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
         }
-        onAction?(slot, self, locationInWindow)
+        onAction?(slot, anchorView, locationInWindow)
     }
 
     private func observeRevealState() {
@@ -232,6 +268,7 @@ final class MinimalModeSidebarControlActionView: NSView {
 
 private final class MinimalModeSidebarControlButton: NSButton {
     let slot: MinimalModeSidebarControlActionSlot
+    weak var actionOwner: MinimalModeSidebarControlActionView?
 
     init(slot: MinimalModeSidebarControlActionSlot) {
         self.slot = slot
@@ -252,6 +289,17 @@ private final class MinimalModeSidebarControlButton: NSButton {
 
     override func accessibilityRole() -> NSAccessibility.Role? {
         .button
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        actionOwner?.performButtonAction(self)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        actionOwner?.performButtonAction(self)
+        return true
     }
 }
 

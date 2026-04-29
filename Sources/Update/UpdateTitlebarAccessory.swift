@@ -360,12 +360,13 @@ struct TitlebarControlButton<Content: View>: View {
             content()
                 .frame(width: config.buttonSize, height: config.buttonSize)
                 .contentShape(Rectangle())
-                .accessibilityIdentifier(accessibilityIdentifier)
-                .accessibilityLabel(accessibilityLabel)
         }
         .buttonStyle(.plain)
         .frame(width: config.buttonSize, height: config.buttonSize)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .accessibilityLabel(accessibilityLabel)
         .background(hoverBackground)
 
         if titlebarControlsShouldTrackButtonHover(config: config) {
@@ -841,6 +842,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             )
             .opacity(shouldPinControls ? 1 : 0)
             .allowsHitTesting(shouldPinControls)
+            .accessibilityHidden(true)
             .animation(.easeInOut(duration: 0.14), value: shouldPinControls)
 
             TitlebarControlsGapDragView(config: style.config)
@@ -848,6 +850,24 @@ struct HiddenTitlebarSidebarControlsView: View {
                     width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
                     height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
                 )
+
+            MinimalModeSidebarControlActionProxyView(
+                config: style.config,
+                requiresRevealedState: true
+            ) { slot, anchorView, _ in
+                switch slot {
+                case .toggleSidebar:
+                    onToggleSidebar()
+                case .showNotifications:
+                    onToggleNotifications(anchorView)
+                case .newTab:
+                    onNewTab()
+                }
+            }
+            .frame(
+                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+            )
 
             PassthroughHoverTrackingView(capturesPassiveHits: !shouldPinControls) { isHoveringHost = $0 }
             .frame(
