@@ -114,19 +114,9 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         self.panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
     }
 
-    fileprivate var snapshot: DockControlSnapshot {
-        DockControlSnapshot(
-            id: id,
-            title: definition.title,
-            command: definition.command,
-            requestedHeight: definition.height,
-            paneId: paneId,
-            panelId: panel.id,
-            terminalSurface: panel.surface,
-            searchState: panel.searchState,
-            reattachToken: panel.viewReattachToken
-        )
-    }
+    fileprivate var snapshot: DockControlSnapshot { .init(id: id, title: definition.title, command: definition.command, requestedHeight: definition.height) }
+
+    fileprivate var terminalAttachment: DockTerminalAttachment { .init(paneId: paneId, panelId: panel.id, terminalSurface: panel.surface, searchState: panel.searchState, reattachToken: panel.viewReattachToken) }
 
     func focus() {
         panel.hostedView.ensureFocus(
@@ -241,12 +231,9 @@ fileprivate struct DockControlSnapshot: Identifiable {
     let title: String
     let command: String
     let requestedHeight: Double?
-    let paneId: PaneID
-    let panelId: UUID
-    let terminalSurface: TerminalSurface
-    let searchState: TerminalSurface.SearchState?
-    let reattachToken: UInt64
 }
+
+fileprivate struct DockTerminalAttachment { let paneId: PaneID; let panelId: UUID; let terminalSurface: TerminalSurface; let searchState: TerminalSurface.SearchState?; let reattachToken: UInt64 }
 
 @MainActor
 final class DockControlsStore: ObservableObject {
@@ -265,6 +252,8 @@ final class DockControlsStore: ObservableObject {
     fileprivate var controlSnapshots: [DockControlSnapshot] {
         controls.map(\.snapshot)
     }
+
+    fileprivate func terminalAttachment(for controlID: String) -> DockTerminalAttachment? { controls.first { $0.id == controlID }?.terminalAttachment }
 
     func activate(rootDirectory: String?, workspaceId: UUID?) {
         controlsVisibleInUI = true
@@ -695,6 +684,7 @@ struct DockPanelView: View {
         } else {
             DockControlsLayoutView(
                 snapshots: store.controlSnapshots,
+                terminalAttachment: { id in store.terminalAttachment(for: id) },
                 onFocus: { id in store.focusControl(id: id) },
                 onRestart: { id in store.restartControl(id: id) },
                 onKeyboardFocusIntent: { id, window in store.noteKeyboardFocusIntent(id: id, window: window) },
@@ -706,6 +696,7 @@ struct DockPanelView: View {
 
 private struct DockControlsLayoutView: View {
     let snapshots: [DockControlSnapshot]
+    let terminalAttachment: (String) -> DockTerminalAttachment?
     let onFocus: (String) -> Void
     let onRestart: (String) -> Void
     let onKeyboardFocusIntent: (String, NSWindow?) -> Void
@@ -727,8 +718,17 @@ private struct DockControlsLayoutView: View {
                             terminalHeight: heights[index],
                             onFocus: { onFocus(snapshot.id) },
                             onRestart: { onRestart(snapshot.id) },
-                            onKeyboardFocusIntent: { window in onKeyboardFocusIntent(snapshot.id, window) },
-                            onTriggerFlash: { onTriggerFlash(snapshot.id) }
+                            terminalContent: {
+                                if let attachment = terminalAttachment(snapshot.id) {
+                                    DockTerminalView(
+                                        attachment: attachment,
+                                        onKeyboardFocusIntent: { window in onKeyboardFocusIntent(snapshot.id, window) },
+                                        onTriggerFlash: { onTriggerFlash(snapshot.id) }
+                                    )
+                                } else {
+                                    Color.clear
+                                }
+                            }
                         )
                         if index < snapshots.count - 1 {
                             Divider()
@@ -779,23 +779,18 @@ private struct DockControlsLayoutView: View {
     }
 }
 
-private struct DockControlSectionView: View {
+private struct DockControlSectionView<TerminalContent: View>: View {
     let snapshot: DockControlSnapshot
     let ordinal: Int
     let terminalHeight: CGFloat
     let onFocus: () -> Void
     let onRestart: () -> Void
-    let onKeyboardFocusIntent: (NSWindow?) -> Void
-    let onTriggerFlash: () -> Void
+    @ViewBuilder let terminalContent: () -> TerminalContent
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            DockTerminalView(
-                snapshot: snapshot,
-                onKeyboardFocusIntent: onKeyboardFocusIntent,
-                onTriggerFlash: onTriggerFlash
-            )
+            terminalContent()
                 .frame(height: terminalHeight)
                 .clipped()
         }
@@ -846,27 +841,27 @@ private struct DockControlSectionView: View {
 }
 
 private struct DockTerminalView: View {
-    let snapshot: DockControlSnapshot
+    let attachment: DockTerminalAttachment
     let onKeyboardFocusIntent: (NSWindow?) -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
         GhosttyTerminalView(
-            terminalSurface: snapshot.terminalSurface,
-            paneId: snapshot.paneId,
+            terminalSurface: attachment.terminalSurface,
+            paneId: attachment.paneId,
             isActive: true,
             isVisibleInUI: true,
             portalZPriority: 1,
-            searchState: snapshot.searchState,
-            reattachToken: snapshot.reattachToken,
+            searchState: attachment.searchState,
+            reattachToken: attachment.reattachToken,
             onFocus: { _ in
-                onKeyboardFocusIntent(snapshot.terminalSurface.hostedView.window)
+                onKeyboardFocusIntent(attachment.terminalSurface.hostedView.window)
             },
             onTriggerFlash: {
                 onTriggerFlash()
             }
         )
-        .id(snapshot.panelId)
+        .id(attachment.panelId)
         .background(Color.clear)
     }
 }

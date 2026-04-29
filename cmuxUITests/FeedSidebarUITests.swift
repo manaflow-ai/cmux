@@ -220,8 +220,13 @@ final class FeedSidebarUITests: XCTestCase {
     private func waitForDockPortalToLeaveVisibleSidebar(timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             let diagnostics = self.loadDiagnostics()
-            return (Int(diagnostics["portal_visible_invalid_anchor_entry_count"] ?? "") ?? 0) == 0 &&
-                (Int(diagnostics["portal_visible_orphan_terminal_subview_count"] ?? "") ?? 0) == 0
+            guard let invalidAnchorEntryText = diagnostics["portal_visible_invalid_anchor_entry_count"],
+                  let orphanSubviewText = diagnostics["portal_visible_orphan_terminal_subview_count"],
+                  let invalidAnchorEntryCount = Int(invalidAnchorEntryText),
+                  let orphanSubviewCount = Int(orphanSubviewText) else {
+                return false
+            }
+            return invalidAnchorEntryCount == 0 && orphanSubviewCount == 0
         }
     }
 
