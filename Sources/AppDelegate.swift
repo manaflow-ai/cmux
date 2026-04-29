@@ -13544,6 +13544,14 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
+        if let mode = RightSidebarMode.modeShortcut(for: event) {
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: true,
+                preferredWindow: self
+            )
+            return true
+        }
         if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can
