@@ -314,6 +314,7 @@ private struct ClaudeHookParsedInput {
     let object: [String: Any]?
     let rawFallback: String?
     let sessionId: String?
+    let turnId: String?
     let cwd: String?
     let transcriptPath: String?
 }
@@ -2080,7 +2081,9 @@ struct CMUXCLI {
         // Codex hook handler: gracefully no-op when not inside cmux
         // (before socket connection, so it doesn't fail when no socket exists)
         if command == "codex-hook" {
-            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
+            let env = ProcessInfo.processInfo.environment
+            let hasExplicitTarget = commandArgs.contains("--workspace") || commandArgs.contains("--surface")
+            guard env["CMUX_SURFACE_ID"] != nil || env["CMUX_WORKSPACE_ID"] != nil || hasExplicitTarget else {
                 print("{}")
                 return
             }
@@ -14053,10 +14056,11 @@ struct CMUXCLI {
                 normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
                 maxLength: 180
             )
-            return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, cwd: nil, transcriptPath: nil)
+            return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, turnId: nil, cwd: nil, transcriptPath: nil)
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
+        let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = firstString(in: object, keys: ["transcript_path", "transcriptPath"])
         let compactObject = compactClaudeHookObject(object)
@@ -14064,6 +14068,7 @@ struct CMUXCLI {
             object: compactObject,
             rawFallback: nil,
             sessionId: sessionId,
+            turnId: turnId,
             cwd: cwd,
             transcriptPath: transcriptPath
         )
@@ -14074,6 +14079,8 @@ struct CMUXCLI {
 
         for key in [
             "tool_name",
+            "turn_id",
+            "turnId",
             "last_assistant_message",
             "lastAssistantMessage",
             "event",
@@ -14089,12 +14096,13 @@ struct CMUXCLI {
             "text",
             "prompt",
             "error",
+            "codex_error_info",
+            "codexErrorInfo",
+            "additional_details",
+            "additionalDetails",
             "description",
         ] {
-            if let value = compactClaudeHookStringValue(
-                object[key],
-                maxLength: claudeHookCompactFieldLimit(for: key)
-            ) {
+            if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
             }
         }
@@ -14150,11 +14158,22 @@ struct CMUXCLI {
         for key in ["notification", "data"] {
             guard let nested = object[key] as? [String: Any] else { continue }
             var compactNested: [String: Any] = [:]
-            for nestedKey in ["type", "kind", "reason", "message", "body", "text", "prompt", "error", "description"] {
-                if let value = compactClaudeHookStringValue(
-                    nested[nestedKey],
-                    maxLength: claudeHookCompactFieldLimit(for: nestedKey)
-                ) {
+            for nestedKey in [
+                "type",
+                "kind",
+                "reason",
+                "message",
+                "body",
+                "text",
+                "prompt",
+                "error",
+                "codex_error_info",
+                "codexErrorInfo",
+                "additional_details",
+                "additionalDetails",
+                "description",
+            ] {
+                if let value = compactClaudeHookValue(nested[nestedKey], key: nestedKey) {
                     compactNested[nestedKey] = value
                 }
             }
@@ -14168,13 +14187,36 @@ struct CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason":
+        case "tool_name", "turn_id", "turnId", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason":
             return 80
-        case "last_assistant_message", "lastAssistantMessage", "message", "body", "text", "prompt", "error", "description":
+        case "last_assistant_message", "lastAssistantMessage", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
             return 240
         default:
             return 160
         }
+    }
+
+    private func compactClaudeHookValue(_ rawValue: Any?, key: String) -> String? {
+        switch key {
+        case "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails":
+            return compactClaudeHookCodexFailureValue(rawValue, key: key)
+        default:
+            return compactClaudeHookStringValue(rawValue, maxLength: claudeHookCompactFieldLimit(for: key))
+        }
+    }
+
+    private func compactClaudeHookCodexFailureValue(_ rawValue: Any?, key: String) -> String? {
+        let maxLength = claudeHookCompactFieldLimit(for: key)
+        if let string = compactClaudeHookStringValue(rawValue, maxLength: maxLength) {
+            return string
+        }
+        guard let rawValue,
+              JSONSerialization.isValidJSONObject(rawValue),
+              let data = try? JSONSerialization.data(withJSONObject: rawValue, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return compactClaudeHookStringValue(string, maxLength: maxLength)
     }
 
     private func compactClaudeHookToolInputValue(_ rawValue: Any?, key: String) -> String? {
@@ -14331,6 +14373,586 @@ struct CMUXCLI {
 
         guard lastAssistantMessage != nil else { return nil }
         return TranscriptSummary(lastAssistantMessage: lastAssistantMessage)
+    }
+
+    private struct CodexHookFailureSummary {
+        let statusValue: String
+        let subtitle: String
+        let body: String
+    }
+
+    private struct CodexHookFailureCandidate {
+        let message: String
+        let codexErrorInfo: String?
+        let additionalDetails: String?
+        let isStreamError: Bool
+    }
+
+    private enum CodexTranscriptFailureReadResult {
+        case unavailable
+        case pending
+        case healthy
+        case failure(CodexHookFailureCandidate)
+    }
+
+    private func summarizeCodexHookFailure(
+        parsedInput: ClaudeHookParsedInput,
+        sessionId: String,
+        env: [String: String]
+    ) -> CodexHookFailureSummary? {
+        if let candidate = codexHookFailureCandidate(from: parsedInput.object) {
+            return summarizeCodexHookFailureCandidate(candidate)
+        }
+
+        let payloadHasAssistantMessage = codexHookStopPayloadHasAssistantMessage(parsedInput.object)
+        let providedTranscriptPath = normalizedHookValue(parsedInput.transcriptPath)
+        var checkedTranscriptPaths: Set<String> = []
+        let readTranscriptFailure: (String) -> CodexTranscriptFailureReadResult = { path in
+            checkedTranscriptPaths.insert(path)
+            return readCodexTranscriptFailure(
+                path: path,
+                turnId: parsedInput.turnId,
+                requireTerminalCompletion: false
+            )
+        }
+
+        if let transcriptPath = providedTranscriptPath
+            ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+            switch readTranscriptFailure(transcriptPath) {
+            case .failure(let failure):
+                return summarizeCodexHookFailureCandidate(failure)
+            case .healthy:
+                return nil
+            case .pending, .unavailable:
+                break
+            }
+        }
+
+        if providedTranscriptPath != nil,
+           let resolvedTranscriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env),
+           !checkedTranscriptPaths.contains(resolvedTranscriptPath) {
+            switch readTranscriptFailure(resolvedTranscriptPath) {
+            case .failure(let failure):
+                return summarizeCodexHookFailureCandidate(failure)
+            case .healthy:
+                return nil
+            case .pending, .unavailable:
+                break
+            }
+        }
+
+        if payloadHasAssistantMessage {
+            return nil
+        }
+        if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
+            return summarizeCodexHookFailureCandidate(
+                CodexHookFailureCandidate(
+                    message: fallback,
+                    codexErrorInfo: nil,
+                    additionalDetails: nil,
+                    isStreamError: false
+                )
+            )
+        }
+        return nil
+    }
+
+    private func readCodexTranscriptFailure(
+        path: String,
+        turnId: String? = nil,
+        requireTerminalCompletion: Bool = false
+    ) -> CodexTranscriptFailureReadResult {
+        guard let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
+            return .unavailable
+        }
+
+        var candidate: CodexHookFailureCandidate?
+        var candidateCanPublishBeforeTerminal = false
+        var sawAssistantMessage = false
+        var sawTerminalTurn = false
+        var sawRelevantTurn = turnId == nil
+        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+                continue
+            }
+
+            if (turnId == nil || sawRelevantTurn) && codexTranscriptLineHasAssistantMessage(object) {
+                sawAssistantMessage = true
+                candidate = nil
+                candidateCanPublishBeforeTerminal = false
+            }
+
+            guard (object["type"] as? String) == "event_msg",
+                  let payload = object["payload"] as? [String: Any],
+                  let eventType = payload["type"] as? String else {
+                continue
+            }
+
+            switch eventType {
+            case "task_started":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    guard payloadTurnId == turnId else {
+                        continue
+                    }
+                }
+                sawRelevantTurn = true
+                candidate = nil
+                candidateCanPublishBeforeTerminal = false
+            case "error":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId, let payloadTurnId {
+                    guard payloadTurnId == turnId else {
+                        continue
+                    }
+                    sawRelevantTurn = true
+                }
+                if let failure = codexHookFailureCandidate(
+                    from: payload,
+                    isStreamError: false,
+                    requireFailureSignal: false
+                ) {
+                    candidate = failure
+                    candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
+                }
+            case "stream_error":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId, let payloadTurnId {
+                    guard payloadTurnId == turnId else {
+                        continue
+                    }
+                    sawRelevantTurn = true
+                }
+                if let failure = codexHookFailureCandidate(
+                    from: payload,
+                    isStreamError: true,
+                    requireFailureSignal: false
+                ) {
+                    candidate = failure
+                    candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
+                }
+            case "task_complete", "turn_complete":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    guard payloadTurnId == turnId else {
+                        continue
+                    }
+                }
+                sawRelevantTurn = true
+                sawTerminalTurn = true
+                if let lastMessage = payload["last_agent_message"] as? String,
+                   !lastMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    sawAssistantMessage = true
+                    candidate = nil
+                    candidateCanPublishBeforeTerminal = false
+                } else if candidate == nil && !sawAssistantMessage {
+                    candidate = CodexHookFailureCandidate(
+                        message: String(
+                            localized: "agent.codex.error.noFinalResponse",
+                            defaultValue: "Codex ended before sending a final response"
+                        ),
+                        codexErrorInfo: nil,
+                        additionalDetails: nil,
+                        isStreamError: false
+                    )
+                    candidateCanPublishBeforeTerminal = false
+                }
+            default:
+                break
+            }
+        }
+
+        if let candidate, candidateCanPublishBeforeTerminal {
+            return .failure(candidate)
+        }
+        if candidate != nil, turnId != nil, !sawRelevantTurn {
+            return .pending
+        }
+        if requireTerminalCompletion, !sawTerminalTurn {
+            return .pending
+        }
+        if let candidate {
+            return .failure(candidate)
+        }
+        if !sawTerminalTurn, !sawAssistantMessage {
+            return .pending
+        }
+        return .healthy
+    }
+
+    private func codexHookStopPayloadHasAssistantMessage(_ object: [String: Any]?) -> Bool {
+        guard let object,
+              let message = firstString(in: object, keys: ["last_assistant_message", "lastAssistantMessage"]) else {
+            return false
+        }
+        return !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func codexTranscriptLineHasAssistantMessage(_ object: [String: Any]) -> Bool {
+        guard (object["type"] as? String) == "response_item",
+              let payload = object["payload"] as? [String: Any],
+              (payload["type"] as? String) == "message",
+              (payload["role"] as? String) == "assistant",
+              let content = payload["content"] as? [[String: Any]] else {
+            return false
+        }
+        return content.contains { block in
+            guard let text = block["text"] as? String else { return false }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private func codexHookFailureCandidate(
+        from object: [String: Any]?,
+        isStreamError: Bool = false,
+        requireFailureSignal: Bool = true
+    ) -> CodexHookFailureCandidate? {
+        guard let object else { return nil }
+        let message = firstString(in: object, keys: ["message", "error", "body", "text", "description"])
+        let additionalDetails = codexHookStringValue(object["additional_details"] ?? object["additionalDetails"])
+        let codexErrorInfo = codexHookStringValue(object["codex_error_info"] ?? object["codexErrorInfo"])
+        let eventType = firstString(in: object, keys: ["type", "kind"])?.lowercased()
+        let typedFailure = eventType == "error" || eventType == "stream_error"
+        let hasExplicitErrorField = object["error"].map { !($0 is NSNull) } ?? false
+        let signal = [message, additionalDetails, codexErrorInfo]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .lowercased()
+        guard !requireFailureSignal ||
+              typedFailure ||
+              hasExplicitErrorField ||
+              codexErrorInfo != nil ||
+              signal.contains("error") ||
+              signal.contains("failed") ||
+              signal.contains("exception") ||
+              signal.contains("usage limit") ||
+              signal.contains("rate limit") ||
+              signal.contains("stream disconnected") ||
+              signal.contains("connection") ||
+              signal.contains("unauthorized") else {
+            return nil
+        }
+        return CodexHookFailureCandidate(
+            message: message ?? additionalDetails ?? codexErrorInfo ?? String(
+                localized: "agent.codex.error.defaultMessage",
+                defaultValue: "Codex reported an error"
+            ),
+            codexErrorInfo: codexErrorInfo,
+            additionalDetails: additionalDetails,
+            isStreamError: isStreamError || eventType == "stream_error"
+        )
+    }
+
+    private func summarizeCodexHookFailureCandidate(_ candidate: CodexHookFailureCandidate) -> CodexHookFailureSummary {
+        let signal = [
+            candidate.message,
+            candidate.codexErrorInfo,
+            candidate.additionalDetails,
+            candidate.isStreamError ? "stream_error" : nil
+        ]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .lowercased()
+
+        let subtitle: String
+        let statusValue: String
+        if signal.contains("usage_limit") ||
+            signal.contains("usage limit") ||
+            signal.contains("rate_limit") ||
+            signal.contains("rate limit") ||
+            signal.contains("credits") {
+            subtitle = String(localized: "agent.codex.error.subtitle.rateLimit", defaultValue: "Rate limit")
+            statusValue = String(localized: "agent.codex.error.status.rateLimit", defaultValue: "Codex rate limit")
+        } else if signal.contains("unauthorized") ||
+                    signal.contains("auth") ||
+                    signal.contains("access token") ||
+                    signal.contains("sign in") ||
+                    signal.contains("login") {
+            subtitle = String(localized: "agent.codex.error.subtitle.auth", defaultValue: "Auth error")
+            statusValue = String(localized: "agent.codex.error.status.auth", defaultValue: "Codex auth error")
+        } else if signal.contains("response_stream") ||
+                    signal.contains("stream disconnected") ||
+                    signal.contains("connection") ||
+                    signal.contains("network") ||
+                    signal.contains("offline") ||
+                    signal.contains("timed out") ||
+                    signal.contains("timeout") {
+            subtitle = String(localized: "agent.codex.error.subtitle.network", defaultValue: "Network error")
+            statusValue = String(localized: "agent.codex.error.status.network", defaultValue: "Codex network error")
+        } else {
+            subtitle = String(localized: "agent.codex.error.subtitle.generic", defaultValue: "Error")
+            statusValue = String(localized: "agent.codex.error.status.generic", defaultValue: "Codex error")
+        }
+
+        let detail = candidate.additionalDetails ?? candidate.message
+        return CodexHookFailureSummary(
+            statusValue: statusValue,
+            subtitle: subtitle,
+            body: truncate(normalizedSingleLine(detail), maxLength: 220)
+        )
+    }
+
+    private func codexHookStringValue(_ rawValue: Any?) -> String? {
+        if let string = rawValue as? String {
+            let trimmed = normalizedSingleLine(string)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard let rawValue,
+              JSONSerialization.isValidJSONObject(rawValue),
+              let data = try? JSONSerialization.data(withJSONObject: rawValue, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = normalizedSingleLine(string)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func readTextFileTail(path: String, maxBytes: UInt64) -> String? {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        let endOffset = (try? handle.seekToEnd()) ?? 0
+        let startOffset = endOffset > maxBytes ? endOffset - maxBytes : 0
+        do {
+            try handle.seek(toOffset: startOffset)
+        } catch {
+            return nil
+        }
+        var data = handle.readDataToEndOfFile()
+        if startOffset > 0, let newline = data.firstIndex(of: 0x0A) {
+            data.removeSubrange(0...newline)
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func findCodexTranscriptPath(sessionId: String, env: [String: String]) -> String? {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty else { return nil }
+
+        let codexHome = normalizedHookValue(env["CODEX_HOME"]) ?? "~/.codex"
+        let sessionsURL = URL(fileURLWithPath: NSString(string: codexHome).expandingTildeInPath, isDirectory: true)
+            .appendingPathComponent("sessions", isDirectory: true)
+        let fileManager = FileManager.default
+        var newest: URL?
+        var newestModificationDate: Date?
+        for directoryURL in recentCodexSessionDirectories(sessionsURL: sessionsURL, fileManager: fileManager) {
+            guard let urls = try? fileManager.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+
+            for url in urls {
+                guard url.pathExtension == "jsonl",
+                      url.lastPathComponent.contains(normalizedSessionId) else {
+                    continue
+                }
+                let modificationDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                if newest == nil || modificationDate > (newestModificationDate ?? .distantPast) {
+                    newest = url
+                    newestModificationDate = modificationDate
+                }
+            }
+        }
+        return newest?.path
+    }
+
+    private func recentCodexSessionDirectories(sessionsURL: URL, fileManager: FileManager) -> [URL] {
+        var directories: [URL] = []
+        var seenPaths = Set<String>()
+
+        func appendIfDirectory(_ url: URL) {
+            guard seenPaths.insert(url.path).inserted else { return }
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return
+            }
+            directories.append(url)
+        }
+
+        appendIfDirectory(sessionsURL)
+
+        var utcCalendar = Calendar(identifier: .gregorian)
+        utcCalendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        for calendar in [Calendar.current, utcCalendar] {
+            for dayOffset in -14...1 {
+                guard let date = calendar.date(byAdding: .day, value: dayOffset, to: Date()) else {
+                    continue
+                }
+                let components = calendar.dateComponents([.year, .month, .day], from: date)
+                guard let year = components.year,
+                      let month = components.month,
+                      let day = components.day else {
+                    continue
+                }
+                appendIfDirectory(
+                    sessionsURL
+                        .appendingPathComponent(String(format: "%04d", year), isDirectory: true)
+                        .appendingPathComponent(String(format: "%02d", month), isDirectory: true)
+                        .appendingPathComponent(String(format: "%02d", day), isDirectory: true)
+                )
+            }
+        }
+
+        return directories
+    }
+
+    private func startCodexTranscriptMonitor(
+        sessionId: String,
+        turnId: String?,
+        transcriptPath: String?,
+        cwd: String?,
+        workspaceId: String,
+        surfaceId: String?,
+        env: [String: String]
+    ) {
+        guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        let executablePath = resolvedExecutableURL()?.path ?? args.first ?? "cmux"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        var monitorArgs = [
+            "codex-hook",
+            "monitor",
+            "--workspace",
+            workspaceId,
+            "--session",
+            sessionId,
+        ]
+        if let surfaceId, !surfaceId.isEmpty {
+            monitorArgs += ["--surface", surfaceId]
+        }
+        if let turnId, !turnId.isEmpty {
+            monitorArgs += ["--turn", turnId]
+        }
+        if let transcriptPath, !transcriptPath.isEmpty {
+            monitorArgs += ["--transcript", transcriptPath]
+        }
+        if let cwd, !cwd.isEmpty {
+            monitorArgs += ["--cwd", cwd]
+        }
+        process.arguments = monitorArgs
+        process.environment = env.merging(["CMUX_CLI_SENTRY_DISABLED": "1"], uniquingKeysWith: { _, new in new })
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+    }
+
+    private func runCodexTranscriptMonitor(commandArgs: [String], client: SocketClient) throws {
+        let env = ProcessInfo.processInfo.environment
+        let workspaceId = optionValue(commandArgs, name: "--workspace") ?? env["CMUX_WORKSPACE_ID"] ?? ""
+        let surfaceId = optionValue(commandArgs, name: "--surface") ?? env["CMUX_SURFACE_ID"]
+        let sessionId = optionValue(commandArgs, name: "--session")
+            ?? env["CMUX_CODEX_SESSION_ID"]
+            ?? env["CODEX_SESSION_ID"]
+            ?? env["CMUX_AGENT_SESSION_ID"]
+            ?? ""
+        let turnId = optionValue(commandArgs, name: "--turn")
+        var transcriptPath = optionValue(commandArgs, name: "--transcript")
+
+        guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(4 * 60 * 60)
+        while Date() < deadline {
+            if transcriptPath == nil {
+                transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
+            }
+
+            if let currentTranscriptPath = transcriptPath {
+                switch readCodexTranscriptFailure(
+                    path: currentTranscriptPath,
+                    turnId: turnId,
+                    requireTerminalCompletion: true
+                ) {
+                case .failure(let failure):
+                    publishCodexMonitorFailure(
+                        failure,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        client: client
+                    )
+                    return
+                case .healthy:
+                    return
+                case .pending:
+                    break
+                case .unavailable:
+                    let unavailableTranscriptPath = currentTranscriptPath
+                    transcriptPath = nil
+                    if let resolvedTranscriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                        transcriptPath = resolvedTranscriptPath
+                        if resolvedTranscriptPath != unavailableTranscriptPath {
+                            continue
+                        }
+                    }
+                }
+            }
+
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return }
+            waitForCodexTranscriptChange(path: transcriptPath, timeout: min(30, remaining))
+        }
+    }
+
+    private func publishCodexMonitorFailure(
+        _ failure: CodexHookFailureCandidate,
+        workspaceId: String,
+        surfaceId: String?,
+        client: SocketClient
+    ) {
+        let summary = summarizeCodexHookFailureCandidate(failure)
+        if let surfaceId, !surfaceId.isEmpty {
+            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
+            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+        }
+        _ = try? sendV1Command("set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)", client: client)
+    }
+
+    private func waitForCodexTranscriptChange(path: String?, timeout: TimeInterval) {
+        guard timeout > 0 else { return }
+        guard let path, !path.isEmpty else {
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            return
+        }
+
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        let fd = open(expandedPath, O_EVTONLY)
+        guard fd >= 0 else {
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            return
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .delete, .rename],
+            queue: DispatchQueue.global(qos: .utility)
+        )
+        source.setEventHandler {
+            semaphore.signal()
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+        _ = semaphore.wait(timeout: .now() + timeout)
+        source.cancel()
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -16024,6 +16646,11 @@ export default CMUXSessionRestore;
         let hookArgs = Array(commandArgs.dropFirst())
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
+        if def.name == "codex", subcommand == "monitor" {
+            try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client)
+            return
+        }
+
         // Workspace/surface resolution: prefer --workspace/--surface flags, then session store, then env
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
@@ -16102,6 +16729,17 @@ export default CMUXSessionRestore;
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             _ = try sendV1Command("set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)", client: client)
+            if def.name == "codex", !sessionId.isEmpty {
+                startCodexTranscriptMonitor(
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    transcriptPath: normalizedHookValue(input.transcriptPath),
+                    cwd: input.cwd ?? mapped?.cwd,
+                    workspaceId: workspaceId,
+                    surfaceId: mapped?.surfaceId ?? surfaceArg,
+                    env: env
+                )
+            }
 
         case .stop:
             do {
@@ -16109,6 +16747,12 @@ export default CMUXSessionRestore;
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: mapped?.surfaceId, fallback: surfaceArg, workspaceId: workspaceId, client: client)
                 let pid = mapped?.pid ?? inferredCodexAgentPID()
+                let codexFailure: CodexHookFailureSummary?
+                if def.name == "codex" {
+                    codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
+                } else {
+                    codexFailure = nil
+                }
 
                 let lastMsg = input.object?["last_assistant_message"] as? String
                     ?? input.object?["lastAssistantMessage"] as? String
@@ -16117,6 +16761,28 @@ export default CMUXSessionRestore;
                     guard let cwd, !cwd.isEmpty else { return nil }
                     return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
                 }()
+                var subtitle = codexFailure?.subtitle ?? String(
+                    localized: "agent.codex.completion.subtitle.completed",
+                    defaultValue: "Completed"
+                )
+                if codexFailure == nil, let projectName, !projectName.isEmpty {
+                    subtitle = String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.codex.completion.subtitle.completedInProject",
+                            defaultValue: "Completed in %@"
+                        ),
+                        projectName
+                    )
+                }
+                let body = codexFailure?.body
+                    ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                    ?? String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.codex.completion.body.sessionCompleted",
+                            defaultValue: "%@ session completed"
+                        ),
+                        def.displayName
+                    )
 
                 if !sessionId.isEmpty {
                     let launchCommand = agentLaunchCommandFromEnvironment(
@@ -16127,21 +16793,21 @@ export default CMUXSessionRestore;
                     )
                     try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
                                       launchCommand: launchCommand,
-                                      lastSubtitle: "Completed", lastBody: lastMsg.map { truncate($0, maxLength: 200) })
+                                      lastSubtitle: subtitle,
+                                      lastBody: body)
                 }
                 if let pid {
                     _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)", client: client)
                 }
 
-                var subtitle = "Completed"
-                if let projectName, !projectName.isEmpty { subtitle = "Completed in \(projectName)" }
-                let body = sanitizeNotificationField(
-                    lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
-                        ?? "\(def.displayName) session completed"
-                )
-                let payload = "\(def.displayName)|\(sanitizeNotificationField(subtitle))|\(body)"
+                let payload = "\(def.displayName)|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
                 _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-                _ = try? sendV1Command("set_status \(def.statusKey) Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)", client: client)
+                if let codexFailure {
+                    _ = try? sendV1Command("set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)", client: client)
+                } else {
+                    let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
+                    _ = try? sendV1Command("set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)", client: client)
+                }
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
                     telemetry.breadcrumb("\(def.name)-hook.stop.ignored", data: ["error": String(describing: error)])
