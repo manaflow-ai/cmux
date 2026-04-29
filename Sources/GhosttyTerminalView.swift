@@ -3801,6 +3801,28 @@ class GhosttyApp {
                     "host=\(host) url=\(url) tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
                 )
                 #endif
+                let canAttemptEmbeddedOpen = performOnMain {
+                    BrowserAvailabilitySettings.isEnabled() &&
+                    AppDelegate.shared?.workspaceContainingPanel(
+                        panelId: sourcePanelId,
+                        preferredWorkspaceId: sourceWorkspaceId
+                    ) != nil
+                }
+                guard canAttemptEmbeddedOpen else {
+                    #if DEBUG
+                    cmuxDebugLog(
+                        "link.openURL embedded preflight failed, opening externally " +
+                        "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId) url=\(url)"
+                    )
+                    #endif
+                    return performOnMain {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+
+                // Browser split creation changes focus, which unfocuses the source terminal and
+                // calls back into Ghostty. Defer that work until this open_url callback returns.
+                // From here cmux owns the open attempt and the deferred path falls back externally.
                 Task { @MainActor [url, sourceWorkspaceId, sourcePanelId, host] in
                     _ = Self.openEmbeddedBrowserLink(
                         url: url,
