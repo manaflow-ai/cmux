@@ -10546,8 +10546,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
-           let mode = RightSidebarMode.modeShortcut(for: event),
-           rightSidebarWindow.firstResponder.map({ isRightSidebarFocusResponder($0, in: rightSidebarWindow) }) == true {
+           let mode = RightSidebarMode.modeShortcut(for: event) {
             _ = focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,
