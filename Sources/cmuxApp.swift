@@ -2530,18 +2530,113 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
 enum SettingsNavigationRequest {
     static let notificationName = Notification.Name("cmux.settings.navigate")
     private static let targetKey = "target"
+    private static let anchorKey = "anchor"
 
-    static func post(_ target: SettingsNavigationTarget) {
+    static func post(_ target: SettingsNavigationTarget, anchorID: String? = nil) {
         NotificationCenter.default.post(
             name: notificationName,
             object: nil,
-            userInfo: [targetKey: target.rawValue]
+            userInfo: [
+                targetKey: target.rawValue,
+                anchorKey: anchorID ?? SettingsSearchIndex.sectionID(for: target)
+            ]
         )
     }
 
     static func target(from notification: Notification) -> SettingsNavigationTarget? {
-        guard let rawValue = notification.userInfo?[targetKey] as? String else { return nil }
-        return SettingsNavigationTarget(rawValue: rawValue)
+        destination(from: notification)?.target
+    }
+
+    static func destination(from notification: Notification) -> SettingsNavigationDestination? {
+        guard
+            let rawValue = notification.userInfo?[targetKey] as? String,
+            let target = SettingsNavigationTarget(rawValue: rawValue)
+        else {
+            return nil
+        }
+        let anchorID = notification.userInfo?[anchorKey] as? String
+        return SettingsNavigationDestination(
+            target: target,
+            anchorID: anchorID ?? SettingsSearchIndex.sectionID(for: target)
+        )
+    }
+}
+
+struct SettingsNavigationDestination {
+    let target: SettingsNavigationTarget
+    let anchorID: String
+}
+
+private struct SettingsSearchHighlightState: Equatable {
+    let anchorID: String?
+    let token: Int
+}
+
+private struct SettingsSearchHighlightStateKey: EnvironmentKey {
+    static let defaultValue = SettingsSearchHighlightState(anchorID: nil, token: 0)
+}
+
+private extension EnvironmentValues {
+    var settingsSearchHighlightState: SettingsSearchHighlightState {
+        get { self[SettingsSearchHighlightStateKey.self] }
+        set { self[SettingsSearchHighlightStateKey.self] = newValue }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func settingsSearchAnchor(_ anchorID: String?) -> some View {
+        if let anchorID {
+            settingsSearchAnchors([anchorID])
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func settingsSearchAnchors(_ anchorIDs: [String]) -> some View {
+        let filteredAnchorIDs = anchorIDs.filter { !$0.isEmpty }
+        if let primaryAnchorID = filteredAnchorIDs.first {
+            self
+                .id(primaryAnchorID)
+                .modifier(SettingsSearchHighlightModifier(anchorIDs: filteredAnchorIDs))
+        } else {
+            self
+        }
+    }
+}
+
+private struct SettingsSearchHighlightModifier: ViewModifier {
+    @Environment(\.settingsSearchHighlightState) private var highlightState
+    let anchorIDs: [String]
+
+    private var isHighlighted: Bool {
+        guard let anchorID = highlightState.anchorID else { return false }
+        return anchorIDs.contains(anchorID)
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isHighlighted {
+            content
+                .phaseAnimator([0.0, 1.0, 0.0], trigger: highlightState.token) { view, phase in
+                    view
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.accentColor.opacity(phase * 0.16))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.accentColor.opacity(phase * 0.9), lineWidth: 2)
+                        )
+                } animation: { phase in
+                    phase > 0
+                        ? .easeOut(duration: 0.16)
+                        : .easeInOut(duration: 0.7)
+                }
+        } else {
+            content
+        }
     }
 }
 
@@ -2674,6 +2769,70 @@ private enum SettingsSearchIndex {
         uniqueKeysWithValues: allEntries.map { ($0.id, $0) }
     )
 
+    private static let settingsPathAnchorIDs: [String: String] = [
+        "app.language": settingID(for: .app, idSuffix: "language"),
+        "app.appearance": settingID(for: .app, idSuffix: "appearance"),
+        "app.appIcon": settingID(for: .app, idSuffix: "app-icon"),
+        "app.newWorkspacePlacement": settingID(for: .app, idSuffix: "new-workspace-placement"),
+        "app.minimalMode": settingID(for: .app, idSuffix: "minimal-mode"),
+        "app.keepWorkspaceOpenWhenClosingLastSurface": settingID(for: .app, idSuffix: "keep-workspace-open"),
+        "app.focusPaneOnFirstClick": settingID(for: .app, idSuffix: "focus-pane-first-click"),
+        "app.preferredEditor": settingID(for: .app, idSuffix: "preferred-editor"),
+        "app.openMarkdownInCmuxViewer": settingID(for: .app, idSuffix: "markdown-viewer"),
+        "app.reorderOnNotification": settingID(for: .app, idSuffix: "reorder-notification"),
+        "notifications.dockBadge": settingID(for: .app, idSuffix: "dock-badge"),
+        "app.menuBarOnly": settingID(for: .app, idSuffix: "menu-bar-only"),
+        "notifications.showInMenuBar": settingID(for: .app, idSuffix: "show-menu-bar"),
+        "notifications.unreadPaneRing": settingID(for: .app, idSuffix: "unread-pane-ring"),
+        "notifications.paneFlash": settingID(for: .app, idSuffix: "pane-flash"),
+        "notifications.sound": settingID(for: .app, idSuffix: "notification-sound"),
+        "notifications.customSoundFilePath": settingID(for: .app, idSuffix: "notification-sound"),
+        "notifications.command": settingID(for: .app, idSuffix: "notification-command"),
+        "app.sendAnonymousTelemetry": settingID(for: .app, idSuffix: "telemetry"),
+        "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
+        "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
+        "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
+        "sidebar.hideAllDetails": settingID(for: .app, idSuffix: "hide-sidebar-details"),
+        "sidebar.branchLayout": settingID(for: .app, idSuffix: "sidebar-branch-layout"),
+        "sidebar.showNotificationMessage": settingID(for: .app, idSuffix: "show-notification-message"),
+        "sidebar.showBranchDirectory": settingID(for: .app, idSuffix: "show-branch-directory"),
+        "sidebar.showPullRequests": settingID(for: .app, idSuffix: "show-pull-requests"),
+        "sidebar.openPullRequestLinksInCmuxBrowser": settingID(for: .app, idSuffix: "open-pr-links"),
+        "sidebar.openPortLinksInCmuxBrowser": settingID(for: .app, idSuffix: "open-port-links"),
+        "sidebar.showSSH": settingID(for: .app, idSuffix: "show-ssh"),
+        "sidebar.showPorts": settingID(for: .app, idSuffix: "show-ports"),
+        "sidebar.showLog": settingID(for: .app, idSuffix: "show-log"),
+        "sidebar.showProgress": settingID(for: .app, idSuffix: "show-progress"),
+        "sidebar.showCustomMetadata": settingID(for: .app, idSuffix: "show-metadata"),
+        "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
+        "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
+        "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
+        "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
+        "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
+        "sidebarAppearance.lightModeTintColor": settingID(for: .sidebarAppearance, idSuffix: "light-tint"),
+        "sidebarAppearance.darkModeTintColor": settingID(for: .sidebarAppearance, idSuffix: "dark-tint"),
+        "sidebarAppearance.tintOpacity": settingID(for: .sidebarAppearance, idSuffix: "tint-opacity"),
+        "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),
+        "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
+        "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
+        "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
+        "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
+        "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
+        "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
+        "automation.portRange": settingID(for: .automation, idSuffix: "port-range"),
+        "browser.defaultSearchEngine": settingID(for: .browser, idSuffix: "search-engine"),
+        "browser.showSearchSuggestions": settingID(for: .browser, idSuffix: "search-suggestions"),
+        "browser.theme": settingID(for: .browser, idSuffix: "theme"),
+        "browser.openTerminalLinksInCmuxBrowser": settingID(for: .browser, idSuffix: "terminal-links"),
+        "browser.interceptTerminalOpenCommandInCmuxBrowser": settingID(for: .browser, idSuffix: "intercept-open"),
+        "browser.hostsToOpenInEmbeddedBrowser": settingID(for: .browser, idSuffix: "host-whitelist"),
+        "browser.urlsToAlwaysOpenExternally": settingID(for: .browser, idSuffix: "external-patterns"),
+        "browser.insecureHttpHostsAllowedInEmbeddedBrowser": settingID(for: .browser, idSuffix: "http-allowlist"),
+        "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
+        "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
+        "shortcuts.showModifierHoldHints": settingID(for: .keyboardShortcuts, idSuffix: "show-hints")
+    ]
+
     static func entries(matching query: String) -> [SettingsSearchEntry] {
         let tokens = normalizedTokens(for: query)
         guard !tokens.isEmpty else { return sectionEntries }
@@ -2694,6 +2853,14 @@ private enum SettingsSearchIndex {
         "section:\(target.rawValue)"
     }
 
+    static func settingID(for target: SettingsNavigationTarget, idSuffix: String) -> String {
+        "setting:\(target.rawValue):\(idSuffix)"
+    }
+
+    static func anchorID(forSettingsPath path: String) -> String? {
+        settingsPathAnchorIDs[path]
+    }
+
     static func normalized(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
@@ -2705,7 +2872,7 @@ private enum SettingsSearchIndex {
         _ searchText: String
     ) -> SettingsSearchEntry {
         SettingsSearchEntry(
-            id: "setting:\(target.rawValue):\(idSuffix)",
+            id: settingID(for: target, idSuffix: idSuffix),
             kind: .setting,
             target: target,
             title: title,
@@ -5423,6 +5590,8 @@ struct SettingsView: View {
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
     @Environment(\.openWindow) private var openWindow
+    @State private var highlightedSearchAnchorID: String?
+    @State private var searchHighlightToken = 0
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -6025,13 +6194,14 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
-                        .id(SettingsNavigationTarget.account)
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .account))
                     SettingsCard {
                         AuthSettingsRow(authManager: authManager)
                     }
+                    .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .account, idSuffix: "account"))
 
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
-                        .id(SettingsNavigationTarget.app)
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .app))
                     SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("app.language"),
@@ -6164,7 +6334,8 @@ struct SettingsView: View {
                             subtitle: String(
                                 localized: "settings.app.configWindow.subtitle",
                                 defaultValue: "Open the cmux config, standalone Ghostty config, and merged preview in one utility window."
-                            )
+                            ),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config")
                         ) {
                             Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config Window")) {
                                 openWindow(id: ConfigSettingsView.windowID)
@@ -6279,7 +6450,8 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .action,
                             String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"),
-                            subtitle: notificationPermissionSubtitle
+                            subtitle: notificationPermissionSubtitle,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .app, idSuffix: "desktop-notifications")
                         ) {
                             HStack(spacing: 6) {
                                 Text(notificationPermissionStatusText)
@@ -6605,7 +6777,7 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
-                        .id(SettingsNavigationTarget.terminal)
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .terminal))
                     SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("terminal.showScrollBar"),
@@ -6625,7 +6797,7 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
-                        .id(SettingsNavigationTarget.workspaceColors)
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .workspaceColors))
                     SettingsCard {
                         SettingsPickerRow(
                             configurationReview: .json("workspaceColors.indicatorStyle"),
@@ -6765,7 +6937,8 @@ struct SettingsView: View {
                             subtitle: String(
                                 localized: "settings.workspaceColors.resetPalette.subtitleV2",
                                 defaultValue: "Restore the built-in palette and remove extra named colors."
-                            )
+                            ),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .workspaceColors, idSuffix: "palette")
                         ) {
                             Button(String(localized: "settings.workspaceColors.resetPalette.button", defaultValue: "Reset")) {
                                 resetWorkspaceTabColors()
@@ -6776,7 +6949,7 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance"))
-                        .id(SettingsNavigationTarget.sidebarAppearance)
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
                     SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
@@ -6857,7 +7030,8 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .action,
                             String(localized: "settings.sidebarAppearance.reset", defaultValue: "Reset Sidebar Tint"),
-                            subtitle: String(localized: "settings.sidebarAppearance.reset.subtitle", defaultValue: "Restore default sidebar appearance.")
+                            subtitle: String(localized: "settings.sidebarAppearance.reset.subtitle", defaultValue: "Restore default sidebar appearance."),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "reset-tint")
                         ) {
                             Button(String(localized: "settings.sidebarAppearance.reset.button", defaultValue: "Reset")) {
                                 sidebarTintHexLight = nil
@@ -6871,7 +7045,7 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
-                        .id(SettingsNavigationTarget.automation)
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .automation))
                     SettingsCard {
                         SettingsPickerRow(
                             configurationReview: .json("automation.socketControlMode"),
@@ -7029,7 +7203,7 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
-                        .id(SettingsNavigationTarget.browser)
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .browser))
                         .accessibilityIdentifier("SettingsBrowserSection")
                     SettingsCard {
                         SettingsPickerRow(
@@ -7208,6 +7382,7 @@ struct SettingsView: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
+                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .browser, idSuffix: "http-allowlist"))
 
                         SettingsCardDivider()
 
@@ -7268,13 +7443,17 @@ struct SettingsView: View {
                             )
                             .controlSize(.small)
                             .accessibilityIdentifier("SettingsBrowserImportHintToggle")
+                            .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-hint"))
 
                             Text(browserImportHintSettingsNote)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        .id(SettingsNavigationTarget.browserImport)
+                        .settingsSearchAnchors([
+                            SettingsSearchIndex.sectionID(for: .browserImport),
+                            SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-data")
+                        ])
                         .accessibilityIdentifier("SettingsBrowserImportSection")
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -7295,7 +7474,12 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardRow(configurationReview: .action, String(localized: "settings.browser.history", defaultValue: "Browsing History"), subtitle: browserHistorySubtitle) {
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.browser.history", defaultValue: "Browsing History"),
+                            subtitle: browserHistorySubtitle,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .browser, idSuffix: "history")
+                        ) {
                             Button(String(localized: "settings.browser.history.clearButton", defaultValue: "Clear History…")) {
                                 showClearBrowserHistoryConfirmation = true
                             }
@@ -7306,16 +7490,16 @@ struct SettingsView: View {
                     }
 
                     GlobalHotkeySection()
-                        .id(SettingsNavigationTarget.globalHotkey)
 
                     SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
-                        .id(SettingsNavigationTarget.keyboardShortcuts)
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .keyboardShortcuts))
                         .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
                     SettingsCard {
                         SettingsCardRow(
                             configurationReview: .action,
                             String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"),
-                            subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in settings.json, for example [\"ctrl+b\", \"c\"].")
+                            subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in settings.json, for example [\"ctrl+b\", \"c\"]."),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords")
                         ) {
                             HStack(spacing: 8) {
                                 Link(String(localized: "settings.shortcuts.chords.docsButton", defaultValue: "Chord docs"), destination: shortcutChordsDocsURL)
@@ -7369,6 +7553,7 @@ struct SettingsView: View {
                         }
                     }
                     .id(shortcutResetToken)
+                    .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
 
                     Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record a new shortcut."))
                         .font(.caption)
@@ -7377,7 +7562,7 @@ struct SettingsView: View {
                         .accessibilityIdentifier("ShortcutRecordingHint")
 
                     SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
-                        .id(SettingsNavigationTarget.reset)
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .reset))
                     SettingsCard {
                         HStack {
                             Spacer(minLength: 0)
@@ -7390,11 +7575,16 @@ struct SettingsView: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
+                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
                 .padding(.top, 20)
+                .environment(
+                    \.settingsSearchHighlightState,
+                    SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken)
+                )
             }
         .toggleStyle(.switch)
         .onAppear {
@@ -7427,10 +7617,13 @@ struct SettingsView: View {
             reloadWorkspaceTabColorSettings()
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
-            guard let target = SettingsNavigationRequest.target(from: notification) else { return }
+            guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
+            highlightedSearchAnchorID = destination.anchorID
+            searchHighlightToken += 1
             DispatchQueue.main.async {
                 withAnimation(.easeInOut(duration: 0.2)) {
-                    proxy.scrollTo(target, anchor: .top)
+                    proxy.scrollTo(SettingsSearchIndex.sectionID(for: destination.target), anchor: .top)
+                    proxy.scrollTo(destination.anchorID, anchor: .center)
                 }
             }
         }
@@ -7762,6 +7955,7 @@ private struct SettingsCardRow<Trailing: View>: View {
     let title: String
     let subtitle: String?
     let controlWidth: CGFloat?
+    let searchAnchorID: String?
     @ViewBuilder let trailing: Trailing
 
     init(
@@ -7769,6 +7963,7 @@ private struct SettingsCardRow<Trailing: View>: View {
         _ title: String,
         subtitle: String? = nil,
         controlWidth: CGFloat? = nil,
+        searchAnchorID: String? = nil,
         @ViewBuilder trailing: () -> Trailing
     ) {
         configurationReview.validate()
@@ -7776,7 +7971,15 @@ private struct SettingsCardRow<Trailing: View>: View {
         self.title = title
         self.subtitle = subtitle
         self.controlWidth = controlWidth
+        self.searchAnchorID = searchAnchorID
         self.trailing = trailing()
+    }
+
+    private var searchAnchorIDs: [String] {
+        if let searchAnchorID {
+            return [searchAnchorID]
+        }
+        return configurationReview.searchAnchorIDs
     }
 
     var body: some View {
@@ -7806,6 +8009,7 @@ private struct SettingsCardRow<Trailing: View>: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsSearchAnchors(searchAnchorIDs)
     }
 }
 
@@ -7879,6 +8083,11 @@ private enum SettingsConfigurationReview: Equatable {
 
     static func json(_ paths: String...) -> Self {
         .settingsFile(paths)
+    }
+
+    var searchAnchorIDs: [String] {
+        guard case .settingsFile(let paths) = self else { return [] }
+        return paths.compactMap(SettingsSearchIndex.anchorID(forSettingsPath:))
     }
 
     func validate(file: StaticString = #fileID, line: UInt = #line) {
@@ -8125,6 +8334,7 @@ private struct ThemePickerRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsSearchAnchors(configurationReview.searchAnchorIDs)
     }
 }
 
@@ -8219,6 +8429,7 @@ private struct AppIconPickerRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsSearchAnchors(configurationReview.searchAnchorIDs)
     }
 }
 
@@ -8345,12 +8556,14 @@ private struct GlobalHotkeySection: View {
     var body: some View {
         SettingsSectionHeader(title: String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"))
             .accessibilityIdentifier("SettingsGlobalHotkeySection")
+            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .globalHotkey))
 
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .settingsOnly,
                 String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"),
-                subtitle: enableSubtitle
+                subtitle: enableSubtitle,
+                searchAnchorID: SettingsSearchIndex.settingID(for: .globalHotkey, idSuffix: "enable-hotkey")
             ) {
                 Toggle("", isOn: enabledBinding)
                     .labelsHidden()
@@ -8369,6 +8582,7 @@ private struct GlobalHotkeySection: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
                 .accessibilityIdentifier("SettingsGlobalHotkeyRecorder")
+                .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .globalHotkey, idSuffix: "shortcut"))
         }
         .onChange(of: shortcut) { newValue in
             KeyboardShortcutSettings.setShortcut(newValue, for: SystemWideHotkeySettings.action)
@@ -8467,7 +8681,7 @@ private struct SettingsRootView: View {
         guard let entry = SettingsSearchIndex.entry(withID: entryID) else { return }
         selectedSidebarEntryID = entry.id
         selectedSectionRaw = entry.target.rawValue
-        SettingsNavigationRequest.post(entry.target)
+        SettingsNavigationRequest.post(entry.target, anchorID: entry.id)
     }
 
     private func navigate(
@@ -8489,27 +8703,23 @@ private struct SettingsSidebarEntryRow: View {
     let entry: SettingsSearchEntry
 
     var body: some View {
-        switch entry.kind {
-        case .section:
-            Label(entry.title, systemImage: entry.symbolName)
-        case .setting:
-            HStack(spacing: 10) {
-                Image(systemName: entry.symbolName)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16)
+        HStack(spacing: 10) {
+            Image(systemName: entry.symbolName)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.title)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.title)
+                    .lineLimit(1)
+
+                if let subtitle = entry.subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
-
-                    if let subtitle = entry.subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
