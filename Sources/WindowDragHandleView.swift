@@ -497,9 +497,30 @@ final class MinimalModeSidebarChromeHoverState: ObservableObject {
     }
 }
 
+private enum MinimalModeSidebarTitlebarControlAssociatedKeys {
+    private static let sidebarVisibleToken = NSObject()
+
+    static let sidebarVisible = UnsafeRawPointer(Unmanaged.passUnretained(sidebarVisibleToken).toOpaque())
+}
+
+func setMinimalModeSidebarTitlebarControlsAvailable(_ isAvailable: Bool, in window: NSWindow?) {
+    guard let window else { return }
+    objc_setAssociatedObject(
+        window,
+        MinimalModeSidebarTitlebarControlAssociatedKeys.sidebarVisible,
+        NSNumber(value: isAvailable),
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    )
+}
+
 func minimalModeSidebarTitlebarControlsAreAvailable(in window: NSWindow) -> Bool {
-    guard let appDelegate = AppDelegate.shared else { return true }
-    return appDelegate.leftSidebarIsVisible(in: window) == true
+    guard let value = objc_getAssociatedObject(
+        window,
+        MinimalModeSidebarTitlebarControlAssociatedKeys.sidebarVisible
+    ) as? NSNumber else {
+        return true
+    }
+    return value.boolValue
 }
 
 func isMinimalModeSidebarChromeHoverCandidate(

@@ -5800,10 +5800,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
     }
 
-    func leftSidebarIsVisible(in window: NSWindow) -> Bool? {
-        contextForMainTerminalWindow(window)?.sidebarState.isVisible
-    }
-
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu(title: "")
         let newWindowItem = NSMenuItem(
