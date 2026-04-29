@@ -513,9 +513,14 @@ struct TmuxSessionListView: View {
                                 tabManager.selectedTabId = session.workspaceId
                             },
                             onKill: {
-                                killRealTmuxSession(session.name)
-                                if let workspace = tabManager.tabs.first(where: { $0.id == session.workspaceId }) {
-                                    _ = tabManager.closeWorkspaceWithConfirmation(workspace)
+                                killRealTmuxSession(session.name) { didKill in
+                                    let workspaceManager = AppDelegate.shared?.tabManagerFor(tabId: session.workspaceId) ?? tabManager
+                                    if didKill,
+                                       let workspace = workspaceManager.tabs.first(where: { $0.id == session.workspaceId }) {
+                                        _ = workspaceManager.closeWorkspaceWithConfirmation(workspace)
+                                    } else {
+                                        refresh()
+                                    }
                                 }
                             }
                         )
@@ -557,25 +562,38 @@ struct TmuxSessionListView: View {
                     currentPaneId: realTmuxCurrentPaneId(for: session)
                 )
             }
+            let store = Self.loadRealTmuxStore()
             DispatchQueue.main.async {
-                applyRefresh(sessionDetails: sessionDetails, generation: generation)
+                let updatedStore = applyRefresh(
+                    sessionDetails: sessionDetails,
+                    store: store,
+                    generation: generation
+                )
+                DispatchQueue.global(qos: .utility).async {
+                    Self.saveRealTmuxStore(updatedStore)
+                }
             }
         }
     }
 
-    private func applyRefresh(sessionDetails: [RealTmuxSessionDetail], generation: UInt64) {
-        guard generation == refreshGeneration else { return }
+    private func applyRefresh(
+        sessionDetails: [RealTmuxSessionDetail],
+        store loadedStore: RealTmuxStore,
+        generation: UInt64
+    ) -> RealTmuxStore {
+        guard generation == refreshGeneration else { return loadedStore }
         let realSessions = sessionDetails.map(\.session)
         let detailsBySessionId = Dictionary(uniqueKeysWithValues: sessionDetails.map { ($0.session.id, $0) })
-        var store = loadRealTmuxStore()
+        var store = loadedStore
+        let collectedTabs = AppDelegate.shared?.mainWindowWorkspaces() ?? tabManager.tabs
         let liveSessionIds = Set(realSessions.map(\.id))
-        let liveWorkspaceIds = Set(tabManager.tabs.map { $0.id.uuidString })
+        let liveWorkspaceIds = Set(collectedTabs.map { $0.id.uuidString })
         store.sessionIdToWorkspaceId = store.sessionIdToWorkspaceId.filter {
             liveSessionIds.contains($0.key) && liveWorkspaceIds.contains($0.value)
         }
 
         for session in realSessions where store.sessionIdToWorkspaceId[session.id] == nil {
-            if let existing = tabManager.tabs.first(where: { $0.title == session.name }) {
+            if let existing = collectedTabs.first(where: { $0.realTmuxSessionId == session.id }) {
                 store.sessionIdToWorkspaceId[session.id] = existing.id.uuidString
                 continue
             }
@@ -598,7 +616,7 @@ struct TmuxSessionListView: View {
         for session in realSessions {
             guard let workspaceIdString = store.sessionIdToWorkspaceId[session.id],
                   let workspaceId = UUID(uuidString: workspaceIdString),
-                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                  let workspace = collectedTabs.first(where: { $0.id == workspaceId }) else {
                 continue
             }
             if workspace.title != session.name {
@@ -615,13 +633,12 @@ struct TmuxSessionListView: View {
             ))
         }
 
-        saveRealTmuxStore(store)
-
         let sortedNewSessions = newSessions.sorted { $0.name < $1.name }
         if sessions != sortedNewSessions {
             sessions = sortedNewSessions
         }
         isRefreshing = false
+        return store
     }
 
     private struct RealTmuxSession: Equatable, Sendable {
@@ -634,11 +651,11 @@ struct TmuxSessionListView: View {
         let currentPaneId: String?
     }
 
-    private struct RealTmuxStore: Codable {
+    private struct RealTmuxStore: Codable, Sendable {
         var sessionIdToWorkspaceId: [String: String] = [:]
     }
 
-    private var realTmuxStoreURL: URL {
+    nonisolated private static var realTmuxStoreURL: URL {
         let bundleKey = (Bundle.main.bundleIdentifier ?? "cmux")
             .replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "-", options: .regularExpression)
         return FileManager.default.homeDirectoryForCurrentUser
@@ -671,8 +688,15 @@ struct TmuxSessionListView: View {
     }
 
     nonisolated private func realTmuxExecutablePath() -> String? {
-        ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
-            .first { FileManager.default.isExecutableFile(atPath: $0) }
+        let fileManager = FileManager.default
+        let pathCandidates = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map { String($0) + "/tmux" }
+        if let pathTmux = pathCandidates.first(where: { fileManager.isExecutableFile(atPath: $0) }) {
+            return pathTmux
+        }
+        return ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
+            .first { fileManager.isExecutableFile(atPath: $0) }
     }
 
     nonisolated private func realTmuxAttachInput(for session: RealTmuxSession) -> String? {
@@ -724,7 +748,7 @@ struct TmuxSessionListView: View {
         return String(data: data, encoding: .utf8)
     }
 
-    private func loadRealTmuxStore() -> RealTmuxStore {
+    nonisolated private static func loadRealTmuxStore() -> RealTmuxStore {
         guard let data = try? Data(contentsOf: realTmuxStoreURL),
               let store = try? JSONDecoder().decode(RealTmuxStore.self, from: data) else {
             return RealTmuxStore()
@@ -732,7 +756,7 @@ struct TmuxSessionListView: View {
         return store
     }
 
-    private func saveRealTmuxStore(_ store: RealTmuxStore) {
+    nonisolated private static func saveRealTmuxStore(_ store: RealTmuxStore) {
         guard let data = try? JSONEncoder().encode(store) else { return }
         try? FileManager.default.createDirectory(
             at: realTmuxStoreURL.deletingLastPathComponent(),
@@ -745,15 +769,33 @@ struct TmuxSessionListView: View {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private func killRealTmuxSession(_ sessionName: String) {
-        guard let tmuxPath = realTmuxExecutablePath() else { return }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tmuxPath)
-        process.arguments = ["kill-session", "-t", sessionName]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try? process.run()
-        process.waitUntilExit()
+    private func killRealTmuxSession(_ sessionName: String, completion: @escaping (Bool) -> Void) {
+        guard let tmuxPath = realTmuxExecutablePath() else {
+            completion(false)
+            return
+        }
+
+        DispatchQueue.global(qos: .utility).async {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: tmuxPath)
+            process.arguments = ["kill-session", "-t", sessionName]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+
+            process.terminationHandler = { process in
+                DispatchQueue.main.async {
+                    completion(process.terminationStatus == 0)
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                DispatchQueue.main.async {
+                    completion(false)
+                }
+            }
+        }
     }
 }
 

@@ -1240,27 +1240,26 @@ class TabManager: ObservableObject {
         let detailsBySessionId = Dictionary(uniqueKeysWithValues: sessionDetails.map { ($0.session.id, $0) })
         var store = Self.loadRealTmuxStore()
         let liveSessionIds = Set(realSessions.map(\.id))
-        let liveWorkspaceIds = AppDelegate.shared?.mainWindowWorkspaceIdStrings()
-            ?? Set(tabs.map { $0.id.uuidString })
-
         for (sessionId, workspaceId) in store.sessionIdToWorkspaceId {
             if !liveSessionIds.contains(sessionId),
                let uuid = UUID(uuidString: workspaceId),
                let workspace = tabs.first(where: { $0.id == uuid }) {
+                if tabs.count <= 1 {
+                    _ = addWorkspace(select: false, autoWelcomeIfNeeded: false)
+                }
                 closeWorkspace(workspace, killRealTmuxSession: false)
             }
         }
 
-        let refreshedWorkspaceIds = Set(tabs.map { $0.id.uuidString })
         store.sessionIdToWorkspaceId = store.sessionIdToWorkspaceId.filter {
-            liveSessionIds.contains($0.key) && refreshedWorkspaceIds.contains($0.value)
+            liveSessionIds.contains($0.key)
         }
 
         for session in realSessions where store.sessionIdToWorkspaceId[session.id] == nil {
             if let existing = AppDelegate.shared?.mainWindowWorkspaceForRealTmuxSession(
                 id: session.id,
                 name: session.name
-            ) ?? tabs.first(where: { $0.realTmuxSessionId == session.id || $0.title == session.name }) {
+            ) ?? tabs.first(where: { $0.realTmuxSessionId == session.id }) {
                 store.sessionIdToWorkspaceId[session.id] = existing.id.uuidString
                 existing.realTmuxSessionId = session.id
                 existing.realTmuxSessionName = session.name
@@ -1278,9 +1277,11 @@ class TabManager: ObservableObject {
                 select: false,
                 autoWelcomeIfNeeded: false
             )
-            workspace.realTmuxSessionId = session.id
-            workspace.realTmuxSessionName = session.name
-            store.sessionIdToWorkspaceId[session.id] = workspace.id.uuidString
+            if initialProxyCommand != nil {
+                workspace.realTmuxSessionId = session.id
+                workspace.realTmuxSessionName = session.name
+                store.sessionIdToWorkspaceId[session.id] = workspace.id.uuidString
+            }
         }
 
         for session in realSessions {
@@ -1329,8 +1330,15 @@ class TabManager: ObservableObject {
     }
 
     private static func realTmuxExecutablePath() -> String? {
-        ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
-            .first { FileManager.default.isExecutableFile(atPath: $0) }
+        let fileManager = FileManager.default
+        let pathCandidates = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map { String($0) + "/tmux" }
+        if let pathTmux = pathCandidates.first(where: { fileManager.isExecutableFile(atPath: $0) }) {
+            return pathTmux
+        }
+        return ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
+            .first { fileManager.isExecutableFile(atPath: $0) }
     }
 
     private static func realTmuxAttachInput(for session: RealTmuxSession) -> String? {
@@ -4938,7 +4946,8 @@ class TabManager: ObservableObject {
             return
         }
 
-        if tab.isRealTmuxWorkspace {
+        if tab.isRealTmuxWorkspace,
+           Self.normalizedRealTmuxPaneId(tab.terminalPanel(for: panelId)?.realTmuxPaneId) != nil {
             _ = closeRealTmuxPanel(tab: tab, panelId: panelId)
             return
         }
@@ -5529,6 +5538,9 @@ class TabManager: ObservableObject {
     func focusSurface(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         if tab.isRealTmuxWorkspace {
+            if Self.selectRealTmuxPane(in: tab, panelId: surfaceId) {
+                tab.focusPanel(surfaceId)
+            }
             return
         }
         tab.focusPanel(surfaceId)
@@ -5721,9 +5733,7 @@ class TabManager: ObservableObject {
         guard let workspace = selectedWorkspace else { return }
         if workspace.isRealTmuxWorkspace,
            let focusedPanelId = workspace.focusedPanelId {
-            // Real tmux panes are created by splitting the backing tmux pane; there is no
-            // safe way to inject a cmux-only initial input before the proxy attaches.
-            _ = createSplit(tabId: workspace.id, surfaceId: focusedPanelId, direction: .right)
+            _ = createSplit(tabId: workspace.id, surfaceId: focusedPanelId, direction: .right, initialInput: initialInput)
             return
         }
         workspace.clearSplitZoom()
@@ -5743,12 +5753,18 @@ class TabManager: ObservableObject {
 
     /// Create a new split from an explicit source panel.
     @discardableResult
-    func createSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
+    func createSplit(
+        tabId: UUID,
+        surfaceId: UUID,
+        direction: SplitDirection,
+        focus: Bool = true,
+        initialInput: String? = nil
+    ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }),
               tab.panels[surfaceId] != nil else { return nil }
         tab.clearSplitZoom()
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
-        return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
+        return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus, initialInput: initialInput)
     }
 
     /// Create a new browser split from the currently focused panel.
@@ -5885,7 +5901,13 @@ class TabManager: ObservableObject {
 
     /// Create a new split in the specified direction
     /// Returns the new panel's ID (which is also the surface ID for terminals)
-    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
+    func newSplit(
+        tabId: UUID,
+        surfaceId: UUID,
+        direction: SplitDirection,
+        focus: Bool = true,
+        initialInput: String? = nil
+    ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         if tab.isRealTmuxWorkspace {
             guard let realTmuxPaneId = Self.splitRealTmuxPane(in: tab, from: surfaceId, direction: direction) else {
@@ -5902,6 +5924,7 @@ class TabManager: ObservableObject {
                 focus: focus,
                 allowInRealTmuxWorkspace: true,
                 initialCommand: proxyCommand,
+                initialInput: initialInput,
                 realTmuxPaneId: realTmuxPaneId
             )?.id
         }
@@ -6093,7 +6116,8 @@ class TabManager: ObservableObject {
         // A stale callback must never affect unrelated panels/workspaces.
         guard tab.panels[surfaceId] != nil,
               tab.surfaceIdFromPanelId(surfaceId) != nil else { return false }
-        if tab.isRealTmuxWorkspace {
+        if tab.isRealTmuxWorkspace,
+           Self.normalizedRealTmuxPaneId(tab.terminalPanel(for: surfaceId)?.realTmuxPaneId) != nil {
             return closeRealTmuxPanel(tab: tab, panelId: surfaceId)
         }
         tab.closePanel(surfaceId)

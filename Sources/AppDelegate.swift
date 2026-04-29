@@ -3906,6 +3906,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         })
     }
 
+    func mainWindowWorkspaces() -> [Workspace] {
+        mainWindowContexts.values.flatMap { $0.tabManager.tabs }
+    }
+
     func mainWindowWorkspace(id workspaceId: UUID) -> Workspace? {
         for context in mainWindowContexts.values {
             if let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }) {
@@ -3918,7 +3922,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func mainWindowWorkspaceForRealTmuxSession(id sessionId: String, name sessionName: String) -> Workspace? {
         for context in mainWindowContexts.values {
             if let workspace = context.tabManager.tabs.first(where: {
-                $0.realTmuxSessionId == sessionId || $0.title == sessionName
+                $0.realTmuxSessionId == sessionId
             }) {
                 return workspace
             }
