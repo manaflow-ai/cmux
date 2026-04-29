@@ -9763,6 +9763,10 @@ struct VerticalTabsSidebar: View {
                 .background(
                     SidebarScrollViewResolver { scrollView in
                         dragAutoScrollController.attach(scrollView: scrollView)
+                        if let scrollView {
+                            scrollView.autohidesScrollers = true
+                            scrollView.scrollerStyle = .overlay
+                        }
                     }
                     .frame(width: 0, height: 0)
                 )
