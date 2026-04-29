@@ -11393,20 +11393,20 @@ struct CMUXCLI {
         let fakeTmuxPane = focusedContext.map { "%\($0.paneHandle)" }
             ?? processEnvironment["TMUX_PANE"]
             ?? "%1"
-        let fakeTerm = processEnvironment[termOverrideEnvVar] ?? "screen-256color"
+        let fakeTerm = processEnvironment[termOverrideEnvVar] ?? "xterm-ghostty"
 
         setenv(cmuxBinEnvVar, executablePath, 1)
         setenv("PATH", updatedPath, 1)
         setenv("TMUX", fakeTmuxValue, 1)
         setenv("TMUX_PANE", fakeTmuxPane, 1)
         setenv("TERM", fakeTerm, 1)
+        setenv("COLORTERM", "truecolor", 1)
         setenv("CMUX_SOCKET_PATH", socketPath, 1)
         setenv("CMUX_SOCKET", socketPath, 1)
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
         }
-        unsetenv("TERM_PROGRAM")
         for envVar in extraEnvVars {
             setenv(envVar.key, envVar.value, 1)
         }
@@ -12036,6 +12036,9 @@ struct CMUXCLI {
                 (key: "CMUX_OPENCODE_CMUX_BIN", value: executablePath),
             ]
         )
+        // Unset TERM_PROGRAM for opencode specifically: it switches to
+        // light theme when it sees TERM_PROGRAM=ghostty.
+        unsetenv("TERM_PROGRAM")
     }
 
     private func runOMO(

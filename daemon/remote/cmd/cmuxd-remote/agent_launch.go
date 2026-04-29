@@ -470,18 +470,14 @@ func configureAgentEnvironment(cfg agentConfig) {
 	// Terminal settings
 	fakeTerm := os.Getenv(cfg.termEnvVar)
 	if fakeTerm == "" {
-		fakeTerm = "screen-256color"
+		fakeTerm = "xterm-ghostty"
 	}
 	os.Setenv("TERM", fakeTerm)
+	os.Setenv("COLORTERM", "truecolor")
 
 	// Socket path
 	os.Setenv("CMUX_SOCKET_PATH", cfg.socketPath)
 	os.Setenv("CMUX_SOCKET", cfg.socketPath)
-
-	// Unset TERM_PROGRAM so apps don't detect the host terminal and
-	// override tmux-compatible behavior (e.g. opencode switches to
-	// light theme when it sees TERM_PROGRAM=ghostty).
-	os.Unsetenv("TERM_PROGRAM")
 
 	// Preserve COLORTERM for truecolor support in subagent panes.
 	if os.Getenv("COLORTERM") == "" {
