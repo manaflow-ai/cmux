@@ -33,7 +33,6 @@ struct SettingsShellView: View {
             )
         } detail: {
             SettingsDetailView(section: selectedSection)
-                .navigationTitle(selectedSection.title)
         }
         .navigationSplitViewStyle(.balanced)
     }

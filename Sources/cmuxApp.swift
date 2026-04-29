@@ -8440,7 +8440,6 @@ private struct SettingsRootView: View {
             )
         } detail: {
             SettingsView()
-                .navigationTitle(selectedSection.title)
         }
         .navigationSplitViewStyle(.balanced)
         .onChange(of: searchText) { _, newValue in
