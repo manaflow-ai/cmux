@@ -713,8 +713,16 @@ struct HiddenTitlebarSidebarControlsView: View {
         ZStack(alignment: .leading) {
             WindowAccessor(dedupeByWindow: false) { window in
                 hostWindowNumber = window.windowNumber
+                #if DEBUG
+                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                    payload["minimalSidebarHostWindowNumber"] = String(window.windowNumber)
+                }
+                #endif
             }
-            .frame(width: 0, height: 0)
+            .frame(
+                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+            )
             .allowsHitTesting(false)
 
             TitlebarControlsView(
