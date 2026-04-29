@@ -498,6 +498,22 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
     }
 
+    private final class SidebarActionRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
+        var config = TitlebarControlsStyle.classic.config
+
+        func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
+            minimalModeSidebarControlActionSlot(localPoint: localPoint) != nil
+        }
+
+        func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot? {
+            let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
+            for (index, range) in ranges.enumerated() where range.contains(localPoint.x) {
+                return MinimalModeSidebarControlActionSlot(rawValue: index)
+            }
+            return nil
+        }
+    }
+
     private final class MutatingSiblingView: NSView {
         weak var container: NSView?
         private var didMutate = false
@@ -744,6 +760,87 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(
             isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 136, y: 100)),
             "Expected gaps inside the registered view to keep behaving like titlebar chrome."
+        )
+    }
+
+    func testMinimalModeSidebarActionSlotUsesRegisteredHostFrame() {
+        let suiteName = "WindowDragHandleHitTests.sidebarHostFrame.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(TitlebarControlsStyle.classic.rawValue, forKey: "titlebarControlsStyle")
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let controlRegion = SidebarActionRegionView(frame: NSRect(x: 88, y: 88, width: 124, height: 28))
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        XCTAssertEqual(
+            minimalModeSidebarControlActionSlot(
+                window: window,
+                locationInWindow: NSPoint(x: controlRegion.frame.minX + 50, y: controlRegion.frame.minY + 14),
+                defaults: defaults
+            ),
+            .showNotifications,
+            "Sidebar control actions should use the actual registered host frame instead of a fixed window x origin."
+        )
+    }
+
+    func testMinimalModeSidebarActionSlotUsesRegisteredHostFrameBelowFallbackBand() {
+        let suiteName = "WindowDragHandleHitTests.sidebarHostFrameBand.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(TitlebarControlsStyle.classic.rawValue, forKey: "titlebarControlsStyle")
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let controlRegion = SidebarActionRegionView(frame: NSRect(x: 88, y: 88, width: 124, height: 28))
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        let point = NSPoint(x: controlRegion.frame.minX + 14, y: controlRegion.frame.minY + 1)
+        XCTAssertFalse(
+            isPointInMinimalModeTitlebarBand(
+                isEnabled: true,
+                point: point,
+                bounds: contentView.bounds,
+                topStripHeight: MinimalModeChromeMetrics.titlebarHeight
+            ),
+            "The regression point should sit inside the visual control host but outside the hard-coded fallback band."
+        )
+        XCTAssertEqual(
+            minimalModeSidebarControlActionSlot(window: window, locationInWindow: point, defaults: defaults),
+            .toggleSidebar
+        )
+        XCTAssertTrue(
+            isMinimalModeSidebarChromeHoverCandidate(window: window, locationInWindow: point, defaults: defaults),
+            "Hover reveal should follow the real control host frame."
         )
     }
 

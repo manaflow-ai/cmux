@@ -702,7 +702,7 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
         MinimalModeTitlebarControlHitRegionRegistry.register(nsView)
     }
 
-    final class ButtonHitRegionView: NSView, MinimalModeTitlebarControlHitRegionProviding {
+    final class ButtonHitRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
         var config = TitlebarControlsStyle.classic.config
 
         override func viewDidMoveToWindow() {
@@ -717,7 +717,15 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
-            TitlebarControlsHitRegions.pointFallsInButtonColumn(localPoint, config: config)
+            minimalModeSidebarControlActionSlot(localPoint: localPoint) != nil
+        }
+
+        func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot? {
+            let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
+            for (index, range) in ranges.enumerated() where range.contains(localPoint.x) {
+                return MinimalModeSidebarControlActionSlot(rawValue: index)
+            }
+            return nil
         }
 
         deinit {

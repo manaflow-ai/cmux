@@ -332,6 +332,10 @@ protocol MinimalModeTitlebarControlHitRegionProviding: AnyObject {
     func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool
 }
 
+protocol MinimalModeSidebarControlActionHitRegionProviding: MinimalModeTitlebarControlHitRegionProviding {
+    func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot?
+}
+
 enum MinimalModeTitlebarControlHitRegionRegistry {
     private static let lock = NSLock()
     private static let registeredViews = NSHashTable<NSView>.weakObjects()
@@ -380,6 +384,37 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
             }
         }
         return false
+    }
+
+    static func containsSidebarControlHostWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> Bool {
+        let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
+        for view in snapshot() {
+            guard view.window === window,
+                  view is MinimalModeSidebarControlActionHitRegionProviding,
+                  isVisibleInHierarchy(view) else { continue }
+            let localPoint = view.convert(windowPoint, from: nil)
+            guard view.bounds.insetBy(dx: -epsilon, dy: -epsilon).contains(localPoint) else { continue }
+            return true
+        }
+        return false
+    }
+
+    static func minimalModeSidebarControlActionSlot(
+        forWindowPoint windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> MinimalModeSidebarControlActionSlot? {
+        let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
+        for view in snapshot() {
+            guard view.window === window,
+                  let provider = view as? MinimalModeSidebarControlActionHitRegionProviding,
+                  isVisibleInHierarchy(view) else { continue }
+            let localPoint = view.convert(windowPoint, from: nil)
+            guard view.bounds.insetBy(dx: -epsilon, dy: -epsilon).contains(localPoint) else { continue }
+            if let slot = provider.minimalModeSidebarControlActionSlot(localPoint: localPoint) {
+                return slot
+            }
+        }
+        return nil
     }
 }
 
@@ -473,16 +508,26 @@ func isMinimalModeSidebarChromeHoverCandidate(
         width: window.frame.width,
         height: window.frame.height
     )
-    guard isMinimalModeWindowTitlebarClickCandidate(
-        isMinimalMode: WorkspacePresentationModeSettings.isMinimal(defaults: defaults),
-        isFullScreen: window.styleMask.contains(.fullScreen),
-        isMainWindow: isMainWorkspaceWindow(window),
-        locationInWindow: locationInWindow,
-        contentBounds: contentBounds,
-        titlebarBandHeight: MinimalModeChromeMetrics.titlebarHeight
-    ) else {
+    let isMinimalMode = WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
+    let isFullScreen = window.styleMask.contains(.fullScreen)
+    let isMainWindow = isMainWorkspaceWindow(window)
+    guard isMinimalMode, !isFullScreen, isMainWindow, contentBounds.contains(locationInWindow) else {
         return false
     }
+
+    if MinimalModeTitlebarControlHitRegionRegistry.containsSidebarControlHostWindowPoint(
+        locationInWindow,
+        in: window
+    ) {
+        return true
+    }
+
+    guard isPointInMinimalModeTitlebarBand(
+        isEnabled: true,
+        point: locationInWindow,
+        bounds: contentBounds,
+        topStripHeight: MinimalModeChromeMetrics.titlebarHeight
+    ) else { return false }
 
     let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset
     let maxX = minX + MinimalModeSidebarTitlebarControlsMetrics.hostWidth
@@ -499,13 +544,32 @@ func minimalModeSidebarControlActionSlot(
     locationInWindow: NSPoint,
     defaults: UserDefaults = .standard
 ) -> MinimalModeSidebarControlActionSlot? {
-    guard isMinimalModeSidebarChromeHoverCandidate(
-        window: window,
-        locationInWindow: locationInWindow,
-        defaults: defaults
-    ) else {
+    let contentBounds = window.contentView?.bounds ?? NSRect(
+        x: 0,
+        y: 0,
+        width: window.frame.width,
+        height: window.frame.height
+    )
+    let isMinimalMode = WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
+    let isFullScreen = window.styleMask.contains(.fullScreen)
+    let isMainWindow = isMainWorkspaceWindow(window)
+    guard isMinimalMode, !isFullScreen, isMainWindow, contentBounds.contains(locationInWindow) else {
         return nil
     }
+
+    if let registeredSlot = MinimalModeTitlebarControlHitRegionRegistry.minimalModeSidebarControlActionSlot(
+        forWindowPoint: locationInWindow,
+        in: window
+    ) {
+        return registeredSlot
+    }
+
+    guard isPointInMinimalModeTitlebarBand(
+        isEnabled: true,
+        point: locationInWindow,
+        bounds: contentBounds,
+        topStripHeight: MinimalModeChromeMetrics.titlebarHeight
+    ) else { return nil }
 
     let localPoint = NSPoint(
         x: locationInWindow.x - MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
@@ -556,7 +620,11 @@ func recordMinimalModeSidebarChromeHoverForUITest(
     )
     let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset
     let maxX = minX + MinimalModeSidebarTitlebarControlsMetrics.hostWidth
-    let inXRange = locationInWindow.x >= minX && locationInWindow.x <= maxX
+    let inXRange = (locationInWindow.x >= minX && locationInWindow.x <= maxX)
+        || MinimalModeTitlebarControlHitRegionRegistry.containsSidebarControlHostWindowPoint(
+            locationInWindow,
+            in: window
+        )
     _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
         let count = (payload["minimalSidebarHoverEventCount"] as? String).flatMap(Int.init) ?? 0
         payload["minimalSidebarHoverEventCount"] = String(count + 1)

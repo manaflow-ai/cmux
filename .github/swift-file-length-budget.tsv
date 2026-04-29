@@ -28,11 +28,11 @@
 2188	Sources/TerminalWindowPortal.swift
 2153	cmuxTests/SessionPersistenceTests.swift
 2026	cmuxTests/CJKIMEInputTests.swift
-2020	Sources/Update/UpdateTitlebarAccessory.swift
+2028	Sources/Update/UpdateTitlebarAccessory.swift
 1949	Sources/FileExplorerView.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1941	Sources/SessionIndexStore.swift
-1843	cmuxTests/WindowAndDragTests.swift
+1940	cmuxTests/WindowAndDragTests.swift
 1784	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1692	cmuxTests/CmuxConfigTests.swift
 1676	Sources/KeyboardShortcutSettingsFileStore.swift
@@ -44,7 +44,7 @@
 1215	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1187	cmuxUITests/MultiWindowNotificationsUITests.swift
 1165	Sources/Auth/AuthManager.swift
-1092	Sources/WindowDragHandleView.swift
+1160	Sources/WindowDragHandleView.swift
 1001	Sources/FileExplorerStore.swift
 1001	cmuxTests/SidebarOrderingTests.swift
 995	Sources/DockPanelView.swift
