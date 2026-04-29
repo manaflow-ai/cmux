@@ -1715,12 +1715,14 @@ final class KeyboardShortcutPageNavParseTests: XCTestCase {
         let parsed = StoredShortcut.parseConfig("cmd+home")
         XCTAssertNotNil(parsed, "cmd+home should parse from config")
         XCTAssertEqual(parsed?.key, "home")
+        XCTAssertTrue(parsed?.command ?? false)
     }
 
     func testParseConfigAcceptsEnd() {
         let parsed = StoredShortcut.parseConfig("cmd+end")
         XCTAssertNotNil(parsed, "cmd+end should parse from config")
         XCTAssertEqual(parsed?.key, "end")
+        XCTAssertTrue(parsed?.command ?? false)
     }
 
     func testParseConfigAcceptsCommonPageNavAliases() {
