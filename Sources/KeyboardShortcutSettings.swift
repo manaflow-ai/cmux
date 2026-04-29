@@ -1187,6 +1187,14 @@ struct ShortcutStroke: Equatable, Hashable {
             return String(localized: "shortcut.key.mediaVolumeDown", defaultValue: "Volume Down")
         case "media.volumeUp":
             return String(localized: "shortcut.key.mediaVolumeUp", defaultValue: "Volume Up")
+        case "pageUp":
+            return String(localized: "shortcut.key.pageUp", defaultValue: "Page Up")
+        case "pageDown":
+            return String(localized: "shortcut.key.pageDown", defaultValue: "Page Down")
+        case "home":
+            return String(localized: "shortcut.key.home", defaultValue: "Home")
+        case "end":
+            return String(localized: "shortcut.key.end", defaultValue: "End")
         default:
             if let functionKeyDisplayString = Self.functionKeyDisplayString(for: key) {
                 return functionKeyDisplayString
@@ -1475,6 +1483,10 @@ struct ShortcutStroke: Equatable, Hashable {
         case 124: return "→" // right arrow
         case 125: return "↓" // down arrow
         case 126: return "↑" // up arrow
+        case 115: return "home"     // kVK_Home
+        case 116: return "pageUp"   // kVK_PageUp
+        case 119: return "end"      // kVK_End
+        case 121: return "pageDown" // kVK_PageDown
         case 48: return "\t" // tab
         case 36, 76: return "\r" // return, keypad enter
         case 33: return "["  // kVK_ANSI_LeftBracket
@@ -1614,6 +1626,13 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private static func keyCodeForShortcutKey(_ key: String) -> UInt16? {
+        switch key.lowercased() {
+        case "pageup": return 116
+        case "pagedown": return 121
+        case "home": return 115
+        case "end": return 119
+        default: break
+        }
         switch key {
         case "f1": return 122
         case "f2": return 120
@@ -1702,7 +1721,14 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+        if functionKeyDisplayString(for: key) != nil { return true }
+        if key.hasPrefix("media.") { return true }
+        switch key.lowercased() {
+        case "home", "pageup", "end", "pagedown":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {
@@ -2055,6 +2081,14 @@ extension ShortcutStroke {
             return "↑"
         case "down", "arrowdown", "downarrow", "↓":
             return "↓"
+        case "pageup", "page_up", "pgup":
+            return "pageUp"
+        case "pagedown", "page_down", "pgdn":
+            return "pageDown"
+        case "home":
+            return "home"
+        case "end":
+            return "end"
         case "tab":
             return "\t"
         case "return", "enter", "↩":
