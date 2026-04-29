@@ -27,7 +27,7 @@
 2292	cmuxTests/TabManagerUnitTests.swift
 2188	Sources/TerminalWindowPortal.swift
 2153	cmuxTests/SessionPersistenceTests.swift
-2093	Sources/Update/UpdateTitlebarAccessory.swift
+2092	Sources/Update/UpdateTitlebarAccessory.swift
 2026	cmuxTests/CJKIMEInputTests.swift
 1949	Sources/FileExplorerView.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift

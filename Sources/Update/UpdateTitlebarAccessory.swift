@@ -360,14 +360,13 @@ struct TitlebarControlButton<Content: View>: View {
             content()
                 .frame(width: config.buttonSize, height: config.buttonSize)
                 .contentShape(Rectangle())
+                .accessibilityIdentifier(accessibilityIdentifier)
+                .accessibilityLabel(accessibilityLabel)
         }
         .buttonStyle(.plain)
         .frame(width: config.buttonSize, height: config.buttonSize)
         .contentShape(Rectangle())
         .background(hoverBackground)
-        .accessibilityElement(children: .ignore)
-        .accessibilityIdentifier(accessibilityIdentifier)
-        .accessibilityLabel(accessibilityLabel)
 
         if titlebarControlsShouldTrackButtonHover(config: config) {
             baseButton.onHover { isHovering = $0 }
