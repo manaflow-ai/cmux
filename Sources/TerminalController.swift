@@ -3327,6 +3327,49 @@ class TerminalController {
         return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
     }
 
+    private func v2BrowserDisabledExternalOpenResult(
+        rawURL: String? = nil,
+        url: URL?,
+        tabManager: TabManager?
+    ) -> V2CallResult {
+        if let rawURL, url == nil {
+            return .err(
+                code: "invalid_params",
+                message: "Invalid URL",
+                data: ["url": rawURL]
+            )
+        }
+        guard let url else {
+            return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
+        }
+
+        var result: V2CallResult = .err(
+            code: "external_open_failed",
+            message: "Failed to open URL externally",
+            data: ["url": url.absoluteString]
+        )
+        v2MainSync {
+            guard NSWorkspace.shared.open(url) else { return }
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": v2OrNull(nil),
+                "workspace_ref": v2Ref(kind: .workspace, uuid: nil),
+                "pane_id": v2OrNull(nil),
+                "pane_ref": v2Ref(kind: .pane, uuid: nil),
+                "surface_id": v2OrNull(nil),
+                "surface_ref": v2Ref(kind: .surface, uuid: nil),
+                "created_split": false,
+                "opened_externally": true,
+                "browser_disabled": true,
+                "placement_strategy": "external_browser_disabled",
+                "url": url.absoluteString
+            ])
+        }
+        return result
+    }
+
     private func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
 
@@ -4991,6 +5034,13 @@ class TerminalController {
                     result = .err(code: "invalid_state", message: "Duplicate is only available for browser tabs", data: nil)
                     return
                 }
+                guard BrowserAvailabilitySettings.isEnabled() else {
+                    result = v2BrowserDisabledExternalOpenResult(
+                        url: browserPanel.currentURL,
+                        tabManager: tabManager
+                    )
+                    return
+                }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
                 guard let newPanel = workspace.newBrowserSurface(
@@ -5040,6 +5090,14 @@ class TerminalController {
                 let url = urlRaw.flatMap { URL(string: $0) }
                 if urlRaw != nil && url == nil {
                     result = .err(code: "invalid_params", message: "Invalid URL", data: ["url": v2OrNull(urlRaw)])
+                    return
+                }
+                guard BrowserAvailabilitySettings.isEnabled() else {
+                    result = v2BrowserDisabledExternalOpenResult(
+                        rawURL: urlRaw,
+                        url: url,
+                        tabManager: tabManager
+                    )
                     return
                 }
 
@@ -5310,6 +5368,9 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
         v2MainSync {
@@ -6634,6 +6695,9 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
@@ -8203,6 +8267,10 @@ class TerminalController {
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
+
+        if BrowserAvailabilitySettings.isDisabled() {
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
         v2MainSync {
@@ -10755,7 +10823,12 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
-        let url = v2String(params, "url").flatMap(URL.init(string:))
+        let urlStr = v2String(params, "url")
+        let url = urlStr.flatMap(URL.init(string:))
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
@@ -14369,6 +14442,26 @@ class TerminalController {
         return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
     }
 
+    private func openExternallyWhenBrowserDisabled(rawURL: String? = nil, url: URL?) -> String {
+        if let rawURL, url == nil {
+            return "ERROR: Invalid URL \(rawURL)"
+        }
+        guard let url else { return "ERROR: cmux browser is disabled" }
+
+        let opened: Bool
+        if Thread.isMainThread {
+            opened = NSWorkspace.shared.open(url)
+        } else {
+            var didOpen = false
+            DispatchQueue.main.sync {
+                didOpen = NSWorkspace.shared.open(url)
+            }
+            opened = didOpen
+        }
+
+        return opened ? "OK external_browser_disabled \(url.absoluteString)" : "ERROR: Failed to open URL externally"
+    }
+
     // MARK: - Browser Panel Commands
 
     private func openBrowser(_ args: String) -> String {
@@ -14376,6 +14469,9 @@ class TerminalController {
 
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let url: URL? = trimmed.isEmpty ? nil : URL(string: trimmed)
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            return openExternallyWhenBrowserDisabled(rawURL: trimmed.isEmpty ? nil : trimmed, url: url)
+        }
 
         var result = "ERROR: Failed to create browser panel"
         let focus = socketCommandAllowsInAppFocusMutations()
@@ -14765,6 +14861,7 @@ class TerminalController {
         // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=...
         var panelType: PanelType = .terminal
         var direction: SplitDirection = .right
+        var urlRaw: String? = nil
         var url: URL? = nil
         var invalidDirection = false
 
@@ -14782,13 +14879,17 @@ class TerminalController {
                     invalidDirection = true
                 }
             } else if partStr.hasPrefix("--url=") {
-                let urlStr = String(partStr.dropFirst(6))
-                url = URL(string: urlStr)
+                let urlStr = String(partStr.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+                urlRaw = urlStr.isEmpty ? nil : urlStr
+                url = urlRaw.flatMap { URL(string: $0) }
             }
         }
 
         if invalidDirection {
             return "ERROR: Invalid direction. Use left, right, up, or down."
+        }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            return openExternallyWhenBrowserDisabled(rawURL: urlRaw, url: url)
         }
 
         let orientation = direction.orientation
@@ -16297,6 +16398,7 @@ class TerminalController {
         // Parse arguments: --type=terminal|browser --pane=<pane_id> --url=...
         var panelType: PanelType = .terminal
         var paneArg: String? = nil
+        var urlRaw: String? = nil
         var url: URL? = nil
 
         let parts = args.split(separator: " ")
@@ -16308,9 +16410,13 @@ class TerminalController {
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {
-                let urlStr = String(partStr.dropFirst(6))
-                url = URL(string: urlStr)
+                let urlStr = String(partStr.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+                urlRaw = urlStr.isEmpty ? nil : urlStr
+                url = urlRaw.flatMap { URL(string: $0) }
             }
+        }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            return openExternallyWhenBrowserDisabled(rawURL: urlRaw, url: url)
         }
 
         var result = "ERROR: Failed to create tab"

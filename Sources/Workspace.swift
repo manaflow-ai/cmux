@@ -526,7 +526,7 @@ extension Workspace {
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForOmnibar(),
                 profileID: browserPanel.profileID,
-                shouldRenderWebView: browserPanel.shouldRenderWebView,
+                shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
@@ -757,7 +757,8 @@ extension Workspace {
                 inPane: paneId,
                 url: nil,
                 focus: false,
-                preferredProfileID: snapshot.browser?.profileID
+                preferredProfileID: snapshot.browser?.profileID,
+                creationPolicy: .restoration
             ) else {
                 return nil
             }
@@ -819,7 +820,7 @@ extension Workspace {
 
             browserPanel.restoreSessionSnapshot(browserSnapshot)
 
-            if browserSnapshot.developerToolsVisible {
+            if browserSnapshot.developerToolsVisible && BrowserAvailabilitySettings.isEnabled() {
                 _ = browserPanel.showDeveloperTools()
                 browserPanel.requestDeveloperToolsRefreshAfterNextAttach(reason: "session_restore")
             } else {
@@ -982,7 +983,12 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+            if let panel = newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: false,
+                creationPolicy: .restoration
+            ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -1012,7 +1018,12 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+            if let panel = newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: false,
+                creationPolicy: .restoration
+            ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
@@ -7171,55 +7182,17 @@ struct ClosedBrowserPanelRestoreSnapshot {
 
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
-enum WorkspaceSurfaceIdentifierClipboardText {
-    static func make(workspaceId: UUID, workspaceRef: String? = nil) -> String {
-        var lines: [String] = []
-        if let workspaceRef {
-            lines.append("workspace_ref=\(workspaceRef)")
-        }
-        lines.append("workspace_id=\(workspaceId.uuidString)")
-        return lines.joined(separator: "\n")
-    }
-
-    static func make(workspaceIds: [UUID]) -> String {
-        workspaceIds.map { make(workspaceId: $0) }.joined(separator: "\n\n")
-    }
-
-    static func make(workspaces: [(id: UUID, ref: String?)]) -> String {
-        workspaces
-            .map { make(workspaceId: $0.id, workspaceRef: $0.ref) }
-            .joined(separator: "\n\n")
-    }
-
-    static func make(
-        workspaceId: UUID,
-        paneId: UUID? = nil,
-        surfaceId: UUID,
-        workspaceRef: String? = nil,
-        paneRef: String? = nil,
-        surfaceRef: String? = nil
-    ) -> String {
-        var lines: [String] = []
-        if let workspaceRef {
-            lines.append("workspace_ref=\(workspaceRef)")
-        }
-        lines.append("workspace_id=\(workspaceId.uuidString)")
-        if let paneRef {
-            lines.append("pane_ref=\(paneRef)")
-        }
-        if let paneId {
-            lines.append("pane_id=\(paneId.uuidString)")
-        }
-        if let surfaceRef {
-            lines.append("surface_ref=\(surfaceRef)")
-        }
-        lines.append("surface_id=\(surfaceId.uuidString)")
-        return lines.joined(separator: "\n")
-    }
-}
-
 @MainActor
 final class Workspace: Identifiable, ObservableObject {
+    enum BrowserPanelCreationPolicy {
+        case userInitiated
+        case restoration
+
+        var permitsCreationWhenBrowserDisabled: Bool {
+            self == .restoration
+        }
+    }
+
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
@@ -10160,8 +10133,17 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
+        guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            if let url {
+                _ = NSWorkspace.shared.open(url)
+            }
+            return nil
+        }
+
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -10183,6 +10165,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: panelId
             ),
             initialURL: url,
+            renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
@@ -10248,8 +10231,17 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
+        guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            if let externalURL = url ?? initialRequest?.url {
+                _ = NSWorkspace.shared.open(externalURL)
+            }
+            return nil
+        }
+
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -10263,6 +10255,7 @@ final class Workspace: Identifiable, ObservableObject {
             ),
             initialURL: url,
             initialRequest: initialRequest,
+            renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -11395,23 +11388,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func copyIdentifiersToPasteboard(surfaceId: UUID) {
         let paneId = paneId(forPanelId: surfaceId)?.id
-        let refs = TerminalController.shared.v2WorkspacePaneAndSurfaceRefs(
-            workspaceId: id,
-            paneId: paneId,
-            surfaceId: surfaceId
-        )
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(
-            WorkspaceSurfaceIdentifierClipboardText.make(
+        WorkspaceSurfaceIdentifierClipboardText.copy(
+            WorkspaceSurfaceIdentifierClipboardText.makeWorkspacePaneSurfaceIdentifiers(
                 workspaceId: id,
                 paneId: paneId,
                 surfaceId: surfaceId,
-                workspaceRef: refs.workspaceRef,
-                paneRef: refs.paneRef,
-                surfaceRef: refs.surfaceRef
-            ),
-            forType: .string
+                includeRefs: true
+            )
         )
     }
 

@@ -2119,6 +2119,12 @@ final class WindowTerminalHostViewTests: XCTestCase {
         }
     }
 
+    private final class FakeTabBarBackgroundNSView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
     private final class BonsplitMockSplitDelegate: NSObject, NSSplitViewDelegate {}
 
     private func makeHostedTerminalView(frame: NSRect) -> GhosttySurfaceScrollView {
@@ -2146,6 +2152,108 @@ final class WindowTerminalHostViewTests: XCTestCase {
             message,
             file: file,
             line: line
+        )
+    }
+
+    private struct TabStripPassThroughFixture {
+        let host: WindowTerminalHostView
+        let pointInHost: NSPoint
+        let pointInWindow: NSPoint
+    }
+
+    private func installTabStripPassThroughFixture(in window: NSWindow) -> TabStripPassThroughFixture? {
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return nil
+        }
+
+        let tabStripHeight: CGFloat = 44
+        let tabStrip = FakeTabBarBackgroundNSView(
+            frame: NSRect(
+                x: 0,
+                y: contentView.bounds.maxY - tabStripHeight,
+                width: contentView.bounds.width,
+                height: tabStripHeight
+            )
+        )
+        tabStrip.autoresizingMask = [.width, .minYMargin]
+        contentView.addSubview(tabStrip)
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowTerminalHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        let child = CapturingView(frame: host.bounds)
+        child.autoresizingMask = [.width, .height]
+        host.addSubview(child)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let titlebarBandHeight = max(28, min(72, window.frame.height - window.contentLayoutRect.height))
+        let pointInContent = NSPoint(
+            x: contentView.bounds.midX,
+            y: contentView.bounds.maxY - titlebarBandHeight - 8
+        )
+        let pointInWindow = contentView.convert(pointInContent, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost, pointInWindow: pointInWindow)
+    }
+
+    private func makeMouseDownEvent(at locationInWindow: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: locationInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create leftMouseDown event")
+        }
+        return event
+    }
+
+    func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
+        // The reported regression (#3193) was that the original window kept
+        // working but later-created windows did not. Set up two windows and
+        // assert the pass-through holds in BOTH to lock in per-instance wiring.
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 32, y: 32, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            secondWindow.orderOut(nil)
+            firstWindow.orderOut(nil)
+        }
+
+        guard let firstFixture = installTabStripPassThroughFixture(in: firstWindow),
+              let secondFixture = installTabStripPassThroughFixture(in: secondWindow) else {
+            return
+        }
+
+        // Terminal hitTest is on the typing-latency hot path and gates the
+        // tab-strip pass-through behind a real pointer event. Provide one
+        // explicitly via the test seam.
+        let firstEvent = makeMouseDownEvent(at: firstFixture.pointInWindow, window: firstWindow)
+        let secondEvent = makeMouseDownEvent(at: secondFixture.pointInWindow, window: secondWindow)
+
+        XCTAssertNil(
+            firstFixture.host.performHitTest(at: firstFixture.pointInHost, currentEvent: firstEvent),
+            "Terminal portal should defer to the minimal tab strip in the original window just below the titlebar interaction band"
+        )
+        XCTAssertNil(
+            secondFixture.host.performHitTest(at: secondFixture.pointInHost, currentEvent: secondEvent),
+            "Terminal portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
         )
     }
 

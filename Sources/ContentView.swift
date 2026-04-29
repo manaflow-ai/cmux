@@ -1263,15 +1263,15 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
 }
 
 @MainActor
-private func tmuxWorkspacePaneWindowOverlayController(for window: NSWindow) -> WindowTmuxWorkspacePaneOverlayController {
+private func tmuxWorkspacePaneWindowOverlayController(for window: NSWindow, createIfNeeded: Bool) -> WindowTmuxWorkspacePaneOverlayController? {
     if let existing = objc_getAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey) as? WindowTmuxWorkspacePaneOverlayController {
         return existing
     }
+    guard createIfNeeded else { return nil }
     let controller = WindowTmuxWorkspacePaneOverlayController(window: window)
     objc_setAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     return controller
 }
-
 private func commandPaletteOwningWebView(for responder: NSResponder?) -> WKWebView? {
     guard let responder else { return nil }
 
@@ -1607,8 +1607,6 @@ struct ContentView: View {
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
     private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
-    @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
-    private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @State private var commandPaletteShouldFocusWorkspaceDescriptionEditor = false
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
@@ -1877,7 +1875,7 @@ struct ContentView: View {
         )
     }
 
-    private struct CommandPaletteContextSnapshot {
+    struct CommandPaletteContextSnapshot {
         private var boolValues: [String: Bool] = [:]
         private var stringValues: [String: String] = [:]
 
@@ -1913,7 +1911,7 @@ struct ContentView: View {
         let snapshot: CommandPaletteContextSnapshot
     }
 
-    private enum CommandPaletteContextKeys {
+    enum CommandPaletteContextKeys {
         static let hasWorkspace = "workspace.hasSelection"
         static let workspaceName = "workspace.name"
         static let workspaceHasCustomName = "workspace.hasCustomName"
@@ -1933,19 +1931,21 @@ struct ContentView: View {
         static let panelName = "panel.name"
         static let panelIsBrowser = "panel.isBrowser"
         static let panelIsTerminal = "panel.isTerminal"
+        static let panelHasPane = "panel.hasPane"
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
 
         static let updateHasAvailable = "update.hasAvailable"
         static let cliInstalledInPATH = "cli.installedInPATH"
+        static let browserDisabled = "browser.disabled"
 
         static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
             "terminal.openTarget.\(target.rawValue).available"
         }
     }
 
-    private struct CommandPaletteCommandContribution {
+    struct CommandPaletteCommandContribution {
         let commandId: String
         let title: (CommandPaletteContextSnapshot) -> String
         let subtitle: (CommandPaletteContextSnapshot) -> String
@@ -1976,7 +1976,7 @@ struct ContentView: View {
         }
     }
 
-    private struct CommandPaletteHandlerRegistry {
+    struct CommandPaletteHandlerRegistry {
         private var handlers: [String: () -> Void] = [:]
 
         mutating func register(commandId: String, handler: @escaping () -> Void) {
@@ -2844,7 +2844,7 @@ struct ContentView: View {
     }
 
     private func resumeSession(entry: SessionEntry) {
-        let inputWithReturn = entry.resumeCommand + "\n"
+        let inputWithReturn = entry.resumeCommandWithCwd + "\n"
         let targetCwd = entry.cwd
 
         // Smart placement: if the focused workspace's tracked cwd matches, open a
@@ -3485,8 +3485,8 @@ struct ContentView: View {
 
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
             MainActor.assumeIsolated {
-                let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
-                tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
+                let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
+                tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
                 let overlayController = commandPaletteWindowOverlayController(for: window)
                 overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
             }
@@ -6697,6 +6697,7 @@ struct ContentView: View {
         var snapshot = CommandPaletteContextSnapshot()
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
+        snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
 
         if let workspace = tabManager.selectedWorkspace {
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
@@ -6740,6 +6741,7 @@ struct ContentView: View {
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
+            snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             let hasUnread = workspace.manualUnreadPanelIds.contains(panelId)
@@ -6875,7 +6877,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.newBrowserTab.title", defaultValue: "New Tab (Browser)")),
                 subtitle: constant(String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘⇧L",
-                keywords: ["new", "browser", "tab", "web"]
+                keywords: ["new", "browser", "tab", "web"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
         contributions.append(
@@ -6918,7 +6921,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.reopenClosedBrowserTab.title", defaultValue: "Reopen Closed Browser Tab")),
                 subtitle: constant(String(localized: "command.reopenClosedBrowserTab.subtitle", defaultValue: "Browser")),
                 shortcutHint: "⌘⇧T",
-                keywords: ["reopen", "closed", "browser"]
+                keywords: ["reopen", "closed", "browser"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
         contributions.append(
@@ -7023,6 +7027,24 @@ struct ContentView: View {
                 title: constant(String(localized: "command.restartSocketListener.title", defaultValue: "Restart CLI Listener")),
                 subtitle: constant(String(localized: "command.restartSocketListener.subtitle", defaultValue: "Global")),
                 keywords: ["restart", "socket", "listener", "cli", "cmux", "control"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.disableBrowser",
+                title: constant(String(localized: "command.disableBrowser.title", defaultValue: "Disable cmux Browser")),
+                subtitle: constant(String(localized: "command.browserAvailability.subtitle", defaultValue: "Browser")),
+                keywords: ["browser", "disable", "external", "default", "open", "auth"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.enableBrowser",
+                title: constant(String(localized: "command.enableBrowser.title", defaultValue: "Enable cmux Browser")),
+                subtitle: constant(String(localized: "command.browserAvailability.subtitle", defaultValue: "Browser")),
+                keywords: ["browser", "enable", "embedded", "open"],
+                when: { $0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
 
@@ -7178,6 +7200,11 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
                 enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasRead) }
             )
+        )
+        appendIdentifierCopyCommandContributions(
+            to: &contributions,
+            workspaceSubtitle: workspaceSubtitle,
+            panelSubtitle: panelSubtitle
         )
 
         contributions.append(
@@ -7373,7 +7400,10 @@ struct ContentView: View {
                 title: constant(String(localized: "command.browserSplitRight.title", defaultValue: "Split Browser Right")),
                 subtitle: constant(String(localized: "command.browserSplitRight.subtitle", defaultValue: "Browser Layout")),
                 keywords: ["browser", "split", "right"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsBrowser) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
             )
         )
         contributions.append(
@@ -7382,7 +7412,10 @@ struct ContentView: View {
                 title: constant(String(localized: "command.browserSplitDown.title", defaultValue: "Split Browser Down")),
                 subtitle: constant(String(localized: "command.browserSplitDown.subtitle", defaultValue: "Browser Layout")),
                 keywords: ["browser", "split", "down"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsBrowser) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
             )
         )
         contributions.append(
@@ -7391,7 +7424,10 @@ struct ContentView: View {
                 title: constant(String(localized: "command.browserDuplicateRight.title", defaultValue: "Duplicate Browser to the Right")),
                 subtitle: constant(String(localized: "command.browserDuplicateRight.subtitle", defaultValue: "Browser Layout")),
                 keywords: ["browser", "duplicate", "clone", "split"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsBrowser) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
             )
         )
 
@@ -7505,7 +7541,10 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalSplitBrowserRight.title", defaultValue: "Split Browser Right")),
                 subtitle: constant(String(localized: "command.terminalSplitBrowserRight.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "browser", "right"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
             )
         )
         contributions.append(
@@ -7514,7 +7553,10 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalSplitBrowserDown.title", defaultValue: "Split Browser Down")),
                 subtitle: constant(String(localized: "command.terminalSplitBrowserDown.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "browser", "down"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
             )
         )
         contributions.append(
@@ -7780,6 +7822,12 @@ struct ContentView: View {
         registry.register(commandId: "palette.restartSocketListener") {
             AppDelegate.shared?.restartSocketListener(nil)
         }
+        registry.register(commandId: "palette.disableBrowser") {
+            BrowserAvailabilitySettings.setDisabled(true)
+        }
+        registry.register(commandId: "palette.enableBrowser") {
+            BrowserAvailabilitySettings.setDisabled(false)
+        }
 
         registry.register(commandId: "palette.renameWorkspace") {
             beginRenameWorkspaceFlow()
@@ -7851,6 +7899,7 @@ struct ContentView: View {
             }
             notificationStore.markUnread(forTabId: workspaceId)
         }
+        registerIdentifierCopyCommandHandlers(&registry)
 
         registry.register(commandId: "palette.renameTab") {
             beginRenameTabFlow()
@@ -8084,7 +8133,7 @@ struct ContentView: View {
         return FileManager.default.homeDirectoryForCurrentUser.path
     }
 
-    private var focusedPanelContext: (workspace: Workspace, panelId: UUID, panel: any Panel)? {
+    var focusedPanelContext: (workspace: Workspace, panelId: UUID, panel: any Panel)? {
         guard let workspace = tabManager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
               let panel = workspace.panels[panelId] else {
@@ -9298,7 +9347,7 @@ struct ContentView: View {
         guard !pullRequests.isEmpty else { return false }
 
         var openedCount = 0
-        if openSidebarPullRequestLinksInCmuxBrowser {
+        if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
             for pullRequest in pullRequests {
                 if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
                     openedCount += 1
@@ -12592,18 +12641,8 @@ private struct TabItemView: View, Equatable {
         }
     }
 
-    private func copyTextToPasteboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-    }
-
-    private func copyWorkspaceIdsToPasteboard(_ ids: [UUID]) {
-        let refs = TerminalController.shared.v2WorkspaceRefs(for: ids)
-        let workspaces = ids.map { id in
-            (id: id, ref: refs[id])
-        }
-        copyTextToPasteboard(WorkspaceSurfaceIdentifierClipboardText.make(workspaces: workspaces))
+    private func copyWorkspaceIdsToPasteboard(_ ids: [UUID], includeRefs: Bool = false) {
+        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds(ids, includeRefs: includeRefs)
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
@@ -13230,7 +13269,7 @@ private struct TabItemView: View, Equatable {
 
         if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
             Button(String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error")) {
-                copyTextToPasteboard(copyableSidebarSSHError)
+                WorkspaceSurfaceIdentifierClipboardText.copy(copyableSidebarSSHError)
             }
         }
 
