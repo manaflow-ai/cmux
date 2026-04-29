@@ -163,6 +163,7 @@ class FeedApp {
   private loading = false;
   private renderCycle = 0;
   private handlingKey = false;
+  private stopped = false;
   private refreshTimer: NodeJS.Timeout | undefined;
   private feedbackItem: FeedItem | undefined;
   private feedbackText = "";
@@ -191,6 +192,10 @@ class FeedApp {
   }
 
   public stop(): void {
+    if (this.stopped) {
+      return;
+    }
+    this.stopped = true;
     if (this.refreshTimer) {
       clearInterval(this.refreshTimer);
       this.refreshTimer = undefined;
@@ -437,6 +442,11 @@ class FeedApp {
   }
 
   private async handleKey(key: KeyEvent): Promise<void> {
+    if (isCtrlC(key)) {
+      this.stop();
+      process.exit(0);
+    }
+
     if (this.feedbackItem) {
       await this.handleFeedbackKey(key);
       return;
@@ -969,6 +979,10 @@ function isKey(key: KeyEvent, ...names: string[]): boolean {
   return false;
 }
 
+function isCtrlC(key: KeyEvent): boolean {
+  return (key.ctrl && isKey(key, "c")) || key.sequence === "\u0003" || key.raw === "\u0003";
+}
+
 function actionForKey(key: KeyEvent): string | undefined {
   if (isKey(key, "d")) {
     return "deny";
@@ -1069,7 +1083,7 @@ async function main() {
   }
 
   const renderer = await createCliRenderer({
-    exitOnCtrlC: true,
+    exitOnCtrlC: false,
     useMouse: true,
     autoFocus: true,
     targetFps: 30,

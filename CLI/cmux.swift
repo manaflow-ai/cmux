@@ -16869,9 +16869,8 @@ export default CMUXSessionRestore;
 
         try process.run()
         process.waitUntilExit()
-        if process.terminationStatus != 0 {
-            throw CLIError(message: "OpenTUI Feed exited with status \(process.terminationStatus)")
-        }
+        if process.terminationStatus == 0 || process.terminationStatus == 130 || (process.terminationReason == .uncaughtSignal && process.terminationStatus == SIGINT) { return }
+        throw CLIError(message: "OpenTUI Feed exited with status \(process.terminationStatus)")
     }
 
     private func resolveBunExecutable() -> String? {
