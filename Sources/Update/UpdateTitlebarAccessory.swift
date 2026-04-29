@@ -617,29 +617,6 @@ struct TitlebarControlsView: View {
     }
 }
 
-enum TitlebarControlsHitRegions {
-    static let outerLeadingPadding: CGFloat = 4
-    static let buttonCount = 3
-
-    static func buttonXRanges(config: TitlebarControlsStyleConfig) -> [ClosedRange<CGFloat>] {
-        var ranges: [ClosedRange<CGFloat>] = []
-        ranges.reserveCapacity(buttonCount)
-
-        var minX = outerLeadingPadding + config.groupPadding.leading
-        for _ in 0..<buttonCount {
-            let maxX = minX + config.buttonSize
-            ranges.append(minX...maxX)
-            minX = maxX + config.spacing
-        }
-
-        return ranges
-    }
-
-    static func pointFallsInButtonColumn(_ point: NSPoint, config: TitlebarControlsStyleConfig) -> Bool {
-        buttonXRanges(config: config).contains { $0.contains(point.x) }
-    }
-}
-
 private struct TitlebarControlsGapDragView: NSViewRepresentable {
     let config: TitlebarControlsStyleConfig
 
@@ -721,11 +698,7 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
         }
 
         func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot? {
-            let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
-            for (index, range) in ranges.enumerated() where range.contains(localPoint.x) {
-                return MinimalModeSidebarControlActionSlot(rawValue: index)
-            }
-            return nil
+            TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config)
         }
 
         deinit {
@@ -797,6 +770,21 @@ struct HiddenTitlebarSidebarControlsView: View {
                 )
 
             PassthroughHoverTrackingView(capturesPassiveHits: !shouldPinControls) { isHoveringHost = $0 }
+            .frame(
+                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+            )
+
+            MinimalModeSidebarControlClickProxyView(config: style.config) { slot, anchorView in
+                switch slot {
+                case .toggleSidebar:
+                    onToggleSidebar()
+                case .showNotifications:
+                    onToggleNotifications(viewModel.notificationsAnchorView ?? anchorView)
+                case .newTab:
+                    onNewTab()
+                }
+            }
             .frame(
                 width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
                 height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight

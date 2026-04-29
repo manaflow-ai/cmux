@@ -64,7 +64,7 @@ enum WindowMouseMovedEventsCoordinator {
     }
 }
 
-private func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
+func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
     String(format: "(%.1f,%.1f)", point.x, point.y)
 }
 
@@ -575,13 +575,10 @@ func minimalModeSidebarControlActionSlot(
         x: locationInWindow.x - MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
         y: MinimalModeSidebarTitlebarControlsMetrics.hostHeight / 2
     )
-    let ranges = TitlebarControlsHitRegions.buttonXRanges(
+    return TitlebarControlsHitRegions.sidebarActionSlot(
+        at: localPoint,
         config: titlebarControlsStyleConfig(defaults: defaults)
     )
-    for (index, range) in ranges.enumerated() where range.contains(localPoint.x) {
-        return MinimalModeSidebarControlActionSlot(rawValue: index)
-    }
-    return nil
 }
 
 func isMinimalModeSidebarTitlebarControlButtonHit(

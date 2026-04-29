@@ -102,12 +102,25 @@ final class WindowDecorationsController {
         ) { [weak self] event in
             guard let self else { return event }
             guard let target = self.minimalModeSidebarChromeEventTarget(for: event) else {
+                #if DEBUG
+                self.recordMinimalModeSidebarChromeMonitorForUITest(
+                    event: event,
+                    window: nil,
+                    locationInWindow: nil,
+                    isHovering: nil,
+                    slot: nil
+                )
+                #endif
                 MinimalModeSidebarChromeHoverState.shared.clear()
                 return event
             }
             let window = target.window
             let locationInWindow = target.locationInWindow
             let isHovering = isMinimalModeSidebarChromeHoverCandidate(
+                window: window,
+                locationInWindow: locationInWindow
+            )
+            let actionSlot = minimalModeSidebarControlActionSlot(
                 window: window,
                 locationInWindow: locationInWindow
             )
@@ -118,9 +131,16 @@ final class WindowDecorationsController {
                 isHovering: isHovering,
                 eventType: event.type
             )
+            self.recordMinimalModeSidebarChromeMonitorForUITest(
+                event: event,
+                window: window,
+                locationInWindow: locationInWindow,
+                isHovering: isHovering,
+                slot: actionSlot
+            )
             #endif
             if event.type == .leftMouseDown,
-               let slot = minimalModeSidebarControlActionSlot(window: window, locationInWindow: locationInWindow) {
+               let slot = actionSlot {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
                 self.performMinimalModeSidebarControlAction(
                     slot,
@@ -160,6 +180,31 @@ final class WindowDecorationsController {
         }
         return nil
     }
+
+    #if DEBUG
+    private func recordMinimalModeSidebarChromeMonitorForUITest(
+        event: NSEvent,
+        window: NSWindow?,
+        locationInWindow: NSPoint?,
+        isHovering: Bool?,
+        slot: MinimalModeSidebarControlActionSlot?
+    ) {
+        guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
+        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            if event.type == .leftMouseDown {
+                let count = (payload["minimalSidebarWindowMonitorLeftMouseDownCount"] as? String).flatMap(Int.init) ?? 0
+                payload["minimalSidebarWindowMonitorLeftMouseDownCount"] = String(count + 1)
+            }
+            payload["minimalSidebarWindowMonitorLastEventType"] = String(describing: event.type)
+            payload["minimalSidebarWindowMonitorLastEventWindowNumber"] = event.window.map { String($0.windowNumber) } ?? "nil"
+            payload["minimalSidebarWindowMonitorLastTargetWindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
+            payload["minimalSidebarWindowMonitorLastPoint"] = locationInWindow.map(windowDragHandleFormatPoint) ?? "nil"
+            payload["minimalSidebarWindowMonitorLastScreenPoint"] = windowDragHandleFormatPoint(NSEvent.mouseLocation)
+            payload["minimalSidebarWindowMonitorLastIsHovering"] = isHovering.map(String.init) ?? "nil"
+            payload["minimalSidebarWindowMonitorLastSlot"] = slot?.debugName ?? "nil"
+        }
+    }
+    #endif
 
     private func performMinimalModeSidebarControlAction(
         _ slot: MinimalModeSidebarControlActionSlot,
