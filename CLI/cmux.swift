@@ -17054,14 +17054,31 @@ export default CMUXSessionRestore;
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+        var stdoutData = Data()
+        var stderrData = Data()
+        let drainGroup = DispatchGroup()
+        drainGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            stdoutData = stdoutHandle.readDataToEndOfFile()
+            drainGroup.leave()
+        }
+        drainGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            stderrData = stderrHandle.readDataToEndOfFile()
+            drainGroup.leave()
+        }
 
         try process.run()
         process.waitUntilExit()
+        drainGroup.wait()
         guard process.terminationStatus == 0 else {
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
             let stderrText = String(data: stderrData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            throw CLIError(message: stderrText.isEmpty ? "bun install failed" : stderrText)
+            let stdoutText = String(data: stdoutData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw CLIError(message: stderrText.isEmpty ? (stdoutText.isEmpty ? "bun install failed" : stdoutText) : stderrText)
         }
     }
 
@@ -17470,7 +17487,9 @@ export default CMUXSessionRestore;
                     return "Selected: \(option.label)"
                 case .enter:
                     let selected = selectedQuestionOptions[requestId] ?? Set<String>()
-                    let selections = item.questionOptions.map(\.id).filter { selected.contains($0) }
+                    let selections = item.questionOptions
+                        .filter { selected.contains($0.id) }
+                        .map(\.label)
                     _ = try client.sendV2(
                         method: "feed.question.reply",
                         params: ["request_id": requestId, "selections": selections]
@@ -17496,7 +17515,7 @@ export default CMUXSessionRestore;
             }
             _ = try client.sendV2(
                 method: "feed.question.reply",
-                params: ["request_id": requestId, "selections": [option.id]]
+                params: ["request_id": requestId, "selections": [option.label]]
             )
             return "Question answer sent: \(option.label)"
         default:
@@ -17511,7 +17530,10 @@ export default CMUXSessionRestore;
         print("> ", terminator: "")
         fflush(stdout)
         let value = readLine() ?? ""
-        rawMode = TerminalRawMode()
+        guard let restoredRawMode = TerminalRawMode() else {
+            return ""
+        }
+        rawMode = restoredRawMode
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -17558,10 +17580,12 @@ export default CMUXSessionRestore;
         case 10, 13:
             return .enter
         case 27:
-            var sequence = [UInt8](repeating: 0, count: 2)
-            let count = Darwin.read(STDIN_FILENO, &sequence, 2)
-            guard count == 2, sequence[0] == 91 else { return .ignored }
-            switch sequence[1] {
+            guard let first = readFeedTUIByteIfReady(timeoutMilliseconds: 25),
+                  let second = readFeedTUIByteIfReady(timeoutMilliseconds: 25),
+                  first == 91 else {
+                return .ignored
+            }
+            switch second {
             case 65: return .up
             case 66: return .down
             default: return .ignored
@@ -17594,6 +17618,27 @@ export default CMUXSessionRestore;
             return .number(Int(byte - 48))
         default:
             return .ignored
+        }
+    }
+
+    private func readFeedTUIByteIfReady(timeoutMilliseconds: Int32) -> UInt8? {
+        while true {
+            var descriptor = pollfd(
+                fd: STDIN_FILENO,
+                events: Int16(POLLIN | POLLHUP | POLLERR),
+                revents: 0
+            )
+            let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            guard ready > 0, descriptor.revents & Int16(POLLIN) != 0 else {
+                return nil
+            }
+            var byte: UInt8 = 0
+            let count = Darwin.read(STDIN_FILENO, &byte, 1)
+            return count == 1 ? byte : nil
         }
     }
 

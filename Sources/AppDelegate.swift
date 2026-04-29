@@ -5444,6 +5444,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         keyboardFocusCoordinator(for: window)?.ownsRightSidebarFocus(responder) == true
     }
 
+    func shouldRouteRightSidebarModeShortcut(in window: NSWindow?) -> Bool {
+        guard let window,
+              let responder = window.firstResponder else {
+            return false
+        }
+        if isRightSidebarFocusResponder(responder, in: window) {
+            return true
+        }
+        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
+              let panelId = ghosttyView.terminalSurface?.id else {
+            return false
+        }
+        return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId)
+    }
+
     func allowsTerminalKeyboardFocus(
         workspaceId: UUID,
         panelId: UUID,
@@ -10519,8 +10534,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
-           let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = RightSidebarMode.modeShortcut(for: event),
+           let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+           shouldRouteRightSidebarModeShortcut(in: rightSidebarWindow) {
             _ = focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,
@@ -13591,7 +13607,8 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = RightSidebarMode.modeShortcut(for: event),
+           AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,

@@ -91,7 +91,6 @@ class FeedSocketClient {
       const sendRequest = () => {
         requestSent = true;
         socket.write(payload);
-        socket.end();
       };
 
       socket.setEncoding("utf8");
@@ -116,6 +115,10 @@ class FeedSocketClient {
           }
           if (!requestSent) {
             if (line.startsWith("ERROR:")) {
+              if (line.includes("Unknown command 'auth'")) {
+                sendRequest();
+                continue;
+              }
               finish(new Error(line));
               return;
             }
@@ -703,7 +706,7 @@ class FeedApp {
       case "exitPlan":
         return ["deny", "always", "manual", "ultraplan", "bypass"].includes(action);
       case "question":
-        return action.startsWith("option:");
+        return action === "default" || action.startsWith("option:");
       default:
         return false;
     }
@@ -747,10 +750,12 @@ class FeedApp {
         return undefined;
       }
       const selected = this.questionSelections.get(item.requestId) ?? new Set<string>();
-      return item.questionOptions.map((option) => option.id).filter((id) => selected.has(id));
+      return item.questionOptions
+        .filter((option) => selected.has(option.id))
+        .map((option) => option.label);
     }
-    const option = questionOption(item, action);
-    return option ? [option.id] : undefined;
+    const option = action === "default" ? item.questionOptions[0] : questionOption(item, action);
+    return option ? [option.label] : undefined;
   }
 }
 
