@@ -154,7 +154,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) else {
             return nil
         }
-        guard shouldAcceptAction(at: point), let button = buttons[slot] else { return nil }
+        guard shouldAcceptAction(at: point) else { return nil }
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
             _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
@@ -165,7 +165,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             }
         }
         #endif
-        return button
+        return self
     }
 
     override func mouseDown(with event: NSEvent) {
