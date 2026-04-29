@@ -76,6 +76,10 @@ extension TerminalController {
 
         if let ttyTarget { return ttyTarget }
         if let preferredSurfaceId,
+           let surfaceTarget = targetForSurface(preferredSurfaceId, tabManagers: managers) {
+            return surfaceTarget
+        }
+        if let preferredSurfaceId,
            let selected = selectedWorkspace(in: managers),
            selected.panels[preferredSurfaceId] != nil {
             return TerminalCallerNotificationTarget(workspace: selected, surfaceId: preferredSurfaceId)
@@ -130,6 +134,18 @@ extension TerminalController {
                     where workspace.panels[surfaceId] != nil && normalizedTTYName(candidateTTY) == ttyName {
                     return TerminalCallerNotificationTarget(workspace: workspace, surfaceId: surfaceId)
                 }
+            }
+        }
+        return nil
+    }
+
+    private static func targetForSurface(
+        _ surfaceId: UUID,
+        tabManagers: [TabManager]
+    ) -> TerminalCallerNotificationTarget? {
+        for manager in tabManagers {
+            for workspace in manager.tabs where workspace.panels[surfaceId] != nil {
+                return TerminalCallerNotificationTarget(workspace: workspace, surfaceId: surfaceId)
             }
         }
         return nil
