@@ -404,7 +404,7 @@ private struct ModeBarButton: View {
                     pendingChip
                 }
             }
-            .foregroundColor(isSelected ? .primary : .secondary)
+            .foregroundStyle(foregroundColor)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
@@ -438,12 +438,22 @@ private struct ModeBarButton: View {
         return mode.label
     }
 
-    private var backgroundColor: Color {
+    private var foregroundColor: Color {
         if isSelected {
-            return Color.primary.opacity(0.10)
+            return Color(nsColor: .labelColor)
         }
         if isHovered {
-            return Color.primary.opacity(0.05)
+            return Color(nsColor: .labelColor).opacity(0.88)
+        }
+        return Color(nsColor: .secondaryLabelColor)
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color(nsColor: .controlAccentColor).opacity(0.16)
+        }
+        if isHovered {
+            return Color(nsColor: .labelColor).opacity(0.06)
         }
         return Color.clear
     }
