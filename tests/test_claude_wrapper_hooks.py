@@ -45,6 +45,7 @@ def run_wrapper(
     argv: list[str],
     node_options: str | None = None,
     tmpdir: str | None = None,
+    xdg_cache_home: str | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -168,6 +169,8 @@ exit 0
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
+        if xdg_cache_home is not None:
+            env["XDG_CACHE_HOME"] = xdg_cache_home
         if node_options is not None:
             env["NODE_OPTIONS"] = node_options
 
@@ -367,13 +370,15 @@ def test_live_socket_does_not_duplicate_bypass_availability_flag(failures: list[
 def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-tmp-") as td:
         tmpdir = Path(td)
-        guard_dir = tmpdir / "cmux-claude-node-options"
+        # Mirror the wrapper's XDG_CACHE_HOME override layout:
+        # ${XDG_CACHE_HOME}/cmux/cmux-claude-node-options/.
+        guard_dir = tmpdir / "cmux" / "cmux-claude-node-options"
         guard_dir.mkdir(parents=True, exist_ok=True)
         (guard_dir / "restore-node-options.XXXXXX.cjs").write_text("stale", encoding="utf-8")
         code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
             socket_state="live",
             argv=["hello"],
-            tmpdir=str(tmpdir),
+            xdg_cache_home=str(tmpdir),
         )
     expect(code == 0, f"stale mktemp literal: wrapper exited {code}: {stderr}", failures)
     expect("mktemp:" not in stderr, f"stale mktemp literal: unexpected mktemp warning: {stderr!r}", failures)

@@ -314,7 +314,19 @@ func writeShimIfChanged(path string, content string) error {
 }
 
 func ensureClaudeNodeOptionsRestoreModule() (string, error) {
-	dir := filepath.Join(os.TempDir(), "cmux-claude-node-options")
+	// Use the user's cache directory rather than os.TempDir() so the guard
+	// module survives macOS `periodic` cleanup of /var/folders/.../T/
+	// (which reaps temp files after ~3 days of no access and breaks
+	// long-running Claude sessions). The path must not contain whitespace,
+	// since Node.js splits NODE_OPTIONS on whitespace and the
+	// --require=<path> flag is not quoted downstream.
+	cacheRoot, err := os.UserCacheDir()
+	if err != nil {
+		// Fall back to TempDir on systems without a discoverable user
+		// cache directory; the bug only reproduces on macOS today.
+		cacheRoot = os.TempDir()
+	}
+	dir := filepath.Join(cacheRoot, "cmux", "cmux-claude-node-options")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}

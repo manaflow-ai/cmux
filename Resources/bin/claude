@@ -92,8 +92,20 @@ fi
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    # Use a persistent cache directory rather than $TMPDIR so the guard
+    # module survives macOS `periodic` cleanup of /var/folders/.../T/
+    # (which reaps temp files after ~3 days of no access and breaks
+    # long-running Claude sessions). The directory must not contain
+    # whitespace, since Node.js splits NODE_OPTIONS on whitespace and
+    # the --require=<path> flag is not quoted downstream.
+    local guard_dir
+    if [[ -n "${XDG_CACHE_HOME:-}" ]]; then
+        guard_dir="${XDG_CACHE_HOME}/cmux/cmux-claude-node-options"
+    elif [[ "$(uname)" == "Darwin" ]]; then
+        guard_dir="${HOME}/Library/Caches/com.cmuxterm.app/cmux-claude-node-options"
+    else
+        guard_dir="${HOME}/.cache/cmux/cmux-claude-node-options"
+    fi
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path

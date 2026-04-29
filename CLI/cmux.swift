@@ -11488,7 +11488,20 @@ struct CMUXCLI {
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        // Use the user's cache directory rather than NSTemporaryDirectory()
+        // so the guard module survives macOS `periodic` cleanup of
+        // /var/folders/.../T/ (which reaps temp files after ~3 days of no
+        // access and breaks long-running Claude sessions). The path must
+        // not contain whitespace, since Node.js splits NODE_OPTIONS on
+        // whitespace and the --require=<path> flag is not quoted.
+        let cachesURL = try FileManager.default.url(
+            for: .cachesDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let root = cachesURL
+            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
             .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
