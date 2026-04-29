@@ -1684,6 +1684,13 @@ final class FileExplorerContainerView: NSView {
                 _ = focusSearchField()
                 return
             }
+            if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .files,
+                focusFirstItem: true,
+                preferredWindow: window
+            ) == true {
+                return
+            }
             if AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() == true {
                 return
             }
