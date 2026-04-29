@@ -184,7 +184,9 @@ final class WindowDecorationsController {
                 )
                 AppDelegate.shared?.toggleNotificationsPopover(animated: true, anchorView: anchorView)
             case .newTab:
+                let targetTabManager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)
                 _ = AppDelegate.shared?.performNewWorkspaceAction(
+                    tabManager: targetTabManager,
                     debugSource: "titlebar.minimalSidebarControl"
                 )
             }
