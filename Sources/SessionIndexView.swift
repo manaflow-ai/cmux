@@ -1897,6 +1897,10 @@ private struct SectionPopoverView: View {
             loadTask?.cancel()
             loadTask = nil
 
+            if !searchFieldFocused {
+                searchFieldFocused = true
+            }
+
             let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
             activeQuery = trimmed
             errorMessages = []
