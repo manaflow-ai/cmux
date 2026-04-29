@@ -68990,6 +68990,1485 @@
         }
       }
     },
+    "settings.search.alias.section.account": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "auth authentication login logout sign in sign out email user profile team"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "auth authentication login logout sign in sign out email user profile team 認証 ログイン ログアウト サインイン サインアウト メール ユーザー プロフィール チーム アカウント"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.app": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry 一般 環境設定 設定 動作 外観 ドック メニューバー 通知 サイドバー テレメトリ"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.terminal": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "shell scrollback scrollbar scroll bar ghostty tty pty"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "shell scrollback scrollbar scroll bar ghostty tty pty シェル スクロールバック スクロールバー ターミナル ghostty tty pty"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.sidebarAppearance": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "left rail navigation tint transparency opacity material color"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "left rail navigation tint transparency opacity material color 左サイドバー ナビゲーション 色 透明度 不透明度 マテリアル"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.automation": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "api cli control socket mcp agents hooks ports"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "api cli control socket mcp agents hooks ports api cli 制御 ソケット mcp エージェント フック ポート 自動化"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.browser": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "web webview address bar omnibar links urls embedded default browser"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "web webview address bar omnibar links urls embedded default browser ウェブ webview アドレスバー オムニバー リンク url 内蔵ブラウザ デフォルトブラウザ"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.browserImport": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "chrome safari firefox brave edge arc bookmarks history cookies profiles"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "chrome safari firefox brave edge arc bookmarks history cookies profiles chrome safari firefox brave edge arc ブックマーク 履歴 cookie プロファイル インポート"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.globalHotkey": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "system shortcut global keyboard show hide bring forward"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "system shortcut global keyboard show hide bring forward システム ショートカット グローバル ホットキー キーボード 表示 非表示 前面"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.keyboardShortcuts": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "keybinds key bindings hotkeys chords accelerators commands"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "keybinds key bindings hotkeys chords accelerators commands キーバインド キー割り当て ホットキー コード コマンド ショートカット"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.workspaceColors": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "tab colors palette accent badge selected highlight"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "tab colors palette accent badge selected highlight タブ 色 パレット アクセント バッジ 選択 ハイライト ワークスペース"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.settingsJSON": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "configuration config file json jsonc dotfile ~/.config schema docs"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "configuration config file json jsonc dotfile ~/.config schema docs 設定 構成 ファイル json jsonc ドットファイル スキーマ ドキュメント"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.section.reset": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "factory defaults restore clear preferences"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "factory defaults restore clear preferences 初期化 デフォルト 復元 リセット 設定を消去"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.account.account": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "auth authentication login logout signin sign-in signout sign-out email user profile stack team"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "auth authentication login logout signin sign-in signout sign-out email user profile stack team 認証 ログイン ログアウト サインイン サインアウト メール ユーザー プロフィール チーム アカウント"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.language": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.language locale l10n localization translation japanese english ja en nihongo restart"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.language locale l10n localization translation japanese english ja en nihongo restart 言語 地域 ロケール ローカライズ 翻訳 日本語 英語 再起動"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.appearance": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.appearance theme color scheme light mode dark mode system mode"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.appearance theme color scheme light mode dark mode system mode 外観 テーマ 配色 ライトモード ダークモード システムモード"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.app-icon": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.appIcon dock icon application icon app switcher alternate icon"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.appIcon dock icon application icon app switcher alternate icon アプリアイコン ドック アイコン アプリ切り替え 代替アイコン"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.new-workspace-placement": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.newWorkspacePlacement new tab insert position order top bottom end"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.newWorkspacePlacement new tab insert position order top bottom end 新規ワークスペース 新しいタブ 挿入位置 並び順 上 下 末尾"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.minimal-mode": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.minimalMode minimal layout simple chrome compact titlebar controls"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.minimalMode minimal layout simple chrome compact titlebar controls ミニマル 省スペース コンパクト タイトルバー 表示モード"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.keep-workspace-open": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 閉じる 最後のペイン サーフェス ワークスペースを残す コマンドw"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.focus-pane-first-click": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation クリック フォーカス マウス 最初のクリック ペインを選択"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.preferred-editor": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor エディタ ファイルを開く vscode visual studio code zed sublime cursor"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.terminal-config": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "ghostty config configuration terminal settings preview merged file reload"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "ghostty config configuration terminal settings preview merged file reload ghostty 設定 構成 ターミナル プレビュー マージ ファイル 再読み込み"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.markdown-viewer": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme md markdown mdx ビューア プレビュー readme 表示"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.reorder-notification": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.reorderOnNotification notification reorder move workspace top unread sort"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.reorderOnNotification notification reorder move workspace top unread sort 通知 並べ替え ワークスペースを上へ 未読 ソート"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.dock-badge": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.dockBadge badge dock unread count icon notifications red bubble"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.dockBadge badge dock unread count icon notifications red bubble ドック バッジ 未読 件数 アイコン 通知 赤丸"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.menu-bar-only": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab メニューバーのみ ドックなし ドック非表示 アプリ切り替え cmd-tab command-tab"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.show-menu-bar": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.showInMenuBar menubar menu bar status item tray extra"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.showInMenuBar menubar menu bar status item tray extra メニューバー ステータス項目 トレイ メニューエクストラ 表示"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.unread-pane-ring": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.unreadPaneRing blue border unread ring notification pane outline"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.unreadPaneRing blue border unread ring notification pane outline 未読 青い枠 リング 通知 ペイン アウトライン"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.pane-flash": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.paneFlash flash blink highlight pane notification pulse"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.paneFlash flash blink highlight pane notification pulse フラッシュ 点滅 ハイライト ペイン 通知"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.desktop-notifications": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "macos desktop notifications system settings permission alerts notify test"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "macos desktop notifications system settings permission alerts notify test macos デスクトップ通知 システム設定 権限 アラート テスト"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.notification-sound": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.sound notifications.customSoundFilePath sound audio alert chime beep custom file wav mp3 caf aiff"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.sound notifications.customSoundFilePath sound audio alert chime beep custom file wav mp3 caf aiff 通知音 サウンド 音 アラート チャイム ビープ カスタムファイル"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.notification-command": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.command shell command hook script env environment variable done agent"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "notifications.command shell command hook script env environment variable done agent 通知コマンド シェル コマンド フック スクリプト 環境変数 完了 エージェント"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.telemetry": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy テレメトリ 分析 クラッシュレポート 使用状況 匿名 プライバシー"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.warn-before-quit": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app 終了 確認 command-q cmd-q アプリを閉じる 警告"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.rename-selects-name": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.renameSelectsExistingName rename select all existing title command palette workspace name"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.renameSelectsExistingName rename select all existing title command palette workspace name 名前変更 既存名を選択 タイトル コマンドパレット ワークスペース名"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.palette-search-all": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown コマンドパレット すべて検索 サーフェス ターミナル ブラウザ markdown"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.hide-sidebar-details": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail サイドバー コンパクト 詳細を隠す タイトルのみ 左レール"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.sidebar-branch-layout": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.branchLayout git branch layout vertical inline cwd directory"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.branchLayout git branch layout vertical inline cwd directory git ブランチ レイアウト 縦 インライン cwd ディレクトリ"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.show-notification-message": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showNotificationMessage latest message unread notification text sidebar"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showNotificationMessage latest message unread notification text sidebar 最新メッセージ 未読 通知 テキスト サイドバー"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.show-branch-directory": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showBranchDirectory git branch cwd path directory folder repo sidebar"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showBranchDirectory git branch cwd path directory folder repo sidebar git ブランチ cwd パス ディレクトリ フォルダ リポジトリ サイドバー"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.show-pull-requests": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showPullRequests pr mr review github gitlab bitbucket pull request merge request"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showPullRequests pr mr review github gitlab bitbucket pull request merge request pr mr レビュー github gitlab bitbucket プルリクエスト マージリクエスト"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.open-pr-links": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.openPullRequestLinksInCmuxBrowser pr links github browser default external embedded"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.openPullRequestLinksInCmuxBrowser pr links github browser default external embedded pr リンク github ブラウザ デフォルト 外部 内蔵"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.open-port-links": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.openPortLinksInCmuxBrowser ports localhost links browser default external embedded"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.openPortLinksInCmuxBrowser ports localhost links browser default external embedded ポート localhost リンク ブラウザ デフォルト 外部 内蔵"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.show-ssh": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showSSH remote host target ssh server"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showSSH remote host target ssh server ssh リモート ホスト 接続先 サーバー"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.show-ports": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showPorts localhost port listener dev server url"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showPorts localhost port listener dev server url localhost ポート リスナー 開発サーバー url"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.show-log": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showLog log status latest message imperative"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showLog log status latest message imperative ログ ステータス 最新メッセージ imperative"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.show-progress": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showProgress progress bar percent status set_progress"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showProgress progress bar percent status set_progress 進捗 プログレスバー パーセント ステータス set_progress"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.app.show-metadata": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showCustomMetadata metadata meta report_meta status custom block"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebar.showCustomMetadata metadata meta report_meta status custom block メタデータ meta report_meta ステータス カスタム ブロック"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.terminal.scrollbar": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui ターミナル スクロールバック スクロールバー 右端 代替画面 tui"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.sidebarAppearance.match-terminal": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync 透明 背景 マテリアル ターミナル背景 同期"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.sidebarAppearance.light-tint": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebarAppearance.lightModeTintColor light color sidebar tint hex daytime"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebarAppearance.lightModeTintColor light color sidebar tint hex daytime ライトモード 色 サイドバー tint hex 昼"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.sidebarAppearance.dark-tint": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebarAppearance.darkModeTintColor dark color sidebar tint hex nighttime"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebarAppearance.darkModeTintColor dark color sidebar tint hex nighttime ダークモード 色 サイドバー tint hex 夜"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.sidebarAppearance.tint-opacity": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebarAppearance.tintOpacity alpha transparency intensity blend"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "sidebarAppearance.tintOpacity alpha transparency intensity blend 透明度 不透明度 alpha 強さ ブレンド"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.sidebarAppearance.reset-tint": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "restore default clear tint colors opacity"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "restore default clear tint colors opacity デフォルトに戻す 色を消す tint 透明度"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.automation.socket-mode": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.socketControlMode api socket unix domain control server auth allow password disabled"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.socketControlMode api socket unix domain control server auth allow password disabled api ソケット unix domain 制御 サーバー 認証 許可 パスワード 無効"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.automation.socket-password": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.socketPassword auth token credential secret password access key"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.socketPassword auth token credential secret password access key ソケット パスワード 認証 トークン 資格情報 シークレット アクセスキー"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.automation.claude-code": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.claudeCodeIntegration claude code hooks agent integration status notifications"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.claudeCodeIntegration claude code hooks agent integration status notifications claude code フック エージェント 連携 通知"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.automation.claude-path": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.claudeBinaryPath claude binary executable path cli command custom"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.claudeBinaryPath claude binary executable path cli command custom claude バイナリ 実行ファイル パス cli コマンド カスタム"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.automation.cursor": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.cursorIntegration cursor ide agent hooks notifications"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.cursorIntegration cursor ide agent hooks notifications cursor ide エージェント フック 通知 連携"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.automation.gemini": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.geminiIntegration gemini cli google agent hooks notifications"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.geminiIntegration gemini cli google agent hooks notifications gemini cli google エージェント フック 通知 連携"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.automation.port-base": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.portBase cmux_port start first base env environment variable"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.portBase cmux_port start first base env environment variable cmux_port 開始 最初 ベース 環境変数 ポート"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.automation.port-range": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.portRange cmux_port_end range size count env ports"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "automation.portRange cmux_port_end range size count env ports cmux_port_end 範囲 サイズ 個数 環境変数 ポート"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.enable-browser": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.enabled enable disable webview embedded browser tabs links"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.enabled enable disable webview embedded browser tabs links ブラウザ 有効 無効 webview 内蔵ブラウザ タブ リンク"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.search-engine": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider オムニバー アドレスバー google duckduckgo bing 検索エンジン 検索プロバイダ"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.search-suggestions": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.showSearchSuggestions suggest autocomplete address bar search suggestions サジェスト 補完 アドレスバー 検索候補"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.theme": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.theme web page theme color scheme light dark system"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.theme web page theme color scheme light dark system ウェブページ テーマ 配色 ライト ダーク システム"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.terminal-links": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href クリック url ターミナルリンク ブラウザで開く href"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.intercept-open": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept open コマンド http https url ターミナル インターセプト"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.host-whitelist": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser 許可リスト ホワイトリスト ホスト ワイルドカード ドメイン 内蔵ブラウザ"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.external-patterns": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.urlsToAlwaysOpenExternally denylist blocklist regex rules external default browser"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.urlsToAlwaysOpenExternally denylist blocklist regex rules external default browser 拒否リスト ブロックリスト regex ルール 外部 デフォルトブラウザ"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.http-allowlist": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.insecureHttpHostsAllowedInEmbeddedBrowser insecure http allowlist localhost localtest non-https warning"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.insecureHttpHostsAllowedInEmbeddedBrowser insecure http allowlist localhost localtest non-https warning 安全でない http 許可リスト localhost localtest 非https 警告"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browserImport.import-data": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "chrome safari firefox brave edge arc bookmarks history cookies profiles migration"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "chrome safari firefox brave edge arc bookmarks history cookies profiles migration chrome safari firefox brave edge arc ブックマーク 履歴 cookie プロファイル 移行"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browserImport.import-hint": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss 空のタブ オンボーディング ヒント インポート プロンプト 非表示"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.react-grab": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.reactGrabVersion react grab npm version toolbar cmd-shift-g inspect component"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "browser.reactGrabVersion react grab npm version toolbar cmd-shift-g inspect component react grab npm バージョン ツールバー inspect コンポーネント"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.browser.history": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "clear browser history visited pages suggestions omnibar"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "clear browser history visited pages suggestions omnibar ブラウザ履歴 閲覧履歴 訪問ページ サジェスト オムニバー 消去"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.globalHotkey.enable-hotkey": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "global hotkey enable system wide show hide all windows"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "global hotkey enable system wide show hide all windows グローバルホットキー 有効 システム全体 表示 非表示 全ウィンドウ"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.globalHotkey.shortcut": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "global hotkey shortcut recorder key command option control"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "global hotkey shortcut recorder key command option control グローバルホットキー ショートカット レコーダー command option control"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.keyboardShortcuts.shortcut-chords": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json tmux prefix プレフィックス ctrl-b control-b 複数キー シーケンス コード settings json"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.keyboardShortcuts.show-hints": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills コマンド長押し ctrl 長押し キーヒント 修飾キー オーバーレイ ピル"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.keyboardShortcuts.shortcuts": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json ホットキー キーバインド キー割り当て コマンド キーボード ショートカット settings json"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.workspaceColors.indicator": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot ワークスペース タブ インジケータ アクティブ 色 ストライプ ドット"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.workspaceColors.selection": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "workspaceColors.selectionColor selected workspace color highlight background active tab"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "workspaceColors.selectionColor selected workspace color highlight background active tab 選択中 ワークスペース 色 ハイライト 背景 アクティブタブ"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.workspaceColors.badge": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "workspaceColors.notificationBadgeColor unread notification badge color dot count"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "workspaceColors.notificationBadgeColor unread notification badge color dot count 未読 通知 バッジ 色 ドット 件数"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.workspaceColors.palette": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "workspaceColors.colors workspace palette named colors custom color reset built-in"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "workspaceColors.colors workspace palette named colors custom color reset built-in ワークスペース パレット 名前付き色 カスタム色 リセット 組み込み"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.settingsJSON.open-file": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "open settings file json jsonc config editor ~/.config cmux preferences"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "open settings file json jsonc config editor ~/.config cmux preferences settings.json を開く json jsonc 設定ファイル エディタ ドットファイル 環境設定"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.settingsJSON.documentation": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "docs documentation schema reference settings json keys configuration"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "docs documentation schema reference settings json keys configuration ドキュメント スキーマ リファレンス settings json キー 構成"
+                      }
+                }
+          }
+    },
+    "settings.search.alias.setting.reset.reset-all": {
+          "extractionState": "manual",
+          "localizations": {
+                "en": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "factory reset restore defaults clear preferences"
+                      }
+                },
+                "ja": {
+                      "stringUnit": {
+                            "state": "translated",
+                            "value": "factory reset restore defaults clear preferences 初期化 リセット デフォルト 復元 設定を消去"
+                      }
+                }
+          }
+    },
     "settings.search.prompt": {
       "extractionState": "manual",
       "localizations": {
