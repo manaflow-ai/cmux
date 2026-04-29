@@ -6,6 +6,7 @@ final class WindowDecorationsController {
     private var trafficLightBaseFrames: [ObjectIdentifier: [NSWindow.ButtonType: NSRect]] = [:]
     private var minimalModeSidebarChromeHoverMonitor: Any?
     private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
+    private var lastKnownPresentationMode = WorkspacePresentationModeSettings.mode()
     private let minimalModeSidebarTitlebarClickTargets = NSMapTable<NSWindow, MinimalModeSidebarControlActionView>(
         keyOptions: .weakMemory,
         valueOptions: .strongMemory
@@ -54,6 +55,16 @@ final class WindowDecorationsController {
         }
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: handler))
         observers.append(center.addObserver(forName: NSWindow.didBecomeMainNotification, object: nil, queue: .main, using: handler))
+        observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.applyPresentationModeChangeIfNeeded()
+        })
+    }
+
+    private func applyPresentationModeChangeIfNeeded() {
+        let currentMode = WorkspacePresentationModeSettings.mode()
+        guard currentMode != lastKnownPresentationMode else { return }
+        lastKnownPresentationMode = currentMode
+        attachToExistingWindows()
     }
 
     private func installMinimalModeSidebarChromeHoverMonitor() {
