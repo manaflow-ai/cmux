@@ -86,6 +86,20 @@ enum SidebarBranchLayoutSettings {
     }
 }
 
+enum SidebarTabTitleFontSettings {
+    static let userDefaultsKey = "sidebarTitleFontSize"
+    static let defaultSize: Double = 12.5
+    static let minSize: Double = 9
+    static let maxSize: Double = 24
+
+    static func resolvedSize(defaults: UserDefaults = .standard) -> Double {
+        guard let number = defaults.object(forKey: userDefaultsKey) as? NSNumber else {
+            return defaultSize
+        }
+        return min(max(number.doubleValue, minSize), maxSize)
+    }
+}
+
 enum SidebarWorkspaceDetailSettings {
     static let hideAllDetailsKey = "sidebarHideAllDetails"
     static let showNotificationMessageKey = "sidebarShowNotificationMessage"

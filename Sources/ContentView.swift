@@ -9467,6 +9467,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+    let titleFontSize: Double
 
     init(defaults: UserDefaults = .standard) {
         sidebarShortcutHintXOffset = Self.double(
@@ -9523,6 +9524,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
         activeTabIndicatorStyle = SidebarActiveTabIndicatorSettings.current(defaults: defaults)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+        titleFontSize = SidebarTabTitleFontSettings.resolvedSize(defaults: defaults)
     }
 
     private static func bool(
@@ -12688,7 +12690,7 @@ private struct TabItemView: View, Equatable {
                 }
 
                 Text(workspaceSnapshot.title)
-                    .font(.system(size: 12.5, weight: titleFontWeight))
+                    .font(.system(size: settings.titleFontSize, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
