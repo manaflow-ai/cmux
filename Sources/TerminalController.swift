@@ -62,9 +62,7 @@ class TerminalController {
     private var tabManager: TabManager?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
     private nonisolated let myPid = getpid()
-    private nonisolated(unsafe) static var socketCommandPolicyDepth: Int = 0
-    private nonisolated(unsafe) static var socketCommandFocusAllowanceStack: [Bool] = []
-    private nonisolated static let socketCommandPolicyLock = NSLock()
+    private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenBacklog: Int32 = 128
     private nonisolated static let acceptFailureBaseBackoffMs = 10
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
@@ -261,9 +259,7 @@ class TerminalController {
     }
 
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
-        socketCommandPolicyLock.lock()
-        defer { socketCommandPolicyLock.unlock() }
-        return socketCommandPolicyDepth > 0
+        !currentSocketCommandFocusAllowanceStack().isEmpty
     }
 
     nonisolated static func socketCommandAllowsInAppFocusMutations() -> Bool {
@@ -271,9 +267,7 @@ class TerminalController {
     }
 
     private nonisolated static func allowsInAppFocusMutationsForActiveSocketCommand() -> Bool {
-        socketCommandPolicyLock.lock()
-        defer { socketCommandPolicyLock.unlock() }
-        return socketCommandFocusAllowanceStack.last ?? false
+        currentSocketCommandFocusAllowanceStack().last ?? false
     }
 
     private func socketCommandAllowsInAppFocusMutations() -> Bool {
@@ -307,18 +301,35 @@ class TerminalController {
 
     nonisolated func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, _ body: () -> T) -> T {
         let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(commandKey: commandKey, isV2: isV2)
-        Self.socketCommandPolicyLock.lock()
-        Self.socketCommandPolicyDepth += 1
-        Self.socketCommandFocusAllowanceStack.append(allowsFocusMutation)
-        Self.socketCommandPolicyLock.unlock()
+        var stack = Self.currentSocketCommandFocusAllowanceStack()
+        stack.append(allowsFocusMutation)
+        Self.setCurrentSocketCommandFocusAllowanceStack(stack)
         defer {
-            Self.socketCommandPolicyLock.lock()
-            if !Self.socketCommandFocusAllowanceStack.isEmpty {
-                _ = Self.socketCommandFocusAllowanceStack.popLast()
+            var stack = Self.currentSocketCommandFocusAllowanceStack()
+            if !stack.isEmpty {
+                _ = stack.popLast()
             }
-            Self.socketCommandPolicyDepth = max(0, Self.socketCommandPolicyDepth - 1)
-            Self.socketCommandPolicyLock.unlock()
+            Self.setCurrentSocketCommandFocusAllowanceStack(stack)
         }
+        return body()
+    }
+
+    private nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
+        Thread.current.threadDictionary[socketCommandFocusAllowanceStackKey] as? [Bool] ?? []
+    }
+
+    private nonisolated static func setCurrentSocketCommandFocusAllowanceStack(_ stack: [Bool]) {
+        if stack.isEmpty {
+            Thread.current.threadDictionary.removeObject(forKey: socketCommandFocusAllowanceStackKey)
+        } else {
+            Thread.current.threadDictionary[socketCommandFocusAllowanceStackKey] = stack
+        }
+    }
+
+    private nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
+        let previous = currentSocketCommandFocusAllowanceStack()
+        setCurrentSocketCommandFocusAllowanceStack(stack)
+        defer { setCurrentSocketCommandFocusAllowanceStack(previous) }
         return body()
     }
 
@@ -1421,6 +1432,23 @@ class TerminalController {
         }
     }
 
+    private nonisolated func socketWorkerFeedbackResponseIfNeeded(for command: String) -> String? {
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return nil
+        }
+
+        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard method == "feedback.submit" else { return nil }
+
+        let id: Any? = dict["id"]
+        let params = dict["params"] as? [String: Any] ?? [:]
+        return withSocketCommandPolicy(commandKey: method, isV2: true) {
+            v2Result(id: id, v2FeedbackSubmit(params: params))
+        }
+    }
+
     private nonisolated func startAcceptSource(listenerSocket: Int32, generation: UInt64) {
         let source = DispatchSource.makeReadSource(fileDescriptor: listenerSocket, queue: socketListenerQueue)
         source.setEventHandler { [weak self] in
@@ -1768,14 +1796,15 @@ class TerminalController {
         if let response = socketWorkerAuthResponseIfNeeded(for: command) {
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
+        if let response = socketWorkerFeedbackResponseIfNeeded(for: command) {
+            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        }
         if let response = socketWorkerCloudVMResponseIfNeeded(for: command) {
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
 
         let response = v2MainSync {
-            MainActor.assumeIsolated {
-                self.processCommand(command)
-            }
+            self.processCommand(command)
         }
         return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
@@ -3298,11 +3327,20 @@ class TerminalController {
     }
 
     private nonisolated func v2MainSync<T>(_ body: @MainActor () -> T) -> T {
+        let policyStack = Self.currentSocketCommandFocusAllowanceStack()
         if Thread.isMainThread {
-            return MainActor.assumeIsolated { body() }
+            return MainActor.assumeIsolated {
+                Self.withSocketCommandPolicyStack(policyStack) {
+                    body()
+                }
+            }
         }
         return DispatchQueue.main.sync {
-            MainActor.assumeIsolated { body() }
+            MainActor.assumeIsolated {
+                Self.withSocketCommandPolicyStack(policyStack) {
+                    body()
+                }
+            }
         }
     }
 
@@ -3375,7 +3413,7 @@ class TerminalController {
         case err(code: String, message: String, data: Any?)
     }
 
-    private func v2Result(id: Any?, _ res: V2CallResult) -> String {
+    private nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
         switch res {
         case .ok(let payload):
             return v2Ok(id: id, result: payload)
@@ -7521,7 +7559,7 @@ class TerminalController {
         ])
     }
 
-    private func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
         guard let email = params["email"] as? String else {
             return .err(code: "invalid_params", message: "Missing email", data: ["field": "email"])
         }

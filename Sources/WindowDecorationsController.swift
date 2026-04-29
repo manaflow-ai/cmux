@@ -19,6 +19,7 @@ final class WindowDecorationsController {
         if let minimalModeSidebarChromeHoverMonitor {
             NSEvent.removeMonitor(minimalModeSidebarChromeHoverMonitor)
         }
+        WindowMouseMovedEventsCoordinator.disableOwner(self)
     }
 
     func start() {
@@ -31,8 +32,10 @@ final class WindowDecorationsController {
     }
 
     func apply(to window: NSWindow) {
-        if isMainWorkspaceWindow(window) {
-            window.acceptsMouseMovedEvents = true
+        if isMainWorkspaceWindow(window), WorkspacePresentationModeSettings.isMinimal() {
+            WindowMouseMovedEventsCoordinator.enable(for: window, owner: self)
+        } else {
+            WindowMouseMovedEventsCoordinator.disable(for: window, owner: self)
         }
         let shouldHideButtons = shouldHideTrafficLights(for: window)
         hideStandardButtons(on: window, hidden: shouldHideButtons)
@@ -119,7 +122,11 @@ final class WindowDecorationsController {
             if event.type == .leftMouseDown,
                let slot = minimalModeSidebarControlActionSlot(window: window, locationInWindow: locationInWindow) {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
-                self.performMinimalModeSidebarControlAction(slot, window: window)
+                self.performMinimalModeSidebarControlAction(
+                    slot,
+                    window: window,
+                    locationInWindow: locationInWindow
+                )
                 return nil
             }
             if isHovering {
@@ -156,7 +163,8 @@ final class WindowDecorationsController {
 
     private func performMinimalModeSidebarControlAction(
         _ slot: MinimalModeSidebarControlActionSlot,
-        window: NSWindow
+        window: NSWindow,
+        locationInWindow: NSPoint
     ) {
         #if DEBUG
         _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
@@ -170,7 +178,11 @@ final class WindowDecorationsController {
             case .toggleSidebar:
                 _ = AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: window)
             case .showNotifications:
-                AppDelegate.shared?.toggleNotificationsPopover(animated: true)
+                let anchorView = NotificationsAnchorRegistry.shared.closestAnchor(
+                    in: window,
+                    to: locationInWindow
+                )
+                AppDelegate.shared?.toggleNotificationsPopover(animated: true, anchorView: anchorView)
             case .newTab:
                 _ = AppDelegate.shared?.performNewWorkspaceAction(
                     debugSource: "titlebar.minimalSidebarControl"

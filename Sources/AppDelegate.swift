@@ -4912,7 +4912,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            let activeContext = liveMainWindowContext(for: activeManager) {
             return activeContext.tabManager
         }
-        return mainWindowContexts.values.first?.tabManager
+        return mainWindowContexts.values.first { context in
+            resolvedWindow(for: context) != nil
+        }?.tabManager
     }
 
 #if DEBUG

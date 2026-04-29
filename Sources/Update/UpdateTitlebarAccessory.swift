@@ -119,6 +119,46 @@ final class TitlebarControlsViewModel: ObservableObject {
     weak var notificationsAnchorView: NSView?
 }
 
+final class NotificationsAnchorRegistry {
+    static let shared = NotificationsAnchorRegistry()
+
+    private let anchors = NSHashTable<NSView>.weakObjects()
+
+    private init() {}
+
+    func register(_ view: NSView) {
+        guard !anchors.contains(view) else { return }
+        anchors.add(view)
+    }
+
+    func closestAnchor(in window: NSWindow, to pointInWindow: NSPoint) -> NSView? {
+        anchors.allObjects
+            .compactMap { view -> (view: NSView, distance: CGFloat)? in
+                guard view.window === window else { return nil }
+                guard isVisibleAnchor(view) else { return nil }
+                let frameInWindow = view.convert(view.bounds, to: nil)
+                guard !frameInWindow.isEmpty else { return nil }
+                let center = NSPoint(x: frameInWindow.midX, y: frameInWindow.midY)
+                let dx = center.x - pointInWindow.x
+                let dy = center.y - pointInWindow.y
+                return (view, (dx * dx) + (dy * dy))
+            }
+            .min { $0.distance < $1.distance }?
+            .view
+    }
+
+    private func isVisibleAnchor(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            if candidate.isHidden || candidate.alphaValue <= 0 {
+                return false
+            }
+            current = candidate.superview
+        }
+        return true
+    }
+}
+
 private final class DetachedNotificationsPopoverDelegate: NSObject, NSPopoverDelegate {
     let onClose: () -> Void
 
@@ -174,6 +214,7 @@ struct NotificationsAnchorView: NSViewRepresentable {
         let view = AnchorNSView()
         view.onLayout = { [weak view] in
             guard let view else { return }
+            NotificationsAnchorRegistry.shared.register(view)
             onResolve(view)
         }
         return view
@@ -706,7 +747,7 @@ struct HiddenTitlebarSidebarControlsView: View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
 
         ZStack(alignment: .leading) {
-            WindowAccessor(dedupeByWindow: false) { window in
+            WindowAccessor { window in
                 hostWindowNumber = window.windowNumber
                 isHoveringWindowChrome = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
                 #if DEBUG
@@ -815,9 +856,12 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
         private var trackingArea: NSTrackingArea?
         private var localMouseMonitor: Any?
         private var isHovering = false
+        private weak var mouseMovedWindow: NSWindow?
+        private var isTrackingMouseMovedEvents = false
 
         deinit {
             removeLocalMouseMonitor()
+            stopMouseMovedTracking()
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
@@ -839,14 +883,33 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if let window {
-                window.acceptsMouseMovedEvents = true
+                refreshMouseMovedTracking(in: window)
                 installLocalMouseMonitorIfNeeded()
                 updateHoverFromCurrentMouseLocation()
                 recordFrameForUITest()
             } else {
+                stopMouseMovedTracking()
                 removeLocalMouseMonitor()
                 emitHoverChanged(false)
             }
+        }
+
+        private func refreshMouseMovedTracking(in window: NSWindow) {
+            guard !isTrackingMouseMovedEvents || mouseMovedWindow !== window else { return }
+            stopMouseMovedTracking()
+            WindowMouseMovedEventsCoordinator.enable(for: window, owner: self)
+            mouseMovedWindow = window
+            isTrackingMouseMovedEvents = true
+        }
+
+        private func stopMouseMovedTracking() {
+            if let mouseMovedWindow {
+                WindowMouseMovedEventsCoordinator.disable(for: mouseMovedWindow, owner: self)
+            } else {
+                WindowMouseMovedEventsCoordinator.disableOwner(self)
+            }
+            mouseMovedWindow = nil
+            isTrackingMouseMovedEvents = false
         }
 
         override func layout() {

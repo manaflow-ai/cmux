@@ -2,6 +2,68 @@ import AppKit
 import Bonsplit
 import SwiftUI
 
+enum WindowMouseMovedEventsCoordinator {
+    private struct Record {
+        weak var window: NSWindow?
+        let previousValue: Bool
+        var owners: Set<ObjectIdentifier>
+    }
+
+    private nonisolated(unsafe) static var records: [ObjectIdentifier: Record] = [:]
+    private nonisolated static let lock = NSLock()
+
+    static func enable(for window: NSWindow, owner: AnyObject) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let windowKey = ObjectIdentifier(window)
+        let ownerKey = ObjectIdentifier(owner)
+        if var record = records[windowKey] {
+            record.owners.insert(ownerKey)
+            records[windowKey] = record
+        } else {
+            records[windowKey] = Record(
+                window: window,
+                previousValue: window.acceptsMouseMovedEvents,
+                owners: [ownerKey]
+            )
+        }
+        window.acceptsMouseMovedEvents = true
+    }
+
+    static func disable(for window: NSWindow, owner: AnyObject) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let windowKey = ObjectIdentifier(window)
+        guard var record = records[windowKey] else { return }
+        record.owners.remove(ObjectIdentifier(owner))
+        if record.owners.isEmpty {
+            record.window?.acceptsMouseMovedEvents = record.previousValue
+            records.removeValue(forKey: windowKey)
+        } else {
+            records[windowKey] = record
+        }
+    }
+
+    static func disableOwner(_ owner: AnyObject) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let ownerKey = ObjectIdentifier(owner)
+        for windowKey in Array(records.keys) {
+            guard var record = records[windowKey] else { continue }
+            record.owners.remove(ownerKey)
+            if record.owners.isEmpty {
+                record.window?.acceptsMouseMovedEvents = record.previousValue
+                records.removeValue(forKey: windowKey)
+            } else {
+                records[windowKey] = record
+            }
+        }
+    }
+}
+
 private func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
     String(format: "(%.1f,%.1f)", point.x, point.y)
 }
@@ -977,14 +1039,40 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
 
     private final class PassthroughView: NSView {
         var isEnabled = false
+        private weak var mouseMovedWindow: NSWindow?
+        private var isTrackingMouseMovedEvents = false
+
+        deinit {
+            stopMouseMovedTracking()
+        }
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if isEnabled {
-                window?.acceptsMouseMovedEvents = true
+            refreshMouseMovedTracking()
+        }
+
+        func refreshMouseMovedTracking() {
+            guard isEnabled, let window else {
+                stopMouseMovedTracking()
+                return
             }
+            guard !isTrackingMouseMovedEvents || mouseMovedWindow !== window else { return }
+            stopMouseMovedTracking()
+            WindowMouseMovedEventsCoordinator.enable(for: window, owner: self)
+            mouseMovedWindow = window
+            isTrackingMouseMovedEvents = true
+        }
+
+        private func stopMouseMovedTracking() {
+            if let mouseMovedWindow {
+                WindowMouseMovedEventsCoordinator.disable(for: mouseMovedWindow, owner: self)
+            } else {
+                WindowMouseMovedEventsCoordinator.disableOwner(self)
+            }
+            mouseMovedWindow = nil
+            isTrackingMouseMovedEvents = false
         }
     }
 
@@ -999,8 +1087,6 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let view = nsView as? PassthroughView else { return }
         view.isEnabled = isEnabled
-        if isEnabled {
-            view.window?.acceptsMouseMovedEvents = true
-        }
+        view.refreshMouseMovedTracking()
     }
 }
