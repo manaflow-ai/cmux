@@ -9811,6 +9811,8 @@ struct VerticalTabsSidebar: View {
                 }
                 .background(
                     SidebarScrollViewResolver { scrollView in
+                        scrollView?.scrollerStyle = .overlay
+                        scrollView?.autohidesScrollers = true
                         dragAutoScrollController.attach(scrollView: scrollView)
                     }
                     .frame(width: 0, height: 0)
@@ -12189,7 +12191,7 @@ private struct SidebarEmptyArea: View {
     var body: some View {
         Color.clear
             .contentShape(Rectangle())
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity)
             .onTapGesture(count: 2) {
                 tabManager.addWorkspace(placementOverride: .end)
                 if let selectedId = tabManager.selectedTabId {
