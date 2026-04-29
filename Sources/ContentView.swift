@@ -9803,16 +9803,24 @@ struct VerticalTabsSidebar: View {
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         GeometryReader { geometryProxy in
             ScrollViewReader { scrollProxy in
-                ScrollView {
+                ScrollView(.vertical) {
                     workspaceScrollContent(
                         renderContext: renderContext,
                         minHeight: geometryProxy.size.height
                     )
                 }
-                .background(
-                    SidebarScrollViewResolver { scrollView in
-                        dragAutoScrollController.attach(scrollView: scrollView)
-                    }
+                .scrollIndicators(.automatic)
+                    .background(
+                        SidebarScrollViewResolver { scrollView in
+                            if let scrollView {
+                                scrollView.hasHorizontalScroller = false
+                                scrollView.scrollerStyle = .overlay
+                                scrollView.autohidesScrollers = true
+                                let shouldShowScrollbar = renderContext.workspaceCount > 1
+                                scrollView.hasVerticalScroller = shouldShowScrollbar
+                            }
+                            dragAutoScrollController.attach(scrollView: scrollView)
+                        }
                     .frame(width: 0, height: 0)
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
@@ -9890,8 +9898,8 @@ struct VerticalTabsSidebar: View {
                 workspaceRow(tab, renderContext: renderContext)
             }
         }
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func workspaceRow(
