@@ -3021,6 +3021,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
         let includeAllWindows = v2Bool(params, "all_windows") ?? false
+        let includeProcesses = v2Bool(params, "include_processes") ?? false
 
         var identifyParams: [String: Any] = [:]
         if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
@@ -3096,13 +3097,14 @@ class TerminalController {
             )
         }
 
-        let processSnapshot = CmuxTopProcessSnapshot.capture()
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         var annotatedWindows = windowNodes
         let totalPIDs = v2AnnotateTopWindows(
             &annotatedWindows,
             processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences
+            browserPIDOccurrences: browserPIDOccurrences,
+            includeProcesses: includeProcesses
         )
 
         return .ok([
@@ -3318,7 +3320,8 @@ class TerminalController {
     private func v2AnnotateTopWindows(
         _ windows: inout [[String: Any]],
         processSnapshot: CmuxTopProcessSnapshot,
-        browserPIDOccurrences: [Int: Int]
+        browserPIDOccurrences: [Int: Int],
+        includeProcesses: Bool
     ) -> Set<Int> {
         var allPIDs: Set<Int> = []
         for index in windows.indices {
@@ -3329,7 +3332,8 @@ class TerminalController {
                     v2AnnotateTopWorkspace(
                         &workspaces[workspaceIndex],
                         processSnapshot: processSnapshot,
-                        browserPIDOccurrences: browserPIDOccurrences
+                        browserPIDOccurrences: browserPIDOccurrences,
+                        includeProcesses: includeProcesses
                     )
                 )
             }
@@ -3343,7 +3347,8 @@ class TerminalController {
     private func v2AnnotateTopWorkspace(
         _ workspace: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
-        browserPIDOccurrences: [Int: Int]
+        browserPIDOccurrences: [Int: Int],
+        includeProcesses: Bool
     ) -> Set<Int> {
         var workspacePIDs: Set<Int> = []
 
@@ -3353,7 +3358,8 @@ class TerminalController {
                 v2AnnotateTopPane(
                     &panes[paneIndex],
                     processSnapshot: processSnapshot,
-                    browserPIDOccurrences: browserPIDOccurrences
+                    browserPIDOccurrences: browserPIDOccurrences,
+                    includeProcesses: includeProcesses
                 )
             )
         }
@@ -3361,7 +3367,13 @@ class TerminalController {
 
         var tags = workspace["tags"] as? [[String: Any]] ?? []
         for tagIndex in tags.indices {
-            workspacePIDs.formUnion(v2AnnotateTopTag(&tags[tagIndex], processSnapshot: processSnapshot))
+            workspacePIDs.formUnion(
+                v2AnnotateTopTag(
+                    &tags[tagIndex],
+                    processSnapshot: processSnapshot,
+                    includeProcesses: includeProcesses
+                )
+            )
         }
         workspace["tags"] = tags
 
@@ -3372,7 +3384,8 @@ class TerminalController {
     private func v2AnnotateTopPane(
         _ pane: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
-        browserPIDOccurrences: [Int: Int]
+        browserPIDOccurrences: [Int: Int],
+        includeProcesses: Bool
     ) -> Set<Int> {
         var panePIDs: Set<Int> = []
         var surfaces = pane["surfaces"] as? [[String: Any]] ?? []
@@ -3381,7 +3394,8 @@ class TerminalController {
                 v2AnnotateTopSurface(
                     &surfaces[surfaceIndex],
                     processSnapshot: processSnapshot,
-                    browserPIDOccurrences: browserPIDOccurrences
+                    browserPIDOccurrences: browserPIDOccurrences,
+                    includeProcesses: includeProcesses
                 )
             )
         }
@@ -3393,7 +3407,8 @@ class TerminalController {
     private func v2AnnotateTopSurface(
         _ surface: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
-        browserPIDOccurrences: [Int: Int]
+        browserPIDOccurrences: [Int: Int],
+        includeProcesses: Bool
     ) -> Set<Int> {
         var rootPIDs: Set<Int> = []
         var surfacePIDs: Set<Int> = []
@@ -3416,7 +3431,8 @@ class TerminalController {
                 v2AnnotateTopWebView(
                     &webviews[webviewIndex],
                     processSnapshot: processSnapshot,
-                    browserPIDOccurrences: browserPIDOccurrences
+                    browserPIDOccurrences: browserPIDOccurrences,
+                    includeProcesses: includeProcesses
                 )
             )
         }
@@ -3424,14 +3440,15 @@ class TerminalController {
 
         surface["root_pids"] = rootPIDs.sorted()
         surface["resources"] = processSnapshot.summaryPayload(for: surfacePIDs, rootPIDs: rootPIDs)
-        surface["processes"] = processSnapshot.processTreePayload(for: surfacePIDs)
+        surface["processes"] = includeProcesses ? processSnapshot.processTreePayload(for: surfacePIDs) : []
         return surfacePIDs
     }
 
     private func v2AnnotateTopWebView(
         _ webview: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
-        browserPIDOccurrences: [Int: Int]
+        browserPIDOccurrences: [Int: Int],
+        includeProcesses: Bool
     ) -> Set<Int> {
         guard let pid = v2TopInt(webview["pid"]) else {
             webview["shared_process_count"] = NSNull()
@@ -3446,13 +3463,14 @@ class TerminalController {
         webview["shared_process_count"] = browserPIDOccurrences[pid] ?? 1
         webview["root_pids"] = rootPIDs.sorted()
         webview["resources"] = processSnapshot.summaryPayload(for: pids, rootPIDs: rootPIDs)
-        webview["processes"] = processSnapshot.processTreePayload(for: pids)
+        webview["processes"] = includeProcesses ? processSnapshot.processTreePayload(for: pids) : []
         return pids
     }
 
     private func v2AnnotateTopTag(
         _ tag: inout [String: Any],
-        processSnapshot: CmuxTopProcessSnapshot
+        processSnapshot: CmuxTopProcessSnapshot,
+        includeProcesses: Bool
     ) -> Set<Int> {
         guard let pid = v2TopInt(tag["pid"]) else {
             tag["root_pids"] = []
@@ -3465,7 +3483,7 @@ class TerminalController {
         let pids = processSnapshot.expandedPIDs(rootPIDs: rootPIDs)
         tag["root_pids"] = rootPIDs.sorted()
         tag["resources"] = processSnapshot.summaryPayload(for: pids, rootPIDs: rootPIDs)
-        tag["processes"] = processSnapshot.processTreePayload(for: pids)
+        tag["processes"] = includeProcesses ? processSnapshot.processTreePayload(for: pids) : []
         return pids
     }
 

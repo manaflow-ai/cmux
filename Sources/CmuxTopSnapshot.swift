@@ -40,16 +40,26 @@ final class CmuxTopProcessSnapshot {
     private static let pidPathBufferSize = 4096
 
     let sampledAt: Date
+    private let includesProcessDetails: Bool
     private let processesByPID: [Int: CmuxTopProcessInfo]
     private let childrenByParentPID: [Int: [Int]]
     private let pidsByTTYDevice: [Int64: [Int]]
 
-    static func capture() -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot(processes: allProcesses(), sampledAt: Date())
+    static func capture(includeProcessDetails: Bool = false) -> CmuxTopProcessSnapshot {
+        CmuxTopProcessSnapshot(
+            processes: allProcesses(includeProcessDetails: includeProcessDetails),
+            sampledAt: Date(),
+            includesProcessDetails: includeProcessDetails
+        )
     }
 
-    private init(processes: [CmuxTopProcessInfo], sampledAt: Date) {
+    private init(
+        processes: [CmuxTopProcessInfo],
+        sampledAt: Date,
+        includesProcessDetails: Bool
+    ) {
         self.sampledAt = sampledAt
+        self.includesProcessDetails = includesProcessDetails
         self.processesByPID = Dictionary(uniqueKeysWithValues: processes.map { ($0.pid, $0) })
 
         var children: [Int: [Int]] = [:]
@@ -71,7 +81,8 @@ final class CmuxTopProcessSnapshot {
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
             "source": "sysctl+proc_pidinfo",
             "cpu_source": "kinfo_proc.p_pctcpu",
-            "memory_source": "proc_pidinfo.PROC_PIDTASKINFO"
+            "memory_source": "proc_pidinfo.PROC_PIDTASKINFO",
+            "process_details": includesProcessDetails
         ]
     }
 
@@ -179,7 +190,7 @@ final class CmuxTopProcessSnapshot {
         return "\(process?.name ?? ""):\(pid)"
     }
 
-    private static func allProcesses() -> [CmuxTopProcessInfo] {
+    private static func allProcesses(includeProcessDetails: Bool) -> [CmuxTopProcessInfo] {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         let stride = MemoryLayout<kinfo_proc>.stride
 
@@ -195,7 +206,9 @@ final class CmuxTopProcessSnapshot {
             }
             if result == 0 {
                 let count = min(processes.count, length / stride)
-                return processes.prefix(count).compactMap(processInfo(from:))
+                return processes.prefix(count).compactMap {
+                    processInfo(from: $0, includeProcessDetails: includeProcessDetails)
+                }
             }
 
             guard errno == ENOMEM else {
@@ -205,13 +218,17 @@ final class CmuxTopProcessSnapshot {
         return []
     }
 
-    private static func processInfo(from kinfo: kinfo_proc) -> CmuxTopProcessInfo? {
+    private static func processInfo(
+        from kinfo: kinfo_proc,
+        includeProcessDetails: Bool
+    ) -> CmuxTopProcessInfo? {
         let pid = Int(kinfo.kp_proc.p_pid)
         guard pid > 0 else { return nil }
 
         let taskInfo = taskInfo(for: pid)
-        let name = processName(pid: pid, fallback: fixedString(kinfo.kp_proc.p_comm))
-        let path = processPath(pid: pid)
+        let fallbackName = fixedString(kinfo.kp_proc.p_comm)
+        let name = includeProcessDetails ? processName(pid: pid, fallback: fallbackName) : fallbackName
+        let path = includeProcessDetails ? processPath(pid: pid) : nil
         let rawTTY = Int64(kinfo.kp_eproc.e_tdev)
         let ttyDevice = rawTTY > 0 ? rawTTY : nil
 
