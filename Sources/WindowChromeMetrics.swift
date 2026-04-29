@@ -21,6 +21,11 @@ enum MinimalModeChromeMetrics {
 enum RightSidebarChromeMetrics {
     static let titlebarHeight: CGFloat = WindowChromeMetrics.appTitlebarHeight
     static let secondaryBarHeight: CGFloat = WindowChromeMetrics.secondaryTitlebarHeight
+    static let barHorizontalPadding: CGFloat = 8
+    static let barVerticalPadding: CGFloat = 3
+    static let controlHeight: CGFloat = secondaryBarHeight - (barVerticalPadding * 2)
+    static let controlHorizontalPadding: CGFloat = 8
+    static let controlCornerRadius: CGFloat = 5
 }
 
 enum SidebarWorkspaceListMetrics {

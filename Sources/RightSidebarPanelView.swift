@@ -214,10 +214,7 @@ struct RightSidebarPanelView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.leading, 4)
-        .padding(.trailing, 6)
-        .padding(.vertical, 4)
-        .frame(height: titlebarHeight)
+        .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
         .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
@@ -398,13 +395,7 @@ private struct ModeBarButton: View {
                     pendingChip
                 }
             }
-            .foregroundColor(isSelected ? .primary : .secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(backgroundColor)
-            )
+            .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered)
             .overlay(alignment: .trailing) {
                 if showsShortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
@@ -430,16 +421,6 @@ private struct ModeBarButton: View {
             )
         }
         return mode.label
-    }
-
-    private var backgroundColor: Color {
-        if isSelected {
-            return Color.primary.opacity(0.10)
-        }
-        if isHovered {
-            return Color.primary.opacity(0.05)
-        }
-        return Color.clear
     }
 
     /// Subtle inline count chip that sits after the label instead of

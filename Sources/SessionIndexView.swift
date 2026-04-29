@@ -110,7 +110,9 @@ struct SessionIndexView: View {
             }
             .toggleStyle(.checkbox)
             .controlSize(.small)
+            .frame(height: RightSidebarChromeMetrics.controlHeight)
             .disabled(store.currentDirectory == nil)
+            .accessibilityIdentifier("SessionScopeToggle.thisFolder")
 
             Button {
                 store.reload()
@@ -122,9 +124,7 @@ struct SessionIndexView: View {
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload sessions"))
             .disabled(store.isLoading)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .frame(height: RightSidebarChromeMetrics.secondaryBarHeight)
+        .rightSidebarChromeBar()
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
@@ -353,19 +353,12 @@ private struct GroupingButton: View {
                 Text(mode.label)
                     .font(.system(size: 11, weight: .medium))
             }
-            .foregroundColor(isSelected ? .primary : .secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(isSelected ? Color.primary.opacity(0.10)
-                          : (isHovered ? Color.primary.opacity(0.05) : Color.clear))
-            )
-            .contentShape(Rectangle())
+            .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .help(mode.label)
+        .accessibilityIdentifier("SessionGroupingButton.\(mode.rawValue)")
     }
 }
 

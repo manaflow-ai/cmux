@@ -43,6 +43,16 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         }
         XCTAssertEqual(secondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected secondary bar to match the right sidebar mode bar. geometry=\(geometry)")
         XCTAssertEqual(CGFloat(secondaryBarHeight), alphaTab.frame.height, accuracy: 2, "Expected secondary bar to match Bonsplit pane tab height. geometry=\(geometry) alphaTab=\(alphaTab.frame)")
+
+        let folderButton = app.buttons["SessionGroupingButton.directory"]
+        let agentButton = app.buttons["SessionGroupingButton.agent"]
+        let scopeToggle = app.descendants(matching: .any)["SessionScopeToggle.thisFolder"]
+        XCTAssertTrue(folderButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(agentButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(scopeToggle.waitForExistence(timeout: 5))
+        XCTAssertEqual(folderButton.frame.height, sessionsButton.frame.height, accuracy: 0.5, "Expected By folder pill to match mode button height.")
+        XCTAssertEqual(agentButton.frame.height, sessionsButton.frame.height, accuracy: 0.5, "Expected By agent pill to match mode button height.")
+        XCTAssertEqual(scopeToggle.frame.height, sessionsButton.frame.height, accuracy: 0.5, "Expected This folder only control to match mode button height.")
     }
 
     private func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {

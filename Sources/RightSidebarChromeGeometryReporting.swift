@@ -141,7 +141,7 @@ final class RightSidebarChromeGeometryReportingView: NSView {
             geometry: RightSidebarChromeGeometry(
                 frame: convert(bounds, to: nil),
                 isVisible: isVisibleForReporting,
-                titlebarHeight: titlebarHeight
+                titlebarHeight: bounds.height
             )
         )
     }
