@@ -36,6 +36,8 @@ enum TitlebarControlsHitRegions {
 
 final class MinimalModeSidebarControlActionView: NSView {
     var config = TitlebarControlsStyle.classic.config
+    var isEnabled = true
+    var requiresRevealedState = false
     var telemetryPrefix = "minimalSidebarClickProxy"
     var onAction: ((MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void)?
 
@@ -47,6 +49,7 @@ final class MinimalModeSidebarControlActionView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard NSApp.currentEvent?.type == .leftMouseDown else { return nil }
+        guard shouldAcceptAction else { return nil }
         guard bounds.contains(point) else { return nil }
         guard TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) != nil else {
             return nil
@@ -55,6 +58,11 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard shouldAcceptAction else {
+            super.mouseDown(with: event)
+            return
+        }
+
         let localPoint = convert(event.locationInWindow, from: nil)
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config) else {
             super.mouseDown(with: event)
@@ -76,21 +84,33 @@ final class MinimalModeSidebarControlActionView: NSView {
         }
         onAction?(slot, self, event.locationInWindow)
     }
+
+    private var shouldAcceptAction: Bool {
+        guard isEnabled else { return false }
+        guard requiresRevealedState else { return true }
+        guard let window else { return false }
+        return MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
+            || NotificationsPopoverVisibilityState.shared.isShown
+    }
 }
 
 struct MinimalModeSidebarControlClickProxyView: NSViewRepresentable {
     let config: TitlebarControlsStyleConfig
+    let isEnabled: Bool
     let onAction: (MinimalModeSidebarControlActionSlot, NSView) -> Void
 
     func makeNSView(context: Context) -> MinimalModeSidebarControlActionView {
         let view = MinimalModeSidebarControlActionView()
         view.config = config
+        view.isEnabled = isEnabled
         view.onAction = { slot, view, _ in onAction(slot, view) }
         return view
     }
 
     func updateNSView(_ nsView: MinimalModeSidebarControlActionView, context: Context) {
         nsView.config = config
+        nsView.isEnabled = isEnabled
+        nsView.requiresRevealedState = false
         nsView.telemetryPrefix = "minimalSidebarClickProxy"
         nsView.onAction = { slot, view, _ in onAction(slot, view) }
     }

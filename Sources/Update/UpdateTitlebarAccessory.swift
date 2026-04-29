@@ -775,7 +775,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                 height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
             )
 
-            MinimalModeSidebarControlClickProxyView(config: style.config) { slot, anchorView in
+            MinimalModeSidebarControlClickProxyView(config: style.config, isEnabled: shouldPinControls) { slot, anchorView in
                 switch slot {
                 case .toggleSidebar:
                     onToggleSidebar()

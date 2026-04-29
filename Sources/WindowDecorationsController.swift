@@ -300,10 +300,13 @@ final class WindowDecorationsController {
 
         let target = minimalModeSidebarTitlebarClickTargets.object(forKey: window) ?? {
             let view = MinimalModeSidebarControlActionView()
+            view.autoresizingMask = [.maxXMargin, .minYMargin, .maxYMargin]
             minimalModeSidebarTitlebarClickTargets.setObject(view, forKey: window)
             return view
         }()
         target.config = (TitlebarControlsStyle(rawValue: UserDefaults.standard.integer(forKey: "titlebarControlsStyle")) ?? .classic).config
+        target.isEnabled = true
+        target.requiresRevealedState = true
         target.telemetryPrefix = "minimalSidebarTitlebarClickTarget"
         target.onAction = { [weak self, weak window, weak target] slot, _, locationInWindow in
             let anchorView = target
