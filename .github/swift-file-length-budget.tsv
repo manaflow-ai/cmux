@@ -61,8 +61,8 @@
 714	Sources/AppleScriptSupport.swift
 708	Sources/App/MenuBarExtraController.swift
 683	Sources/SocketControlSettings.swift
+666	cmuxUITests/FeedSidebarUITests.swift
 664	Sources/App/ShortcutRoutingSupport.swift
-658	cmuxUITests/FeedSidebarUITests.swift
 654	Sources/MainWindowFocusController.swift
 643	Sources/Panels/BrowserPopupWindowController.swift
 631	Sources/Feed/FeedCoordinator.swift

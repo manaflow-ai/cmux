@@ -308,26 +308,30 @@ final class FeedSidebarUITests: XCTestCase {
                 userInfo: [NSLocalizedDescriptionKey: "write() failed errno=\(errno)"]
             )
         }
+        _ = shutdown(sockFd, SHUT_WR)
 
         // Read until newline or EOF.
-        var buffer = Data()
+        var response = ""
         var chunk = [UInt8](repeating: 0, count: 4096)
         while true {
-            let n = recv(sockFd, &chunk, chunk.count, 0)
+            let n = read(sockFd, &chunk, chunk.count)
             if n < 0 {
                 if errno == EAGAIN || errno == EWOULDBLOCK { break }
                 throw NSError(
                     domain: "FeedSidebarUITests",
                     code: 6,
-                    userInfo: [NSLocalizedDescriptionKey: "recv() failed errno=\(errno)"]
+                    userInfo: [NSLocalizedDescriptionKey: "read() failed errno=\(errno)"]
                 )
             }
             if n <= 0 { break }
-            buffer.append(chunk, count: n)
-            if chunk.prefix(n).contains(0x0A) { break }
+            if let text = String(bytes: chunk[0..<n], encoding: .utf8) {
+                response.append(text)
+                if let newlineIndex = response.firstIndex(of: "\n") {
+                    return String(response[..<newlineIndex])
+                }
+            }
         }
-        return String(data: buffer, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return response.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func sendSocketLine(_ line: String, responseTimeout: TimeInterval = 2.0) throws -> String {
@@ -361,11 +365,15 @@ final class FeedSidebarUITests: XCTestCase {
             for candidate in self.socketCandidates() {
                 guard FileManager.default.fileExists(atPath: candidate) else { continue }
                 self.socketPath = candidate
-                let response = try? self.sendSocketLine("ping", responseTimeout: 2)
-                self.lastSocketProbe = "candidate=\(candidate) response=\(response ?? "nil")"
-                if response == "PONG" {
-                    resolvedPath = candidate
-                    return true
+                do {
+                    let response = try self.sendSocketLine("ping", responseTimeout: 2)
+                    self.lastSocketProbe = "candidate=\(candidate) response=\(response)"
+                    if response == "PONG" {
+                        resolvedPath = candidate
+                        return true
+                    }
+                } catch {
+                    self.lastSocketProbe = "candidate=\(candidate) error=\(error.localizedDescription)"
                 }
                 self.socketPath = originalPath
             }
