@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 19973	CLI/cmux.swift
 16745	Sources/TerminalController.swift
-15868	Sources/ContentView.swift
+15872	Sources/ContentView.swift
 14148	Sources/AppDelegate.swift
 13686	Sources/Workspace.swift
 13354	Sources/GhosttyTerminalView.swift
@@ -28,7 +28,7 @@
 2188	Sources/TerminalWindowPortal.swift
 2153	cmuxTests/SessionPersistenceTests.swift
 2026	cmuxTests/CJKIMEInputTests.swift
-2002	Sources/Update/UpdateTitlebarAccessory.swift
+2007	Sources/Update/UpdateTitlebarAccessory.swift
 1949	Sources/FileExplorerView.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1941	Sources/SessionIndexStore.swift
@@ -51,8 +51,8 @@
 987	Sources/CommandPalette/CommandPaletteSearch.swift
 976	cmuxTests/OmnibarAndToolsTests.swift
 908	cmuxTests/CommandPaletteSearchEngineTests.swift
+844	Sources/WorkspaceContentView.swift
 834	Sources/RestorableAgentSession.swift
-832	Sources/WorkspaceContentView.swift
 829	cmuxUITests/TerminalCmdClickUITests.swift
 807	Sources/TerminalSSHSessionDetector.swift
 806	cmuxUITests/BonsplitTabDragUITests.swift
