@@ -647,7 +647,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
     Button {
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(entry.resumeCommand, forType: .string)
+        pb.setString(entry.resumeCommandWithCwd, forType: .string)
     } label: {
         Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
     }

@@ -66,12 +66,17 @@ enum OpenCodeDatabaseSnapshot {
             throw error
         }
 
-        for sidecar in ["-wal", "-shm"] {
-            let source = sourcePath + sidecar
-            let destination = snapshotDB.path + sidecar
-            if fileManager.fileExists(atPath: source) {
-                try? fileManager.copyItem(atPath: source, toPath: destination)
+        do {
+            for sidecar in ["-wal", "-shm"] {
+                let source = sourcePath + sidecar
+                let destination = snapshotDB.path + sidecar
+                if fileManager.fileExists(atPath: source) {
+                    try fileManager.copyItem(atPath: source, toPath: destination)
+                }
             }
+        } catch {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw error
         }
 
         return Snapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
@@ -147,6 +152,13 @@ struct SessionEntry: Identifiable, Hashable {
             }
             return parts.joined(separator: " ")
         }
+    }
+
+    var resumeCommandWithCwd: String {
+        guard let cwd, !cwd.isEmpty else {
+            return resumeCommand
+        }
+        return "cd \(Self.shellQuote(cwd)) && \(resumeCommand)"
     }
 
     private var claudeConfigDirectoryForResume: String? {
@@ -1807,6 +1819,7 @@ final class SessionIndexStore: ObservableObject {
             }
             snapshot = madeSnapshot
         } catch {
+            errorBag.add("OpenCode: cannot snapshot opencode.db (\(error.localizedDescription))")
             return []
         }
         defer { snapshot.remove() }
