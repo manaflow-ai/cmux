@@ -615,9 +615,9 @@ enum BrowserLinkOpenSettings {
     }
 
     static func shouldOpenExternally(_ rawURL: String, defaults: UserDefaults = .standard) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
         let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return false }
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
 
         for rawPattern in externalOpenPatterns(defaults: defaults) {
             guard let (isRegex, value) = parseExternalPattern(rawPattern) else { continue }
@@ -2191,6 +2191,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Whether the browser panel should render its WKWebView in the content area.
     /// New browser tabs stay in an empty "new tab" state until first navigation.
     @Published private(set) var shouldRenderWebView: Bool = false
+    private var restoredSessionShouldRenderWebView: Bool?
 
     /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
     var isShowingNewTabPage: Bool {
@@ -2808,6 +2809,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if let initialRequest {
+            restoredSessionShouldRenderWebView = nil
             shouldRenderWebView = true
             if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
@@ -2824,6 +2826,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 )
             }
         } else if let url = initialURL {
+            restoredSessionShouldRenderWebView = nil
             shouldRenderWebView = true
             navigate(to: url)
         }
@@ -3139,6 +3142,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
         let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+        let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
+        restoredSessionShouldRenderWebView = snapshot.shouldRenderWebView
 
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
@@ -3146,10 +3151,10 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURLString: snapshot.urlString
         )
 
-        currentURL = snapshot.shouldRenderWebView ? restoredURL : nil
-        shouldRenderWebView = snapshot.shouldRenderWebView
+        currentURL = restoredURL
+        shouldRenderWebView = shouldRenderRestoredWebView
 
-        guard snapshot.shouldRenderWebView, let restoredURL else {
+        guard shouldRenderRestoredWebView, let restoredURL else {
             refreshNavigationAvailability()
             return
         }
@@ -3159,6 +3164,11 @@ final class BrowserPanel: Panel, ObservableObject {
             recordTypedNavigation: false,
             preserveRestoredSessionHistory: true
         )
+    }
+
+    func shouldRenderWebViewForSessionSnapshot() -> Bool {
+        guard preferredURLStringForOmnibar() != nil else { return false }
+        return restoredSessionShouldRenderWebView ?? shouldRenderWebView
     }
 
     private func setupObservers(for webView: WKWebView) {
@@ -3840,6 +3850,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 recordTypedNavigation: recordTypedNavigation,
                 preserveRestoredSessionHistory: preserveRestoredSessionHistory
             )
+            restoredSessionShouldRenderWebView = nil
             shouldRenderWebView = true
             currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
             navigationDelegate?.lastAttemptedURL = url
@@ -3880,6 +3891,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        restoredSessionShouldRenderWebView = nil
         shouldRenderWebView = true
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
@@ -4153,6 +4165,7 @@ extension BrowserPanel {
 
         pageTitle = ""
         currentURL = nil
+        restoredSessionShouldRenderWebView = nil
         faviconPNGData = nil
         lastFaviconURLString = nil
         activePortalHostLease = nil

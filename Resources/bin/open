@@ -431,6 +431,7 @@ done
 
 if [[ "$passthrough" == true ]] || [[ ${#cmux_targets[@]} -eq 0 ]]; then
     system_open "$@"
+    exit $?
 fi
 
 # Respect the same settings used for terminal link clicks.
@@ -438,6 +439,7 @@ if [[ -n "$settings_domain" ]]; then
     browser_disabled="$("$DEFAULTS_BIN" read "$settings_domain" browserDisabledOverride 2>/dev/null || true)"
     if is_true_setting "$browser_disabled"; then
         system_open "$@"
+        exit $?
     fi
 
     open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserInterceptTerminalOpenCommandInCmuxBrowser 2>/dev/null || true)"
@@ -447,6 +449,7 @@ if [[ -n "$settings_domain" ]]; then
     fi
     if is_false_setting "$open_in_cmux"; then
         system_open "$@"
+        exit $?
     fi
 
     whitelist_raw="$("$DEFAULTS_BIN" read "$settings_domain" browserHostWhitelist 2>/dev/null || true)"
@@ -462,6 +465,7 @@ CMUX_CLI="$SELF_DIR/cmux"
 
 if [[ ! -x "$CMUX_CLI" ]]; then
     system_open "$@"
+    exit $?
 fi
 
 # Open each URL in cmux's in-app browser; track failures individually.
@@ -479,4 +483,5 @@ done
 # Fall back to system open for unmatched args and URLs that failed.
 if [[ ${#passthrough_args[@]} -gt 0 ]] || [[ ${#failed_urls[@]} -gt 0 ]]; then
     system_open "${passthrough_args[@]}" "${failed_urls[@]}"
+    exit $?
 fi

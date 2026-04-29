@@ -63098,13 +63098,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser tabs and link interception are disabled. Links open in your default browser."
+            "value": "Browser tabs, terminal link clicks, and intercepted open commands are disabled. Links open in your default browser."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザタブとリンクのインターセプトは無効です。リンクはデフォルトブラウザで開きます。"
+            "value": "ブラウザタブ、ターミナルのリンククリック、インターセプトされたopenコマンドは無効です。リンクはデフォルトブラウザで開きます。"
           }
         }
       }

@@ -526,7 +526,7 @@ extension Workspace {
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForOmnibar(),
                 profileID: browserPanel.profileID,
-                shouldRenderWebView: browserPanel.shouldRenderWebView,
+                shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
@@ -757,7 +757,8 @@ extension Workspace {
                 inPane: paneId,
                 url: nil,
                 focus: false,
-                preferredProfileID: snapshot.browser?.profileID
+                preferredProfileID: snapshot.browser?.profileID,
+                creationPolicy: .restoration
             ) else {
                 return nil
             }
@@ -819,7 +820,7 @@ extension Workspace {
 
             browserPanel.restoreSessionSnapshot(browserSnapshot)
 
-            if browserSnapshot.developerToolsVisible {
+            if browserSnapshot.developerToolsVisible && BrowserAvailabilitySettings.isEnabled() {
                 _ = browserPanel.showDeveloperTools()
                 browserPanel.requestDeveloperToolsRefreshAfterNextAttach(reason: "session_restore")
             } else {
@@ -982,7 +983,13 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+            let restoreURL = BrowserAvailabilitySettings.isEnabled() ? url : nil
+            if let panel = newBrowserSurface(
+                inPane: paneId,
+                url: restoreURL,
+                focus: false,
+                creationPolicy: .restoration
+            ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -1012,7 +1019,13 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+            let restoreURL = BrowserAvailabilitySettings.isEnabled() ? url : nil
+            if let panel = newBrowserSurface(
+                inPane: paneId,
+                url: restoreURL,
+                focus: false,
+                creationPolicy: .restoration
+            ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
@@ -7220,6 +7233,15 @@ enum WorkspaceSurfaceIdentifierClipboardText {
 
 @MainActor
 final class Workspace: Identifiable, ObservableObject {
+    enum BrowserPanelCreationPolicy {
+        case userInitiated
+        case restoration
+
+        var permitsCreationWhenBrowserDisabled: Bool {
+            self == .restoration
+        }
+    }
+
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
@@ -10160,9 +10182,12 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
-        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
+        guard BrowserAvailabilitySettings.isEnabled() || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            return nil
+        }
 
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
@@ -10250,9 +10275,12 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
-        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
+        guard BrowserAvailabilitySettings.isEnabled() || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            return nil
+        }
 
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
