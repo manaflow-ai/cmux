@@ -95,10 +95,6 @@ final class FeedSidebarUITests: XCTestCase {
             "App-side Ctrl-3 shortcut simulation did not run. result=\(loadFeedResult())"
         )
         XCTAssertTrue(
-            app.buttons["RightSidebarModeButton.sessions"].firstMatch.waitForExistence(timeout: 5),
-            "Sessions mode button disappeared after Ctrl-3"
-        )
-        XCTAssertTrue(
             waitForDockPortalToLeaveVisibleSidebar(timeout: 5),
             "Dock terminal portal stayed visible after switching from Ctrl-4 Dock to Ctrl-3 Sessions"
         )

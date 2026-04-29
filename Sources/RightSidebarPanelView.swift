@@ -195,6 +195,8 @@ struct RightSidebarPanelView: View {
             modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
         }
+        .onChange(of: fileExplorerState.mode) { _, mode in if mode != .feed { dockStore.deactivate() } }
+        .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
     }
 
     private var modeBar: some View {
