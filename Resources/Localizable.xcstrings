@@ -93288,6 +93288,23 @@
         }
       }
     },
+    "sessionIndex.error.openCodeSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode: cannot snapshot opencode.db (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode: opencode.db のスナップショットを作成できません (%@)"
+          }
+        }
+      }
+    },
     "sessionIndex.preview.empty": {
       "extractionState": "manual",
       "localizations": {

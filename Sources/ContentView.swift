@@ -2844,7 +2844,7 @@ struct ContentView: View {
     }
 
     private func resumeSession(entry: SessionEntry) {
-        let inputWithReturn = entry.resumeCommand + "\n"
+        let inputWithReturn = entry.resumeCommandWithCwd + "\n"
         let targetCwd = entry.cwd
 
         // Smart placement: if the focused workspace's tracked cwd matches, open a

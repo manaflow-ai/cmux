@@ -125,6 +125,9 @@ final class MainWindowFocusController {
 
     func registerRightSidebarHost(_ host: RightSidebarKeyboardFocusView) {
         rightSidebarHost = host
+        if let mode = rightSidebarFocusState.request?.mode {
+            focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
+        }
     }
 
     func registerFileExplorerHost(_ host: FileExplorerContainerView) {
@@ -591,6 +594,8 @@ final class MainWindowFocusController {
         let result = focusRightSidebarEndpoint(mode: mode, target: request.target)
         if result {
             rightSidebarFocusState = .focused(mode: mode, target: request.target)
+        } else if request.target == .host, focusFallbackRightSidebarHost() {
+            rightSidebarFocusState = .focused(mode: mode, target: .host)
         }
         publishFeedFocusSnapshot()
     }

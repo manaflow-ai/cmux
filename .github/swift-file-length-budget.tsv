@@ -22,7 +22,7 @@
 3126	cmuxTests/WorkspaceRemoteConnectionTests.swift
 2850	Sources/CmuxConfig.swift
 2675	Sources/KeyboardShortcutSettings.swift
-2602	Sources/SessionIndexView.swift
+2615	Sources/SessionIndexView.swift
 2491	Sources/Panels/CmuxWebView.swift
 2292	cmuxTests/TabManagerUnitTests.swift
 2153	cmuxTests/SessionPersistenceTests.swift
@@ -30,8 +30,8 @@
 2026	cmuxTests/CJKIMEInputTests.swift
 1949	Sources/FileExplorerView.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
-1937	Sources/SessionIndexStore.swift
-1700	cmuxTests/ShortcutAndCommandPaletteTests.swift
+1941	Sources/SessionIndexStore.swift
+1730	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1692	cmuxTests/CmuxConfigTests.swift
 1676	Sources/KeyboardShortcutSettingsFileStore.swift
 1589	cmuxTests/WindowAndDragTests.swift
@@ -56,7 +56,7 @@
 765	Sources/WorkspaceContentView.swift
 761	Sources/GhosttyConfig.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
-724	Sources/MainWindowFocusController.swift
+729	Sources/MainWindowFocusController.swift
 719	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 714	Sources/AppleScriptSupport.swift
 708	Sources/App/MenuBarExtraController.swift

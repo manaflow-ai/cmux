@@ -1819,7 +1819,11 @@ final class SessionIndexStore: ObservableObject {
             }
             snapshot = madeSnapshot
         } catch {
-            errorBag.add("OpenCode: cannot snapshot opencode.db (\(error.localizedDescription))")
+            let format = String(
+                localized: "sessionIndex.error.openCodeSnapshot",
+                defaultValue: "OpenCode: cannot snapshot opencode.db (%@)"
+            )
+            errorBag.add(String(format: format, error.localizedDescription))
             return []
         }
         defer { snapshot.remove() }

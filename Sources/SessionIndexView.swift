@@ -695,6 +695,9 @@ private struct SessionTranscriptPreviewView: View {
         .task(id: entry.id) {
             await loadTranscript()
         }
+        .background(
+            EscapeKeyCatcher { onDismiss() }
+        )
     }
 
     private var header: some View {
@@ -1239,7 +1242,11 @@ private enum SessionTranscriptLoader {
         defer { sqlite3_finalize(stmt) }
 
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
+        let bindResult = sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
+        guard bindResult == SQLITE_OK else {
+            let message = sqliteMessage(db) ?? "SQLite bind failed with code \(bindResult)"
+            throw SessionTranscriptLoadError.databaseError(message)
+        }
 
         var turns: [SessionTranscriptTurn] = []
         var turnId = 0
@@ -1247,23 +1254,29 @@ private enum SessionTranscriptLoader {
         var currentMessageRole: SessionTranscriptRole = .event
         var didHitTurnLimit = false
 
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        var stepResult = sqlite3_step(stmt)
+        while stepResult == SQLITE_ROW {
             try Task.checkCancellation()
             let messageId = sqliteText(stmt, 0) ?? ""
             if currentMessageId != messageId {
                 currentMessageId = messageId
                 currentMessageRole = openCodeMessageRole(from: sqliteText(stmt, 1)) ?? .event
             }
-            guard let partJSON = sqliteText(stmt, 2),
-                  let turn = parseOpenCodePart(partJSON, messageRole: currentMessageRole, id: turnId) else {
-                continue
+            if let partJSON = sqliteText(stmt, 2),
+               let turn = parseOpenCodePart(partJSON, messageRole: currentMessageRole, id: turnId) {
+                turns.append(turn)
+                turnId += 1
+                if turns.count >= maxPreviewTurns {
+                    didHitTurnLimit = true
+                    break
+                }
             }
-            turns.append(turn)
-            turnId += 1
-            if turns.count >= maxPreviewTurns {
-                didHitTurnLimit = true
-                break
-            }
+            stepResult = sqlite3_step(stmt)
+        }
+
+        if !didHitTurnLimit && stepResult != SQLITE_DONE {
+            let message = sqliteMessage(db) ?? "SQLite step failed with code \(stepResult)"
+            throw SessionTranscriptLoadError.databaseError(message)
         }
 
         if didHitTurnLimit {
