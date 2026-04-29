@@ -344,6 +344,15 @@ final class DockControlsStore: ObservableObject {
     }
 
     private static func resolve(rootDirectory: String?) throws -> DockConfigResolution {
+        if shouldUseBuiltInFeedControlForUITest {
+            return DockConfigResolution(
+                controls: [defaultFeedControl()],
+                sourceURL: nil,
+                baseDirectory: rootDirectory.flatMap(Self.existingDirectory) ?? FileManager.default.homeDirectoryForCurrentUser.path,
+                isProjectSource: false
+            )
+        }
+
         if let projectURL = projectConfigURL(rootDirectory: rootDirectory) {
             return try loadConfig(
                 from: projectURL,
@@ -367,6 +376,15 @@ final class DockControlsStore: ObservableObject {
             baseDirectory: rootDirectory.flatMap(Self.existingDirectory) ?? FileManager.default.homeDirectoryForCurrentUser.path,
             isProjectSource: false
         )
+    }
+
+    private static var shouldUseBuiltInFeedControlForUITest: Bool {
+        guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1",
+              let readyPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEED_TUI_READY_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !readyPath.isEmpty
     }
 
     private static func loadConfig(

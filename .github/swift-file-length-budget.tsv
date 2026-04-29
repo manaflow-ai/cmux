@@ -48,7 +48,7 @@
 991	Sources/FileExplorerStore.swift
 987	Sources/CommandPalette/CommandPaletteSearch.swift
 976	cmuxTests/OmnibarAndToolsTests.swift
-915	Sources/DockPanelView.swift
+933	Sources/DockPanelView.swift
 908	cmuxTests/CommandPaletteSearchEngineTests.swift
 834	Sources/RestorableAgentSession.swift
 829	cmuxUITests/TerminalCmdClickUITests.swift
