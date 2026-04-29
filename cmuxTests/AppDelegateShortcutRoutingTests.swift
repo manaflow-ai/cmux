@@ -880,6 +880,83 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testBareKeyChordDoubleTapWithExplicitBindingFiresActionInsteadOfLiteral() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let focusedPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            XCTFail("Expected test window with focused terminal panel")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // Make the Ghostty surface the first responder so the implicit literal-send
+        // path (sendLiteralChordPrefixToFocusedSurface) can resolve the surface.
+        guard let terminalView = surfaceView(in: focusedPanel.hostedView) else {
+            XCTFail("Expected a GhosttyNSView inside the focused panel's hosted view")
+            return
+        }
+        XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected to make Ghostty surface the first responder")
+        XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface to hold first responder after makeFirstResponder")
+
+        // Explicit `+` chord — bind to splitRight so the second backtick should
+        // fire the action and the implicit literal-send must NOT run.
+        let shortcut = StoredShortcut(
+            key: "`",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "`"
+        )
+
+#if DEBUG
+        var captured: [String] = []
+        let previousRecorder = TerminalSurface.debugLastSendTextRecorder
+        TerminalSurface.debugLastSendTextRecorder = { text in captured.append(text) }
+        defer { TerminalSurface.debugLastSendTextRecorder = previousRecorder }
+#endif
+
+        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ),
+            let secondEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct backtick events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: secondEvent),
+                "Configured `+` chord must dispatch the action"
+            )
+            XCTAssertEqual(captured, [], "Explicit binding must suppress the implicit literal-send")
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
     func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
