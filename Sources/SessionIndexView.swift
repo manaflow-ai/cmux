@@ -111,6 +111,7 @@ struct SessionIndexView: View {
             .toggleStyle(.checkbox)
             .controlSize(.small)
             .frame(height: RightSidebarChromeMetrics.controlHeight)
+            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
             .disabled(store.currentDirectory == nil)
             .accessibilityIdentifier("SessionScopeToggle.thisFolder")
 
@@ -353,7 +354,7 @@ private struct GroupingButton: View {
                 Text(mode.label)
                     .font(.system(size: 11, weight: .medium))
             }
-            .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered)
+            .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }

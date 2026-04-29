@@ -395,7 +395,11 @@ private struct ModeBarButton: View {
                     pendingChip
                 }
             }
-            .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered)
+            .rightSidebarChromePill(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                geometryKeyPrefix: "rightSidebarModeControl_\(mode.rawValue)"
+            )
             .overlay(alignment: .trailing) {
                 if showsShortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)

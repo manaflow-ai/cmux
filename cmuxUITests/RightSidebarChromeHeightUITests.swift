@@ -51,15 +51,43 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         XCTAssertEqual(secondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected secondary bar to match the right sidebar mode bar. geometry=\(geometry)")
         XCTAssertEqual(CGFloat(secondaryBarHeight), alphaTab.frame.height, accuracy: 2, "Expected secondary bar to match Bonsplit pane tab height. geometry=\(geometry) alphaTab=\(alphaTab.frame)")
 
-        let folderButton = app.buttons["SessionGroupingButton.directory"]
-        let agentButton = app.buttons["SessionGroupingButton.agent"]
-        let scopeToggle = app.descendants(matching: .any)["SessionScopeToggle.thisFolder"]
-        XCTAssertTrue(folderButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(agentButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(scopeToggle.waitForExistence(timeout: 5))
-        XCTAssertEqual(folderButton.frame.height, sessionsButton.frame.height, accuracy: 0.5, "Expected By folder pill to match mode button height.")
-        XCTAssertEqual(agentButton.frame.height, sessionsButton.frame.height, accuracy: 0.5, "Expected By agent pill to match mode button height.")
-        XCTAssertEqual(scopeToggle.frame.height, sessionsButton.frame.height, accuracy: 0.5, "Expected This folder only control to match mode button height.")
+        let controlHeightKeys = [
+            "rightSidebarModeControl_sessionsHeight",
+            "rightSidebarSecondaryControl_directoryHeight",
+            "rightSidebarSecondaryControl_agentHeight",
+            "rightSidebarSecondaryControl_scopeHeight",
+        ]
+        guard let controlGeometry = waitForJSONNumbers(controlHeightKeys, greaterThan: 1, atPath: dataPath, timeout: 5),
+              let modeControlHeight = Double(controlGeometry["rightSidebarModeControl_sessionsHeight"] ?? ""),
+              let directoryControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_directoryHeight"] ?? ""),
+              let agentControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_agentHeight"] ?? ""),
+              let scopeControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_scopeHeight"] ?? "") else {
+            XCTFail("Timed out waiting for right sidebar control geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        XCTAssertEqual(directoryControlHeight, modeControlHeight, accuracy: 0.5, "Expected By folder pill to match mode button height. geometry=\(controlGeometry)")
+        XCTAssertEqual(agentControlHeight, modeControlHeight, accuracy: 0.5, "Expected By agent pill to match mode button height. geometry=\(controlGeometry)")
+        XCTAssertEqual(scopeControlHeight, modeControlHeight, accuracy: 0.5, "Expected This folder only control to match mode button height. geometry=\(controlGeometry)")
+    }
+
+    private func waitForJSONNumbers(_ keys: [String], greaterThan threshold: Double, atPath path: String, timeout: TimeInterval) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadJSON(atPath: path), containsNumbers(data, keys: keys, greaterThan: threshold) {
+                return data
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return loadJSON(atPath: path).flatMap {
+            containsNumbers($0, keys: keys, greaterThan: threshold) ? $0 : nil
+        }
+    }
+
+    private func containsNumbers(_ data: [String: String], keys: [String], greaterThan threshold: Double) -> Bool {
+        keys.allSatisfy { key in
+            guard let rawValue = data[key], let value = Double(rawValue) else { return false }
+            return value > threshold
+        }
     }
 
     private func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {

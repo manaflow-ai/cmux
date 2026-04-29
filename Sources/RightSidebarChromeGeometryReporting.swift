@@ -11,6 +11,7 @@ struct RightSidebarChromeGeometry: Equatable {
 enum RightSidebarChromeGeometryRole {
     case modeBar
     case secondaryBar
+    case named(String)
 }
 
 enum RightSidebarChromeUITestRecorder {
@@ -44,6 +45,11 @@ enum RightSidebarChromeUITestRecorder {
             payload["rightSidebarSecondaryBarMaxY"] = String(format: "%.3f", Double(geometry.frame.minY + geometry.titlebarHeight))
             payload["rightSidebarSecondaryBarWidth"] = String(format: "%.3f", Double(geometry.frame.width))
             payload["rightSidebarSecondaryBarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
+        case .named(let keyPrefix):
+            payload["\(keyPrefix)MinY"] = String(format: "%.3f", Double(geometry.frame.minY))
+            payload["\(keyPrefix)MaxY"] = String(format: "%.3f", Double(geometry.frame.maxY))
+            payload["\(keyPrefix)Width"] = String(format: "%.3f", Double(geometry.frame.width))
+            payload["\(keyPrefix)Height"] = String(format: "%.3f", Double(geometry.titlebarHeight))
         }
 
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
@@ -161,5 +167,24 @@ extension View {
             )
             .allowsHitTesting(false)
         )
+    }
+
+    @ViewBuilder
+    func reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+        keyPrefix: String?,
+        isVisible: Bool
+    ) -> some View {
+        if let keyPrefix {
+            background(
+                RightSidebarChromeGeometryReporter(
+                    role: .named(keyPrefix),
+                    isVisible: isVisible,
+                    titlebarHeight: 0
+                )
+                .allowsHitTesting(false)
+            )
+        } else {
+            self
+        }
     }
 }

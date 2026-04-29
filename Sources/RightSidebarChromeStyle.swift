@@ -20,12 +20,17 @@ struct RightSidebarChromePillModifier: ViewModifier {
     var selectedForeground: Color = .primary
     var defaultForeground: Color = .secondary
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
+    var geometryKeyPrefix: String?
 
     func body(content: Content) -> some View {
         content
             .foregroundColor(isSelected ? selectedForeground : defaultForeground)
             .padding(.horizontal, horizontalPadding)
             .frame(height: RightSidebarChromeMetrics.controlHeight)
+            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                keyPrefix: geometryKeyPrefix,
+                isVisible: true
+            )
             .background(
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
                     .fill(backgroundColor)
@@ -66,7 +71,8 @@ extension View {
         isHovered: Bool,
         selectedForeground: Color = .primary,
         defaultForeground: Color = .secondary,
-        horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
+        horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding,
+        geometryKeyPrefix: String? = nil
     ) -> some View {
         modifier(
             RightSidebarChromePillModifier(
@@ -74,7 +80,8 @@ extension View {
                 isHovered: isHovered,
                 selectedForeground: selectedForeground,
                 defaultForeground: defaultForeground,
-                horizontalPadding: horizontalPadding
+                horizontalPadding: horizontalPadding,
+                geometryKeyPrefix: geometryKeyPrefix
             )
         )
     }
