@@ -58,7 +58,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .sidebarAppearance:
             return "sidebar.left"
         case .automation:
-            return "bolt.horizontal"
+            return "wand.and.sparkles"
         case .browser:
             return "globe"
         case .browserImport:
