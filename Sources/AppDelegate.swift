@@ -5416,6 +5416,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let result: Bool
         switch target {
+        case .editorFileFind:
+            guard let workspace = context.tabManager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId,
+                  let editorPanel = workspace.editorPanel(for: panelId) else {
+                result = false
+                break
+            }
+            workspace.focusPanel(panelId)
+            result = editorPanel.triggerFind()
         case .rightSidebarFileSearch:
             result = context.keyboardFocusCoordinator.focusFileSearch()
         case .mainPanelFind:

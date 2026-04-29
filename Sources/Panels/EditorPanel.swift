@@ -340,9 +340,11 @@ final class EditorPanel: Panel, ObservableObject {
     }
 
     /// Show Monaco's in-file find widget.
-    func triggerFind() {
-        guard isMonacoReady, let wv = webView else { return }
+    @discardableResult
+    func triggerFind() -> Bool {
+        guard isMonacoReady, let wv = webView else { return false }
         wv.evaluateJavaScript("cmuxEditor.triggerFind()")
+        return true
     }
 
     /// Get the full content from Monaco via callback.
