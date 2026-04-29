@@ -7,6 +7,10 @@ final class WindowDecorationsController {
     private var minimalModeTitlebarDoubleClickMonitor: Any?
     private var minimalModeSidebarChromeHoverMonitor: Any?
     private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
+    private let minimalModeSidebarTitlebarClickTargets = NSMapTable<NSWindow, MinimalModeSidebarControlActionView>(
+        keyOptions: .weakMemory,
+        valueOptions: .strongMemory
+    )
 
     deinit {
         let center = NotificationCenter.default
@@ -18,6 +22,10 @@ final class WindowDecorationsController {
         }
         if let minimalModeSidebarChromeHoverMonitor {
             NSEvent.removeMonitor(minimalModeSidebarChromeHoverMonitor)
+        }
+        let enumerator = minimalModeSidebarTitlebarClickTargets.objectEnumerator()
+        while let view = enumerator?.nextObject() as? NSView {
+            view.removeFromSuperview()
         }
         WindowMouseMovedEventsCoordinator.disableOwner(self)
     }
@@ -40,6 +48,7 @@ final class WindowDecorationsController {
         let shouldHideButtons = shouldHideTrafficLights(for: window)
         hideStandardButtons(on: window, hidden: shouldHideButtons)
         applyTrafficLightOffset(on: window, hidden: shouldHideButtons)
+        applyMinimalModeSidebarTitlebarClickTarget(to: window)
     }
 
     private func installObservers() {
@@ -209,7 +218,8 @@ final class WindowDecorationsController {
     private func performMinimalModeSidebarControlAction(
         _ slot: MinimalModeSidebarControlActionSlot,
         window: NSWindow,
-        locationInWindow: NSPoint
+        locationInWindow: NSPoint,
+        anchorView: NSView? = nil
     ) {
         #if DEBUG
         _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
@@ -223,11 +233,11 @@ final class WindowDecorationsController {
             case .toggleSidebar:
                 _ = AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: window)
             case .showNotifications:
-                let anchorView = NotificationsAnchorRegistry.shared.closestAnchor(
+                let resolvedAnchorView = anchorView ?? NotificationsAnchorRegistry.shared.closestAnchor(
                     in: window,
                     to: locationInWindow
                 )
-                AppDelegate.shared?.toggleNotificationsPopover(animated: true, anchorView: anchorView)
+                AppDelegate.shared?.toggleNotificationsPopover(animated: true, anchorView: resolvedAnchorView)
             case .newTab:
                 let targetTabManager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)
                 _ = AppDelegate.shared?.performNewWorkspaceAction(
@@ -276,6 +286,54 @@ final class WindowDecorationsController {
             guard let button = window.standardWindowButton(type), let base = baseFrames[type] else { continue }
             button.setFrameOrigin(NSPoint(x: base.origin.x + offset.x, y: base.origin.y + offset.y))
         }
+    }
+
+    private func applyMinimalModeSidebarTitlebarClickTarget(to window: NSWindow) {
+        let shouldInstall = isMainWorkspaceWindow(window)
+            && WorkspacePresentationModeSettings.isMinimal()
+            && !window.styleMask.contains(.fullScreen)
+        guard shouldInstall,
+              let titlebarView = window.standardWindowButton(.closeButton)?.superview else {
+            removeMinimalModeSidebarTitlebarClickTarget(from: window)
+            return
+        }
+
+        let target = minimalModeSidebarTitlebarClickTargets.object(forKey: window) ?? {
+            let view = MinimalModeSidebarControlActionView()
+            minimalModeSidebarTitlebarClickTargets.setObject(view, forKey: window)
+            return view
+        }()
+        target.config = (TitlebarControlsStyle(rawValue: UserDefaults.standard.integer(forKey: "titlebarControlsStyle")) ?? .classic).config
+        target.telemetryPrefix = "minimalSidebarTitlebarClickTarget"
+        target.onAction = { [weak self, weak window, weak target] slot, _, locationInWindow in
+            let anchorView = target
+            guard let self, let window else { return }
+            self.performMinimalModeSidebarControlAction(
+                slot,
+                window: window,
+                locationInWindow: locationInWindow,
+                anchorView: anchorView
+            )
+        }
+
+        if target.superview !== titlebarView {
+            target.removeFromSuperview()
+            titlebarView.addSubview(target, positioned: .above, relativeTo: nil)
+        }
+
+        let hostHeight = MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+        target.frame = NSRect(
+            x: MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
+            y: max(0, (titlebarView.bounds.height - hostHeight) / 2),
+            width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+            height: hostHeight
+        )
+    }
+
+    private func removeMinimalModeSidebarTitlebarClickTarget(from window: NSWindow) {
+        guard let target = minimalModeSidebarTitlebarClickTargets.object(forKey: window) else { return }
+        target.removeFromSuperview()
+        minimalModeSidebarTitlebarClickTargets.removeObject(forKey: window)
     }
 
     private func trafficLightOffset(for window: NSWindow) -> NSPoint {

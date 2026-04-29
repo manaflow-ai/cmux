@@ -34,62 +34,64 @@ enum TitlebarControlsHitRegions {
     }
 }
 
+final class MinimalModeSidebarControlActionView: NSView {
+    var config = TitlebarControlsStyle.classic.config
+    var telemetryPrefix = "minimalSidebarClickProxy"
+    var onAction: ((MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void)?
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard NSApp.currentEvent?.type == .leftMouseDown else { return nil }
+        guard bounds.contains(point) else { return nil }
+        guard TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) != nil else {
+            return nil
+        }
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config) else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
+            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                payload["\(telemetryPrefix)LastAction"] = slot.debugName
+                payload["\(telemetryPrefix)LastPoint"] = windowDragHandleFormatPoint(localPoint)
+                payload["\(telemetryPrefix)WindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
+            }
+        }
+        #endif
+
+        if let window {
+            MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
+        }
+        onAction?(slot, self, event.locationInWindow)
+    }
+}
+
 struct MinimalModeSidebarControlClickProxyView: NSViewRepresentable {
     let config: TitlebarControlsStyleConfig
     let onAction: (MinimalModeSidebarControlActionSlot, NSView) -> Void
 
-    func makeNSView(context: Context) -> ClickProxyView {
-        let view = ClickProxyView()
+    func makeNSView(context: Context) -> MinimalModeSidebarControlActionView {
+        let view = MinimalModeSidebarControlActionView()
         view.config = config
-        view.onAction = onAction
+        view.onAction = { slot, view, _ in onAction(slot, view) }
         return view
     }
 
-    func updateNSView(_ nsView: ClickProxyView, context: Context) {
+    func updateNSView(_ nsView: MinimalModeSidebarControlActionView, context: Context) {
         nsView.config = config
-        nsView.onAction = onAction
-    }
-
-    final class ClickProxyView: NSView {
-        var config = TitlebarControlsStyle.classic.config
-        var onAction: ((MinimalModeSidebarControlActionSlot, NSView) -> Void)?
-
-        override var mouseDownCanMoveWindow: Bool { false }
-
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-            true
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            guard NSApp.currentEvent?.type == .leftMouseDown else { return nil }
-            guard bounds.contains(point) else { return nil }
-            guard TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) != nil else {
-                return nil
-            }
-            return self
-        }
-
-        override func mouseDown(with event: NSEvent) {
-            let localPoint = convert(event.locationInWindow, from: nil)
-            guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config) else {
-                super.mouseDown(with: event)
-                return
-            }
-
-            #if DEBUG
-            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
-                    payload["minimalSidebarClickProxyLastAction"] = slot.debugName
-                    payload["minimalSidebarClickProxyLastPoint"] = windowDragHandleFormatPoint(localPoint)
-                    payload["minimalSidebarClickProxyWindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
-                }
-            }
-            #endif
-
-            if let window {
-                MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
-            }
-            onAction?(slot, self)
-        }
+        nsView.telemetryPrefix = "minimalSidebarClickProxy"
+        nsView.onAction = { slot, view, _ in onAction(slot, view) }
     }
 }
