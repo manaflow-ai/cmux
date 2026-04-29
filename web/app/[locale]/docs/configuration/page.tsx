@@ -222,9 +222,6 @@ export default function ConfigurationPage() {
     schemaVersion: schemaProperties.schemaVersion,
   } satisfies Record<string, SchemaProperty | undefined>;
 
-  const shortcutsSection = schemaProperties.shortcuts;
-  const shortcutProperties = shortcutsSection?.properties ?? {};
-
   return (
     <>
       <h1>{t("title")}</h1>
@@ -252,11 +249,15 @@ scrollback-limit = 50000000
 split-divider-color = #3e4451
 working-directory = ~/code`}</CodeBlock>
 
-      <h2>cmux settings.json</h2>
+      <h2 id="settings-json" className="scroll-mt-24">cmux settings.json</h2>
       <p>
         cmux keeps app-owned settings in a separate user file instead of mixing them into Ghostty
         config. On launch, if neither settings location exists, cmux writes a commented template to{" "}
         <code>~/.config/cmux/settings.json</code>.
+      </p>
+      <p>
+        Open cmux Settings, then use the <code>settings.json</code> section to open the active file
+        in your preferred text editor.
       </p>
       <ol>
         <li>

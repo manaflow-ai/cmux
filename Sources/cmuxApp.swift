@@ -2441,6 +2441,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case browserImport
     case globalHotkey
     case keyboardShortcuts
+    case settingsJSON
     case reset
 
     var id: Self { self }
@@ -2467,6 +2468,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")
         case .keyboardShortcuts:
             return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
+        case .settingsJSON:
+            return String(localized: "settings.section.settingsJSON", defaultValue: "settings.json")
         case .reset:
             return String(localized: "settings.section.reset", defaultValue: "Reset")
         }
@@ -2494,6 +2497,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "keyboard.badge.ellipsis"
         case .keyboardShortcuts:
             return "keyboard"
+        case .settingsJSON:
+            return "doc.text"
         case .reset:
             return "arrow.counterclockwise"
         }
@@ -2521,6 +2526,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) system wide shortcut"
         case .keyboardShortcuts:
             return "\(title) keybindings commands chords"
+        case .settingsJSON:
+            return "\(title) config file preferences editor documentation schema jsonc reload"
         case .reset:
             return "\(title) defaults"
         }
@@ -2773,6 +2780,8 @@ private enum SettingsSearchIndex {
         setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
         setting(.keyboardShortcuts, "show-hints", String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"), "modifier hold hints keyboard"),
         setting(.keyboardShortcuts, "shortcuts", String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), "keybindings commands"),
+        setting(.settingsJSON, "open-file", String(localized: "settings.settingsJSON.openFile", defaultValue: "Open settings.json"), "config json file editor dotfiles"),
+        setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "settings json schema reference docs"),
         setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")
     ]
 
@@ -5589,19 +5598,11 @@ private func openCmuxSettingsFileInEditor() {
     PreferredEditorSettings.open(url)
 }
 
-private func openCmuxSettingsFileInTextEdit() {
-    #if os(macOS)
-    let fileURL = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
-    let editorURL = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
-    let configuration = NSWorkspace.OpenConfiguration()
-    NSWorkspace.shared.open([fileURL], withApplicationAt: editorURL, configuration: configuration)
-    #endif
-}
-
 struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
+    private let settingsJSONDocsURL = URL(string: "https://cmux.com/docs/configuration#settings-json")!
     @Environment(\.openWindow) private var openWindow
     @State private var highlightedSearchAnchorID: String?
     @State private var searchHighlightToken = 0
@@ -7520,7 +7521,7 @@ struct SettingsView: View {
                                     .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
 
                                 Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
-                                    openCmuxSettingsFileInTextEdit()
+                                    openCmuxSettingsFileInEditor()
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
@@ -7573,6 +7574,49 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                         .padding(.leading, 2)
                         .accessibilityIdentifier("ShortcutRecordingHint")
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.settingsJSON", defaultValue: "settings.json"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .settingsJSON))
+                        .accessibilityIdentifier("SettingsJSONSection")
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.settingsJSON.file", defaultValue: "User settings file"),
+                            subtitle: String(localized: "settings.settingsJSON.file.subtitle", defaultValue: "Edit cmux-owned app settings, shortcuts, automation, sidebar, notifications, and browser behavior."),
+                            controlWidth: 330,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .settingsJSON, idSuffix: "open-file")
+                        ) {
+                            HStack(spacing: 8) {
+                                Text(KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath())
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+
+                                Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
+                                    openCmuxSettingsFileInEditor()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsJSONOpenButton")
+                            }
+                            .accessibilityIdentifier("SettingsJSONOpenFileRowActions")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"),
+                            subtitle: String(localized: "settings.settingsJSON.documentation.subtitle", defaultValue: "View supported keys, file locations, schema, and reload behavior."),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .settingsJSON, idSuffix: "documentation")
+                        ) {
+                            Link(String(localized: "settings.settingsJSON.docsButton", defaultValue: "Open Docs"), destination: settingsJSONDocsURL)
+                                .font(.caption)
+                                .accessibilityIdentifier("SettingsJSONDocsLink")
+                        }
+                    }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .reset))
