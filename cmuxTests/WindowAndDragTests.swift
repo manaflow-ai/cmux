@@ -561,6 +561,32 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown))
     }
 
+    func testTitlebarControlGapsAreOutsideButtonHitColumns() {
+        let config = TitlebarControlsStyle.classic.config
+        let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
+        XCTAssertEqual(ranges.count, 3)
+
+        XCTAssertTrue(
+            TitlebarControlsHitRegions.pointFallsInButtonColumn(
+                NSPoint(x: ranges[0].lowerBound + 1, y: 14),
+                config: config
+            ),
+            "Icon button columns should stay interactive"
+        )
+
+        let firstGapX = (ranges[0].upperBound + ranges[1].lowerBound) / 2
+        let secondGapX = (ranges[1].upperBound + ranges[2].lowerBound) / 2
+
+        XCTAssertFalse(
+            TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: firstGapX, y: 14), config: config),
+            "The gap between the sidebar and notification icons should remain available for window dragging"
+        )
+        XCTAssertFalse(
+            TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: secondGapX, y: 14), config: config),
+            "The gap between the notification and new-workspace icons should remain available for window dragging"
+        )
+    }
+
     func testDragHandleIgnoresHiddenSiblingWhenResolvingHit() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)

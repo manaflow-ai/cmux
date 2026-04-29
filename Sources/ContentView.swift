@@ -1877,7 +1877,7 @@ struct ContentView: View {
         )
     }
 
-    private struct CommandPaletteContextSnapshot {
+    struct CommandPaletteContextSnapshot {
         private var boolValues: [String: Bool] = [:]
         private var stringValues: [String: String] = [:]
 
@@ -1913,7 +1913,7 @@ struct ContentView: View {
         let snapshot: CommandPaletteContextSnapshot
     }
 
-    private enum CommandPaletteContextKeys {
+    enum CommandPaletteContextKeys {
         static let hasWorkspace = "workspace.hasSelection"
         static let workspaceName = "workspace.name"
         static let workspaceHasCustomName = "workspace.hasCustomName"
@@ -1933,6 +1933,7 @@ struct ContentView: View {
         static let panelName = "panel.name"
         static let panelIsBrowser = "panel.isBrowser"
         static let panelIsTerminal = "panel.isTerminal"
+        static let panelHasPane = "panel.hasPane"
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
@@ -1945,7 +1946,7 @@ struct ContentView: View {
         }
     }
 
-    private struct CommandPaletteCommandContribution {
+    struct CommandPaletteCommandContribution {
         let commandId: String
         let title: (CommandPaletteContextSnapshot) -> String
         let subtitle: (CommandPaletteContextSnapshot) -> String
@@ -1976,7 +1977,7 @@ struct ContentView: View {
         }
     }
 
-    private struct CommandPaletteHandlerRegistry {
+    struct CommandPaletteHandlerRegistry {
         private var handlers: [String: () -> Void] = [:]
 
         mutating func register(commandId: String, handler: @escaping () -> Void) {
@@ -6741,6 +6742,7 @@ struct ContentView: View {
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
+            snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             let hasUnread = workspace.manualUnreadPanelIds.contains(panelId)
@@ -7179,6 +7181,11 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
                 enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasRead) }
             )
+        )
+        appendIdentifierCopyCommandContributions(
+            to: &contributions,
+            workspaceSubtitle: workspaceSubtitle,
+            panelSubtitle: panelSubtitle
         )
 
         contributions.append(
@@ -7852,6 +7859,7 @@ struct ContentView: View {
             }
             notificationStore.markUnread(forTabId: workspaceId)
         }
+        registerIdentifierCopyCommandHandlers(&registry)
 
         registry.register(commandId: "palette.renameTab") {
             beginRenameTabFlow()
@@ -8085,7 +8093,7 @@ struct ContentView: View {
         return FileManager.default.homeDirectoryForCurrentUser.path
     }
 
-    private var focusedPanelContext: (workspace: Workspace, panelId: UUID, panel: any Panel)? {
+    var focusedPanelContext: (workspace: Workspace, panelId: UUID, panel: any Panel)? {
         guard let workspace = tabManager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
               let panel = workspace.panels[panelId] else {
@@ -12593,18 +12601,8 @@ private struct TabItemView: View, Equatable {
         }
     }
 
-    private func copyTextToPasteboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-    }
-
-    private func copyWorkspaceIdsToPasteboard(_ ids: [UUID]) {
-        let refs = TerminalController.shared.v2WorkspaceRefs(for: ids)
-        let workspaces = ids.map { id in
-            (id: id, ref: refs[id])
-        }
-        copyTextToPasteboard(WorkspaceSurfaceIdentifierClipboardText.make(workspaces: workspaces))
+    private func copyWorkspaceIdsToPasteboard(_ ids: [UUID], includeRefs: Bool = false) {
+        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds(ids, includeRefs: includeRefs)
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
@@ -13231,7 +13229,7 @@ private struct TabItemView: View, Equatable {
 
         if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
             Button(String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error")) {
-                copyTextToPasteboard(copyableSidebarSSHError)
+                WorkspaceSurfaceIdentifierClipboardText.copy(copyableSidebarSSHError)
             }
         }
 

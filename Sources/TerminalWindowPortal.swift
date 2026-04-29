@@ -132,7 +132,13 @@ final class WindowTerminalHostView: NSView {
     // PERF: hitTest is called on EVERY event including keyboard. Keep non-pointer
     // path minimal. Do not add work outside the isPointerEvent guard.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let currentEvent = NSApp.currentEvent
+        performHitTest(at: point, currentEvent: NSApp.currentEvent)
+    }
+
+    // Test seam: production calls go through `hitTest(_:)` which reads
+    // `NSApp.currentEvent`; tests can call this directly with a synthetic
+    // pointer event so the typing-latency guard doesn't gate them out.
+    func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
         let isPointerEvent: Bool
         switch currentEvent?.type {
         case .mouseMoved, .mouseEntered, .mouseExited,
@@ -146,6 +152,16 @@ final class WindowTerminalHostView: NSView {
         }
 
         if isPointerEvent {
+            if shouldPassThroughToTitlebar(at: point) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return nil
+            }
+
+            if shouldPassThroughToPaneTabBar(at: point, eventType: currentEvent?.type) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return nil
+            }
+
             if shouldPassThroughToSidebarResizer(at: point) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
@@ -197,6 +213,24 @@ final class WindowTerminalHostView: NSView {
         // Non-pointer event: skip divider/drag routing, just do standard hit testing.
         let hitView = super.hitTest(point)
         return hitView === self ? nil : hitView
+    }
+
+    private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
+        guard let window else { return false }
+        let windowPoint = convert(point, to: nil)
+        return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+    }
+
+    private func shouldPassThroughToPaneTabBar(
+        at point: NSPoint,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard let decision = BonsplitTabBarPassThrough.passThroughDecision(
+            at: point,
+            in: self,
+            eventType: eventType
+        ) else { return false }
+        return decision.result
     }
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
