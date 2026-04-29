@@ -711,6 +711,12 @@ struct HiddenTitlebarSidebarControlsView: View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
 
         ZStack(alignment: .leading) {
+            WindowAccessor(dedupeByWindow: false) { window in
+                hostWindowNumber = window.windowNumber
+            }
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+
             TitlebarControlsView(
                 notificationStore: notificationStore,
                 viewModel: viewModel,
@@ -745,12 +751,6 @@ struct HiddenTitlebarSidebarControlsView: View {
             alignment: .leading
         )
         .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
-        .background(
-            WindowAccessor { window in
-                hostWindowNumber = window.windowNumber
-            }
-            .frame(width: 0, height: 0)
-        )
         .onAppear {
             isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
             popoverVisibilityState.setShown(isNotificationsPopoverShown)
