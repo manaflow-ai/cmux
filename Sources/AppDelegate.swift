@@ -649,7 +649,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     private var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
-    private var hasConfiguredBareKeyChordPrefixCache: Bool = false
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -5296,7 +5295,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let surface = ghosttyView.terminalSurface else {
             return false
         }
-        surface.sendText(prefix.key)
+        let literal: String
+        if let characters = event.characters, !characters.isEmpty {
+            literal = characters
+        } else if let charactersIgnoringModifiers = event.charactersIgnoringModifiers,
+                  !charactersIgnoringModifiers.isEmpty {
+            literal = charactersIgnoringModifiers
+        } else {
+            literal = prefix.key
+        }
+        surface.sendText(literal)
         return true
     }
 
@@ -9976,13 +9984,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard action != .showHideAllWindows else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
-        hasConfiguredBareKeyChordPrefixCache = recomputeHasConfiguredBareKeyChordPrefix()
     }
 
+    /// Returns true iff at least one configured shortcut (across all live
+    /// MainWindowContext instances) has a chord whose first stroke has no modifiers.
+    ///
+    /// This is intentionally computed fresh on every call rather than cached.
+    /// Caching would require per-context Combine subscriptions that must be
+    /// torn down on context removal. The cost of recomputing is low: the
+    /// built-in actions loop short-circuits on the first match; the per-context
+    /// shortcutActions() call filters and sorts a typically-single-digit list.
+    /// In the common no-bare-key case the function returns false quickly.
     private func recomputeHasConfiguredBareKeyChordPrefix() -> Bool {
-        let context = preferredRegisteredMainWindowContext()
-        let configuredShortcuts = configuredCmuxShortcutActions(for: context)
-            .compactMap(\.shortcut)
         for action in configuredShortcutChordActions {
             let shortcut = KeyboardShortcutSettings.shortcut(for: action)
             guard shortcut.hasChord else { continue }
@@ -9990,10 +10003,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
         }
-        for shortcut in configuredShortcuts {
-            guard shortcut.hasChord else { continue }
-            if shortcut.firstStroke.modifierFlags.isEmpty {
-                return true
+        for context in mainWindowContexts.values {
+            let configuredShortcuts = configuredCmuxShortcutActions(for: context)
+                .compactMap(\.shortcut)
+            for shortcut in configuredShortcuts {
+                guard shortcut.hasChord else { continue }
+                if shortcut.firstStroke.modifierFlags.isEmpty {
+                    return true
+                }
             }
         }
         return false
@@ -12135,10 +12152,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// True iff at least one configured shortcut has a chord whose first stroke has no modifiers.
     /// Used by `handleCustomShortcut` to know whether bare-key keyDown events still need to be
     /// considered for chord arming, instead of being short-circuited as non-shortcut input.
-    /// The result is cached by `hasConfiguredBareKeyChordPrefixCache` and recomputed in
-    /// `refreshConfiguredShortcutChordActions()` whenever the shortcut list changes.
+    /// Computed fresh on each call (see `recomputeHasConfiguredBareKeyChordPrefix()` for rationale).
     private func hasConfiguredBareKeyChordPrefix() -> Bool {
-        hasConfiguredBareKeyChordPrefixCache
+        recomputeHasConfiguredBareKeyChordPrefix()
     }
 
     private func armConfiguredShortcutChordIfNeeded(
