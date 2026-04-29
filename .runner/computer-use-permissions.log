@@ -1,0 +1,1170 @@
+== computer-use permission preflight ==
+2026-04-29T00:49:57Z
+uid=501(runner) gid=20(staff) groups=20(staff),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),264(_webdeveloper),701(com.apple.sharepoint.group.1),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae)
+== controller path subjects ==
+/bin/bash|/bin/bash
+/sbin/launchd|/sbin/launchd
+/System/Library/CoreServices/talagentd|/System/Library/CoreServices/talagentd
+/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker|/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport|/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared|/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker|/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker
+/System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd|/System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd
+/Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib|/Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib
+/Users/runner/.warpbuild/github-runner/bin/Runner.Listener|/Users/runner/.warpbuild/github-runner/bin/Runner.Listener
+/Users/runner/.warpbuild/github-runner/bin/Runner.Worker|/Users/runner/.warpbuild/github-runner/bin/Runner.Worker
+/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex
+/Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow|/Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow
+/Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame|/Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame
+/usr/libexec/gamecontrolleragentd|/usr/libexec/gamecontrolleragentd
+/usr/local/bin/warpbuild-agentd|/usr/local/bin/warpbuild-agentd
+/usr/sbin/screencapture|/usr/sbin/screencapture
+== schemas ==
+-- /Library/Application Support/com.apple.TCC/TCC.db
+CREATE TABLE access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     pid            INTEGER,     pid_version    INTEGER,     boot_uuid      TEXT NOT NULL DEFAULT 'UNUSED',     last_reminded  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);
+-- /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+CREATE TABLE access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     pid            INTEGER,     pid_version    INTEGER,     boot_uuid      TEXT NOT NULL DEFAULT 'UNUSED',     last_reminded  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);
+== grants ==
+csreq for /Applications/Codex.app: identifier "com.openai.codex" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "2DC432GLL2"
+grant kTCCServiceAccessibility to com.openai.codex type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to com.openai.codex type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to com.openai.codex type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to com.openai.codex type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to com.openai.codex type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to com.openai.codex type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to com.openai.codex type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to com.openai.codex type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /Applications/Codex.app/Contents/Resources/plugins/openai-bundled/plugins/computer-use/Codex Computer Use.app: anchor apple generic and identifier "com.openai.sky.CUAService" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "2DC432GLL2")
+grant kTCCServiceAccessibility to com.openai.sky.CUAService type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to com.openai.sky.CUAService type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to com.openai.sky.CUAService type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to com.openai.sky.CUAService type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to com.openai.sky.CUAService type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to com.openai.sky.CUAService type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to com.openai.sky.CUAService type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to com.openai.sky.CUAService type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /Applications/Codex.app/Contents/Resources/plugins/openai-bundled/plugins/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app: anchor apple generic and identifier "com.openai.sky.CUAService.cli" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "2DC432GLL2")
+grant kTCCServiceAccessibility to com.openai.sky.CUAService.cli type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to com.openai.sky.CUAService.cli type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to com.openai.sky.CUAService.cli type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to com.openai.sky.CUAService.cli type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to com.openai.sky.CUAService.cli type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to com.openai.sky.CUAService.cli type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to com.openai.sky.CUAService.cli type=0 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to com.openai.sky.CUAService.cli type=0 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /bin/bash: identifier "com.apple.bash" and anchor apple
+grant kTCCServiceAccessibility to /bin/bash type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /bin/bash type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /bin/bash type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /bin/bash type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /bin/bash type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /bin/bash type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /bin/bash type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /bin/bash type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /sbin/launchd: identifier "com.apple.xpc.launchd" and anchor apple
+grant kTCCServiceAccessibility to /sbin/launchd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /sbin/launchd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /sbin/launchd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /sbin/launchd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /sbin/launchd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /sbin/launchd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /sbin/launchd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /sbin/launchd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/CoreServices/talagentd: identifier "com.apple.talagent" and anchor apple
+grant kTCCServiceAccessibility to /System/Library/CoreServices/talagentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /System/Library/CoreServices/talagentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/CoreServices/talagentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/CoreServices/talagentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/CoreServices/talagentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/CoreServices/talagentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/CoreServices/talagentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/CoreServices/talagentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker: identifier "com.apple.fontworker" and anchor apple
+grant kTCCServiceAccessibility to /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport: identifier "com.apple.mdbulkimport" and anchor apple
+grant kTCCServiceAccessibility to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared: identifier "com.apple.mdworker_shared" and anchor apple
+grant kTCCServiceAccessibility to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker: identifier "com.apple.mdworker" and anchor apple
+grant kTCCServiceAccessibility to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd: identifier "com.apple.siriactionsd" and anchor apple
+grant kTCCServiceAccessibility to /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib
+grant kTCCServiceAccessibility to /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /Users/runner/.warpbuild/github-runner/bin/Runner.Listener
+grant kTCCServiceAccessibility to /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /Users/runner/.warpbuild/github-runner/bin/Runner.Worker
+grant kTCCServiceAccessibility to /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex: identifier codex and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "2DC432GLL2"
+grant kTCCServiceAccessibility to /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow
+grant kTCCServiceAccessibility to /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame
+grant kTCCServiceAccessibility to /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /usr/libexec/gamecontrolleragentd: identifier "com.apple.GameController.gamecontrolleragentd" and anchor apple
+grant kTCCServiceAccessibility to /usr/libexec/gamecontrolleragentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /usr/libexec/gamecontrolleragentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /usr/libexec/gamecontrolleragentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /usr/libexec/gamecontrolleragentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /usr/libexec/gamecontrolleragentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /usr/libexec/gamecontrolleragentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /usr/libexec/gamecontrolleragentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /usr/libexec/gamecontrolleragentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /usr/local/bin/warpbuild-agentd
+grant kTCCServiceAccessibility to /usr/local/bin/warpbuild-agentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /usr/local/bin/warpbuild-agentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /usr/local/bin/warpbuild-agentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /usr/local/bin/warpbuild-agentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /usr/local/bin/warpbuild-agentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /usr/local/bin/warpbuild-agentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /usr/local/bin/warpbuild-agentd type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /usr/local/bin/warpbuild-agentd type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /usr/sbin/screencapture: identifier "com.apple.screencapture" and anchor apple
+grant kTCCServiceAccessibility to /usr/sbin/screencapture type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAccessibility to /usr/sbin/screencapture type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /usr/sbin/screencapture type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceScreenCapture to /usr/sbin/screencapture type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /usr/sbin/screencapture type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServicePostEvent to /usr/sbin/screencapture type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /usr/sbin/screencapture type=1 in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceListenEvent to /usr/sbin/screencapture type=1 in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+== preseed Computer Use per-app approval ==
+approved bundle ids: 14
+com.apple.calculator
+com.apple.finder
+com.apple.Preview
+com.apple.Safari
+com.apple.systempreferences
+com.apple.systemsettings
+com.apple.Terminal
+com.apple.TextEdit
+com.cmuxterm.app.debug
+com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar
+com.openai.codex
+com.openai.sky.CUAService
+com.openai.sky.CUAService.cli
+org.sparkle-project.Sparkle.Updater
+== grant AppleEvents from Computer Use controllers to discovered apps ==
+csreq for /Applications/Codex.app: identifier "com.openai.codex" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "2DC432GLL2"
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.codex type=0 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /Applications/Codex.app/Contents/Resources/plugins/openai-bundled/plugins/computer-use/Codex Computer Use.app: anchor apple generic and identifier "com.openai.sky.CUAService" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "2DC432GLL2")
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService type=0 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /Applications/Codex.app/Contents/Resources/plugins/openai-bundled/plugins/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app: anchor apple generic and identifier "com.openai.sky.CUAService.cli" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "2DC432GLL2")
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from com.openai.sky.CUAService.cli type=0 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /bin/bash: identifier "com.apple.bash" and anchor apple
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /bin/bash type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /sbin/launchd: identifier "com.apple.xpc.launchd" and anchor apple
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /sbin/launchd type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/CoreServices/talagentd: identifier "com.apple.talagent" and anchor apple
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/CoreServices/talagentd type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker: identifier "com.apple.fontworker" and anchor apple
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport: identifier "com.apple.mdbulkimport" and anchor apple
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared: identifier "com.apple.mdworker_shared" and anchor apple
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker: identifier "com.apple.mdworker" and anchor apple
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd: identifier "com.apple.siriactionsd" and anchor apple
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /Users/runner/.warpbuild/github-runner/bin/Runner.Listener
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Listener type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /Users/runner/.warpbuild/github-runner/bin/Runner.Worker
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/.warpbuild/github-runner/bin/Runner.Worker type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex: identifier codex and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "2DC432GLL2"
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /usr/libexec/gamecontrolleragentd: identifier "com.apple.GameController.gamecontrolleragentd" and anchor apple
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/libexec/gamecontrolleragentd type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+no designated requirement for /usr/local/bin/warpbuild-agentd
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/local/bin/warpbuild-agentd type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+csreq for /usr/sbin/screencapture: identifier "com.apple.screencapture" and anchor apple
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.calculator in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.calculator in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.finder in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.finder in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.Preview in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.Preview in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.Safari in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.Safari in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.systempreferences in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.systempreferences in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.systemsettings in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.systemsettings in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.Terminal in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.Terminal in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.TextEdit in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.apple.TextEdit in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.cmuxterm.app.debug in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.cmuxterm.app.debug in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.openai.codex in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.openai.codex in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.openai.sky.CUAService in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.openai.sky.CUAService in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.openai.sky.CUAService.cli in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to com.openai.sky.CUAService.cli in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to org.sparkle-project.Sparkle.Updater in /Library/Application Support/com.apple.TCC/TCC.db
+grant kTCCServiceAppleEvents from /usr/sbin/screencapture type=1 to org.sparkle-project.Sparkle.Updater in /Users/runner/Library/Application Support/com.apple.TCC/TCC.db
+/Users/runner/Library/Group Containers/2DC432GLL2.com.openai.sky.CUAService/Library/Application Support/Software/ComputerUseAppApprovals.json: (Unexpected character { at line 1)
+{
+  "BundleIdentifiers": [
+    "com.apple.calculator",
+    "com.apple.finder",
+    "com.apple.Preview",
+    "com.apple.Safari",
+    "com.apple.systempreferences",
+    "com.apple.systemsettings",
+    "com.apple.Terminal",
+    "com.apple.TextEdit",
+    "com.cmuxterm.app.debug",
+    "com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar",
+    "com.openai.codex",
+    "com.openai.sky.CUAService",
+    "com.openai.sky.CUAService.cli",
+    "org.sparkle-project.Sparkle.Updater"
+  ],
+  "Modification": "2026-04-29T00:50:07Z",
+  "bundleIdentifiers": [
+    "com.apple.calculator",
+    "com.apple.finder",
+    "com.apple.Preview",
+    "com.apple.Safari",
+    "com.apple.systempreferences",
+    "com.apple.systemsettings",
+    "com.apple.Terminal",
+    "com.apple.TextEdit",
+    "com.cmuxterm.app.debug",
+    "com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar",
+    "com.openai.codex",
+    "com.openai.sky.CUAService",
+    "com.openai.sky.CUAService.cli",
+    "org.sparkle-project.Sparkle.Updater"
+  ],
+  "modification": "2026-04-29T00:50:07Z",
+  "approvedBundleIdentifiers": [
+    "com.apple.calculator",
+    "com.apple.finder",
+    "com.apple.Preview",
+    "com.apple.Safari",
+    "com.apple.systempreferences",
+    "com.apple.systemsettings",
+    "com.apple.Terminal",
+    "com.apple.TextEdit",
+    "com.cmuxterm.app.debug",
+    "com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar",
+    "com.openai.codex",
+    "com.openai.sky.CUAService",
+    "com.openai.sky.CUAService.cli",
+    "org.sparkle-project.Sparkle.Updater"
+  ],
+  "sessionApprovedBundleIdentifiers": [
+    "com.apple.calculator",
+    "com.apple.finder",
+    "com.apple.Preview",
+    "com.apple.Safari",
+    "com.apple.systempreferences",
+    "com.apple.systemsettings",
+    "com.apple.Terminal",
+    "com.apple.TextEdit",
+    "com.cmuxterm.app.debug",
+    "com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar",
+    "com.openai.codex",
+    "com.openai.sky.CUAService",
+    "com.openai.sky.CUAService.cli",
+    "org.sparkle-project.Sparkle.Updater"
+  ],
+  "persistentApprovalsModificationDate": "2026-04-29T00:50:07Z",
+  "persistentApprovals": {
+    "BundleIdentifiers": [
+    "com.apple.calculator",
+    "com.apple.finder",
+    "com.apple.Preview",
+    "com.apple.Safari",
+    "com.apple.systempreferences",
+    "com.apple.systemsettings",
+    "com.apple.Terminal",
+    "com.apple.TextEdit",
+    "com.cmuxterm.app.debug",
+    "com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar",
+    "com.openai.codex",
+    "com.openai.sky.CUAService",
+    "com.openai.sky.CUAService.cli",
+    "org.sparkle-project.Sparkle.Updater"
+    ],
+    "Modification": "2026-04-29T00:50:07Z",
+    "bundleIdentifiers": [
+    "com.apple.calculator",
+    "com.apple.finder",
+    "com.apple.Preview",
+    "com.apple.Safari",
+    "com.apple.systempreferences",
+    "com.apple.systemsettings",
+    "com.apple.Terminal",
+    "com.apple.TextEdit",
+    "com.cmuxterm.app.debug",
+    "com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar",
+    "com.openai.codex",
+    "com.openai.sky.CUAService",
+    "com.openai.sky.CUAService.cli",
+    "org.sparkle-project.Sparkle.Updater"
+    ],
+    "modification": "2026-04-29T00:50:07Z"
+  },
+  "PersistentApprovals": {
+    "BundleIdentifiers": [
+    "com.apple.calculator",
+    "com.apple.finder",
+    "com.apple.Preview",
+    "com.apple.Safari",
+    "com.apple.systempreferences",
+    "com.apple.systemsettings",
+    "com.apple.Terminal",
+    "com.apple.TextEdit",
+    "com.cmuxterm.app.debug",
+    "com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar",
+    "com.openai.codex",
+    "com.openai.sky.CUAService",
+    "com.openai.sky.CUAService.cli",
+    "org.sparkle-project.Sparkle.Updater"
+    ],
+    "Modification": "2026-04-29T00:50:07Z",
+    "bundleIdentifiers": [
+    "com.apple.calculator",
+    "com.apple.finder",
+    "com.apple.Preview",
+    "com.apple.Safari",
+    "com.apple.systempreferences",
+    "com.apple.systemsettings",
+    "com.apple.Terminal",
+    "com.apple.TextEdit",
+    "com.cmuxterm.app.debug",
+    "com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar",
+    "com.openai.codex",
+    "com.openai.sky.CUAService",
+    "com.openai.sky.CUAService.cli",
+    "org.sparkle-project.Sparkle.Updater"
+    ],
+    "modification": "2026-04-29T00:50:07Z"
+  }
+}
+/Users/runner/Library/Application Support/Software/ComputerUseAppApprovals.json: (Unexpected character { at line 1)
+fallback approval file: /Users/runner/Library/Application Support/Software/ComputerUseAppApprovals.json
+== restart tccd ==
+== rows from /Library/Application Support/com.apple.TCC/TCC.db ==
+kTCCServiceAccessibility|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|UNUSED|2|4|0|2026-04-29 00:50:04
+kTCCServiceAccessibility|/bin/bash|1|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceAccessibility|/usr/sbin/screencapture|1|UNUSED|2|4|0|2026-04-29 00:50:06
+kTCCServiceAccessibility|com.openai.codex|0|UNUSED|2|4|0|2026-04-29 00:49:58
+kTCCServiceAccessibility|com.openai.sky.CUAService|0|UNUSED|2|4|0|2026-04-29 00:49:58
+kTCCServiceAccessibility|com.openai.sky.CUAService.cli|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.Preview|2|4|0|2026-04-29 00:50:33
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.Safari|2|4|0|2026-04-29 00:50:33
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.Terminal|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.TextEdit|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.calculator|2|4|0|2026-04-29 00:50:33
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.finder|2|4|0|2026-04-29 00:50:33
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.systempreferences|2|4|0|2026-04-29 00:50:33
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.systemsettings|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.openai.codex|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:35
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.Preview|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.Safari|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.Terminal|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.TextEdit|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.calculator|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.finder|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.systemevents|2|0||2020-06-07 12:23:40
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.systempreferences|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.systemsettings|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.openai.codex|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:15
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.Preview|2|4|0|2026-04-29 00:50:42
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.Safari|2|4|0|2026-04-29 00:50:42
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.Terminal|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.TextEdit|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.calculator|2|4|0|2026-04-29 00:50:42
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.finder|2|4|0|2026-04-29 00:50:42
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.systempreferences|2|4|0|2026-04-29 00:50:42
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.systemsettings|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.openai.codex|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:44
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.Preview|2|4|0|2026-04-29 00:50:07
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.Safari|2|4|0|2026-04-29 00:50:07
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.Terminal|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.TextEdit|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.calculator|2|4|0|2026-04-29 00:50:07
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.finder|2|4|0|2026-04-29 00:50:07
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.systempreferences|2|4|0|2026-04-29 00:50:07
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.systemsettings|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.openai.codex|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.codex|0|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.Preview|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.Safari|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.Terminal|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.TextEdit|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.calculator|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.finder|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.systempreferences|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.systemsettings|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.openai.codex|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.Preview|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.Safari|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.Terminal|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.TextEdit|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.calculator|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.finder|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.systempreferences|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.systemsettings|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.openai.codex|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:13
+kTCCServiceListenEvent|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|UNUSED|2|4|0|2026-04-29 00:50:04
+kTCCServiceListenEvent|/bin/bash|1|UNUSED|2|4|0|2026-04-29 00:50:00
+kTCCServiceListenEvent|/usr/sbin/screencapture|1|UNUSED|2|4|0|2026-04-29 00:50:07
+kTCCServiceListenEvent|com.openai.codex|0|UNUSED|2|4|0|2026-04-29 00:49:58
+kTCCServiceListenEvent|com.openai.sky.CUAService|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceListenEvent|com.openai.sky.CUAService.cli|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServicePostEvent|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|UNUSED|2|4|0|2026-04-29 00:50:04
+kTCCServicePostEvent|/bin/bash|1|UNUSED|2|4|0|2026-04-29 00:50:00
+kTCCServicePostEvent|/usr/sbin/screencapture|1|UNUSED|2|4|0|2026-04-29 00:50:07
+kTCCServicePostEvent|com.openai.codex|0|UNUSED|2|4|0|2026-04-29 00:49:58
+kTCCServicePostEvent|com.openai.sky.CUAService|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServicePostEvent|com.openai.sky.CUAService.cli|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceScreenCapture|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|UNUSED|2|4|0|2026-04-29 00:50:04
+kTCCServiceScreenCapture|/bin/bash|1|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceScreenCapture|/usr/sbin/screencapture|1|UNUSED|2|4|0|2026-04-29 00:50:06
+kTCCServiceScreenCapture|com.openai.codex|0|UNUSED|2|4|0|2026-04-29 00:49:58
+kTCCServiceScreenCapture|com.openai.sky.CUAService|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceScreenCapture|com.openai.sky.CUAService.cli|0|UNUSED|2|4|0|2026-04-29 00:49:59
+== rows from /Users/runner/Library/Application Support/com.apple.TCC/TCC.db ==
+kTCCServiceAccessibility|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|UNUSED|2|4|0|2026-04-29 00:50:04
+kTCCServiceAccessibility|/bin/bash|1|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceAccessibility|/usr/sbin/screencapture|1|UNUSED|2|4|0|2026-04-29 00:50:06
+kTCCServiceAccessibility|com.openai.codex|0|UNUSED|2|4|0|2026-04-29 00:49:58
+kTCCServiceAccessibility|com.openai.sky.CUAService|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceAccessibility|com.openai.sky.CUAService.cli|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.Preview|2|4|0|2026-04-29 00:50:33
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.Safari|2|4|0|2026-04-29 00:50:33
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.Terminal|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.TextEdit|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.calculator|2|4|0|2026-04-29 00:50:33
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.finder|2|4|0|2026-04-29 00:50:33
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.systempreferences|2|4|0|2026-04-29 00:50:33
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.apple.systemsettings|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.openai.codex|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:34
+kTCCServiceAppleEvents|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:35
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.Preview|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.Safari|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.Terminal|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.TextEdit|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.calculator|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.finder|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.systemevents|2|0||2020-06-07 12:23:40
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.systempreferences|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.apple.systemsettings|2|4|0|2026-04-29 00:50:13
+kTCCServiceAppleEvents|/bin/bash|1|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.openai.codex|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:14
+kTCCServiceAppleEvents|/bin/bash|1|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:15
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.Preview|2|4|0|2026-04-29 00:50:42
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.Safari|2|4|0|2026-04-29 00:50:42
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.Terminal|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.TextEdit|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.calculator|2|4|0|2026-04-29 00:50:42
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.finder|2|4|0|2026-04-29 00:50:42
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.systempreferences|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.apple.systemsettings|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.openai.codex|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:43
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:44
+kTCCServiceAppleEvents|/usr/sbin/screencapture|1|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:44
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.Preview|2|4|0|2026-04-29 00:50:07
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.Safari|2|4|0|2026-04-29 00:50:07
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.Terminal|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.TextEdit|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.calculator|2|4|0|2026-04-29 00:50:07
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.finder|2|4|0|2026-04-29 00:50:07
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.systempreferences|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.apple.systemsettings|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.openai.codex|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:08
+kTCCServiceAppleEvents|com.openai.codex|0|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.codex|0|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.Preview|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.Safari|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.Terminal|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.TextEdit|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.calculator|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.finder|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.systempreferences|2|4|0|2026-04-29 00:50:09
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.apple.systemsettings|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.openai.codex|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:10
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService|0|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.Preview|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.Safari|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.Terminal|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.TextEdit|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.calculator|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.finder|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.systempreferences|2|4|0|2026-04-29 00:50:11
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.apple.systemsettings|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.cmuxterm.app.debug|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.openai.codex|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.openai.sky.CUAService|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|com.openai.sky.CUAService.cli|2|4|0|2026-04-29 00:50:12
+kTCCServiceAppleEvents|com.openai.sky.CUAService.cli|0|org.sparkle-project.Sparkle.Updater|2|4|0|2026-04-29 00:50:13
+kTCCServiceListenEvent|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|UNUSED|2|4|0|2026-04-29 00:50:04
+kTCCServiceListenEvent|/bin/bash|1|UNUSED|2|4|0|2026-04-29 00:50:00
+kTCCServiceListenEvent|/usr/sbin/screencapture|1|UNUSED|2|4|0|2026-04-29 00:50:07
+kTCCServiceListenEvent|com.openai.codex|0|UNUSED|2|4|0|2026-04-29 00:49:58
+kTCCServiceListenEvent|com.openai.sky.CUAService|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceListenEvent|com.openai.sky.CUAService.cli|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServicePostEvent|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|UNUSED|2|4|0|2026-04-29 00:50:04
+kTCCServicePostEvent|/bin/bash|1|UNUSED|2|4|0|2026-04-29 00:50:00
+kTCCServicePostEvent|/usr/sbin/screencapture|1|UNUSED|2|4|0|2026-04-29 00:50:07
+kTCCServicePostEvent|com.openai.codex|0|UNUSED|2|4|0|2026-04-29 00:49:58
+kTCCServicePostEvent|com.openai.sky.CUAService|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServicePostEvent|com.openai.sky.CUAService.cli|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceScreenCapture|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|1|UNUSED|2|4|0|2026-04-29 00:50:04
+kTCCServiceScreenCapture|/bin/bash|1|UNUSED|2|4|0|2026-04-29 00:50:00
+kTCCServiceScreenCapture|/usr/sbin/screencapture|1|UNUSED|2|4|0|2026-04-29 00:50:06
+kTCCServiceScreenCapture|com.openai.codex|0|UNUSED|2|4|0|2026-04-29 00:49:58
+kTCCServiceScreenCapture|com.openai.sky.CUAService|0|UNUSED|2|4|0|2026-04-29 00:49:59
+kTCCServiceScreenCapture|com.openai.sky.CUAService.cli|0|UNUSED|2|4|0|2026-04-29 00:49:59
+== done ==

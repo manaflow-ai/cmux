@@ -1,0 +1,14 @@
+com.apple.calculator
+com.apple.finder
+com.apple.Preview
+com.apple.Safari
+com.apple.systempreferences
+com.apple.systemsettings
+com.apple.Terminal
+com.apple.TextEdit
+com.cmuxterm.app.debug
+com.cmuxterm.app.debug.loader.issue.3241.sidebar.scrollbar
+com.openai.codex
+com.openai.sky.CUAService
+com.openai.sky.CUAService.cli
+org.sparkle-project.Sparkle.Updater

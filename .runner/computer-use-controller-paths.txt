@@ -1,0 +1,17 @@
+/bin/bash|/bin/bash
+/sbin/launchd|/sbin/launchd
+/System/Library/CoreServices/talagentd|/System/Library/CoreServices/talagentd
+/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker|/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Support/fontworker
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport|/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdbulkimport
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared|/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker_shared
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker|/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker
+/System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd|/System/Library/PrivateFrameworks/VoiceShortcuts.framework/Versions/A/Support/siriactionsd
+/Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib|/Users/runner/.warpbuild/agent/warpbuild-agentd/pkg/telemetry/binaries/darwin/arm64/otelcol-contrib
+/Users/runner/.warpbuild/github-runner/bin/Runner.Listener|/Users/runner/.warpbuild/github-runner/bin/Runner.Listener
+/Users/runner/.warpbuild/github-runner/bin/Runner.Worker|/Users/runner/.warpbuild/github-runner/bin/Runner.Worker
+/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex|/Users/runner/hostedtoolcache/node/24.14.1/arm64/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex
+/Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow|/Users/runner/work/cmux-loader/cmux-loader/.runner/click-screen-capture-allow
+/Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame|/Users/runner/work/cmux-loader/cmux-loader/.runner/set-app-window-frame
+/usr/libexec/gamecontrolleragentd|/usr/libexec/gamecontrolleragentd
+/usr/local/bin/warpbuild-agentd|/usr/local/bin/warpbuild-agentd
+/usr/sbin/screencapture|/usr/sbin/screencapture
