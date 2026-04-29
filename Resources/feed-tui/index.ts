@@ -755,7 +755,7 @@ class FeedApp {
     const primaryOptions = primaryQuestion?.options ?? item.questionOptions;
     const primaryMultiSelect = primaryQuestion?.multiSelect ?? item.questionMultiSelect;
     if (primaryOptions.length === 0) {
-      return [];
+      return action === "default" ? [] : undefined;
     }
     if (item.questions.length > 1 && action === "default") {
       return item.questions.map((question) => question.options[0]?.label ?? "");

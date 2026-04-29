@@ -259,13 +259,8 @@ final class DockControlsStore: ObservableObject {
         controlsVisibleInUI = true
         if hasLoadedConfiguration,
            lastRootDirectory == rootDirectory,
-           !(loadedWithoutWorkspace && workspaceId != nil) {
-            lastWorkspaceId = workspaceId ?? lastWorkspaceId
+           lastWorkspaceId == workspaceId {
             setControlsVisibleInUI(true)
-            return
-        }
-        guard hasLoadedConfiguration, lastRootDirectory == rootDirectory else {
-            reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
             return
         }
         reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
