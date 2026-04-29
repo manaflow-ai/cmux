@@ -105,6 +105,14 @@ final class WindowDecorationsController {
                 window: window,
                 locationInWindow: event.locationInWindow
             )
+            #if DEBUG
+            recordMinimalModeSidebarChromeHoverForUITest(
+                window: window,
+                locationInWindow: event.locationInWindow,
+                isHovering: isHovering,
+                eventType: event.type
+            )
+            #endif
             if isHovering {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
             } else {

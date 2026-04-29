@@ -407,6 +407,48 @@ func isMinimalModeSidebarChromeHoverCandidate(
     return locationInWindow.x >= minX && locationInWindow.x <= maxX
 }
 
+#if DEBUG
+func recordMinimalModeSidebarChromeHoverForUITest(
+    window: NSWindow,
+    locationInWindow: NSPoint,
+    isHovering: Bool,
+    eventType: NSEvent.EventType
+) {
+    let env = ProcessInfo.processInfo.environment
+    guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
+    let defaults = UserDefaults.standard
+    let isMinimal = WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
+    let isFullScreen = window.styleMask.contains(.fullScreen)
+    let isMainWindow = isMainWorkspaceWindow(window)
+    let contentBounds = window.contentView?.bounds ?? .zero
+    let inTitlebarBand = isMinimalModeWindowTitlebarClickCandidate(
+        isMinimalMode: isMinimal,
+        isFullScreen: isFullScreen,
+        isMainWindow: isMainWindow,
+        locationInWindow: locationInWindow,
+        contentBounds: contentBounds,
+        titlebarBandHeight: MinimalModeChromeMetrics.titlebarHeight
+    )
+    let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset
+    let maxX = minX + MinimalModeSidebarTitlebarControlsMetrics.hostWidth
+    let inXRange = locationInWindow.x >= minX && locationInWindow.x <= maxX
+    _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+        let count = (payload["minimalSidebarHoverEventCount"] as? String).flatMap(Int.init) ?? 0
+        payload["minimalSidebarHoverEventCount"] = String(count + 1)
+        payload["minimalSidebarHoverEventType"] = String(describing: eventType)
+        payload["minimalSidebarHoverWindowNumber"] = String(window.windowNumber)
+        payload["minimalSidebarHoverPoint"] = windowDragHandleFormatPoint(locationInWindow)
+        payload["minimalSidebarHoverIsCandidate"] = String(isHovering)
+        payload["minimalSidebarHoverIsMinimal"] = String(isMinimal)
+        payload["minimalSidebarHoverIsFullScreen"] = String(isFullScreen)
+        payload["minimalSidebarHoverIsMainWindow"] = String(isMainWindow)
+        payload["minimalSidebarHoverInTitlebarBand"] = String(inTitlebarBand)
+        payload["minimalSidebarHoverInXRange"] = String(inXRange)
+        payload["minimalSidebarHoverContentBounds"] = NSStringFromRect(contentBounds)
+    }
+}
+#endif
+
 /// Re-entrancy guard for the sibling hit-test walk. When `sibling.hitTest()`
 /// triggers SwiftUI view-body evaluation, AppKit can call back into this
 /// function before the outer invocation finishes, causing a Swift

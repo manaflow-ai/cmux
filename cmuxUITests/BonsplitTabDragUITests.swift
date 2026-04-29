@@ -399,7 +399,7 @@ final class BonsplitTabDragUITests: XCTestCase {
                     notificationsButton.exists && notificationsButton.isHittable &&
                     newWorkspaceButton.exists && newWorkspaceButton.isHittable
             },
-            "Expected minimal-mode sidebar controls to reveal when hovering the sidebar chrome area."
+            "Expected minimal-mode sidebar controls to reveal when hovering the sidebar chrome area. data=\(loadJSON(atPath: dataPath) ?? [:]) toggle=\(toggleSidebarButton.debugDescription) notifications=\(notificationsButton.debugDescription) new=\(newWorkspaceButton.debugDescription)"
         )
 
         notificationsButton.click()
