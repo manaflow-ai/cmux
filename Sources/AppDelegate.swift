@@ -649,6 +649,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     private var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
+    private var hasConfiguredBareKeyChordPrefixCache: Bool = false
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -9975,6 +9976,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard action != .showHideAllWindows else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
+        hasConfiguredBareKeyChordPrefixCache = recomputeHasConfiguredBareKeyChordPrefix()
+    }
+
+    private func recomputeHasConfiguredBareKeyChordPrefix() -> Bool {
+        let context = preferredRegisteredMainWindowContext()
+        let configuredShortcuts = configuredCmuxShortcutActions(for: context)
+            .compactMap(\.shortcut)
+        for action in configuredShortcutChordActions {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard shortcut.hasChord else { continue }
+            if shortcut.firstStroke.modifierFlags.isEmpty {
+                return true
+            }
+        }
+        for shortcut in configuredShortcuts {
+            guard shortcut.hasChord else { continue }
+            if shortcut.firstStroke.modifierFlags.isEmpty {
+                return true
+            }
+        }
+        return false
     }
 
     private func clearConfiguredShortcutChordState() {
@@ -12113,20 +12135,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// True iff at least one configured shortcut has a chord whose first stroke has no modifiers.
     /// Used by `handleCustomShortcut` to know whether bare-key keyDown events still need to be
     /// considered for chord arming, instead of being short-circuited as non-shortcut input.
+    /// The result is cached by `hasConfiguredBareKeyChordPrefixCache` and recomputed in
+    /// `refreshConfiguredShortcutChordActions()` whenever the shortcut list changes.
     private func hasConfiguredBareKeyChordPrefix() -> Bool {
-        let context = preferredRegisteredMainWindowContext()
-        let configuredShortcuts = configuredCmuxShortcutActions(for: context)
-            .compactMap(\.shortcut)
-        let builtInShortcuts = configuredShortcutChordActions.map {
-            KeyboardShortcutSettings.shortcut(for: $0)
-        }
-        for shortcut in builtInShortcuts + configuredShortcuts {
-            guard shortcut.hasChord else { continue }
-            if shortcut.firstStroke.modifierFlags.isEmpty {
-                return true
-            }
-        }
-        return false
+        hasConfiguredBareKeyChordPrefixCache
     }
 
     private func armConfiguredShortcutChordIfNeeded(
