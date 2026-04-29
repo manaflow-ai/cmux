@@ -289,7 +289,6 @@ struct TitlebarControlsView: View {
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
-    let usesInternalHoverTracking: Bool
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
@@ -301,24 +300,6 @@ struct TitlebarControlsView: View {
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
-
-    init(
-        notificationStore: TerminalNotificationStore,
-        viewModel: TitlebarControlsViewModel,
-        onToggleSidebar: @escaping () -> Void,
-        onToggleNotifications: @escaping () -> Void,
-        onNewTab: @escaping () -> Void,
-        visibilityMode: TitlebarControlsVisibilityMode,
-        usesInternalHoverTracking: Bool = true
-    ) {
-        self.notificationStore = notificationStore
-        self.viewModel = viewModel
-        self.onToggleSidebar = onToggleSidebar
-        self.onToggleNotifications = onToggleNotifications
-        self.onNewTab = onNewTab
-        self.visibilityMode = visibilityMode
-        self.usesInternalHoverTracking = usesInternalHoverTracking
-    }
 
     private enum HintSlot: Int, CaseIterable {
         case toggleSidebar
@@ -366,17 +347,10 @@ struct TitlebarControlsView: View {
         let _ = shortcutRefreshTick
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
-        Group {
-            let content = controlsGroup(config: config)
-                .padding(.leading, 4)
-                .padding(.trailing, titlebarHintTrailingInset)
-
-            if usesInternalHoverTracking {
-                content.contentShape(Rectangle())
-            } else {
-                content
-            }
-        }
+        controlsGroup(config: config)
+            .padding(.leading, 4)
+            .padding(.trailing, titlebarHintTrailingInset)
+            .contentShape(Rectangle())
             .opacity(shouldShowControls ? 1 : 0)
             .allowsHitTesting(shouldShowControls)
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
@@ -387,7 +361,6 @@ struct TitlebarControlsView: View {
                 .frame(width: 0, height: 0)
             )
             .onHover { hovering in
-                guard usesInternalHoverTracking else { return }
                 isHoveringControls = hovering
             }
             .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
@@ -749,8 +722,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(viewModel.notificationsAnchorView)
                 },
                 onNewTab: onNewTab,
-                visibilityMode: shouldPinControls ? .alwaysVisible : .onHover,
-                usesInternalHoverTracking: false
+                visibilityMode: shouldPinControls ? .alwaysVisible : .onHover
             )
             .frame(width: hostWidth, height: hostHeight, alignment: .leading)
         }
