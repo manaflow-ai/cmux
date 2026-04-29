@@ -16945,6 +16945,12 @@ export default CMUXSessionRestore;
     }
 
     private func resolveBunExecutable() -> String? {
+        if let path = ProcessInfo.processInfo.environment["CMUX_FEED_TUI_BUN_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty,
+           FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
         if let path = resolveExecutableInPath("bun") {
             return path
         }

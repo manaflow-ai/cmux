@@ -469,6 +469,11 @@ final class DockControlsStore: ObservableObject {
         if let readyPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEED_TUI_READY_PATH"],
            !readyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             env["CMUX_FEED_TUI_READY_PATH"] = readyPath
+            if let bunPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEED_TUI_BUN_PATH"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !bunPath.isEmpty {
+                env["CMUX_FEED_TUI_BUN_PATH"] = bunPath
+            }
             forceOpenTUI = true
         }
         let command = defaultFeedCommand() + (forceOpenTUI ? " --opentui" : "")

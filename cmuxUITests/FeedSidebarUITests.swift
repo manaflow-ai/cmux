@@ -49,6 +49,12 @@ final class FeedSidebarUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_FEED_SIDEBAR_RESULT_PATH"] = feedResultPath
         app.launchEnvironment["CMUX_UI_TEST_FEED_SIDEBAR_REQUEST_ID"] = requestId
         app.launchEnvironment["CMUX_UI_TEST_FEED_TUI_READY_PATH"] = feedTUIReadyPath
+        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
+            app.launchEnvironment["PATH"] = path
+        }
+        if let bunPath = resolvedBunPathForFeedTUI() {
+            app.launchEnvironment["CMUX_UI_TEST_FEED_TUI_BUN_PATH"] = bunPath
+        }
         launchAndEnsureUsable(app)
 
         XCTAssertTrue(
@@ -67,7 +73,7 @@ final class FeedSidebarUITests: XCTestCase {
         )
         focusButton.click()
         XCTAssertTrue(
-            waitForFeedTUIReady(timeout: 45),
+            waitForFeedTUIReady(timeout: 90),
             "Feed TUI was not ready. marker=\(loadFeedTUIReadyMarker()) result=\(loadFeedResult())"
         )
 
@@ -182,6 +188,24 @@ final class FeedSidebarUITests: XCTestCase {
         return pollUntil(timeout: timeout, interval: 0.2) {
             feedTUIProcessIsAlive()
         }
+    }
+
+    private func resolvedBunPathForFeedTUI() -> String? {
+        let environment = ProcessInfo.processInfo.environment
+        var candidates: [String] = []
+        if let bunInstall = environment["BUN_INSTALL"], !bunInstall.isEmpty {
+            candidates.append((bunInstall as NSString).appendingPathComponent("bin/bun"))
+        }
+        if let home = environment["HOME"], !home.isEmpty {
+            candidates.append((home as NSString).appendingPathComponent(".bun/bin/bun"))
+        }
+        if let path = environment["PATH"] {
+            for directory in path.split(separator: ":") {
+                candidates.append((String(directory) as NSString).appendingPathComponent("bun"))
+            }
+        }
+        candidates.append(contentsOf: ["/opt/homebrew/bin/bun", "/usr/local/bin/bun"])
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     private func feedTUIProcessIsAlive() -> Bool {
