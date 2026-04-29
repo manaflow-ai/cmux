@@ -692,8 +692,8 @@ struct HiddenTitlebarSidebarControlsView: View {
     let onNewTab: () -> Void
     @StateObject private var viewModel = TitlebarControlsViewModel()
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
-    @ObservedObject private var sidebarChromeHoverState = MinimalModeSidebarChromeHoverState.shared
     @State private var isHoveringHost = false
+    @State private var isHoveringWindowChrome = false
     @State private var isNotificationsPopoverShown = false
     @State private var hostWindowNumber: Int?
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
@@ -702,20 +702,17 @@ struct HiddenTitlebarSidebarControlsView: View {
         isHoveringHost || isHoveringWindowChrome || isNotificationsPopoverShown || popoverVisibilityState.isShown
     }
 
-    private var isHoveringWindowChrome: Bool {
-        guard let hostWindowNumber else { return false }
-        return sidebarChromeHoverState.hoveredWindowNumber == hostWindowNumber
-    }
-
     var body: some View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
 
         ZStack(alignment: .leading) {
             WindowAccessor(dedupeByWindow: false) { window in
                 hostWindowNumber = window.windowNumber
+                isHoveringWindowChrome = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
                 #if DEBUG
                 _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     payload["minimalSidebarHostWindowNumber"] = String(window.windowNumber)
+                    payload["minimalSidebarHostPinned"] = String(shouldPinControls)
                 }
                 #endif
             }
@@ -768,8 +765,19 @@ struct HiddenTitlebarSidebarControlsView: View {
             isNotificationsPopoverShown = nextValue
             popoverVisibilityState.setShown(nextValue)
         }
+        .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
+            isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
+            #if DEBUG
+            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                payload["minimalSidebarObservedHoverWindowNumber"] = hoveredWindowNumber.map(String.init) ?? "nil"
+                payload["minimalSidebarObservedHostWindowNumber"] = hostWindowNumber.map(String.init) ?? "nil"
+                payload["minimalSidebarObservedPinned"] = String(shouldPinControls)
+            }
+            #endif
+        }
         .onDisappear {
             isHoveringHost = false
+            isHoveringWindowChrome = false
             isNotificationsPopoverShown = false
             if let hostWindowNumber {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(false, windowNumber: hostWindowNumber)
