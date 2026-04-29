@@ -49,6 +49,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
             return
         }
         XCTAssertEqual(secondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected secondary bar to match the right sidebar mode bar. geometry=\(geometry)")
+        XCTAssertEqual(secondaryBarHeight, 24, accuracy: 0.5, "Expected right sidebar chrome to use the compact minimal-mode lane height. geometry=\(geometry)")
         XCTAssertEqual(CGFloat(secondaryBarHeight), alphaTab.frame.height, accuracy: 2, "Expected secondary bar to match Bonsplit pane tab height. geometry=\(geometry) alphaTab=\(alphaTab.frame)")
 
         let controlHeightKeys = [

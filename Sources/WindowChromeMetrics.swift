@@ -1,7 +1,7 @@
 import CoreGraphics
 
 enum WindowChromeMetrics {
-    static let sharedChromeBarHeight: CGFloat = 28
+    static let sharedChromeBarHeight: CGFloat = 24
     static let appTitlebarHeight: CGFloat = sharedChromeBarHeight
     static let bonsplitTabBarHeight: CGFloat = sharedChromeBarHeight
     static let secondaryTitlebarHeight: CGFloat = sharedChromeBarHeight
@@ -22,14 +22,14 @@ enum RightSidebarChromeMetrics {
     static let titlebarHeight: CGFloat = WindowChromeMetrics.appTitlebarHeight
     static let secondaryBarHeight: CGFloat = WindowChromeMetrics.secondaryTitlebarHeight
     static let barHorizontalPadding: CGFloat = 8
-    static let barVerticalPadding: CGFloat = 3
-    static let controlHeight: CGFloat = secondaryBarHeight - (barVerticalPadding * 2)
+    static let barVerticalPadding: CGFloat = 1
+    static let controlHeight: CGFloat = max(1, secondaryBarHeight - (barVerticalPadding * 2))
     static let controlHorizontalPadding: CGFloat = 8
     static let controlCornerRadius: CGFloat = 5
 }
 
 enum SidebarWorkspaceListMetrics {
-    static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
+    static let firstRowTopOffset: CGFloat = 30
     static let rowVerticalPadding: CGFloat = 8
     static let topScrimHeight: CGFloat = firstRowTopOffset + 20
 
