@@ -99,7 +99,11 @@ ensure_node_options_restore_module() {
     # whitespace, since Node.js splits NODE_OPTIONS on whitespace and
     # the --require=<path> flag is not quoted downstream.
     local guard_dir
-    if [[ -n "${XDG_CACHE_HOME:-}" ]]; then
+    # Reject XDG_CACHE_HOME values containing whitespace, since the
+    # path is interpolated unquoted into NODE_OPTIONS=--require=<path>
+    # below and node would split on the space (the same failure mode
+    # that sank #2983). Fall back to the OS default in that case.
+    if [[ -n "${XDG_CACHE_HOME:-}" && "$XDG_CACHE_HOME" != *[[:space:]]* ]]; then
         guard_dir="${XDG_CACHE_HOME}/cmux/cmux-claude-node-options"
     elif [[ "$(uname)" == "Darwin" ]]; then
         guard_dir="${HOME}/Library/Caches/com.cmuxterm.app/cmux-claude-node-options"

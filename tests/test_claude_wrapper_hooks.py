@@ -169,8 +169,10 @@ exit 0
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
-        if xdg_cache_home is not None:
-            env["XDG_CACHE_HOME"] = xdg_cache_home
+        # Always pin XDG_CACHE_HOME to a deterministic per-test path so
+        # tests don't leak into the host's real ~/.cache or
+        # ~/Library/Caches when an explicit override isn't provided.
+        env["XDG_CACHE_HOME"] = xdg_cache_home if xdg_cache_home is not None else str(tmp / "xdg-cache")
         if node_options is not None:
             env["NODE_OPTIONS"] = node_options
 

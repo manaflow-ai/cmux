@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -326,7 +327,14 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 		// cache directory; the bug only reproduces on macOS today.
 		cacheRoot = os.TempDir()
 	}
-	dir := filepath.Join(cacheRoot, "cmux", "cmux-claude-node-options")
+	// On macOS, align the subdirectory with the bash wrapper and Swift
+	// launcher (~/Library/Caches/com.cmuxterm.app/...) so all three
+	// launchers share a single cache tree instead of writing duplicates.
+	subdir := "cmux"
+	if runtime.GOOS == "darwin" {
+		subdir = "com.cmuxterm.app"
+	}
+	dir := filepath.Join(cacheRoot, subdir, "cmux-claude-node-options")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
