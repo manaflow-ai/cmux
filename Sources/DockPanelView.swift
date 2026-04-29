@@ -461,9 +461,22 @@ final class DockControlsStore: ObservableObject {
         return DockControlDefinition(
             id: "feed",
             title: String(localized: "dock.default.feed.title", defaultValue: "Feed"),
-            command: "cmux feed tui",
+            command: defaultFeedCommand(),
             env: env
         )
+    }
+
+    private static func defaultFeedCommand() -> String {
+        if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+           FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
+            return "\(shellSingleQuoted(bundledCLIURL.path)) feed tui"
+        }
+        return "cmux feed tui"
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
     private static func sourceLabel(for resolution: DockConfigResolution) -> String {
