@@ -2059,6 +2059,8 @@ class TerminalController {
             return v2Ok(id: id, result: v2Identify(params: params))
         case "system.tree":
             return v2Result(id: id, self.v2SystemTree(params: params))
+        case "system.top":
+            return v2Result(id: id, self.v2SystemTop(params: params))
         case "auth.login":
             return v2Ok(
                 id: id,
@@ -2626,6 +2628,7 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "system.top",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
@@ -3010,6 +3013,473 @@ class TerminalController {
             "caller": caller.isEmpty ? (NSNull() as Any) : caller,
             "windows": windowNodes
         ])
+    }
+
+    private func v2SystemTop(params: [String: Any]) -> V2CallResult {
+        let workspaceFilter = v2UUID(params, "workspace_id")
+        if params["workspace_id"] != nil && workspaceFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let includeAllWindows = v2Bool(params, "all_windows") ?? false
+
+        var identifyParams: [String: Any] = [:]
+        if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
+            identifyParams["caller"] = caller
+        }
+        let identifyPayload = v2Identify(params: identifyParams)
+        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
+        let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
+        let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
+
+        var windowNodes: [[String: Any]] = []
+        var workspaceFound = (workspaceFilter == nil)
+
+        v2MainSync {
+            guard let app = AppDelegate.shared else { return }
+            let summaries = app.listMainWindowSummaries()
+            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+
+            for (windowIndex, summary) in summaries.enumerated() {
+                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+
+                if let workspaceFilter {
+                    guard let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspaceFilter }) else {
+                        continue
+                    }
+                    let workspace = manager.tabs[workspaceIndex]
+                    let workspaceNode = v2TopWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                    windowNodes = [
+                        v2TopWindowNode(
+                            summary: summary,
+                            index: windowIndex,
+                            workspaceNodes: [workspaceNode]
+                        )
+                    ]
+                    workspaceFound = true
+                    break
+                }
+
+                if !includeAllWindows && summary.windowId != defaultWindowId {
+                    continue
+                }
+
+                let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
+                    v2TopWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                }
+
+                windowNodes.append(
+                    v2TopWindowNode(
+                        summary: summary,
+                        index: windowIndex,
+                        workspaceNodes: workspaceNodesForWindow
+                    )
+                )
+            }
+        }
+
+        if let workspaceFilter, !workspaceFound {
+            return .err(
+                code: "not_found",
+                message: "Workspace not found",
+                data: [
+                    "workspace_id": workspaceFilter.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceFilter)
+                ]
+            )
+        }
+
+        let processSnapshot = CmuxTopProcessSnapshot.capture()
+        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
+        var annotatedWindows = windowNodes
+        let totalPIDs = v2AnnotateTopWindows(
+            &annotatedWindows,
+            processSnapshot: processSnapshot,
+            browserPIDOccurrences: browserPIDOccurrences
+        )
+
+        return .ok([
+            "active": focused.isEmpty ? (NSNull() as Any) : focused,
+            "caller": caller.isEmpty ? (NSNull() as Any) : caller,
+            "sample": processSnapshot.samplePayload(),
+            "totals": processSnapshot.summaryPayload(for: totalPIDs),
+            "windows": annotatedWindows
+        ])
+    }
+
+    private func v2TopWindowNode(
+        summary: AppDelegate.MainWindowSummary,
+        index: Int,
+        workspaceNodes: [[String: Any]]
+    ) -> [String: Any] {
+        return [
+            "kind": "window",
+            "id": summary.windowId.uuidString,
+            "ref": v2Ref(kind: .window, uuid: summary.windowId),
+            "index": index,
+            "key": summary.isKeyWindow,
+            "visible": summary.isVisible,
+            "workspace_count": workspaceNodes.count,
+            "selected_workspace_id": v2OrNull(summary.selectedWorkspaceId?.uuidString),
+            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: summary.selectedWorkspaceId),
+            "workspaces": workspaceNodes
+        ]
+    }
+
+    private func v2TopWorkspaceNode(
+        workspace: Workspace,
+        index: Int,
+        selected: Bool
+    ) -> [String: Any] {
+        var paneByPanelId: [UUID: UUID] = [:]
+        var indexInPaneByPanelId: [UUID: Int] = [:]
+        var selectedInPaneByPanelId: [UUID: Bool] = [:]
+
+        let paneIds = workspace.bonsplitController.allPaneIds
+        for paneId in paneIds {
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+            for (tabIndex, tab) in tabs.enumerated() {
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+                paneByPanelId[panelId] = paneId.id
+                indexInPaneByPanelId[panelId] = tabIndex
+                selectedInPaneByPanelId[panelId] = (tab.id == selectedTab?.id)
+            }
+        }
+
+        var surfacesByPane: [UUID: [[String: Any]]] = [:]
+        let focusedSurfaceId = workspace.focusedPanelId
+        for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
+            let paneUUID = paneByPanelId[panel.id]
+            let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
+
+            var item: [String: Any] = [
+                "kind": "surface",
+                "id": panel.id.uuidString,
+                "ref": v2Ref(kind: .surface, uuid: panel.id),
+                "index": surfaceIndex,
+                "type": panel.panelType.rawValue,
+                "title": workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
+                "focused": panel.id == focusedSurfaceId,
+                "selected": selectedInPane,
+                "selected_in_pane": v2OrNull(selectedInPaneByPanelId[panel.id]),
+                "pane_id": v2OrNull(paneUUID?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
+                "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id]),
+                "tty": v2OrNull(workspace.surfaceTTYNames[panel.id]),
+                "webviews": []
+            ]
+
+            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
+                let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
+                let url = browserPanel.currentURL?.absoluteString ?? ""
+                item["url"] = url
+                item["browser_web_content_pid"] = v2OrNull(webContentPID)
+                item["webviews"] = [
+                    [
+                        "kind": "webview",
+                        "id": "\(panel.id.uuidString):webview",
+                        "ref": "\(v2Ref(kind: .surface, uuid: panel.id)):webview",
+                        "index": 0,
+                        "surface_id": panel.id.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+                        "title": browserPanel.displayTitle,
+                        "url": url,
+                        "pid": v2OrNull(webContentPID)
+                    ] as [String: Any]
+                ]
+            } else {
+                item["url"] = NSNull()
+                item["browser_web_content_pid"] = NSNull()
+            }
+            if let paneUUID {
+                surfacesByPane[paneUUID, default: []].append(item)
+            }
+        }
+
+        for paneUUID in surfacesByPane.keys {
+            surfacesByPane[paneUUID]?.sort {
+                let lhs = ($0["index_in_pane"] as? Int) ?? ($0["index"] as? Int) ?? Int.max
+                let rhs = ($1["index_in_pane"] as? Int) ?? ($1["index"] as? Int) ?? Int.max
+                return lhs < rhs
+            }
+        }
+
+        let focusedPaneId = workspace.bonsplitController.focusedPaneId
+        let panes: [[String: Any]] = paneIds.enumerated().map { paneIndex, paneId in
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let surfaceUUIDs: [UUID] = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
+            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+            let selectedSurfaceUUID = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
+
+            return [
+                "kind": "pane",
+                "id": paneId.id.uuidString,
+                "ref": v2Ref(kind: .pane, uuid: paneId.id),
+                "index": paneIndex,
+                "focused": paneId == focusedPaneId,
+                "surface_ids": surfaceUUIDs.map { $0.uuidString },
+                "surface_refs": surfaceUUIDs.map { v2Ref(kind: .surface, uuid: $0) },
+                "selected_surface_id": v2OrNull(selectedSurfaceUUID?.uuidString),
+                "selected_surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceUUID),
+                "surface_count": surfaceUUIDs.count,
+                "surfaces": surfacesByPane[paneId.id] ?? []
+            ]
+        }
+
+        return [
+            "kind": "workspace",
+            "id": workspace.id.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "index": index,
+            "title": workspace.title,
+            "description": v2OrNull(workspace.customDescription),
+            "selected": selected,
+            "pinned": workspace.isPinned,
+            "panes": panes,
+            "tags": v2TopTagNodes(for: workspace)
+        ]
+    }
+
+    private func v2TopTagNodes(for workspace: Workspace) -> [[String: Any]] {
+        var tags: [[String: Any]] = []
+        var seenKeys = Set<String>()
+
+        for (index, entry) in workspace.sidebarStatusEntriesInDisplayOrder().enumerated() {
+            let pid = workspace.agentPIDs[entry.key].flatMap { $0 > 0 ? Int($0) : nil }
+            tags.append([
+                "kind": "tag",
+                "id": "\(workspace.id.uuidString):tag:\(entry.key)",
+                "ref": "tag:\(entry.key)",
+                "index": index,
+                "key": entry.key,
+                "value": entry.value,
+                "icon": v2OrNull(entry.icon),
+                "color": v2OrNull(entry.color),
+                "url": v2OrNull(entry.url?.absoluteString),
+                "priority": entry.priority,
+                "format": entry.format.rawValue,
+                "visible": true,
+                "pid": v2OrNull(pid)
+            ])
+            seenKeys.insert(entry.key)
+        }
+
+        for key in workspace.agentPIDs.keys.sorted() where !seenKeys.contains(key) {
+            let pid = workspace.agentPIDs[key].flatMap { $0 > 0 ? Int($0) : nil }
+            tags.append([
+                "kind": "tag",
+                "id": "\(workspace.id.uuidString):tag:\(key)",
+                "ref": "tag:\(key)",
+                "index": tags.count,
+                "key": key,
+                "value": "",
+                "icon": NSNull(),
+                "color": NSNull(),
+                "url": NSNull(),
+                "priority": 0,
+                "format": "plain",
+                "visible": false,
+                "pid": v2OrNull(pid)
+            ])
+        }
+
+        return tags
+    }
+
+    private func v2TopBrowserPIDOccurrences(in windows: [[String: Any]]) -> [Int: Int] {
+        var counts: [Int: Int] = [:]
+        for window in windows {
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            for workspace in workspaces {
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                for pane in panes {
+                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+                    for surface in surfaces {
+                        let webviews = surface["webviews"] as? [[String: Any]] ?? []
+                        for webview in webviews {
+                            guard let pid = v2TopInt(webview["pid"]) else { continue }
+                            counts[pid, default: 0] += 1
+                        }
+                    }
+                }
+            }
+        }
+        return counts
+    }
+
+    private func v2AnnotateTopWindows(
+        _ windows: inout [[String: Any]],
+        processSnapshot: CmuxTopProcessSnapshot,
+        browserPIDOccurrences: [Int: Int]
+    ) -> Set<Int> {
+        var allPIDs: Set<Int> = []
+        for index in windows.indices {
+            var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
+            var windowPIDs: Set<Int> = []
+            for workspaceIndex in workspaces.indices {
+                windowPIDs.formUnion(
+                    v2AnnotateTopWorkspace(
+                        &workspaces[workspaceIndex],
+                        processSnapshot: processSnapshot,
+                        browserPIDOccurrences: browserPIDOccurrences
+                    )
+                )
+            }
+            windows[index]["workspaces"] = workspaces
+            windows[index]["resources"] = processSnapshot.summaryPayload(for: windowPIDs)
+            allPIDs.formUnion(windowPIDs)
+        }
+        return allPIDs
+    }
+
+    private func v2AnnotateTopWorkspace(
+        _ workspace: inout [String: Any],
+        processSnapshot: CmuxTopProcessSnapshot,
+        browserPIDOccurrences: [Int: Int]
+    ) -> Set<Int> {
+        var workspacePIDs: Set<Int> = []
+
+        var panes = workspace["panes"] as? [[String: Any]] ?? []
+        for paneIndex in panes.indices {
+            workspacePIDs.formUnion(
+                v2AnnotateTopPane(
+                    &panes[paneIndex],
+                    processSnapshot: processSnapshot,
+                    browserPIDOccurrences: browserPIDOccurrences
+                )
+            )
+        }
+        workspace["panes"] = panes
+
+        var tags = workspace["tags"] as? [[String: Any]] ?? []
+        for tagIndex in tags.indices {
+            workspacePIDs.formUnion(v2AnnotateTopTag(&tags[tagIndex], processSnapshot: processSnapshot))
+        }
+        workspace["tags"] = tags
+
+        workspace["resources"] = processSnapshot.summaryPayload(for: workspacePIDs)
+        return workspacePIDs
+    }
+
+    private func v2AnnotateTopPane(
+        _ pane: inout [String: Any],
+        processSnapshot: CmuxTopProcessSnapshot,
+        browserPIDOccurrences: [Int: Int]
+    ) -> Set<Int> {
+        var panePIDs: Set<Int> = []
+        var surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+        for surfaceIndex in surfaces.indices {
+            panePIDs.formUnion(
+                v2AnnotateTopSurface(
+                    &surfaces[surfaceIndex],
+                    processSnapshot: processSnapshot,
+                    browserPIDOccurrences: browserPIDOccurrences
+                )
+            )
+        }
+        pane["surfaces"] = surfaces
+        pane["resources"] = processSnapshot.summaryPayload(for: panePIDs)
+        return panePIDs
+    }
+
+    private func v2AnnotateTopSurface(
+        _ surface: inout [String: Any],
+        processSnapshot: CmuxTopProcessSnapshot,
+        browserPIDOccurrences: [Int: Int]
+    ) -> Set<Int> {
+        var rootPIDs: Set<Int> = []
+        var surfacePIDs: Set<Int> = []
+
+        if let ttyName = surface["tty"] as? String {
+            let ttyPIDs = processSnapshot.pids(forTTYName: ttyName)
+            surface["tty_process_pids"] = ttyPIDs.sorted()
+            rootPIDs.formUnion(ttyPIDs)
+            surfacePIDs.formUnion(processSnapshot.expandedPIDs(rootPIDs: ttyPIDs))
+        } else {
+            surface["tty_process_pids"] = []
+        }
+
+        var webviews = surface["webviews"] as? [[String: Any]] ?? []
+        for webviewIndex in webviews.indices {
+            if let pid = v2TopInt(webviews[webviewIndex]["pid"]) {
+                rootPIDs.insert(pid)
+            }
+            surfacePIDs.formUnion(
+                v2AnnotateTopWebView(
+                    &webviews[webviewIndex],
+                    processSnapshot: processSnapshot,
+                    browserPIDOccurrences: browserPIDOccurrences
+                )
+            )
+        }
+        surface["webviews"] = webviews
+
+        surface["root_pids"] = rootPIDs.sorted()
+        surface["resources"] = processSnapshot.summaryPayload(for: surfacePIDs, rootPIDs: rootPIDs)
+        surface["processes"] = processSnapshot.processTreePayload(for: surfacePIDs)
+        return surfacePIDs
+    }
+
+    private func v2AnnotateTopWebView(
+        _ webview: inout [String: Any],
+        processSnapshot: CmuxTopProcessSnapshot,
+        browserPIDOccurrences: [Int: Int]
+    ) -> Set<Int> {
+        guard let pid = v2TopInt(webview["pid"]) else {
+            webview["shared_process_count"] = NSNull()
+            webview["root_pids"] = []
+            webview["resources"] = processSnapshot.summaryPayload(for: [])
+            webview["processes"] = []
+            return []
+        }
+
+        let rootPIDs: Set<Int> = [pid]
+        let pids = processSnapshot.expandedPIDs(rootPIDs: rootPIDs)
+        webview["shared_process_count"] = browserPIDOccurrences[pid] ?? 1
+        webview["root_pids"] = rootPIDs.sorted()
+        webview["resources"] = processSnapshot.summaryPayload(for: pids, rootPIDs: rootPIDs)
+        webview["processes"] = processSnapshot.processTreePayload(for: pids)
+        return pids
+    }
+
+    private func v2AnnotateTopTag(
+        _ tag: inout [String: Any],
+        processSnapshot: CmuxTopProcessSnapshot
+    ) -> Set<Int> {
+        guard let pid = v2TopInt(tag["pid"]) else {
+            tag["root_pids"] = []
+            tag["resources"] = processSnapshot.summaryPayload(for: [])
+            tag["processes"] = []
+            return []
+        }
+
+        let rootPIDs: Set<Int> = [pid]
+        let pids = processSnapshot.expandedPIDs(rootPIDs: rootPIDs)
+        tag["root_pids"] = rootPIDs.sorted()
+        tag["resources"] = processSnapshot.summaryPayload(for: pids, rootPIDs: rootPIDs)
+        tag["processes"] = processSnapshot.processTreePayload(for: pids)
+        return pids
+    }
+
+    private func v2TopInt(_ raw: Any?) -> Int? {
+        if let value = raw as? Int {
+            return value
+        }
+        if let value = raw as? NSNumber {
+            return value.intValue
+        }
+        if let value = raw as? String {
+            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
     }
 
     private func v2TreeWindowNode(
