@@ -5,6 +5,7 @@ final class WindowDecorationsController {
     private var didStart = false
     private var trafficLightBaseFrames: [ObjectIdentifier: [NSWindow.ButtonType: NSRect]] = [:]
     private var minimalModeTitlebarDoubleClickMonitor: Any?
+    private var minimalModeSidebarChromeHoverMonitor: Any?
     private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
 
     deinit {
@@ -15,6 +16,9 @@ final class WindowDecorationsController {
         if let minimalModeTitlebarDoubleClickMonitor {
             NSEvent.removeMonitor(minimalModeTitlebarDoubleClickMonitor)
         }
+        if let minimalModeSidebarChromeHoverMonitor {
+            NSEvent.removeMonitor(minimalModeSidebarChromeHoverMonitor)
+        }
     }
 
     func start() {
@@ -23,6 +27,7 @@ final class WindowDecorationsController {
         attachToExistingWindows()
         installObservers()
         installMinimalModeTitlebarDoubleClickMonitor()
+        installMinimalModeSidebarChromeHoverMonitor()
     }
 
     func apply(to window: NSWindow) {
@@ -81,6 +86,28 @@ final class WindowDecorationsController {
             )
 #endif
             return result.consumesEvent ? nil : event
+        }
+    }
+
+    private func installMinimalModeSidebarChromeHoverMonitor() {
+        guard minimalModeSidebarChromeHoverMonitor == nil else { return }
+        minimalModeSidebarChromeHoverMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.mouseMoved, .mouseEntered, .mouseExited, .leftMouseDown, .leftMouseDragged]
+        ) { event in
+            guard let window = event.window else {
+                MinimalModeSidebarChromeHoverState.shared.clear()
+                return event
+            }
+            let isHovering = isMinimalModeSidebarChromeHoverCandidate(
+                window: window,
+                locationInWindow: event.locationInWindow
+            )
+            if isHovering {
+                MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
+            } else {
+                MinimalModeSidebarChromeHoverState.shared.clear()
+            }
+            return event
         }
     }
 

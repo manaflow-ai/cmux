@@ -692,14 +692,19 @@ struct HiddenTitlebarSidebarControlsView: View {
     let onNewTab: () -> Void
     @StateObject private var viewModel = TitlebarControlsViewModel()
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
+    @ObservedObject private var sidebarChromeHoverState = MinimalModeSidebarChromeHoverState.shared
     @State private var isHoveringHost = false
     @State private var isNotificationsPopoverShown = false
+    @State private var hostWindowNumber: Int?
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
 
-    private let hostWidth: CGFloat = 124
-    private let hostHeight: CGFloat = 28
     private var shouldPinControls: Bool {
-        isHoveringHost || isNotificationsPopoverShown || popoverVisibilityState.isShown
+        isHoveringHost || isHoveringWindowChrome || isNotificationsPopoverShown || popoverVisibilityState.isShown
+    }
+
+    private var isHoveringWindowChrome: Bool {
+        guard let hostWindowNumber else { return false }
+        return sidebarChromeHoverState.hoveredWindowNumber == hostWindowNumber
     }
 
     var body: some View {
@@ -716,16 +721,36 @@ struct HiddenTitlebarSidebarControlsView: View {
                 onNewTab: onNewTab,
                 visibilityMode: shouldPinControls ? .alwaysVisible : .onHover
             )
-            .frame(width: hostWidth, height: hostHeight, alignment: .leading)
+            .frame(
+                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight,
+                alignment: .leading
+            )
 
             TitlebarControlsGapDragView(config: style.config)
-                .frame(width: hostWidth, height: hostHeight)
+                .frame(
+                    width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                    height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+                )
 
             PassthroughHoverTrackingView(capturesPassiveHits: !shouldPinControls) { isHoveringHost = $0 }
-            .frame(width: hostWidth, height: hostHeight)
+            .frame(
+                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+            )
         }
-        .frame(width: hostWidth, height: hostHeight, alignment: .leading)
+        .frame(
+            width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+            height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight,
+            alignment: .leading
+        )
         .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
+        .background(
+            WindowAccessor { window in
+                hostWindowNumber = window.windowNumber
+            }
+            .frame(width: 0, height: 0)
+        )
         .onAppear {
             isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
             popoverVisibilityState.setShown(isNotificationsPopoverShown)
@@ -738,6 +763,10 @@ struct HiddenTitlebarSidebarControlsView: View {
         .onDisappear {
             isHoveringHost = false
             isNotificationsPopoverShown = false
+            if let hostWindowNumber {
+                MinimalModeSidebarChromeHoverState.shared.setHovering(false, windowNumber: hostWindowNumber)
+            }
+            hostWindowNumber = nil
         }
     }
 }

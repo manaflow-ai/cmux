@@ -352,6 +352,61 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
     MinimalModeTitlebarControlHitRegionRegistry.containsWindowPoint(locationInWindow, in: window)
 }
 
+enum MinimalModeSidebarTitlebarControlsMetrics {
+    static let leadingInset: CGFloat = 72
+    static let hostWidth: CGFloat = 124
+    static let hostHeight: CGFloat = 28
+}
+
+final class MinimalModeSidebarChromeHoverState: ObservableObject {
+    static let shared = MinimalModeSidebarChromeHoverState()
+
+    @Published private(set) var hoveredWindowNumber: Int?
+
+    private init() {}
+
+    func setHovering(_ isHovering: Bool, windowNumber: Int) {
+        if isHovering {
+            guard hoveredWindowNumber != windowNumber else { return }
+            hoveredWindowNumber = windowNumber
+        } else if hoveredWindowNumber == windowNumber {
+            hoveredWindowNumber = nil
+        }
+    }
+
+    func clear() {
+        guard hoveredWindowNumber != nil else { return }
+        hoveredWindowNumber = nil
+    }
+}
+
+func isMinimalModeSidebarChromeHoverCandidate(
+    window: NSWindow,
+    locationInWindow: NSPoint,
+    defaults: UserDefaults = .standard
+) -> Bool {
+    let contentBounds = window.contentView?.bounds ?? NSRect(
+        x: 0,
+        y: 0,
+        width: window.frame.width,
+        height: window.frame.height
+    )
+    guard isMinimalModeWindowTitlebarClickCandidate(
+        isMinimalMode: WorkspacePresentationModeSettings.isMinimal(defaults: defaults),
+        isFullScreen: window.styleMask.contains(.fullScreen),
+        isMainWindow: isMainWorkspaceWindow(window),
+        locationInWindow: locationInWindow,
+        contentBounds: contentBounds,
+        titlebarBandHeight: MinimalModeChromeMetrics.titlebarHeight
+    ) else {
+        return false
+    }
+
+    let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset
+    let maxX = minX + MinimalModeSidebarTitlebarControlsMetrics.hostWidth
+    return locationInWindow.x >= minX && locationInWindow.x <= maxX
+}
+
 /// Re-entrancy guard for the sibling hit-test walk. When `sibling.hitTest()`
 /// triggers SwiftUI view-body evaluation, AppKit can call back into this
 /// function before the outer invocation finishes, causing a Swift

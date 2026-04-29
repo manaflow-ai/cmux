@@ -9668,8 +9668,6 @@ struct VerticalTabsSidebar: View {
     private var sidebarMatchTerminalBackground = false
 
     private let tabRowSpacing: CGFloat = 2
-    private let hiddenTitlebarControlsLeadingInset: CGFloat = 72
-
     private var workspaceScrollTopVisibilityInset: CGFloat {
         SidebarWorkspaceListMetrics.scrollTopInset
     }
@@ -9909,7 +9907,7 @@ struct VerticalTabsSidebar: View {
                             },
                             onNewTab: onNewTab
                         )
-                            .padding(.leading, hiddenTitlebarControlsLeadingInset)
+                            .padding(.leading, MinimalModeSidebarTitlebarControlsMetrics.leadingInset)
                             .padding(.top, 2)
                     }
                 }
