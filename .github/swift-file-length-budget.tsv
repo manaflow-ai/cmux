@@ -39,7 +39,7 @@
 1517	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1423	Sources/TerminalNotificationStore.swift
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
-1336	Sources/WindowDragHandleView.swift
+1342	Sources/WindowDragHandleView.swift
 1292	cmuxUITests/SidebarHelpMenuUITests.swift
 1255	cmuxTests/NotificationAndMenuBarTests.swift
 1215	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift

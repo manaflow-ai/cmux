@@ -1094,7 +1094,13 @@ func minimalModeTitlebarClickFormsDoubleClick(
     return hypot(dx, dy) <= maxDistance
 }
 
-let minimalModeTitlebarSyntheticDoubleClickTolerance: TimeInterval = 0.15
+let minimalModeTitlebarSyntheticDoubleClickTolerance: TimeInterval = {
+    #if DEBUG
+    0.15
+    #else
+    0
+    #endif
+}()
 
 func minimalModeTitlebarDoubleClickBandHeight(for window: NSWindow) -> CGFloat {
     MinimalModeChromeMetrics.titlebarHeight
