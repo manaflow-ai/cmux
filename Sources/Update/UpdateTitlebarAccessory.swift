@@ -730,13 +730,16 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(viewModel.notificationsAnchorView)
                 },
                 onNewTab: onNewTab,
-                visibilityMode: shouldPinControls ? .alwaysVisible : .onHover
+                visibilityMode: .alwaysVisible
             )
             .frame(
                 width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
                 height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight,
                 alignment: .leading
             )
+            .opacity(shouldPinControls ? 1 : 0)
+            .allowsHitTesting(shouldPinControls)
+            .animation(.easeInOut(duration: 0.14), value: shouldPinControls)
 
             TitlebarControlsGapDragView(config: style.config)
                 .frame(
