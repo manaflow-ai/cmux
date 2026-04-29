@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 
 enum WorkspaceSurfaceIdentifierClipboardText {
+    @MainActor
     static func copy(_ text: String, to pasteboard: NSPasteboard = .general) {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
