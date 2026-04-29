@@ -2247,21 +2247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didSetupFeedSidebarUITest = true
 
         setupFeedSidebarUITestReveal(resultPath: path)
-
-        let requestId = env["CMUX_UI_TEST_FEED_SIDEBAR_REQUEST_ID"] ?? "uitest-feed-sidebar"
-        writeFeedSidebarUITestData([
-            "stage": "feedPushStarting",
-            "requestId": requestId,
-        ], at: path)
-
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
-            let response = self.runFeedSidebarUITestPush(requestId: requestId)
-            var updates = self.feedSidebarUITestResponsePayload(response)
-            updates["stage"] = "feedPushReturned"
-            updates["requestId"] = requestId
-            self.writeFeedSidebarUITestData(updates, at: path)
-        }
+        writeFeedSidebarUITestData(["stage": "revealOnly"], at: path)
     }
 
     private func setupFeedSidebarUITestReveal(resultPath: String) {
@@ -2299,58 +2285,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             feedSidebarUITestObservers.append(observer)
         }
         DispatchQueue.main.async(execute: attemptReveal)
-    }
-
-    private func runFeedSidebarUITestPush(requestId: String) -> String {
-        let params: [String: Any] = [
-            "event": [
-                "session_id": "uitest-feed-sidebar",
-                "hook_event_name": "PermissionRequest",
-                "_source": "claude",
-                "cwd": FileManager.default.homeDirectoryForCurrentUser.path,
-                "tool_name": "Write",
-                "tool_input": ["file_path": "/tmp/feeduitest"],
-                "_opencode_request_id": requestId,
-            ],
-            "wait_timeout_seconds": 110.0,
-        ]
-        let frame: [String: Any] = [
-            "id": UUID().uuidString,
-            "method": "feed.push",
-            "params": params,
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame),
-              let line = String(data: data, encoding: .utf8) else {
-            return "{\"ok\":false,\"error\":{\"message\":\"failed to encode feed push\"}}"
-        }
-        return TerminalController.shared.handleSocketLine(line)
-    }
-
-    private func feedSidebarUITestResponsePayload(_ response: String) -> [String: String] {
-        var payload: [String: String] = [
-            "rawResponse": response,
-        ]
-        guard let data = response.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            payload["ok"] = "0"
-            payload["error"] = "invalid_json"
-            return payload
-        }
-
-        let ok = (object["ok"] as? Bool) == true
-        payload["ok"] = ok ? "1" : "0"
-        if let result = object["result"] as? [String: Any] {
-            payload["status"] = Self.uiTestStringValue(result["status"])
-            payload["itemId"] = Self.uiTestStringValue(result["item_id"])
-            if let decision = result["decision"] as? [String: Any] {
-                payload["decisionKind"] = Self.uiTestStringValue(decision["kind"])
-                payload["mode"] = Self.uiTestStringValue(decision["mode"])
-            }
-        }
-        if let error = object["error"] as? [String: Any] {
-            payload["error"] = Self.uiTestStringValue(error["message"] ?? error["code"])
-        }
-        return payload
     }
 
     private func writeFeedSidebarUITestData(_ updates: [String: String], at path: String) {

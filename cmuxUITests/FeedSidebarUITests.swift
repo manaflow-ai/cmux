@@ -3,7 +3,7 @@ import Darwin
 import XCTest
 
 /// Exercises the right-sidebar Feed end-to-end: boot the app with a
-/// dedicated socket, inject a synthetic permission request in-process,
+/// dedicated socket, inject a synthetic permission request over that socket,
 /// toggle the sidebar to Dock mode, drive the Feed TUI from the keyboard,
 /// and assert the hook-side response carries the resolved decision.
 final class FeedSidebarUITests: XCTestCase {
@@ -56,11 +56,6 @@ final class FeedSidebarUITests: XCTestCase {
             "Expected app-side control socket readiness at \(socketPath). diagnostics=\(loadDiagnostics())"
         )
         XCTAssertTrue(
-            waitForFeedBridgeStarted(timeout: 10),
-            "Synthetic feed.push did not start. result=\(loadFeedResult())"
-        )
-
-        XCTAssertTrue(
             revealDockMode(in: app),
             "Dock mode did not open in the right sidebar. probe=\(lastSocketProbe) diagnostics=\(loadDiagnostics())"
         )
@@ -76,14 +71,20 @@ final class FeedSidebarUITests: XCTestCase {
             "Feed TUI was not ready. marker=\(loadFeedTUIReadyMarker()) result=\(loadFeedResult())"
         )
 
+        let feedPush = try sendFeedPush(requestId: requestId, waitSeconds: 120)
+        XCTAssertTrue(
+            waitForFeedItem(requestId: requestId, timeout: 10),
+            "feed.push did not publish pending item. result=\(loadFeedResult())"
+        )
+
         // The TUI blocks on keyboard input. Refresh first so it observes the
         // pending request, then Enter accepts the default "once" action.
         app.typeKey("r", modifierFlags: [])
         Thread.sleep(forTimeInterval: 1.0)
         app.typeKey(.return, modifierFlags: [])
 
-        // Await the hook-side reply from the earlier in-app feed.push.
-        let result = try waitForFeedBridgeResult(timeout: 35)
+        // Await the hook-side reply from the socket feed.push.
+        let result = try feedPush.result(timeout: 35)
         XCTAssertEqual(
             result.status, "resolved",
             "Expected feed.push to resolve, got status=\(result.status)"
@@ -120,39 +121,6 @@ final class FeedSidebarUITests: XCTestCase {
             return diagnostics["socketReady"] == "1" &&
                 diagnostics["socketPingResponse"] == "PONG"
         }
-    }
-
-    private func waitForFeedBridgeStarted(timeout: TimeInterval) -> Bool {
-        pollUntil(timeout: timeout) {
-            let stage = loadFeedResult()["stage"]
-            return stage == "feedPushStarting" || stage == "feedPushReturned"
-        }
-    }
-
-    private func waitForFeedBridgeResult(timeout: TimeInterval) throws -> FeedPushResult {
-        var payload: [String: String] = [:]
-        let completed = pollUntil(timeout: timeout) {
-            payload = loadFeedResult()
-            return payload["stage"] == "feedPushReturned"
-        }
-        guard completed else {
-            throw NSError(
-                domain: "FeedPush",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "feed.push never returned. result=\(loadFeedResult())"]
-            )
-        }
-        guard payload["ok"] == "1" else {
-            throw NSError(
-                domain: "FeedPush",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "feed.push failed. result=\(payload)"]
-            )
-        }
-        return FeedPushResult(
-            status: payload["status"] ?? "",
-            mode: payload["mode"] ?? ""
-        )
     }
 
     private final class FeedPushFuture {
@@ -216,6 +184,29 @@ final class FeedSidebarUITests: XCTestCase {
             }
         }
         return future
+    }
+
+    private func waitForFeedItem(requestId: String, timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout, interval: 0.2) {
+            let frame: [String: Any] = [
+                "id": UUID().uuidString,
+                "method": "feed.list",
+                "params": ["pending_only": false],
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: frame),
+                  let line = String(data: data, encoding: .utf8),
+                  let response = try? self.sendSocketLine("\(line)\n", responseTimeout: 3),
+                  let responseData = response.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+                  object["ok"] as? Bool == true,
+                  let result = object["result"] as? [String: Any],
+                  let items = result["items"] as? [[String: Any]] else {
+                return false
+            }
+            return items.contains { item in
+                item["request_id"] as? String == requestId && item["status"] as? String == "pending"
+            }
+        }
     }
 
     private func sendLine(_ line: String, responseTimeout: TimeInterval = 2.0) throws -> String {
