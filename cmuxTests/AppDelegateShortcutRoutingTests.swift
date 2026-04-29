@@ -778,13 +778,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let focusedPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            XCTFail("Expected test window with focused terminal panel")
             return
         }
 
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let terminalView = surfaceView(in: focusedPanel.hostedView) else {
+            XCTFail("Expected a GhosttyNSView inside the focused panel's hosted view")
+            return
+        }
+        XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected to make Ghostty surface the first responder")
+        XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface to hold first responder after makeFirstResponder")
 
         let shortcut = StoredShortcut(
             key: "`",
@@ -794,6 +803,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             control: false,
             chordKey: "d"
         )
+
+        let initialPanelCount = workspace.panels.count
 
         withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
             guard let prefixEvent = makeKeyDownEvent(
@@ -825,11 +836,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 appDelegate.debugHandleCustomShortcut(event: actionEvent),
                 "Second stroke after a bare-key chord prefix must dispatch the bound action"
             )
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            XCTAssertEqual(
+                workspace.panels.count,
+                initialPanelCount + 1,
+                "splitRight should have added one terminal panel"
+            )
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
         }
-        _ = manager
     }
 
     func testBareKeyChordMismatchDoesNotConsumeSecondKey() {
@@ -1016,6 +1032,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { TerminalSurface.debugLastSendTextRecorder = previousRecorder }
 #endif
 
+        let initialPanelCount = workspace.panels.count
+
         withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
             guard let prefixEvent = makeKeyDownEvent(
                 key: "`",
@@ -1040,6 +1058,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 "Configured `+` chord must dispatch the action"
             )
             XCTAssertEqual(captured, [], "Explicit binding must suppress the implicit literal-send")
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            XCTAssertEqual(
+                workspace.panels.count,
+                initialPanelCount + 1,
+                "Explicit `+` binding should have fired splitRight and added one terminal panel"
+            )
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
