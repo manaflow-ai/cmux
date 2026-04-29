@@ -2511,7 +2511,7 @@ enum SettingsWindowPresenter {
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }
