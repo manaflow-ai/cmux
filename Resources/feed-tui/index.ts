@@ -64,7 +64,7 @@ class FeedSocketClient {
 
   public request<T>(method: string, params: Record<string, unknown> = {}, timeoutMs = 10_000): Promise<T> {
     return new Promise((resolve, reject) => {
-      const socket = net.createConnection({ path: this.socketPath });
+      const socket = new net.Socket();
       const id = randomUUID();
       const payload = `${JSON.stringify({ id, method, params })}\n`;
       let buffer = "";
@@ -148,6 +148,7 @@ class FeedSocketClient {
           finish(new Error(`${method} returned no response`));
         }
       });
+      socket.connect({ path: this.socketPath });
     });
   }
 }
