@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import XCTest
 
 /// Exercises the right-sidebar Feed end-to-end: boot the app with a
@@ -97,6 +98,10 @@ final class FeedSidebarUITests: XCTestCase {
         XCTAssertTrue(
             waitForDockPortalToLeaveVisibleSidebar(timeout: 5),
             "Dock terminal portal stayed visible after switching from Ctrl-4 Dock to Ctrl-3 Sessions"
+        )
+        XCTAssertTrue(
+            waitForFeedTUIProcessAlive(timeout: 3),
+            "Feed TUI exited after Ctrl-3. marker=\(loadFeedTUIReadyMarker())"
         )
 
         app.terminate()
@@ -438,6 +443,21 @@ final class FeedSidebarUITests: XCTestCase {
         }
     }
 
+    private func waitForFeedTUIProcessAlive(timeout: TimeInterval) -> Bool {
+        return pollUntil(timeout: timeout, interval: 0.2) {
+            feedTUIProcessIsAlive()
+        }
+    }
+
+    private func feedTUIProcessIsAlive() -> Bool {
+        guard let pidText = loadFeedTUIReadyPayload()["pid"],
+              let pidValue = Int32(pidText) else {
+            return false
+        }
+        errno = 0
+        return kill(pidValue, 0) == 0 || errno == EPERM
+    }
+
     private func waitForDockPortalToLeaveVisibleSidebar(timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             let diagnostics = self.loadDiagnostics()
@@ -624,6 +644,14 @@ final class FeedSidebarUITests: XCTestCase {
 
     private func loadFeedTUIReadyMarker() -> String {
         (try? String(contentsOfFile: feedTUIReadyPath, encoding: .utf8)) ?? ""
+    }
+
+    private func loadFeedTUIReadyPayload() -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: feedTUIReadyPath)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
     }
 
     private func pollUntil(timeout: TimeInterval, interval: TimeInterval = 0.1, _ predicate: () -> Bool) -> Bool {

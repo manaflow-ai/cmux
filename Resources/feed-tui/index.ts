@@ -441,7 +441,7 @@ class FeedApp {
       return;
     }
 
-    if (isKey(key, "q", "escape")) {
+    if (isKey(key, "q")) {
       this.stop();
       process.exit(0);
     }
