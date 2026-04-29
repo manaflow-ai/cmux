@@ -99,7 +99,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed:
+        case .sessions, .feed, .dock:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -118,7 +118,7 @@ final class MainWindowFocusController {
 
     func registerDockHost(_ host: DockKeyboardFocusView) {
         dockHost = host
-        focusRegisteredRightSidebarEndpointIfNeeded(mode: .feed)
+        focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
     }
 
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
@@ -353,10 +353,13 @@ final class MainWindowFocusController {
         case .feed:
             if focusFirstItem {
                 feedHost?.focusFirstItemFromCoordinator()
+            }
+            modeResult = feedHost?.focusHostFromCoordinator() == true
+        case .dock:
+            if focusFirstItem {
                 dockHost?.focusFirstItemFromCoordinator()
             }
-            modeResult = feedHost?.focusHostFromCoordinator() == true ||
-                dockHost?.focusHostFromCoordinator() == true
+            modeResult = dockHost?.focusHostFromCoordinator() == true
         }
         if modeResult {
             pendingRightSidebarFirstItemFocusMode = nil
@@ -551,9 +554,10 @@ final class MainWindowFocusController {
             result = sessionHost?.focusHostFromCoordinator() == true
         case .feed:
             feedHost?.focusFirstItemFromCoordinator()
+            result = feedHost?.focusHostFromCoordinator() == true
+        case .dock:
             dockHost?.focusFirstItemFromCoordinator()
-            result = feedHost?.focusHostFromCoordinator() == true ||
-                dockHost?.focusHostFromCoordinator() == true
+            result = dockHost?.focusHostFromCoordinator() == true
         }
         if result {
             pendingRightSidebarFirstItemFocusMode = nil
@@ -630,7 +634,7 @@ final class MainWindowFocusController {
             return .feed
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
-            return .feed
+            return .dock
         }
         return nil
     }

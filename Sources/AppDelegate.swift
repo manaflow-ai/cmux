@@ -2256,7 +2256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let attemptReveal: () -> Void = { [weak self] in
             guard let self else { return }
             let result = self.debugRevealRightSidebarInActiveMainWindow(
-                mode: .feed,
+                mode: .dock,
                 focusFirstItem: false,
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
             )

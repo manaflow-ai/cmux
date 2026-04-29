@@ -7921,7 +7921,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // repairs workspace/pane active state before key routing runs.
         if let terminalSurface {
             if terminalSurface.focusPlacement == .rightSidebarDock {
-                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
+                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
             } else {
                 AppDelegate.shared?.noteTerminalKeyboardFocusIntent(
                     workspaceId: terminalSurface.tabId,
@@ -9315,6 +9315,9 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    var isRightSidebarDockSurface: Bool {
+        surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
+    }
     private var lastFlashStyle: FlashStyle = .navigation
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView

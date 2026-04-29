@@ -292,7 +292,8 @@ final class WindowTerminalHostView: NSView {
         at point: NSPoint,
         visibleHostedViews: [GhosttySurfaceScrollView]
     ) -> Bool {
-        guard let rightMostEdge = visibleHostedViews.map(\.frame.maxX).max() else { return false }
+        let contentHostedViews = visibleHostedViews.filter { !$0.isRightSidebarDockSurface }
+        guard let rightMostEdge = contentHostedViews.map(\.frame.maxX).max() else { return false }
         let trailingGap = bounds.maxX - rightMostEdge
         guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightMostEdge).contains(point.x)

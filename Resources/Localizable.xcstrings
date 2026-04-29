@@ -92375,6 +92375,29 @@
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Show Sidebar Feed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのフィードを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 피드 표시"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToDock.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
             "value": "Show Sidebar Dock"
           }
         },

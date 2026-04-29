@@ -12,20 +12,20 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 #endif
 
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-/// The raw value `feed` is kept for persisted settings; the visible product
-/// surface is Dock.
 enum RightSidebarMode: String, CaseIterable {
     case files
     case find
     case sessions
     case feed
+    case dock
 
     var label: String {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
-        case .feed: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
+        case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         }
     }
 
@@ -34,7 +34,8 @@ enum RightSidebarMode: String, CaseIterable {
         case .files: return "folder"
         case .find: return "magnifyingglass"
         case .sessions: return "bubble.left.and.text.bubble.right"
-        case .feed: return "dock.rectangle"
+        case .feed: return "dot.radiowaves.left.and.right"
+        case .dock: return "dock.rectangle"
         }
     }
 
@@ -44,6 +45,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
+        case .dock: return .switchRightSidebarToDock
         }
     }
 }
@@ -62,6 +64,9 @@ extension RightSidebarMode {
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFeed).matches(event: event) {
             return .feed
+        }
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToDock).matches(event: event) {
+            return .dock
         }
         return nil
     }
@@ -195,7 +200,7 @@ struct RightSidebarPanelView: View {
             modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
         }
-        .onChange(of: fileExplorerState.mode) { _, mode in if mode != .feed { dockStore.deactivate() } }
+        .onChange(of: fileExplorerState.mode) { _, mode in if mode != .dock { dockStore.deactivate() } }
         .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
     }
 
@@ -263,6 +268,8 @@ struct RightSidebarPanelView: View {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
         case .feed:
+            FeedPanelView()
+        case .dock:
             DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
         }
     }

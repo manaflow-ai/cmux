@@ -358,7 +358,7 @@ final class DockControlsStore: ObservableObject {
 
     func noteKeyboardFocusIntent(id: String, window: NSWindow?) {
         guard controls.contains(where: { $0.id == id }) else { return }
-        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
+        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
     }
 
     func triggerFlash(id: String) {

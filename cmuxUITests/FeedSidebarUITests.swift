@@ -5,7 +5,7 @@ import XCTest
 /// Exercises the right-sidebar Feed end-to-end: boot the app with a
 /// dedicated socket, inject a synthetic permission request through the same
 /// V2 dispatcher used by that socket,
-/// toggle the sidebar to Dock mode, drive the Feed TUI from the keyboard,
+/// switch the sidebar to Dock mode, drive the Feed TUI from the keyboard,
 /// and assert the hook-side response carries the resolved decision.
 final class FeedSidebarUITests: XCTestCase {
     private var socketPath = ""
@@ -102,7 +102,7 @@ final class FeedSidebarUITests: XCTestCase {
         )
         XCTAssertTrue(
             waitForDockPortalToLeaveVisibleSidebar(timeout: 5),
-            "Dock terminal portal stayed visible after switching from Ctrl-4 Dock to Ctrl-3 Sessions"
+            "Dock terminal portal stayed visible after switching from Dock to Ctrl-3 Sessions"
         )
         XCTAssertTrue(
             waitForFeedTUIProcessAlive(timeout: 3),
@@ -231,7 +231,7 @@ final class FeedSidebarUITests: XCTestCase {
             return true
         }
 
-        let dockButton = app.buttons["RightSidebarModeButton.feed"].firstMatch
+        let dockButton = app.buttons["RightSidebarModeButton.dock"].firstMatch
         if waitForHittable(dockButton, timeout: 5) {
             dockButton.click()
             return waitForDockModeVisible(in: app, timeout: 8)
@@ -249,7 +249,7 @@ final class FeedSidebarUITests: XCTestCase {
             return waitForDockModeVisible(in: app, timeout: 8)
         }
 
-        app.typeKey("4", modifierFlags: [.control])
+        app.typeKey("5", modifierFlags: [.control])
         if waitForDockModeVisible(in: app, timeout: 8) {
             return true
         }
