@@ -6,7 +6,7 @@ import SQLite3
 
 // MARK: - Agents
 
-enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable {
+enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
     case claude
     case codex
     case opencode

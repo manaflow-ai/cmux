@@ -1277,6 +1277,29 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingSessionsFocusSurvivesStaleFeedResponderDuringModeSwitch() {
+        let fileExplorerState = FileExplorerState()
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+        let staleFeedResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+
+        XCTAssertTrue(controller.selectFeedItem(UUID(), focusFeed: false))
+        XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
+        XCTAssertEqual(fileExplorerState.mode, .sessions)
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+
+        controller.debugSyncAfterResponderChange(responder: staleFeedResponder)
+
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+    }
+
+    @MainActor
     func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
         let controller = MainWindowFocusController(
             windowId: UUID(),
