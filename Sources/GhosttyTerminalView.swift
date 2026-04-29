@@ -7122,6 +7122,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
+        if let mode = RightSidebarMode.modeShortcut(for: event), let window {
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
+            return
+        }
         if let terminalSurface {
 #if DEBUG
             let dismissNotificationStart = ProcessInfo.processInfo.systemUptime
@@ -7134,12 +7138,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             dismissNotificationMs = (ProcessInfo.processInfo.systemUptime - dismissNotificationStart) * 1000.0
 #endif
         }
-        if event.keyCode != 53 {
-            endFindEscapeSuppression()
-        }
-        if shouldConsumeSuppressedFindEscape(event) {
-            return
-        }
+        if event.keyCode != 53 { endFindEscapeSuppression() }
+        if shouldConsumeSuppressedFindEscape(event) { return }
 #if DEBUG
         let keyboardCopyModeStart = ProcessInfo.processInfo.systemUptime
 #endif
