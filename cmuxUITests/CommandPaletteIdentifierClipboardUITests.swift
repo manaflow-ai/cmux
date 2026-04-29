@@ -140,7 +140,19 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
                 return UUID(uuidString: value) != nil
             }
             if key.hasSuffix("_ref") {
-                return value.range(of: #"^(workspace|pane|surface):[0-9]+$"#, options: .regularExpression) != nil
+                let expectedPrefix: String
+                switch key {
+                case "workspace_ref":
+                    expectedPrefix = "workspace:"
+                case "pane_ref":
+                    expectedPrefix = "pane:"
+                case "surface_ref":
+                    expectedPrefix = "surface:"
+                default:
+                    return false
+                }
+                guard value.hasPrefix(expectedPrefix) else { return false }
+                return Int(value.dropFirst(expectedPrefix.count)) != nil
             }
             return false
         }
