@@ -576,6 +576,77 @@ struct TitlebarControlsView: View {
     }
 }
 
+enum TitlebarControlsHitRegions {
+    static let outerLeadingPadding: CGFloat = 4
+    static let buttonCount = 3
+
+    static func buttonXRanges(config: TitlebarControlsStyleConfig) -> [ClosedRange<CGFloat>] {
+        var ranges: [ClosedRange<CGFloat>] = []
+        ranges.reserveCapacity(buttonCount)
+
+        var minX = outerLeadingPadding + config.groupPadding.leading
+        for _ in 0..<buttonCount {
+            let maxX = minX + config.buttonSize
+            ranges.append(minX...maxX)
+            minX = maxX + config.spacing
+        }
+
+        return ranges
+    }
+
+    static func pointFallsInButtonColumn(_ point: NSPoint, config: TitlebarControlsStyleConfig) -> Bool {
+        buttonXRanges(config: config).contains { $0.contains(point.x) }
+    }
+}
+
+private struct TitlebarControlsGapDragView: NSViewRepresentable {
+    let config: TitlebarControlsStyleConfig
+
+    func makeNSView(context: Context) -> GapDragView {
+        let view = GapDragView()
+        view.config = config
+        return view
+    }
+
+    func updateNSView(_ nsView: GapDragView, context: Context) {
+        nsView.config = config
+    }
+
+    final class GapDragView: NSView {
+        var config = TitlebarControlsStyle.classic.config
+
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard NSApp.currentEvent?.type == .leftMouseDown else { return nil }
+            guard bounds.contains(point) else { return nil }
+            guard !TitlebarControlsHitRegions.pointFallsInButtonColumn(point, config: config) else {
+                return nil
+            }
+            return self
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount >= 2 {
+                let action = performStandardTitlebarDoubleClick(window: window)
+                if action != nil {
+                    return
+                }
+            }
+
+            guard !isWindowDragSuppressed(window: window) else { return }
+
+            if let window {
+                withTemporaryWindowMovableEnabled(window: window) {
+                    window.performDrag(with: event)
+                }
+            } else {
+                super.mouseDown(with: event)
+            }
+        }
+    }
+}
+
 struct HiddenTitlebarSidebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     let onToggleSidebar: () -> Void
@@ -585,6 +656,7 @@ struct HiddenTitlebarSidebarControlsView: View {
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
     @State private var isNotificationsPopoverShown = false
+    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
 
     private let hostWidth: CGFloat = 124
     private let hostHeight: CGFloat = 28
@@ -593,6 +665,8 @@ struct HiddenTitlebarSidebarControlsView: View {
     }
 
     var body: some View {
+        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+
         ZStack(alignment: .leading) {
             PassthroughHoverTrackingView { isHovering in
                 isHoveringHost = isHovering
@@ -610,6 +684,9 @@ struct HiddenTitlebarSidebarControlsView: View {
                 visibilityMode: shouldPinControls ? .alwaysVisible : .onHover
             )
             .frame(width: hostWidth, height: hostHeight, alignment: .leading)
+
+            TitlebarControlsGapDragView(config: style.config)
+                .frame(width: hostWidth, height: hostHeight)
         }
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
         .background(MinimalModeTitlebarControlHitRegionView())

@@ -463,21 +463,16 @@ final class WindowBrowserHostViewTests: XCTestCase {
         return inspectorView.isDescendant(of: hit) && !(pageView === hit || pageView.isDescendant(of: hit))
     }
 
-    func testHostViewPassesThroughUnderlyingTabStripBelowTitlebarBand() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
+    private struct TabStripPassThroughFixture {
+        let host: WindowBrowserHostView
+        let pointInHost: NSPoint
+    }
+
+    private func installTabStripPassThroughFixture(in window: NSWindow) -> TabStripPassThroughFixture? {
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return nil
         }
 
         let tabStripHeight: CGFloat = 44
@@ -507,22 +502,42 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
         let pointInWindow = contentView.convert(pointInContent, to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
+        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost)
+    }
 
-        XCTAssertTrue(
-            BonsplitTabBarPassThrough.passThroughDecision(
-                at: pointInHost,
-                in: host,
-                eventType: .leftMouseDown
-            )?.result == true,
-            "Browser portal should defer pointer events to the minimal tab strip just below the native titlebar interaction band"
+    func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
+        // The reported regression (#3193) was that the original window kept
+        // working but later-created windows did not. Set up two windows and
+        // assert the pass-through holds in BOTH to lock in per-instance wiring.
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 32, y: 32, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            secondWindow.orderOut(nil)
+            firstWindow.orderOut(nil)
+        }
+
+        guard let firstFixture = installTabStripPassThroughFixture(in: firstWindow),
+              let secondFixture = installTabStripPassThroughFixture(in: secondWindow) else {
+            return
+        }
+
+        XCTAssertNil(
+            firstFixture.host.hitTest(firstFixture.pointInHost),
+            "Browser portal should defer to the minimal tab strip in the original window just below the titlebar interaction band"
         )
         XCTAssertNil(
-            BonsplitTabBarPassThrough.passThroughDecision(
-                at: pointInHost,
-                in: host,
-                eventType: nil
-            ),
-            "Browser portal should not do tab-strip hit-test work for nil-event AppKit probes"
+            secondFixture.host.hitTest(secondFixture.pointInHost),
+            "Browser portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
         )
     }
 

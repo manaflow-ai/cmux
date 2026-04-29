@@ -10,15 +10,17 @@ private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
 private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 
-/// Shared routing for portal hosts that sit above Bonsplit's SwiftUI tab strip.
+/// Shared helpers for portal hosts that must defer to the minimal-mode
+/// Bonsplit tab strip rendered underneath them.
 enum BonsplitTabBarPassThrough {
     static func isPassThroughPointerEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        guard let eventType else { return false }
         switch eventType {
+        case nil:
+            // Unit tests can call hitTest directly without an active AppKit event.
+            return true
         case .leftMouseDown, .leftMouseUp,
              .rightMouseDown, .rightMouseUp,
              .otherMouseDown, .otherMouseUp,
-             .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
              .mouseMoved, .mouseEntered,
              .mouseExited, .cursorUpdate:
             return true
@@ -28,7 +30,42 @@ enum BonsplitTabBarPassThrough {
     }
 
     static func titlebarInteractionBandMinY(in window: NSWindow) -> CGFloat {
-        window.contentLayoutRect.maxY - WindowChromeMetrics.appTitlebarHeight - 0.5
+        let nativeTitlebarHeight = window.frame.height - window.contentLayoutRect.height
+        let customTitlebarBandHeight = max(28, min(72, nativeTitlebarHeight))
+        return window.contentLayoutRect.maxY - customTitlebarBandHeight - 0.5
+    }
+
+    // The minimal-mode tab strip lives just under the titlebar. Anything more
+    // than this many points below the content top can't overlap it, so we skip
+    // the recursive subtree scan on the pointer-event hot path.
+    private static let tabStripScanBandHeight: CGFloat = 200
+
+    static func shouldPassThroughToPaneTabBar(
+        windowPoint: NSPoint,
+        below portalHost: NSView
+    ) -> (result: Bool, registryHit: Bool) {
+        let registryHit = portalHost.window.map {
+            BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: $0)
+        } ?? false
+        if registryHit {
+            return (true, true)
+        }
+
+        // High-frequency pointer events (mouseMoved/cursorUpdate) flow through
+        // here on every hover; cap the recursive view-tree walk to the top
+        // band where the tab strip can actually live.
+        if let window = portalHost.window {
+            let scanFloor = window.contentLayoutRect.maxY - tabStripScanBandHeight
+            if windowPoint.y < scanFloor {
+                return (false, false)
+            }
+        }
+
+        let fallbackHit = hasUnderlyingBonsplitTabBarBackground(
+            at: windowPoint,
+            below: portalHost
+        )
+        return (fallbackHit, false)
     }
 
     static func passThroughDecision(
@@ -36,27 +73,17 @@ enum BonsplitTabBarPassThrough {
         in portalHost: NSView,
         eventType: NSEvent.EventType?
     ) -> (windowPoint: NSPoint, result: Bool, registryHit: Bool)? {
-        let windowPoint = portalHost.convert(point, to: nil)
-        let registryHit = portalHost.window.map {
-            BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: $0)
-        } ?? false
-        if eventType == nil {
-            return registryHit ? (windowPoint, true, true) : nil
-        }
         guard isPassThroughPointerEvent(eventType) else { return nil }
-        if registryHit {
-            return (windowPoint, true, true)
-        }
-        return (
-            windowPoint,
-            hasUnderlyingBonsplitTabBarBackground(at: windowPoint, below: portalHost),
-            false
-        )
+        let windowPoint = portalHost.convert(point, to: nil)
+        let decision = shouldPassThroughToPaneTabBar(windowPoint: windowPoint, below: portalHost)
+        return (windowPoint, decision.result, decision.registryHit)
     }
 
     static func hasBonsplitTabBarBackground(at windowPoint: NSPoint, in view: NSView) -> Bool {
         guard !view.isHidden, view.alphaValue > 0 else { return false }
 
+        // NSView subviews are not clipped to parent bounds by default, and the
+        // minimal tab strip can render outside its immediate container.
         let className = NSStringFromClass(type(of: view))
         if className.contains("TabBarBackgroundNSView") {
             let pointInView = view.convert(windowPoint, from: nil)
@@ -77,20 +104,21 @@ enum BonsplitTabBarPassThrough {
         at windowPoint: NSPoint,
         below portalHost: NSView
     ) -> Bool {
-        if let container = portalHost.superview,
-           let hostIndex = container.subviews.firstIndex(of: portalHost) {
-            for sibling in container.subviews[..<hostIndex].reversed() {
-                if hasBonsplitTabBarBackground(at: windowPoint, in: sibling) {
-                    return true
-                }
+        // Only walk siblings rendered below the host. Falling back to the full
+        // window content tree when the host has no superview would risk a
+        // false-positive pass-through against a tab bar painted *above* an
+        // unparented host.
+        guard let container = portalHost.superview,
+              let hostIndex = container.subviews.firstIndex(of: portalHost) else {
+            return false
+        }
+        for sibling in container.subviews[..<hostIndex].reversed() {
+            guard !sibling.isHidden, sibling.alphaValue > 0 else { continue }
+            if hasBonsplitTabBarBackground(at: windowPoint, in: sibling) {
+                return true
             }
-            return false
         }
-
-        guard let rootView = portalHost.window?.contentView else {
-            return false
-        }
-        return hasBonsplitTabBarBackground(at: windowPoint, in: rootView)
+        return false
     }
 }
 
@@ -556,7 +584,9 @@ final class WindowBrowserHostView: NSView {
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
+        let eventType = NSApp.currentEvent?.type
         let titlebarPassThrough = shouldPassThroughToTitlebar(at: point)
+        let tabStripPassThrough = shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
         let sidebarPassThrough = shouldPassThroughToSidebarResizer(
             at: point,
             dividerHit: dividerHit,
@@ -577,7 +607,17 @@ final class WindowBrowserHostView: NSView {
 #endif
             return nil
         }
-        if shouldPassThroughToPaneTabBar(at: point, eventType: NSApp.currentEvent?.type) {
+        if tabStripPassThrough {
+#if DEBUG
+            debugLogPointerRouting(
+                stage: "hitTest.tabStripPass",
+                point: point,
+                titlebarPassThrough: false,
+                sidebarPassThrough: sidebarPassThrough,
+                dividerHit: dividerHit,
+                hitView: nil
+            )
+#endif
             return nil
         }
         if sidebarPassThrough {
@@ -788,14 +828,6 @@ final class WindowBrowserHostView: NSView {
             in: self,
             eventType: eventType
         ) else { return false }
-#if DEBUG
-        if eventType == .leftMouseDown {
-            cmuxDebugLog(
-                "portal.browser.passThroughTabBar wp=\(Int(decision.windowPoint.x)),\(Int(decision.windowPoint.y)) " +
-                    "registry=\(decision.registryHit ? 1 : 0) result=\(decision.result ? 1 : 0)"
-            )
-        }
-#endif
         return decision.result
     }
 

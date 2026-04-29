@@ -2155,21 +2155,17 @@ final class WindowTerminalHostViewTests: XCTestCase {
         )
     }
 
-    func testHostViewPassesThroughUnderlyingTabStripBelowTitlebarBand() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
+    private struct TabStripPassThroughFixture {
+        let host: WindowTerminalHostView
+        let pointInHost: NSPoint
+        let pointInWindow: NSPoint
+    }
+
+    private func installTabStripPassThroughFixture(in window: NSWindow) -> TabStripPassThroughFixture? {
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return nil
         }
 
         let tabStripHeight: CGFloat = 44
@@ -2199,22 +2195,65 @@ final class WindowTerminalHostViewTests: XCTestCase {
         )
         let pointInWindow = contentView.convert(pointInContent, to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
+        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost, pointInWindow: pointInWindow)
+    }
 
-        XCTAssertTrue(
-            BonsplitTabBarPassThrough.passThroughDecision(
-                at: pointInHost,
-                in: host,
-                eventType: .leftMouseDown
-            )?.result == true,
-            "Terminal portal should defer pointer events to the minimal tab strip just below the native titlebar interaction band"
+    private func makeMouseDownEvent(at locationInWindow: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: locationInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create leftMouseDown event")
+        }
+        return event
+    }
+
+    func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
+        // The reported regression (#3193) was that the original window kept
+        // working but later-created windows did not. Set up two windows and
+        // assert the pass-through holds in BOTH to lock in per-instance wiring.
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 32, y: 32, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            secondWindow.orderOut(nil)
+            firstWindow.orderOut(nil)
+        }
+
+        guard let firstFixture = installTabStripPassThroughFixture(in: firstWindow),
+              let secondFixture = installTabStripPassThroughFixture(in: secondWindow) else {
+            return
+        }
+
+        // Terminal hitTest is on the typing-latency hot path and gates the
+        // tab-strip pass-through behind a real pointer event. Provide one
+        // explicitly via the test seam.
+        let firstEvent = makeMouseDownEvent(at: firstFixture.pointInWindow, window: firstWindow)
+        let secondEvent = makeMouseDownEvent(at: secondFixture.pointInWindow, window: secondWindow)
+
+        XCTAssertNil(
+            firstFixture.host.performHitTest(at: firstFixture.pointInHost, currentEvent: firstEvent),
+            "Terminal portal should defer to the minimal tab strip in the original window just below the titlebar interaction band"
         )
         XCTAssertNil(
-            BonsplitTabBarPassThrough.passThroughDecision(
-                at: pointInHost,
-                in: host,
-                eventType: nil
-            ),
-            "Terminal portal should not do tab-strip hit-test work for nil-event AppKit probes"
+            secondFixture.host.performHitTest(at: secondFixture.pointInHost, currentEvent: secondEvent),
+            "Terminal portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
         )
     }
 

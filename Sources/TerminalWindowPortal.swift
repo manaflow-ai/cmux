@@ -131,10 +131,15 @@ final class WindowTerminalHostView: NSView {
     }
 
     // PERF: hitTest is called on EVERY event including keyboard. Keep non-pointer
-    // path minimal; nil-event probes only get the cheap titlebar pass-through
-    // so injected/test titlebar and pane-tab events do not get trapped here.
+    // path minimal. Do not add work outside the isPointerEvent guard.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let currentEvent = NSApp.currentEvent
+        performHitTest(at: point, currentEvent: NSApp.currentEvent)
+    }
+
+    // Test seam: production calls go through `hitTest(_:)` which reads
+    // `NSApp.currentEvent`; tests can call this directly with a synthetic
+    // pointer event so the typing-latency guard doesn't gate them out.
+    func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
         let isPointerEvent: Bool
         switch currentEvent?.type {
         case .mouseMoved, .mouseEntered, .mouseExited,
@@ -145,10 +150,6 @@ final class WindowTerminalHostView: NSView {
             isPointerEvent = true
         default:
             isPointerEvent = false
-        }
-
-        if currentEvent == nil, shouldPassThroughToTitlebar(at: point) {
-            return nil
         }
 
         if isPointerEvent {
@@ -230,14 +231,6 @@ final class WindowTerminalHostView: NSView {
             in: self,
             eventType: eventType
         ) else { return false }
-#if DEBUG
-        if eventType == .leftMouseDown {
-            cmuxDebugLog(
-                "portal.terminal.passThroughTabBar wp=\(Int(decision.windowPoint.x)),\(Int(decision.windowPoint.y)) " +
-                    "registry=\(decision.registryHit ? 1 : 0) result=\(decision.result ? 1 : 0)"
-            )
-        }
-#endif
         return decision.result
     }
 
