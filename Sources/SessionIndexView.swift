@@ -1109,6 +1109,9 @@ private enum SessionTranscriptLoader {
     }
 
     private static func loadSynchronously(from url: URL, agent: SessionAgent) throws -> [SessionTranscriptTurn] {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw SessionTranscriptLoadError.missingFile
+        }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
