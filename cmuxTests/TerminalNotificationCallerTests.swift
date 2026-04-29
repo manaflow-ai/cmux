@@ -87,6 +87,64 @@ final class TerminalNotificationCallerTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
 
+    func testNotifyTargetUpdatesStoreBeforeResponseWhenAsyncDrainsAreSuspended() async throws {
+        let socketPath = makeSocketPath("notify-sync")
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            TerminalMutationBus.shared.setDrainsSuspendedForTesting(false)
+            TerminalMutationBus.shared.drainForTesting()
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let command = "notify_target \(workspace.id.uuidString) \(focusedPanelId.uuidString) Sync|Read after write|Body"
+        let responses = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try self.sendCommands([command], to: socketPath))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+        XCTAssertEqual(responses, ["OK"])
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
+        XCTAssertEqual(store.notifications.first?.title, "Sync")
+    }
+
     private func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())

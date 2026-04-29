@@ -1954,6 +1954,80 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testNotifyWithWorkspaceHandlePreservesSyncTargetValidation() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-handle")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let staleSurface = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String,
+               let method = payload["method"] as? String {
+                switch method {
+                case "workspace.list":
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "workspaces": [
+                                ["id": workspaceId, "index": 1]
+                            ]
+                        ]
+                    )
+                default:
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                    )
+                }
+            }
+
+            if line.hasPrefix("notify_target \(workspaceId) \(staleSurface) ") {
+                return "ERROR: Panel not found"
+            }
+            if line.hasPrefix("notify_target_async ") {
+                return "OK"
+            }
+            return "ERROR: Unexpected command \(line)"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--workspace", "1", "--surface", staleSurface, "--title", "Mixed"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("ERROR: Panel not found"), result.stderr)
+        XCTAssertTrue(
+            state.commands.contains { $0.hasPrefix("notify_target \(workspaceId) \(staleSurface) ") },
+            "Expected notify to use synchronous target validation, saw \(state.commands)"
+        )
+        XCTAssertFalse(
+            state.commands.contains { $0.hasPrefix("notify_target_async ") },
+            "Expected no async target dispatch for mixed handles, saw \(state.commands)"
+        )
+    }
+
+    @MainActor
     func testTriggerFlashFallsBackFromStaleCallerWorkspaceAndSurfaceIDs() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("flash")

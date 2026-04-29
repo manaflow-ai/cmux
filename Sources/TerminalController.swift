@@ -7155,7 +7155,7 @@ class TerminalController {
                 return
             }
             let surfaceId = explicitSurfaceId ?? ws.focusedPanelId
-            TerminalMutationBus.shared.enqueueNotification(
+            deliverNotificationSynchronously(
                 tabId: ws.id,
                 surfaceId: surfaceId,
                 title: title,
@@ -7189,7 +7189,7 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            TerminalMutationBus.shared.enqueueNotification(
+            deliverNotificationSynchronously(
                 tabId: ws.id,
                 surfaceId: surfaceId,
                 title: title,
@@ -7226,7 +7226,7 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            TerminalMutationBus.shared.enqueueNotification(
+            deliverNotificationSynchronously(
                 tabId: ws.id,
                 surfaceId: surfaceId,
                 title: title,
@@ -13144,7 +13144,7 @@ class TerminalController {
             }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
             let (title, subtitle, body) = parseNotificationPayload(args)
-            TerminalMutationBus.shared.enqueueNotification(
+            deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: title,
@@ -13176,7 +13176,7 @@ class TerminalController {
                 return
             }
             let (title, subtitle, body) = parseNotificationPayload(payload)
-            TerminalMutationBus.shared.enqueueNotification(
+            deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: title,
@@ -13212,7 +13212,7 @@ class TerminalController {
                     result = "ERROR: Panel not found"
                     return
                 }
-                TerminalMutationBus.shared.enqueueNotification(
+                deliverNotificationSynchronously(
                     tabId: workspaceId,
                     surfaceId: panelId,
                     title: title,
@@ -13240,7 +13240,7 @@ class TerminalController {
                 result = "ERROR: Panel not found"
                 return
             }
-            TerminalMutationBus.shared.enqueueNotification(
+            deliverNotificationSynchronously(
                 tabId: tab.id,
                 surfaceId: panelId,
                 title: title,

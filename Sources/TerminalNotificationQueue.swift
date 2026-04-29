@@ -39,6 +39,9 @@ final class TerminalMutationBus: @unchecked Sendable {
     private var nextSequence: UInt64 = 0
     private var currentNotificationGeneration: UInt64 = 0
     private let maxMutationsPerDrain = 16
+#if DEBUG
+    private var drainsSuspendedForTesting = false
+#endif
 
     nonisolated func enqueueNotification(
         tabId: UUID,
@@ -193,12 +196,30 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     private func scheduleDrain() {
+#if DEBUG
+        lock.lock()
+        let suspended = drainsSuspendedForTesting
+        lock.unlock()
+        if suspended { return }
+#endif
         Task { @MainActor [weak self] in
             self?.drainOnMainActor()
         }
     }
 
 #if DEBUG
+    nonisolated func setDrainsSuspendedForTesting(_ suspended: Bool) {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        drainsSuspendedForTesting = suspended
+        shouldScheduleDrain = !suspended && drainScheduled && !pending.isEmpty
+        lock.unlock()
+
+        if shouldScheduleDrain {
+            scheduleDrain()
+        }
+    }
+
     @MainActor
     func drainForTesting() {
         while true {
@@ -274,6 +295,25 @@ final class TerminalMutationBus: @unchecked Sendable {
                 mutation()
             }
         }
+    }
+}
+
+extension TerminalController {
+    func deliverNotificationSynchronously(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String
+    ) {
+        TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId)
+        TerminalNotificationStore.shared.addNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
     }
 }
 
