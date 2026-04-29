@@ -18,6 +18,7 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.openWindow) private var openWindow
 
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
@@ -188,6 +189,9 @@ struct cmuxApp: App {
         WindowGroup {
             MainWindowBootstrapView()
                 .onAppear {
+                    SettingsWindowPresenter.configure {
+                        openWindow(id: SettingsWindowPresenter.windowID)
+                    }
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                         UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
@@ -734,6 +738,14 @@ struct cmuxApp: App {
                     showNotificationsPopover()
                 }
             }
+        }
+
+        WindowGroup(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
+            SettingsRootView()
+        }
+        .defaultSize(width: 900, height: 620)
+        .commands {
+            SidebarCommands()
         }
 
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
@@ -2418,139 +2430,6 @@ private struct AcknowledgmentsView: View {
     }
 }
 
-final class SettingsWindowController: NSWindowController, NSWindowDelegate {
-    static let shared = SettingsWindowController()
-    private var pendingFocusRestoreWorkItems: [DispatchWorkItem] = []
-    private var focusRestoreGeneration = 0
-
-    private init() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 620),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
-        window.title = String(localized: "settings.title", defaultValue: "Settings")
-        window.center()
-        window.contentViewController = NSHostingController(rootView: SettingsRootView())
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func show(navigationTarget: SettingsNavigationTarget? = nil) {
-        guard let window else { return }
-#if DEBUG
-        cmuxDebugLog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
-#endif
-        if !window.isVisible {
-            window.center()
-        }
-        window.makeKeyAndOrderFront(nil)
-        if let navigationTarget {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                SettingsNavigationRequest.post(navigationTarget)
-            }
-        }
-#if DEBUG
-        cmuxDebugLog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
-#endif
-    }
-
-    func preserveFocusAfterPreferenceMutation() {
-        guard let window, window.isVisible else { return }
-        cancelPendingFocusRestore()
-        focusRestoreGeneration += 1
-        let generation = focusRestoreGeneration
-        writeFocusDiagnosticsIfNeeded(stage: "requested")
-        scheduleFocusRestore(
-            for: window,
-            generation: generation,
-            delays: [0, 0.04, 0.12, 0.24, 0.4, 0.7]
-        )
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        cancelPendingFocusRestore()
-        writeFocusDiagnosticsIfNeeded(stage: "windowWillClose")
-    }
-
-    func windowDidBecomeKey(_ notification: Notification) {
-        writeFocusDiagnosticsIfNeeded(stage: "didBecomeKey")
-    }
-
-    func windowDidResignKey(_ notification: Notification) {
-        guard let window else { return }
-        writeFocusDiagnosticsIfNeeded(stage: "didResignKey")
-        guard focusRestoreGeneration > 0 else { return }
-        scheduleFocusRestore(
-            for: window,
-            generation: focusRestoreGeneration,
-            delays: [0, 0.03, 0.1]
-        )
-    }
-
-    private func scheduleFocusRestore(
-        for window: NSWindow,
-        generation: Int,
-        delays: [TimeInterval]
-    ) {
-        for (index, delay) in delays.enumerated() {
-            let isLastAttempt = index == delays.count - 1
-            let workItem = DispatchWorkItem { [weak self, weak window] in
-                guard let self, let window, window.isVisible else { return }
-                guard self.focusRestoreGeneration == generation else { return }
-                self.writeFocusDiagnosticsIfNeeded(stage: "restoreAttempt.\(index)")
-                if !window.isKeyWindow {
-                    NSApp.activate(ignoringOtherApps: true)
-                    window.orderFrontRegardless()
-                    window.makeKeyAndOrderFront(nil)
-                    self.writeFocusDiagnosticsIfNeeded(stage: "restoreApplied.\(index)")
-                }
-                if isLastAttempt, self.focusRestoreGeneration == generation {
-                    self.focusRestoreGeneration = 0
-                }
-            }
-            pendingFocusRestoreWorkItems.append(workItem)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-        }
-    }
-
-    private func cancelPendingFocusRestore() {
-        pendingFocusRestoreWorkItems.forEach { $0.cancel() }
-        pendingFocusRestoreWorkItems.removeAll()
-        focusRestoreGeneration = 0
-    }
-
-    private func writeFocusDiagnosticsIfNeeded(stage: String) {
-        let env = ProcessInfo.processInfo.environment
-        guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
-
-        var payload = loadFocusDiagnostics(at: path)
-        payload["focusStage"] = stage
-        payload["keyWindowIdentifier"] = NSApp.keyWindow?.identifier?.rawValue ?? ""
-        payload["mainWindowIdentifier"] = NSApp.mainWindow?.identifier?.rawValue ?? ""
-        payload["settingsWindowIsKey"] = (window?.isKeyWindow ?? false) ? "1" : "0"
-
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
-    }
-
-    private func loadFocusDiagnostics(at path: String) -> [String: String] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return [:]
-        }
-        return object
-    }
-}
-
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
     case app
@@ -2663,6 +2542,37 @@ enum SettingsNavigationRequest {
     static func target(from notification: Notification) -> SettingsNavigationTarget? {
         guard let rawValue = notification.userInfo?[targetKey] as? String else { return nil }
         return SettingsNavigationTarget(rawValue: rawValue)
+    }
+}
+
+@MainActor
+enum SettingsWindowPresenter {
+    static let windowID = "settings"
+
+    private static var openWindow: (@MainActor () -> Void)?
+    private static var pendingNavigationTarget: SettingsNavigationTarget?
+
+    static func configure(openWindow: @escaping @MainActor () -> Void) {
+        self.openWindow = openWindow
+    }
+
+    static func show(navigationTarget: SettingsNavigationTarget? = nil) {
+#if DEBUG
+        cmuxDebugLog("settings.window.show path=swiftuiWindowGroup")
+#endif
+        if let navigationTarget {
+            pendingNavigationTarget = navigationTarget
+        }
+        openWindow?()
+        if let navigationTarget {
+            SettingsNavigationRequest.post(navigationTarget)
+        }
+    }
+
+    static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
+        let target = pendingNavigationTarget
+        pendingNavigationTarget = nil
+        return target
     }
 }
 
@@ -5627,7 +5537,6 @@ struct SettingsView: View {
                 workspacePresentationMode = newValue
                     ? WorkspacePresentationModeSettings.Mode.minimal.rawValue
                     : WorkspacePresentationModeSettings.Mode.standard.rawValue
-                SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
             }
         )
     }
@@ -5637,7 +5546,6 @@ struct SettingsView: View {
             get: { menuBarOnly },
             set: { newValue in
                 menuBarOnly = newValue
-                SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
             }
         )
     }
@@ -5648,7 +5556,6 @@ struct SettingsView: View {
             set: { newValue in
                 guard !menuBarOnly else { return }
                 showMenuBarExtra = newValue
-                SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
             }
         )
     }
@@ -8367,6 +8274,11 @@ private struct SettingsRootView: View {
         .navigationSplitViewStyle(.balanced)
         .onChange(of: selectedSectionRaw) { _, newValue in
             guard let target = SettingsNavigationTarget(rawValue: newValue) else { return }
+            SettingsNavigationRequest.post(target)
+        }
+        .onAppear {
+            guard let target = SettingsWindowPresenter.consumePendingNavigationTarget() else { return }
+            selectedSectionRaw = target.rawValue
             SettingsNavigationRequest.post(target)
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in

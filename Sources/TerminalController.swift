@@ -7315,7 +7315,7 @@ class TerminalController {
             if shouldActivate {
                 AppDelegate.presentPreferencesWindow(navigationTarget: navigationTarget)
             } else {
-                SettingsWindowController.shared.show(navigationTarget: navigationTarget)
+                SettingsWindowPresenter.show(navigationTarget: navigationTarget)
             }
         }
         return .ok([

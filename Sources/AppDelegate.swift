@@ -6601,25 +6601,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static func presentPreferencesWindow(
         navigationTarget: SettingsNavigationTarget? = nil,
         showFallbackSettingsWindow: @MainActor (SettingsNavigationTarget?) -> Void = { target in
-            SettingsWindowController.shared.show(navigationTarget: target)
+            SettingsWindowPresenter.show(navigationTarget: target)
         },
         activateApplication: @MainActor () -> Void = {
             NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         }
     ) {
 #if DEBUG
-        cmuxDebugLog("settings.open.present path=customWindowDirect")
+        cmuxDebugLog("settings.open.present path=swiftuiWindowGroup")
 #endif
         showFallbackSettingsWindow(navigationTarget)
         activateApplication()
-        if let window = SettingsWindowController.shared.window {
-            window.orderFrontRegardless()
-            window.makeKeyAndOrderFront(nil)
-            DispatchQueue.main.async {
-                window.orderFrontRegardless()
-                window.makeKeyAndOrderFront(nil)
-            }
-        }
 #if DEBUG
         cmuxDebugLog("settings.open.present activate=1")
 #endif
