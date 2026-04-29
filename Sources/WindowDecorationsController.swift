@@ -294,7 +294,7 @@ final class WindowDecorationsController {
             && WorkspacePresentationModeSettings.isMinimal()
             && !window.styleMask.contains(.fullScreen)
         guard shouldInstall,
-              let titlebarView = window.standardWindowButton(.closeButton)?.superview else {
+              let contentView = window.contentView else {
             #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
                 _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
@@ -309,7 +309,7 @@ final class WindowDecorationsController {
 
         let target = minimalModeSidebarTitlebarClickTargets.object(forKey: window) ?? {
             let view = MinimalModeSidebarControlActionView()
-            view.autoresizingMask = [.maxXMargin, .minYMargin, .maxYMargin]
+            view.autoresizingMask = [.maxXMargin, .minYMargin]
             minimalModeSidebarTitlebarClickTargets.setObject(view, forKey: window)
             return view
         }()
@@ -328,15 +328,16 @@ final class WindowDecorationsController {
             )
         }
 
-        if target.superview !== titlebarView {
+        if target.superview !== contentView {
             target.removeFromSuperview()
-            titlebarView.addSubview(target, positioned: .above, relativeTo: nil)
+            contentView.addSubview(target, positioned: .above, relativeTo: nil)
         }
 
         let hostHeight = MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+        let contentBounds = contentView.bounds
         target.frame = NSRect(
             x: MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
-            y: max(0, (titlebarView.bounds.height - hostHeight) / 2),
+            y: max(0, contentBounds.maxY - hostHeight),
             width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
             height: hostHeight
         )
@@ -347,7 +348,7 @@ final class WindowDecorationsController {
                 payload["minimalSidebarTitlebarClickTargetInstalled"] = "true"
                 payload["minimalSidebarTitlebarClickTargetWindowNumber"] = String(window.windowNumber)
                 payload["minimalSidebarTitlebarClickTargetFrameInWindow"] = NSStringFromRect(target.convert(target.bounds, to: nil))
-                payload["minimalSidebarTitlebarClickTargetTitlebarBounds"] = NSStringFromRect(titlebarView.bounds)
+                payload["minimalSidebarTitlebarClickTargetContentBounds"] = NSStringFromRect(contentBounds)
             }
         }
         #endif
