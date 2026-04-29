@@ -13,8 +13,8 @@ extension TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
-        let preferredWorkspaceId = uuidParam(params, "preferred_workspace_id")
-        let preferredSurfaceId = uuidParam(params, "preferred_surface_id")
+        let preferredWorkspaceId = v2UUID(params, "preferred_workspace_id")
+        let preferredSurfaceId = v2UUID(params, "preferred_surface_id")
         let callerTTY = Self.normalizedTTYName(stringParam(params, "caller_tty"))
         let preferTTY = boolParam(params, "prefer_tty") ?? false
         let title = stringParam(params, "title") ?? "Notification"
@@ -133,10 +133,6 @@ extension TerminalController {
             }
         }
         return nil
-    }
-
-    private func uuidParam(_ params: [String: Any], _ key: String) -> UUID? {
-        stringParam(params, key).flatMap(UUID.init(uuidString:))
     }
 
     private func stringParam(_ params: [String: Any], _ key: String) -> String? {

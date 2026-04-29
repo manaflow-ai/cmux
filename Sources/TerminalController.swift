@@ -3412,7 +3412,7 @@ class TerminalController {
         params[key] as? String
     }
 
-    private func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
+    func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
         guard let s = v2String(params, key) else { return nil }
         if let uuid = UUID(uuidString: s) {
             return uuid

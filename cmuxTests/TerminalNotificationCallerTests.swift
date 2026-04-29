@@ -87,6 +87,79 @@ final class TerminalNotificationCallerTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
 
+    func testNotificationCreateForCallerResolvesPreferredRefs() async throws {
+        let socketPath = makeSocketPath("notify-ref")
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        let notificationQueued = expectation(description: "ref notification queued")
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in
+            notificationQueued.fulfill()
+        }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in
+            notificationQueued.fulfill()
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let fallbackWorkspace = manager.addWorkspace(select: true)
+        let targetWorkspace = manager.addWorkspace(select: false)
+        defer {
+            for workspace in [fallbackWorkspace, targetWorkspace] where manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        let targetPaneId = targetWorkspace.paneId(forPanelId: targetSurfaceId)?.id
+        let refs = TerminalController.shared.v2WorkspacePaneAndSurfaceRefs(
+            workspaceId: targetWorkspace.id,
+            paneId: targetPaneId,
+            surfaceId: targetSurfaceId
+        )
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "notification.create_for_caller",
+            params: [
+                "preferred_workspace_id": refs.workspaceRef,
+                "preferred_surface_id": refs.surfaceRef,
+                "title": "Ref",
+                "subtitle": "Preferred",
+                "body": "Body"
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
+
+        await fulfillment(of: [notificationQueued], timeout: 1.0)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: targetWorkspace.id, surfaceId: targetSurfaceId))
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: fallbackWorkspace.id, surfaceId: fallbackWorkspace.focusedPanelId))
+    }
+
     func testNotifyTargetUpdatesStoreBeforeResponseWhenAsyncDrainsAreSuspended() async throws {
         let socketPath = makeSocketPath("notify-sync")
         let store = TerminalNotificationStore.shared
