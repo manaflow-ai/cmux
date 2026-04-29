@@ -476,6 +476,7 @@ struct TmuxSessionListView: View {
     @EnvironmentObject private var tabManager: TabManager
     @State private var sessions: [TmuxSessionSnapshot] = []
     @State private var isRefreshing = false
+    @State private var refreshGeneration: UInt64 = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -533,18 +534,36 @@ struct TmuxSessionListView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 if !Task.isCancelled {
-                    await MainActor.run {
-                        refresh()
-                    }
+                    refresh()
                 }
             }
         }
     }
 
     private func refresh() {
+        guard !isRefreshing else { return }
         isRefreshing = true
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
 
-        let realSessions = listRealTmuxSessions()
+        DispatchQueue.global(qos: .utility).async {
+            let realSessions = listRealTmuxSessions()
+            let sessionDetails = realSessions.map { session in
+                RealTmuxSessionDetail(
+                    session: session,
+                    currentPaneId: realTmuxCurrentPaneId(for: session)
+                )
+            }
+            DispatchQueue.main.async {
+                applyRefresh(sessionDetails: sessionDetails, generation: generation)
+            }
+        }
+    }
+
+    private func applyRefresh(sessionDetails: [RealTmuxSessionDetail], generation: UInt64) {
+        guard generation == refreshGeneration else { return }
+        let realSessions = sessionDetails.map(\.session)
+        let detailsBySessionId = Dictionary(uniqueKeysWithValues: sessionDetails.map { ($0.session.id, $0) })
         var store = loadRealTmuxStore()
         let liveSessionIds = Set(realSessions.map(\.id))
         let liveWorkspaceIds = Set(tabManager.tabs.map { $0.id.uuidString })
@@ -557,7 +576,7 @@ struct TmuxSessionListView: View {
                 store.sessionIdToWorkspaceId[session.id] = existing.id.uuidString
                 continue
             }
-            let initialPaneId = realTmuxCurrentPaneId(for: session)
+            let initialPaneId = detailsBySessionId[session.id]?.currentPaneId
             let initialProxyCommand = initialPaneId.flatMap(realTmuxPaneProxyCommand)
             let workspace = tabManager.addWorkspace(
                 title: session.name,
@@ -602,9 +621,14 @@ struct TmuxSessionListView: View {
         isRefreshing = false
     }
 
-    private struct RealTmuxSession: Equatable {
+    private struct RealTmuxSession: Equatable, Sendable {
         let id: String
         let name: String
+    }
+
+    private struct RealTmuxSessionDetail: Sendable {
+        let session: RealTmuxSession
+        let currentPaneId: String?
     }
 
     private struct RealTmuxStore: Codable {
@@ -619,7 +643,7 @@ struct TmuxSessionListView: View {
             .appendingPathComponent("real-tmux-store-\(bundleKey).json")
     }
 
-    private func listRealTmuxSessions() -> [RealTmuxSession] {
+    nonisolated private func listRealTmuxSessions() -> [RealTmuxSession] {
         guard let tmuxPath = realTmuxExecutablePath() else { return [] }
         let process = Process()
         let pipe = Pipe()
@@ -643,22 +667,22 @@ struct TmuxSessionListView: View {
         }
     }
 
-    private func realTmuxExecutablePath() -> String? {
+    nonisolated private func realTmuxExecutablePath() -> String? {
         ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    private func realTmuxAttachInput(for session: RealTmuxSession) -> String? {
+    nonisolated private func realTmuxAttachInput(for session: RealTmuxSession) -> String? {
         guard let tmuxPath = realTmuxExecutablePath() else { return nil }
         return "exec \(shellQuoted(tmuxPath)) attach-session -t \(shellQuoted(session.name))\r"
     }
 
-    private func realTmuxCurrentPaneId(for session: RealTmuxSession) -> String? {
+    nonisolated private func realTmuxCurrentPaneId(for session: RealTmuxSession) -> String? {
         normalizedRealTmuxPaneId(realTmuxOutput(arguments: ["display-message", "-p", "-t", session.id, "#{pane_id}"]))
             ?? normalizedRealTmuxPaneId(realTmuxOutput(arguments: ["display-message", "-p", "-t", session.name, "#{pane_id}"]))
     }
 
-    private func normalizedRealTmuxPaneId(_ raw: String?) -> String? {
+    nonisolated private func normalizedRealTmuxPaneId(_ raw: String?) -> String? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               trimmed.hasPrefix("%"),
               trimmed.dropFirst().allSatisfy({ $0.isNumber }) else { return nil }
@@ -678,7 +702,7 @@ struct TmuxSessionListView: View {
         return nil
     }
 
-    private func realTmuxOutput(arguments: [String]) -> String? {
+    nonisolated private func realTmuxOutput(arguments: [String]) -> String? {
         guard let tmuxPath = realTmuxExecutablePath() else { return nil }
         let process = Process()
         let pipe = Pipe()
