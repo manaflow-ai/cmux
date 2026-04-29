@@ -2569,10 +2569,11 @@ struct SettingsNavigationDestination {
 
 private struct SettingsSearchHighlightState: Equatable {
     let anchorID: String?
+    let token: Int
 }
 
 private struct SettingsSearchHighlightStateKey: EnvironmentKey {
-    static let defaultValue = SettingsSearchHighlightState(anchorID: nil)
+    static let defaultValue = SettingsSearchHighlightState(anchorID: nil, token: 0)
 }
 
 private extension EnvironmentValues {
@@ -2607,29 +2608,47 @@ private extension View {
 
 private struct SettingsSearchHighlightModifier: ViewModifier {
     @Environment(\.settingsSearchHighlightState) private var highlightState
+    @State private var highlightOpacity = 0.0
     let anchorIDs: [String]
 
-    private var isHighlighted: Bool {
-        guard let anchorID = highlightState.anchorID else { return false }
+    private func matches(_ state: SettingsSearchHighlightState) -> Bool {
+        guard let anchorID = state.anchorID else { return false }
         return anchorIDs.contains(anchorID)
     }
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if isHighlighted {
-            content
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.22))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.accentColor, lineWidth: 2.5)
-                )
-                .shadow(color: Color.accentColor.opacity(0.22), radius: 8, x: 0, y: 0)
-                .animation(.easeInOut(duration: 0.16), value: isHighlighted)
-        } else {
-            content
+        content
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.accentColor.opacity(highlightOpacity * 0.24))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.accentColor.opacity(highlightOpacity), lineWidth: 2.5)
+            )
+            .shadow(color: Color.accentColor.opacity(highlightOpacity * 0.24), radius: 8, x: 0, y: 0)
+            .onAppear {
+                updateHighlight(for: highlightState)
+            }
+            .onChange(of: highlightState) { _, newState in
+                updateHighlight(for: newState)
+            }
+    }
+
+    private func updateHighlight(for state: SettingsSearchHighlightState) {
+        guard matches(state) else {
+            withAnimation(.easeOut(duration: 0.12)) {
+                highlightOpacity = 0
+            }
+            return
+        }
+
+        highlightOpacity = 0
+        withAnimation(.easeOut(duration: 0.14)) {
+            highlightOpacity = 1
+        }
+        withAnimation(.easeInOut(duration: 0.9).delay(5.0)) {
+            highlightOpacity = 0
         }
     }
 }
@@ -5585,6 +5604,7 @@ struct SettingsView: View {
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
     @Environment(\.openWindow) private var openWindow
     @State private var highlightedSearchAnchorID: String?
+    @State private var searchHighlightToken = 0
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -7576,7 +7596,7 @@ struct SettingsView: View {
                 .padding(.top, 20)
                 .environment(
                     \.settingsSearchHighlightState,
-                    SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID)
+                    SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken)
                 )
             }
         .toggleStyle(.switch)
@@ -7612,6 +7632,7 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
             highlightedSearchAnchorID = destination.anchorID
+            searchHighlightToken += 1
             DispatchQueue.main.async {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     proxy.scrollTo(SettingsSearchIndex.sectionID(for: destination.target), anchor: .top)
