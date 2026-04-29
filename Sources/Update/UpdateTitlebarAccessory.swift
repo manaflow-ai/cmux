@@ -706,11 +706,6 @@ struct HiddenTitlebarSidebarControlsView: View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
 
         ZStack(alignment: .leading) {
-            PassthroughHoverTrackingView { isHovering in
-                isHoveringHost = isHovering
-            }
-            .frame(width: hostWidth, height: hostHeight)
-
             TitlebarControlsView(
                 notificationStore: notificationStore,
                 viewModel: viewModel,
@@ -725,6 +720,9 @@ struct HiddenTitlebarSidebarControlsView: View {
 
             TitlebarControlsGapDragView(config: style.config)
                 .frame(width: hostWidth, height: hostHeight)
+
+            PassthroughHoverTrackingView(capturesPassiveHits: !shouldPinControls) { isHoveringHost = $0 }
+            .frame(width: hostWidth, height: hostHeight)
         }
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
         .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
@@ -750,19 +748,21 @@ enum TitlebarControlsVisibilityMode {
 }
 
 private struct PassthroughHoverTrackingView: NSViewRepresentable {
+    let capturesPassiveHits: Bool
     let onHoverChanged: (Bool) -> Void
-
     func makeNSView(context: Context) -> TrackingView {
         let view = TrackingView()
+        view.capturesPassiveHits = capturesPassiveHits
         view.onHoverChanged = onHoverChanged
         return view
     }
-
     func updateNSView(_ nsView: TrackingView, context: Context) {
+        nsView.capturesPassiveHits = capturesPassiveHits
         nsView.onHoverChanged = onHoverChanged
     }
 
     final class TrackingView: NSView {
+        var capturesPassiveHits = true
         var onHoverChanged: ((Bool) -> Void)?
         private var trackingArea: NSTrackingArea?
         private var localMouseMonitor: Any?
@@ -779,7 +779,7 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             switch event?.type {
             case .none:
                 refreshHoverForHitTest(event: event)
-                return self
+                return capturesPassiveHits ? self : nil
             case .mouseMoved, .mouseEntered, .mouseExited:
                 refreshHoverForHitTest(event: event)
                 return self
