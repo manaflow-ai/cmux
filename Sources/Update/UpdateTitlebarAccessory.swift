@@ -347,6 +347,169 @@ func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig)
     max(0, floor(config.buttonSize - titlebarShortcutHintHeight(for: config)))
 }
 
+/// Split button: the `+` half runs the default new-workspace action;
+/// clicking the chevron opens an NSMenu listing every workspace command from
+/// the user's store. Backed by AppKit so the menu rebuilds via
+/// `menuNeedsUpdate(_:)` whenever the user opens it — the previous SwiftUI
+/// `Menu` inside the titlebar's detached `NSHostingView` did not reliably
+/// re-render in response to `WorkspaceCommandsStore` mutations.
+struct NewWorkspaceTitlebarControl: NSViewRepresentable {
+    let config: TitlebarControlsStyleConfig
+    let onNewTab: () -> Void
+    let onOpenManager: () -> Void
+
+    func makeNSView(context: Context) -> NewWorkspaceSplitButtonView {
+        let view = NewWorkspaceSplitButtonView(config: config)
+        view.onNewTab = onNewTab
+        view.onOpenManager = onOpenManager
+        return view
+    }
+
+    func updateNSView(_ nsView: NewWorkspaceSplitButtonView, context: Context) {
+        nsView.applyConfig(config)
+        nsView.onNewTab = onNewTab
+        nsView.onOpenManager = onOpenManager
+    }
+}
+
+/// AppKit-backed `+` button with an attached chevron that opens an `NSMenu`.
+/// SwiftUI `Menu` inside the titlebar accessory's `NSHostingView` was not
+/// reliably re-rendering when `WorkspaceCommandsStore` changed (singleton
+/// observation in detached hosting views is fragile). `NSMenu` rebuilds its
+/// items every time the user opens it via `menuNeedsUpdate(_:)`, so the list
+/// is always in sync with the current store.
+final class NewWorkspaceSplitButtonView: NSView, NSMenuDelegate {
+    var onNewTab: (() -> Void)?
+    var onOpenManager: (() -> Void)?
+
+    private var styleConfig: TitlebarControlsStyleConfig
+    private let primaryButton = NSButton()
+    private let chevronButton = NSButton()
+    private let dynamicMenu = NSMenu()
+
+    init(config: TitlebarControlsStyleConfig) {
+        self.styleConfig = config
+        super.init(frame: .zero)
+        wantsLayer = true
+        translatesAutoresizingMaskIntoConstraints = false
+
+        primaryButton.translatesAutoresizingMaskIntoConstraints = false
+        primaryButton.bezelStyle = .accessoryBarAction
+        primaryButton.isBordered = false
+        primaryButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New workspace")
+        primaryButton.imageScaling = .scaleProportionallyDown
+        primaryButton.target = self
+        primaryButton.action = #selector(primaryTapped)
+        primaryButton.toolTip = String(
+            localized: "titlebar.newWorkspace.tooltip",
+            defaultValue: "New workspace"
+        )
+        addSubview(primaryButton)
+
+        chevronButton.translatesAutoresizingMaskIntoConstraints = false
+        chevronButton.bezelStyle = .accessoryBarAction
+        chevronButton.isBordered = false
+        chevronButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Pick workspace command")
+        chevronButton.imageScaling = .scaleProportionallyDown
+        chevronButton.target = self
+        chevronButton.action = #selector(chevronTapped)
+        addSubview(chevronButton)
+
+        dynamicMenu.delegate = self
+        dynamicMenu.autoenablesItems = false
+
+        applyConfig(config)
+        rebuildLayoutConstraints()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func applyConfig(_ config: TitlebarControlsStyleConfig) {
+        styleConfig = config
+        let pointSize = config.iconSize
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
+        primaryButton.symbolConfiguration = symbolConfig
+        chevronButton.symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: max(7, pointSize - 4),
+            weight: .semibold
+        )
+    }
+
+    private func rebuildLayoutConstraints() {
+        let buttonSize = styleConfig.buttonSize
+        let chevronWidth: CGFloat = 14
+        NSLayoutConstraint.activate([
+            primaryButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            primaryButton.topAnchor.constraint(equalTo: topAnchor),
+            primaryButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            primaryButton.widthAnchor.constraint(equalToConstant: buttonSize),
+
+            chevronButton.leadingAnchor.constraint(equalTo: primaryButton.trailingAnchor, constant: -2),
+            chevronButton.topAnchor.constraint(equalTo: topAnchor),
+            chevronButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            chevronButton.widthAnchor.constraint(equalToConstant: chevronWidth),
+            chevronButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            heightAnchor.constraint(equalToConstant: buttonSize),
+        ])
+    }
+
+    @objc private func primaryTapped() {
+        #if DEBUG
+        cmuxDebugLog("titlebar.newTab")
+        #endif
+        onNewTab?()
+    }
+
+    @objc private func chevronTapped() {
+        let location = NSPoint(x: 0, y: bounds.height + 2)
+        dynamicMenu.popUp(positioning: nil, at: location, in: self)
+    }
+
+    // MARK: - NSMenuDelegate
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let commands = WorkspaceCommandsStore.shared.commands
+        for command in commands {
+            let item = NSMenuItem(
+                title: command.name,
+                action: #selector(menuItemSelected(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = command.id
+            menu.addItem(item)
+        }
+        menu.addItem(NSMenuItem.separator())
+        let manage = NSMenuItem(
+            title: String(
+                localized: "titlebar.newWorkspace.menu.manage",
+                defaultValue: "Manage Workspaces…"
+            ),
+            action: #selector(manageTapped),
+            keyEquivalent: ""
+        )
+        manage.target = self
+        menu.addItem(manage)
+    }
+
+    @objc private func menuItemSelected(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        AppDelegate.shared?.performWorkspaceCommand(
+            id: id,
+            debugSource: "titlebar.workspaceCommandMenu"
+        )
+    }
+
+    @objc private func manageTapped() {
+        onOpenManager?()
+    }
+}
+
 struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
     let accessibilityIdentifier: String
@@ -541,18 +704,18 @@ struct TitlebarControlsView: View {
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarControlButton(
+            NewWorkspaceTitlebarControl(
                 config: config,
-                accessibilityIdentifier: "titlebarControl.newTab",
-                accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
-                action: {
-                #if DEBUG
-                cmuxDebugLog("titlebar.newTab")
-                #endif
-                onNewTab()
-            }) {
-                iconLabel(systemName: "plus", config: config)
-            }
+                onNewTab: onNewTab,
+                onOpenManager: {
+                    AppDelegate.shared?.openWorkspaceCommandsWindow(
+                        debugSource: "titlebar.workspaceCommandMenu"
+                    )
+                }
+            )
+            .frame(width: config.buttonSize + 14, height: config.buttonSize)
+            .accessibilityIdentifier("titlebarControl.newTab")
+            .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
 
         }

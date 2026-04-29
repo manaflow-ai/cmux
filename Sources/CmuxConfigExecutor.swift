@@ -427,16 +427,27 @@ struct CmuxConfigExecutor {
         tabManager: TabManager,
         baseCwd: String
     ) {
-        let workspaceName = wsDef.name ?? command.name
-        let restart = command.restart ?? .ignore
+        let baseWorkspaceName = wsDef.name ?? command.name
+        let restart = command.restart ?? .always
+        let workspaceName: String = {
+            guard restart == .always else { return baseWorkspaceName }
+            let existingTitles = Set(tabManager.tabs.compactMap { $0.customTitle })
+            guard existingTitles.contains(baseWorkspaceName) else { return baseWorkspaceName }
+            var n = 2
+            while existingTitles.contains("\(baseWorkspaceName) \(n)") { n += 1 }
+            return "\(baseWorkspaceName) \(n)"
+        }()
 
-        if let existing = tabManager.tabs.first(where: { $0.customTitle == workspaceName }) {
+        if restart != .always,
+           let existing = tabManager.tabs.first(where: { $0.customTitle == workspaceName }) {
             switch restart {
             case .ignore:
                 tabManager.selectWorkspace(existing)
                 return
             case .recreate:
                 tabManager.closeWorkspace(existing)
+            case .always:
+                break
             case .confirm:
                 let alert = NSAlert()
                 alert.messageText = String(
@@ -459,13 +470,86 @@ struct CmuxConfigExecutor {
         }
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
-        let newWorkspace = tabManager.addWorkspace(workingDirectory: resolvedCwd)
+        let remoteStartupCommand: String? = wsDef.remote.map { buildRemoteTerminalStartupCommand(remote: $0) }
+        let resolvedProgram: String? = {
+            guard wsDef.remote == nil else { return nil }
+            let trimmed = wsDef.program?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed?.isEmpty == false) ? trimmed : nil
+        }()
+        let initialCommand = remoteStartupCommand ?? resolvedProgram
+        let newWorkspace = tabManager.addWorkspace(
+            workingDirectory: resolvedCwd,
+            initialTerminalCommand: initialCommand,
+            closePanesOnInitialCommandExit: initialCommand != nil
+        )
         newWorkspace.setCustomTitle(workspaceName)
         if let color = wsDef.color {
             newWorkspace.setCustomColor(color)
         }
 
+        if let remote = wsDef.remote, let remoteStartupCommand {
+            let config = WorkspaceRemoteConfiguration(
+                transport: .ssh,
+                destination: remote.host,
+                port: remote.port,
+                identityFile: remote.identityFile.map(expandTildePath),
+                sshOptions: remote.sshOptions ?? [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                terminalStartupCommand: remoteStartupCommand,
+                skipDaemonBootstrap: false
+            )
+            newWorkspace.configureRemoteConnection(config, autoConnect: true)
+        }
+
         guard let layout = wsDef.layout else { return }
         newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd)
+    }
+
+    /// Builds the shell command that each terminal pane in a remote workspace runs to
+    /// establish (or re-establish) the SSH connection. Mirrors the simplified form of
+    /// what `cmux ssh` builds in `CLI/cmux.swift`, minus the daemon bootstrap relay
+    /// — those plumbing pieces require a live CLI invocation to allocate.
+    private static func buildRemoteTerminalStartupCommand(remote: CmuxRemoteDefinition) -> String {
+        var args: [String] = ["ssh"]
+        if let identityFile = remote.identityFile,
+           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args.append("-i")
+            args.append(shellQuoteArgument(expandTildePath(identityFile)))
+        }
+        if let port = remote.port {
+            args.append("-p")
+            args.append(String(port))
+        }
+        for option in remote.sshOptions ?? [] {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            args.append("-o")
+            args.append(shellQuoteArgument(trimmed))
+        }
+        args.append(shellQuoteArgument(remote.host))
+        if let startupCommand = remote.startupCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !startupCommand.isEmpty {
+            args.append("-t")
+            args.append(shellQuoteArgument(startupCommand))
+        }
+        return args.joined(separator: " ")
+    }
+
+    private static func expandTildePath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return trimmed }
+        return NSString(string: trimmed).expandingTildeInPath
+    }
+
+    private static func shellQuoteArgument(_ value: String) -> String {
+        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
+        if value.range(of: safePattern, options: .regularExpression) != nil {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 }

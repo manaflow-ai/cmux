@@ -7202,6 +7202,11 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitle: String?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
+    /// When true, terminal panes auto-close after the initial command exits
+    /// instead of holding the PTY open with a "Process exited" prompt. Set by
+    /// `CmuxConfigExecutor` for config-driven remote workspaces; the cmux ssh /
+    /// vm new flows leave it false so they keep showing the SSH exit message.
+    var closePanesOnInitialCommandExit: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String
@@ -7770,8 +7775,10 @@ final class Workspace: Identifiable, ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:]
+        initialTerminalEnvironment: [String: String] = [:],
+        closePanesOnInitialCommandExit: Bool = false
     ) {
+        self.closePanesOnInitialCommandExit = closePanesOnInitialCommandExit
         self.id = UUID()
         self.portOrdinal = portOrdinal
         self.processTitle = title
@@ -7825,7 +7832,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let trimmedCommand = initialTerminalCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
            !trimmedCommand.isEmpty {
             var template = resolvedConfigTemplate ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
+            template.waitAfterCommand = !closePanesOnInitialCommandExit
             resolvedConfigTemplate = template
         }
 
@@ -9897,7 +9904,7 @@ final class Workspace: Identifiable, ObservableObject {
         // local prompt — which is what we saw during dogfood.
         if remoteTerminalStartupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
+            template.waitAfterCommand = !closePanesOnInitialCommandExit
             inheritedConfig = template
         }
 #if DEBUG
@@ -10050,7 +10057,7 @@ final class Workspace: Identifiable, ObservableObject {
         // local login shell.
         if remoteTerminalStartupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
+            template.waitAfterCommand = !closePanesOnInitialCommandExit
             inheritedConfig = template
         }
 
@@ -12382,7 +12389,13 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectory: String?,
         initialInput: String?
     ) -> TerminalPanel? {
-        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let remoteStartupCommand = remoteTerminalStartupCommand()
+        if remoteStartupCommand != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = !closePanesOnInitialCommandExit
+            inheritedConfig = template
+        }
 
         let newPanel = TerminalPanel(
             workspaceId: id,
@@ -12390,11 +12403,15 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
+            initialCommand: remoteStartupCommand,
             initialInput: initialInput
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if remoteStartupCommand != nil {
+            trackRemoteTerminalSurface(newPanel.id)
+        }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         let newTab = Bonsplit.Tab(
@@ -12417,6 +12434,9 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            if remoteStartupCommand != nil {
+                untrackRemoteTerminalSurface(newPanel.id)
+            }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }

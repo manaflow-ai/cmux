@@ -5851,11 +5851,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func bootstrapInitialMainWindowIfNeeded(debugSource: String, shouldActivate: Bool = true) -> UUID {
+        // Detect whether this call is creating a brand-new window (vs. surfacing
+        // one that session restore already populated). When fresh, we run the
+        // configured default workspace command so the first window opens with
+        // the user's chosen profile (e.g. a remote SSH workspace) instead of a
+        // bare local terminal that they'd immediately close.
+        let isFreshLaunch = mainWindowContexts.isEmpty
         let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: shouldActivate)
         if let manager = tabManagerFor(windowId: windowId) {
             startSocketListenerIfEnabled(
                 tabManager: manager,
                 source: "bootstrapInitialMainWindow.\(debugSource)"
+            )
+        }
+        // Only override the bare initial workspace when the user explicitly
+        // picked a non-Local default. Built-in `Local` (defaultCommandID == nil)
+        // is the implicit fallback and doesn't add anything over the plain
+        // workspace TabManager.init already created.
+        if isFreshLaunch,
+           WorkspaceCommandsStore.shared.defaultCommandID != nil,
+           let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            let initialWorkspace = context.tabManager.selectedWorkspace
+            _ = executeConfiguredNewWorkspaceCommandIfAvailable(
+                in: context,
+                debugSource: "bootstrap.\(debugSource)",
+                replacingInitialWorkspace: initialWorkspace
             )
         }
         guard !didBootstrapInitialMainWindow else { return windowId }
@@ -5967,12 +5987,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugSource: String,
         replacingInitialWorkspace initialWorkspace: Workspace? = nil
     ) -> Bool {
-        guard let cmuxConfigStore = context.cmuxConfigStore,
-              let configured = cmuxConfigStore.resolvedNewWorkspaceCommand() else {
-            return false
-        }
         guard resolvedWindow(for: context) != nil else {
             discardOrphanedMainWindowContext(context)
+            return false
+        }
+        guard let configured = WorkspaceCommandsStore.shared.defaultCommand() else {
             return false
         }
         let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
@@ -5981,23 +6000,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         cmuxDebugLog(
             "newWorkspace.configCommand source=\(debugSource) " +
-            "command=\(configured.command.name) windowId=\(String(context.windowId.uuidString.prefix(8)))"
+            "command=\(configured.name) windowId=\(String(context.windowId.uuidString.prefix(8)))"
         )
 #endif
         let initialWorkspaceId = initialWorkspace?.id
+        let globalConfigPath = context.cmuxConfigStore?.globalConfigPath
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".config/cmux/cmux.json").path
         let didExecute = CmuxConfigExecutor.execute(
-            command: configured.command,
+            command: configured.asCmuxCommandDefinition(),
             tabManager: context.tabManager,
             baseCwd: baseCwd,
-            configSourcePath: configured.sourcePath,
-            globalConfigPath: cmuxConfigStore.globalConfigPath
-        ) { [weak self, weak context] in
-            self?.closeInitialWorkspaceIfNeeded(
-                initialWorkspaceId: initialWorkspaceId,
-                in: context
-            )
-        }
+            configSourcePath: nil,
+            globalConfigPath: globalConfigPath,
+            onExecuted: { [weak self, weak context] in
+                self?.closeInitialWorkspaceIfNeeded(
+                    initialWorkspaceId: initialWorkspaceId,
+                    in: context
+                )
+            }
+        )
         return didExecute
+    }
+
+    /// Returns the workspace commands the user has configured in the
+    /// Preferences "Workspaces" section. Used to populate the titlebar `+`
+    /// split menu and the command palette.
+    func availableWorkspaceCommands() -> [WorkspaceCommandConfig] {
+        WorkspaceCommandsStore.shared.commands
+    }
+
+    /// Runs a workspace command by its identifier. Returns true if a matching
+    /// command was found and executed.
+    @discardableResult
+    func performWorkspaceCommand(id: WorkspaceCommandConfig.ID, debugSource: String) -> Bool {
+        guard let config = WorkspaceCommandsStore.shared.command(id: id) else { return false }
+        return runWorkspaceCommandConfig(config, debugSource: debugSource)
+    }
+
+    @discardableResult
+    private func runWorkspaceCommandConfig(
+        _ config: WorkspaceCommandConfig,
+        debugSource: String
+    ) -> Bool {
+        guard let context = preferredMainWindowContextForWorkspaceCreation(
+            event: nil,
+            debugSource: debugSource
+        ) ?? mainWindowContexts.values.first else {
+            return false
+        }
+        let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
+        let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+            : FileManager.default.homeDirectoryForCurrentUser.path
+        let globalConfigPath = context.cmuxConfigStore?.globalConfigPath
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".config/cmux/cmux.json").path
+        return CmuxConfigExecutor.execute(
+            command: config.asCmuxCommandDefinition(),
+            tabManager: context.tabManager,
+            baseCwd: baseCwd,
+            configSourcePath: nil,
+            globalConfigPath: globalConfigPath
+        )
+    }
+
+    /// Runs the user's configured default workspace command (set in
+    /// Preferences → Workspaces). Returns false if no default is selected so
+    /// callers can fall back to the plain `addWorkspace()` path.
+    @discardableResult
+    func performDefaultWorkspaceCommand(debugSource: String) -> Bool {
+        guard let config = WorkspaceCommandsStore.shared.defaultCommand() else { return false }
+        return runWorkspaceCommandConfig(config, debugSource: debugSource)
+    }
+
+    /// Opens the Preferences → Workspaces editor window via
+    /// `WorkspaceCommandsWindowPresenter`. SwiftUI's `openWindow(id:)` is only
+    /// reachable from a scene context, so the main `WindowGroup`'s onAppear
+    /// hands an opener closure to the presenter at launch and we route through
+    /// it from anywhere in AppKit.
+    func openWorkspaceCommandsWindow(debugSource: String) {
+#if DEBUG
+        cmuxDebugLog("workspaceCommands.openWindow source=\(debugSource)")
+#endif
+        WorkspaceCommandsWindowPresenter.show()
     }
 
     private func closeInitialWorkspaceIfNeeded(

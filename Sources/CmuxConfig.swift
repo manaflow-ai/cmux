@@ -1588,6 +1588,81 @@ enum CmuxRestartBehavior: String, Codable, Sendable {
     case recreate
     case ignore
     case confirm
+    case always
+}
+
+struct CmuxRemoteDefinition: Codable, Sendable, Equatable {
+    var host: String
+    var port: Int?
+    var identityFile: String?
+    var sshOptions: [String]?
+    var startupCommand: String?
+
+    init(
+        host: String,
+        port: Int? = nil,
+        identityFile: String? = nil,
+        sshOptions: [String]? = nil,
+        startupCommand: String? = nil
+    ) {
+        self.host = host
+        self.port = port
+        self.identityFile = identityFile
+        self.sshOptions = sshOptions
+        self.startupCommand = startupCommand
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        let rawHost = try container.decode(String.self, forKey: .host)
+        let trimmedHost = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedHost.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .host,
+                in: container,
+                debugDescription: "Remote 'host' must not be blank"
+            )
+        }
+        host = trimmedHost
+
+        if let rawPort = try container.decodeIfPresent(Int.self, forKey: .port) {
+            guard rawPort > 0, rawPort <= 65535 else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .port,
+                    in: container,
+                    debugDescription: "Remote 'port' must be between 1 and 65535"
+                )
+            }
+            port = rawPort
+        } else {
+            port = nil
+        }
+
+        if let rawIdentityFile = try container.decodeIfPresent(String.self, forKey: .identityFile) {
+            let trimmed = rawIdentityFile.trimmingCharacters(in: .whitespacesAndNewlines)
+            identityFile = trimmed.isEmpty ? nil : trimmed
+        } else {
+            identityFile = nil
+        }
+
+        if let rawOptions = try container.decodeIfPresent([String].self, forKey: .sshOptions) {
+            let cleaned = rawOptions.compactMap { option -> String? in
+                let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            sshOptions = cleaned.isEmpty ? nil : cleaned
+        } else {
+            sshOptions = nil
+        }
+
+        if let rawStartup = try container.decodeIfPresent(String.self, forKey: .startupCommand) {
+            let trimmed = rawStartup.trimmingCharacters(in: .whitespacesAndNewlines)
+            startupCommand = trimmed.isEmpty ? nil : trimmed
+        } else {
+            startupCommand = nil
+        }
+    }
 }
 
 indirect enum CmuxLayoutNode: Codable, Sendable {
