@@ -453,8 +453,13 @@ struct TitlebarControlsView: View {
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
                 WindowAccessor { window in
-                    if hostWindowNumber != window.windowNumber {
-                        hostWindowNumber = window.windowNumber
+                    let nextWindowNumber = window.windowNumber
+                    if hostWindowNumber != nextWindowNumber {
+                        DispatchQueue.main.async {
+                            if hostWindowNumber != nextWindowNumber {
+                                hostWindowNumber = nextWindowNumber
+                            }
+                        }
                     }
                     modifierKeyMonitor.setHostWindow(window)
                 }
@@ -782,17 +787,24 @@ struct HiddenTitlebarSidebarControlsView: View {
 
         ZStack(alignment: .leading) {
             WindowAccessor { window in
-                if hostWindowNumber != window.windowNumber {
-                    hostWindowNumber = window.windowNumber
-                }
-                let nextHoveringWindowChrome = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
-                if isHoveringWindowChrome != nextHoveringWindowChrome {
-                    isHoveringWindowChrome = nextHoveringWindowChrome
+                let nextWindowNumber = window.windowNumber
+                let nextHoveringWindowChrome = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == nextWindowNumber
+                if hostWindowNumber != nextWindowNumber || isHoveringWindowChrome != nextHoveringWindowChrome {
+                    DispatchQueue.main.async {
+                        if hostWindowNumber != nextWindowNumber {
+                            hostWindowNumber = nextWindowNumber
+                        }
+                        if isHoveringWindowChrome != nextHoveringWindowChrome {
+                            isHoveringWindowChrome = nextHoveringWindowChrome
+                        }
+                    }
                 }
                 #if DEBUG
                 _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
-                    payload["minimalSidebarHostWindowNumber"] = String(window.windowNumber)
-                    payload["minimalSidebarHostPinned"] = String(shouldPinControls)
+                    payload["minimalSidebarHostWindowNumber"] = String(nextWindowNumber)
+                    payload["minimalSidebarHostPinned"] = String(
+                        isHoveringHost || nextHoveringWindowChrome || popoverVisibilityState.isShown(in: nextWindowNumber)
+                    )
                 }
                 #endif
             }
