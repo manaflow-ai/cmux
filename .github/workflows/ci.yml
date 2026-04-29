@@ -288,7 +288,7 @@ jobs:
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
-      - name: Run CLI version memory guard regression
+      - name: Run CLI no-socket regressions
         run: |
           set -euo pipefail
 
@@ -304,6 +304,7 @@ jobs:
           fi
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on WarpBuild.
