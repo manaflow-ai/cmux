@@ -9768,6 +9768,7 @@ struct VerticalTabsSidebar: View {
                         minHeight: geometryProxy.size.height
                     )
                 }
+                .scrollIndicators(.automatic)
                 .background(
                     SidebarScrollViewResolver { scrollView in
                         dragAutoScrollController.attach(scrollView: scrollView)
