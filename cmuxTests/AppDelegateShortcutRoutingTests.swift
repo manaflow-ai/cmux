@@ -287,6 +287,77 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "settings.json chord should dispatch the configured shortcut")
     }
 
+    func testSettingsFileBareKeyChordDispatchesSplitRight() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "splitRight": ["`", "d"]
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let prefixEvent = makeKeyDownEvent(
+            key: "`",
+            modifiers: [],
+            keyCode: 50,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct backtick prefix event")
+            return
+        }
+
+        guard let actionEvent = makeKeyDownEvent(
+            key: "d",
+            modifiers: [],
+            keyCode: 2,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct d action event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+            "Bare-key chord prefix from settings.json must be consumed by the routing path"
+        )
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: actionEvent),
+            "Second stroke of a bare-key chord from settings.json must be consumed by the routing path"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
     func testConfiguredChordPrefixIsClearedWhenAppResignsActive() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

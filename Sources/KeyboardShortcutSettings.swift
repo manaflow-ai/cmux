@@ -2126,7 +2126,11 @@ extension StoredShortcut {
         guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
             return nil
         }
-        guard !firstStroke.modifierFlags.isEmpty else { return nil }
+        // A single bare-key stroke (no modifiers) is always rejected; a two-stroke chord
+        // whose leader is a bare key is allowed because the bare key becomes a chord prefix
+        // that is silently consumed by the routing layer rather than passed to the terminal.
+        let isChord = strokes.count == 2
+        guard !firstStroke.modifierFlags.isEmpty || isChord else { return nil }
         let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
         return StoredShortcut(first: firstStroke, second: secondStroke)
     }
