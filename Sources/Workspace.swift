@@ -7034,6 +7034,7 @@ final class Workspace: Identifiable, ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
+        initialTerminalRealTmuxPaneId: String? = nil,
         initialTerminalEnvironment: [String: String] = [:]
     ) {
         self.id = UUID()
@@ -7089,6 +7090,7 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: initialTerminalCommand,
             initialInput: initialTerminalInput,
+            realTmuxPaneId: initialTerminalRealTmuxPaneId,
             initialEnvironmentOverrides: initialTerminalEnvironment
         )
         configureTerminalPanel(terminalPanel)
@@ -9102,9 +9104,12 @@ final class Workspace: Identifiable, ObservableObject {
         from panelId: UUID,
         orientation: SplitOrientation,
         insertFirst: Bool = false,
-        focus: Bool = true
+        focus: Bool = true,
+        allowInRealTmuxWorkspace: Bool = false,
+        initialCommand: String? = nil,
+        realTmuxPaneId: String? = nil
     ) -> TerminalPanel? {
-        guard !isRealTmuxWorkspace else {
+        guard !isRealTmuxWorkspace || allowInRealTmuxWorkspace else {
 #if DEBUG
             cmuxDebugLog(
                 "realTmux.split.blockCmux workspace=\(id.uuidString.prefix(5)) " +
@@ -9158,7 +9163,8 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: remoteTerminalStartupCommand
+            initialCommand: initialCommand ?? remoteTerminalStartupCommand,
+            realTmuxPaneId: realTmuxPaneId
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel

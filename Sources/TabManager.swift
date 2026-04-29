@@ -1228,10 +1228,14 @@ class TabManager: ObservableObject {
                 continue
             }
             let sessionCurrentPath = Self.realTmuxCurrentPath(for: session)
+            let initialPaneId = Self.realTmuxCurrentPaneId(for: session)
+            let initialProxyCommand = initialPaneId.flatMap(Self.realTmuxPaneProxyCommand)
             let workspace = addWorkspace(
                 title: session.name,
                 workingDirectory: sessionCurrentPath,
-                initialTerminalInput: Self.realTmuxAttachInput(for: session),
+                initialTerminalCommand: initialProxyCommand,
+                initialTerminalInput: initialProxyCommand == nil ? Self.realTmuxAttachInput(for: session) : nil,
+                initialTerminalRealTmuxPaneId: initialProxyCommand == nil ? nil : initialPaneId,
                 select: false,
                 autoWelcomeIfNeeded: false
             )
@@ -1351,8 +1355,24 @@ class TabManager: ObservableObject {
         return nil
     }
 
+    private static func realTmuxTarget(for workspace: Workspace, sourcePanelId: UUID?) -> String? {
+        if let sourcePanelId,
+           let paneId = normalizedRealTmuxPaneId(workspace.terminalPanel(for: sourcePanelId)?.realTmuxPaneId) {
+            return paneId
+        }
+        return realTmuxTarget(for: workspace)
+    }
+
     private static func realTmuxCurrentPath(for session: RealTmuxSession) -> String? {
         realTmuxCurrentPath(target: session.id) ?? realTmuxCurrentPath(target: session.name)
+    }
+
+    private static func realTmuxCurrentPaneId(for session: RealTmuxSession) -> String? {
+        normalizedRealTmuxPaneId(
+            runRealTmuxOutput(arguments: ["display-message", "-p", "-t", session.id, "#{pane_id}"])
+        ) ?? normalizedRealTmuxPaneId(
+            runRealTmuxOutput(arguments: ["display-message", "-p", "-t", session.name, "#{pane_id}"])
+        )
     }
 
     private static func realTmuxCurrentPath(target: String) -> String? {
@@ -1391,9 +1411,9 @@ class TabManager: ObservableObject {
         return cmuxDirectory ?? tmuxDirectory
     }
 
-    private static func splitRealTmuxPane(in workspace: Workspace, from sourcePanelId: UUID?, direction: SplitDirection) -> Bool {
-        guard let target = realTmuxTarget(for: workspace) else { return false }
-        var arguments = ["split-window", "-t", target]
+    private static func splitRealTmuxPane(in workspace: Workspace, from sourcePanelId: UUID?, direction: SplitDirection) -> String? {
+        guard let target = realTmuxTarget(for: workspace, sourcePanelId: sourcePanelId) else { return nil }
+        var arguments = ["split-window", "-P", "-F", "#{pane_id}", "-t", target]
         if let workingDirectory = splitWorkingDirectory(in: workspace, sourcePanelId: sourcePanelId, target: target) {
             arguments.append(contentsOf: ["-c", workingDirectory])
         }
@@ -1401,35 +1421,71 @@ class TabManager: ObservableObject {
         if direction.insertFirst {
             arguments.append("-b")
         }
-        let didSplit = runRealTmux(arguments: arguments)
+        let paneId = runRealTmuxOutput(arguments: arguments)
+        let normalizedPaneId = normalizedRealTmuxPaneId(paneId)
 #if DEBUG
         cmuxDebugLog(
             "realTmux.split command=split-window target=\(target) " +
-            "direction=\(String(describing: direction)) cwd=\(arguments.dropFirst().joined(separator: " ")) ok=\(didSplit ? 1 : 0)"
+            "direction=\(String(describing: direction)) cwd=\(arguments.dropFirst().joined(separator: " ")) " +
+            "pane=\(normalizedPaneId ?? "nil") ok=\(normalizedPaneId != nil ? 1 : 0)"
         )
 #endif
-        return didSplit
+        return normalizedPaneId
     }
 
-    private static func killRealTmuxPane(in workspace: Workspace) -> Bool {
-        guard let target = realTmuxTarget(for: workspace) else { return false }
+    private static func killRealTmuxPanelPane(in workspace: Workspace, panelId: UUID) -> Bool {
+        guard let target = normalizedRealTmuxPaneId(workspace.terminalPanel(for: panelId)?.realTmuxPaneId) else {
+            return false
+        }
         return runRealTmux(arguments: ["kill-pane", "-t", target])
     }
 
-    private static func selectRealTmuxPane(in workspace: Workspace, direction: NavigationDirection) -> Bool {
-        guard let target = realTmuxTarget(for: workspace) else { return false }
-        let flag: String
-        switch direction {
-        case .left:
-            flag = "-L"
-        case .right:
-            flag = "-R"
-        case .up:
-            flag = "-U"
-        case .down:
-            flag = "-D"
+    private static func normalizedRealTmuxPaneId(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              trimmed.hasPrefix("%"),
+              trimmed.dropFirst().allSatisfy({ $0.isNumber }) else { return nil }
+        return trimmed
+    }
+
+    private static func bundledCmuxCLIPath() -> String? {
+        if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false),
+           FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
+            return bundledCLIURL.path
         }
-        return runRealTmux(arguments: ["select-pane", "-t", target, flag])
+        return nil
+    }
+
+    private static func realTmuxPaneProxyCommand(paneId: String) -> String? {
+        guard let cmuxCommand = bundledCmuxCLIPath().map(shellQuoted) else { return nil }
+        return "exec \(cmuxCommand) __real-tmux-pane-proxy --pane \(shellQuoted(paneId))"
+    }
+
+    private static func selectRealTmuxPane(in workspace: Workspace, panelId: UUID) -> Bool {
+        guard let target = normalizedRealTmuxPaneId(workspace.terminalPanel(for: panelId)?.realTmuxPaneId) else {
+            return false
+        }
+        return runRealTmux(arguments: ["select-pane", "-t", target])
+    }
+
+    private static func moveRealTmuxPaneFocus(in workspace: Workspace, direction: NavigationDirection) -> Bool {
+        let previousPanelId = workspace.focusedPanelId
+        workspace.moveFocus(direction: direction)
+        guard let focusedPanelId = workspace.focusedPanelId else { return false }
+        guard focusedPanelId != previousPanelId else { return false }
+        return selectRealTmuxPane(in: workspace, panelId: focusedPanelId)
+    }
+
+    @discardableResult
+    private func closeRealTmuxPanel(tab: Workspace, panelId: UUID) -> Bool {
+        guard Self.killRealTmuxPanelPane(in: tab, panelId: panelId) else { return false }
+        if tab.panels.count <= 1 {
+            if tabs.count <= 1 {
+                _ = addWorkspace(select: false, autoWelcomeIfNeeded: false)
+            }
+            closeWorkspace(tab, killRealTmuxSession: false)
+            return true
+        }
+        return tab.closePanel(panelId, force: true)
     }
 
     private static func loadRealTmuxStore() -> RealTmuxStore {
@@ -2284,6 +2340,7 @@ class TabManager: ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate?,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
+        initialTerminalRealTmuxPaneId: String? = nil,
         initialTerminalEnvironment: [String: String]
     ) -> Workspace {
         Workspace(
@@ -2293,6 +2350,7 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
+            initialTerminalRealTmuxPaneId: initialTerminalRealTmuxPaneId,
             initialTerminalEnvironment: initialTerminalEnvironment
         )
     }
@@ -2358,6 +2416,7 @@ class TabManager: ObservableObject {
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
+        initialTerminalRealTmuxPaneId: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
@@ -2406,6 +2465,7 @@ class TabManager: ObservableObject {
                 configTemplate: inheritedConfig,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
+                initialTerminalRealTmuxPaneId: initialTerminalRealTmuxPaneId,
                 initialTerminalEnvironment: initialTerminalEnvironment
             )
             applyCreationChromeInheritance(
@@ -3963,8 +4023,8 @@ class TabManager: ObservableObject {
             appendCandidate(terminalPanel)
         }
 
-        if let livePanel = candidates.first(where: { $0.surface.hasLiveSurface && $0.surface.surface != nil }) {
-            return livePanel
+        for candidate in candidates where candidate.surface.hasLiveSurface && candidate.surface.surface != nil {
+            return candidate
         }
         return candidates.first
     }
@@ -4840,7 +4900,7 @@ class TabManager: ObservableObject {
         }
 
         if tab.isRealTmuxWorkspace {
-            _ = Self.killRealTmuxPane(in: tab)
+            _ = closeRealTmuxPanel(tab: tab, panelId: panelId)
             return
         }
 
@@ -5685,7 +5745,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
         if tab.isRealTmuxWorkspace {
-            _ = Self.selectRealTmuxPane(in: tab, direction: direction)
+            _ = Self.moveRealTmuxPaneFocus(in: tab, direction: direction)
             return
         }
         tab.moveFocus(direction: direction)
@@ -5774,7 +5834,22 @@ class TabManager: ObservableObject {
     func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         if tab.isRealTmuxWorkspace {
-            return Self.splitRealTmuxPane(in: tab, from: surfaceId, direction: direction) ? surfaceId : nil
+            guard let realTmuxPaneId = Self.splitRealTmuxPane(in: tab, from: surfaceId, direction: direction) else {
+                return nil
+            }
+            guard let proxyCommand = Self.realTmuxPaneProxyCommand(paneId: realTmuxPaneId) else {
+                _ = Self.runRealTmux(arguments: ["kill-pane", "-t", realTmuxPaneId])
+                return nil
+            }
+            return tab.newTerminalSplit(
+                from: surfaceId,
+                orientation: direction.orientation,
+                insertFirst: direction.insertFirst,
+                focus: focus,
+                allowInRealTmuxWorkspace: true,
+                initialCommand: proxyCommand,
+                realTmuxPaneId: realTmuxPaneId
+            )?.id
         }
         return tab.newTerminalSplit(
             from: surfaceId,
@@ -5788,7 +5863,10 @@ class TabManager: ObservableObject {
     func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: NavigationDirection) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
         if tab.isRealTmuxWorkspace {
-            return Self.selectRealTmuxPane(in: tab, direction: direction)
+            if tab.focusedPanelId != surfaceId, tab.panels[surfaceId] != nil {
+                tab.focusPanel(surfaceId)
+            }
+            return Self.moveRealTmuxPaneFocus(in: tab, direction: direction)
         }
         tab.moveFocus(direction: direction)
         return true
@@ -5962,7 +6040,7 @@ class TabManager: ObservableObject {
         guard tab.panels[surfaceId] != nil,
               tab.surfaceIdFromPanelId(surfaceId) != nil else { return false }
         if tab.isRealTmuxWorkspace {
-            return Self.killRealTmuxPane(in: tab)
+            return closeRealTmuxPanel(tab: tab, panelId: surfaceId)
         }
         tab.closePanel(surfaceId)
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tabId, surfaceId: surfaceId)

@@ -16,6 +16,9 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    /// Real tmux pane backing this panel, when the workspace mirrors a live tmux session.
+    let realTmuxPaneId: String?
+
     /// Published title from the terminal process
     @Published private(set) var title: String = "Terminal"
 
@@ -71,10 +74,11 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.requestedWorkingDirectory
     }
 
-    init(workspaceId: UUID, surface: TerminalSurface) {
+    init(workspaceId: UUID, surface: TerminalSurface, realTmuxPaneId: String? = nil) {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
+        self.realTmuxPaneId = realTmuxPaneId
 
         // Subscribe to surface's search state changes
         surface.$searchState
@@ -95,6 +99,7 @@ final class TerminalPanel: Panel, ObservableObject {
         portOrdinal: Int = 0,
         initialCommand: String? = nil,
         initialInput: String? = nil,
+        realTmuxPaneId: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:]
     ) {
@@ -109,7 +114,7 @@ final class TerminalPanel: Panel, ObservableObject {
             additionalEnvironment: additionalEnvironment
         )
         surface.portOrdinal = portOrdinal
-        self.init(workspaceId: workspaceId, surface: surface)
+        self.init(workspaceId: workspaceId, surface: surface, realTmuxPaneId: realTmuxPaneId)
     }
 
     func updateTitle(_ newTitle: String) {

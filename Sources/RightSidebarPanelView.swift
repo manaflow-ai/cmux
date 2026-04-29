@@ -557,9 +557,13 @@ struct TmuxSessionListView: View {
                 store.sessionIdToWorkspaceId[session.id] = existing.id.uuidString
                 continue
             }
+            let initialPaneId = realTmuxCurrentPaneId(for: session)
+            let initialProxyCommand = initialPaneId.flatMap(realTmuxPaneProxyCommand)
             let workspace = tabManager.addWorkspace(
                 title: session.name,
-                initialTerminalInput: realTmuxAttachInput(for: session),
+                initialTerminalCommand: initialProxyCommand,
+                initialTerminalInput: initialProxyCommand == nil ? realTmuxAttachInput(for: session) : nil,
+                initialTerminalRealTmuxPaneId: initialProxyCommand == nil ? nil : initialPaneId,
                 select: false,
                 autoWelcomeIfNeeded: false
             )
@@ -647,6 +651,50 @@ struct TmuxSessionListView: View {
     private func realTmuxAttachInput(for session: RealTmuxSession) -> String? {
         guard let tmuxPath = realTmuxExecutablePath() else { return nil }
         return "exec \(shellQuoted(tmuxPath)) attach-session -t \(shellQuoted(session.name))\r"
+    }
+
+    private func realTmuxCurrentPaneId(for session: RealTmuxSession) -> String? {
+        normalizedRealTmuxPaneId(realTmuxOutput(arguments: ["display-message", "-p", "-t", session.id, "#{pane_id}"]))
+            ?? normalizedRealTmuxPaneId(realTmuxOutput(arguments: ["display-message", "-p", "-t", session.name, "#{pane_id}"]))
+    }
+
+    private func normalizedRealTmuxPaneId(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              trimmed.hasPrefix("%"),
+              trimmed.dropFirst().allSatisfy({ $0.isNumber }) else { return nil }
+        return trimmed
+    }
+
+    private func realTmuxPaneProxyCommand(paneId: String) -> String? {
+        guard let cmuxCommand = bundledCmuxCLIPath().map(shellQuoted) else { return nil }
+        return "exec \(cmuxCommand) __real-tmux-pane-proxy --pane \(shellQuoted(paneId))"
+    }
+
+    private func bundledCmuxCLIPath() -> String? {
+        if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false),
+           FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
+            return bundledCLIURL.path
+        }
+        return nil
+    }
+
+    private func realTmuxOutput(arguments: [String]) -> String? {
+        guard let tmuxPath = realTmuxExecutablePath() else { return nil }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+        guard process.terminationStatus == 0 else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)
     }
 
     private func loadRealTmuxStore() -> RealTmuxStore {
