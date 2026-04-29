@@ -3015,6 +3015,56 @@ class TerminalController {
         ])
     }
 
+    func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
+        v2RefreshKnownRefs()
+
+        let identifyPayload = v2Identify(params: [:])
+        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
+        var windowNodes: [[String: Any]] = []
+
+        if let app = AppDelegate.shared {
+            let summaries = app.listMainWindowSummaries()
+
+            for (windowIndex, summary) in summaries.enumerated() {
+                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                let workspaceNodes = manager.tabs.enumerated().map { workspaceIndex, workspace in
+                    v2TopWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                }
+                windowNodes.append(
+                    v2TopWindowNode(
+                        summary: summary,
+                        index: windowIndex,
+                        workspaceNodes: workspaceNodes
+                    )
+                )
+            }
+        }
+
+        let processSnapshot = await Task.detached(priority: .utility) {
+            CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
+        }.value
+        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
+        var annotatedWindows = windowNodes
+        let totalPIDs = v2AnnotateTopWindows(
+            &annotatedWindows,
+            processSnapshot: processSnapshot,
+            browserPIDOccurrences: browserPIDOccurrences,
+            includeProcesses: includeProcesses
+        )
+
+        return [
+            "active": focused.isEmpty ? (NSNull() as Any) : focused,
+            "caller": NSNull(),
+            "sample": processSnapshot.samplePayload(),
+            "totals": processSnapshot.summaryPayload(for: totalPIDs),
+            "windows": annotatedWindows
+        ]
+    }
+
     private func v2SystemTop(params: [String: Any]) -> V2CallResult {
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {

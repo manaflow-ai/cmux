@@ -631,6 +631,12 @@ struct cmuxApp: App {
                     }
                 }
 
+                Button(String(localized: "menu.view.taskManager", defaultValue: "Task Manager...")) {
+                    appDelegate.openTaskManagerWindow()
+                }
+
+                Divider()
+
                 splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                     _ = activeTabManager.zoomInFocusedBrowser()
                 }

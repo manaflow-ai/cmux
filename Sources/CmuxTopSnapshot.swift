@@ -3,7 +3,7 @@ import Darwin
 import WebKit
 import ObjectiveC.runtime
 
-struct CmuxTopResourceSummary {
+struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
     var residentBytes: Int64 = 0
     var virtualBytes: Int64 = 0
@@ -23,7 +23,7 @@ struct CmuxTopResourceSummary {
     }
 }
 
-struct CmuxTopProcessInfo {
+struct CmuxTopProcessInfo: Sendable {
     let pid: Int
     let parentPID: Int
     let name: String
@@ -35,7 +35,7 @@ struct CmuxTopProcessInfo {
     let threadCount: Int
 }
 
-final class CmuxTopProcessSnapshot {
+final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private static let cpuScale = 2048.0
     private static let pidPathBufferSize = 4096
 

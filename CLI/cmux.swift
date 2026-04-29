@@ -1596,10 +1596,6 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
-    private static let topDefaultRefreshIntervalSeconds: TimeInterval = 2.0
-    private static let topMinimumRefreshIntervalSeconds: TimeInterval = 1.0
-    private static let topMaximumRefreshIntervalSeconds: TimeInterval = 60.0
-    private static let topMinimumLiveLoopPauseSeconds: TimeInterval = 0.2
 
     private struct VMCreateIdempotencyStore: Codable {
         var records: [String: VMCreateIdempotencyRecord] = [:]
@@ -2211,17 +2207,6 @@ struct CMUXCLI {
                 environment: processEnv
             )
             return
-        }
-
-        if command == "top" {
-            let options = try parseTopCommandOptions(commandArgs)
-            let structuredOutput = jsonOutput || options.jsonOutput
-            if options.watch && structuredOutput {
-                throw CLIError(message: "top: --watch cannot be used with --json")
-            }
-            if options.watch && !topHasInteractiveTerminal() {
-                throw CLIError(message: "cmux top --watch requires a terminal. Use --once or --json for scripts.")
-            }
         }
 
         let client = SocketClient(path: resolvedSocketPath)
@@ -9037,15 +9022,11 @@ struct CMUXCLI {
             Usage: cmux top [flags]
 
             Print CPU and RAM usage by cmux window, workspace, pane, surface, status tag, and browser webview.
-            Human terminals refresh live by default. Agents, pipes, and --json print one snapshot.
 
             Flags:
               --all                         Include all windows (default: current window only)
               --workspace <id|ref|index>   Show only one workspace
               --processes                  Include process trees under surfaces, webviews, and tags
-              --once                       Print one snapshot and exit
-              --watch                      Refresh live, requires a terminal
-              --interval <seconds>         Live refresh interval, 1 to 60 seconds (default: 2)
               --json                        Structured JSON output
 
             Output:
@@ -9055,10 +9036,8 @@ struct CMUXCLI {
 
             Example:
               cmux top
-              cmux top --once
               cmux top --all
               cmux top --workspace workspace:2 --processes
-              cmux top --watch --interval 5
               cmux --json top --all
             """
         case "focus-pane":
@@ -10028,9 +10007,6 @@ struct CMUXCLI {
         let workspaceHandle: String?
         let jsonOutput: Bool
         let showProcesses: Bool
-        let once: Bool
-        let watch: Bool
-        let intervalSeconds: TimeInterval
     }
 
     private struct TreePath {
@@ -10095,17 +10071,6 @@ struct CMUXCLI {
     ) throws {
         let options = try parseTopCommandOptions(commandArgs)
         let structuredOutput = jsonOutput || options.jsonOutput
-        if options.watch && structuredOutput {
-            throw CLIError(message: "top: --watch cannot be used with --json")
-        }
-        if options.watch && !topHasInteractiveTerminal() {
-            throw CLIError(message: "cmux top --watch requires a terminal. Use --once or --json for scripts.")
-        }
-        if topShouldRunLive(options: options, structuredOutput: structuredOutput) {
-            try runTopLiveCommand(options: options, client: client, idFormat: idFormat)
-            return
-        }
-
         let payload = try buildTopPayload(options: options, client: client)
         if structuredOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -10119,18 +10084,12 @@ struct CMUXCLI {
         if rem0.contains("--workspace") {
             throw CLIError(message: "top requires --workspace <id|ref|index>")
         }
-        let (intervalOpt, rem1) = parseOption(rem0, name: "--interval")
-        if rem1.contains("--interval") {
-            throw CLIError(message: "top requires --interval <seconds>")
-        }
 
         var includeAll = false
         var jsonOutput = false
         var showProcesses = false
-        var once = false
-        var watch = false
         var remaining: [String] = []
-        for arg in rem1 {
+        for arg in rem0 {
             if arg == "--all" {
                 includeAll = true
                 continue
@@ -10143,36 +10102,11 @@ struct CMUXCLI {
                 showProcesses = true
                 continue
             }
-            if arg == "--once" {
-                once = true
-                continue
-            }
-            if arg == "--watch" {
-                watch = true
-                continue
-            }
             remaining.append(arg)
         }
 
-        if once && watch {
-            throw CLIError(message: "top: --once and --watch cannot be used together")
-        }
-
-        let intervalSeconds: TimeInterval
-        if let rawInterval = intervalOpt {
-            guard let parsedInterval = Double(rawInterval),
-                  parsedInterval.isFinite,
-                  parsedInterval >= Self.topMinimumRefreshIntervalSeconds,
-                  parsedInterval <= Self.topMaximumRefreshIntervalSeconds else {
-                throw CLIError(message: "top: --interval must be between 1 and 60 seconds")
-            }
-            intervalSeconds = parsedInterval
-        } else {
-            intervalSeconds = Self.topDefaultRefreshIntervalSeconds
-        }
-
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --once --watch --interval <seconds> --json")
+            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --json")
         }
         if let extra = remaining.first {
             throw CLIError(message: "top: unexpected argument '\(extra)'")
@@ -10182,176 +10116,8 @@ struct CMUXCLI {
             includeAllWindows: includeAll,
             workspaceHandle: workspaceOpt,
             jsonOutput: jsonOutput,
-            showProcesses: showProcesses,
-            once: once,
-            watch: watch,
-            intervalSeconds: intervalSeconds
+            showProcesses: showProcesses
         )
-    }
-
-    private func topShouldRunLive(options: TopCommandOptions, structuredOutput: Bool) -> Bool {
-        if structuredOutput || options.once {
-            return false
-        }
-        if options.watch {
-            return true
-        }
-        return topHasInteractiveTerminal() && !topIsLikelyAgentInvocation()
-    }
-
-    private func topHasInteractiveTerminal() -> Bool {
-        isatty(STDIN_FILENO) != 0 && isatty(STDOUT_FILENO) != 0
-    }
-
-    private func topIsLikelyAgentInvocation(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        let agentKeys = [
-            "CMUX_AGENT_LAUNCH_KIND",
-            "CMUX_AGENT_LAUNCH_EXECUTABLE",
-            "CMUX_AGENT_LAUNCH_ARGV_B64",
-            "CMUX_CLAUDE_PID",
-            "CMUX_CODEX_PID",
-            "CMUX_CURSOR_PID",
-            "CMUX_GEMINI_PID",
-            "CMUX_COPILOT_PID",
-            "CLAUDECODE"
-        ]
-        return agentKeys.contains { key in
-            guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines) else {
-                return false
-            }
-            return !value.isEmpty
-        }
-    }
-
-    private func runTopLiveCommand(
-        options: TopCommandOptions,
-        client: SocketClient,
-        idFormat: CLIIDFormat
-    ) throws {
-        let liveOptions = try topOptionsResolvingWorkspaceIndex(options, client: client)
-        let rawMode = TerminalRawMode()
-        print("\u{001B}[?1049h\u{001B}[?25l", terminator: "")
-        fflush(stdout)
-        defer {
-            rawMode?.restore()
-            print("\u{001B}[?25h\u{001B}[?1049l", terminator: "")
-            fflush(stdout)
-        }
-
-        while true {
-            let started = Date()
-            let body: String
-            do {
-                let payload = try buildTopPayload(
-                    options: liveOptions,
-                    client: client,
-                    responseTimeout: topLiveResponseTimeout(for: liveOptions.intervalSeconds)
-                )
-                body = renderTopText(
-                    payload: payload,
-                    idFormat: idFormat,
-                    showProcesses: liveOptions.showProcesses,
-                    footer: topLiveFooter(intervalSeconds: liveOptions.intervalSeconds)
-                )
-            } catch {
-                body = "cmux top: \(error)\n\nPress q, Esc, or Ctrl-C to quit."
-            }
-
-            print("\u{001B}[H\u{001B}[2J", terminator: "")
-            print(body)
-            fflush(stdout)
-
-            let elapsed = Date().timeIntervalSince(started)
-            let waitSeconds = max(Self.topMinimumLiveLoopPauseSeconds, liveOptions.intervalSeconds - elapsed)
-            if topLiveQuitRequested(timeoutMilliseconds: topPollTimeoutMilliseconds(for: waitSeconds)) {
-                break
-            }
-        }
-    }
-
-    private func topOptionsResolvingWorkspaceIndex(
-        _ options: TopCommandOptions,
-        client: SocketClient
-    ) throws -> TopCommandOptions {
-        guard let workspaceHandle = options.workspaceHandle else {
-            return options
-        }
-        let trimmed = workspaceHandle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isUUID(trimmed), !isHandleRef(trimmed) else {
-            return options
-        }
-        guard let resolved = try normalizeWorkspaceHandle(trimmed, client: client) else {
-            throw CLIError(message: "Invalid workspace handle")
-        }
-        return TopCommandOptions(
-            includeAllWindows: options.includeAllWindows,
-            workspaceHandle: resolved,
-            jsonOutput: options.jsonOutput,
-            showProcesses: options.showProcesses,
-            once: options.once,
-            watch: options.watch,
-            intervalSeconds: options.intervalSeconds
-        )
-    }
-
-    private func topLiveResponseTimeout(for intervalSeconds: TimeInterval) -> TimeInterval {
-        min(max(intervalSeconds * 2, 2.0), 10.0)
-    }
-
-    private func topPollTimeoutMilliseconds(for seconds: TimeInterval) -> Int32 {
-        let milliseconds = max(0, min(seconds * 1000, Double(Int32.max)))
-        return Int32(milliseconds.rounded())
-    }
-
-    private func topLiveQuitRequested(timeoutMilliseconds: Int32) -> Bool {
-        var input = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
-        let result = Darwin.poll(&input, 1, timeoutMilliseconds)
-        guard result > 0 else {
-            return false
-        }
-        if (input.revents & Int16(POLLHUP | POLLERR | POLLNVAL)) != 0 {
-            return true
-        }
-        guard (input.revents & Int16(POLLIN)) != 0 else {
-            return false
-        }
-
-        var buffer = [UInt8](repeating: 0, count: 64)
-        let count = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
-            guard let baseAddress = rawBuffer.baseAddress else { return 0 }
-            return Darwin.read(STDIN_FILENO, baseAddress, rawBuffer.count)
-        }
-        guard count > 0 else {
-            return false
-        }
-
-        for byte in buffer.prefix(count) {
-            if byte == 3 || byte == 27 || byte == 81 || byte == 113 {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func topLiveFooter(intervalSeconds: TimeInterval) -> String {
-        "Updated \(topLiveTimestamp()). Refresh \(topIntervalText(intervalSeconds)). Press q, Esc, or Ctrl-C to quit."
-    }
-
-    private func topLiveTimestamp(_ date: Date = Date()) -> String {
-        var timestamp = time_t(date.timeIntervalSince1970)
-        var local = tm()
-        localtime_r(&timestamp, &local)
-        return String(format: "%02d:%02d:%02d", local.tm_hour, local.tm_min, local.tm_sec)
-    }
-
-    private func topIntervalText(_ seconds: TimeInterval) -> String {
-        let rounded = seconds.rounded()
-        if abs(seconds - rounded) < 0.001 {
-            return "\(Int(rounded))s"
-        }
-        return String(format: "%.1fs", seconds)
     }
 
     private func buildTopPayload(
@@ -10856,8 +10622,7 @@ struct CMUXCLI {
     private func renderTopText(
         payload: [String: Any],
         idFormat: CLIIDFormat,
-        showProcesses: Bool,
-        footer: String? = nil
+        showProcesses: Bool
     ) -> String {
         let windows = payload["windows"] as? [[String: Any]] ?? []
         guard !windows.isEmpty else { return "No windows" }
@@ -10938,10 +10703,6 @@ struct CMUXCLI {
             }
         }
 
-        if let footer {
-            lines.append("")
-            lines.append(footer)
-        }
         return lines.joined(separator: "\n")
     }
 
@@ -18643,7 +18404,7 @@ export default CMUXSessionRestore;
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
-          top [--all] [--workspace <id|ref|index>] [--processes] [--once|--watch] [--interval <seconds>]
+          top [--all] [--workspace <id|ref|index>] [--processes]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>]

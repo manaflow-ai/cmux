@@ -6553,6 +6553,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             onJumpToLatestUnread: { [weak self] in
                 self?.jumpToLatestUnread()
             },
+            onOpenTaskManager: {
+                TaskManagerWindowController.shared.show()
+            },
             onCheckForUpdates: { [weak self] in
                 self?.checkForUpdates(nil)
             },
@@ -6639,6 +6642,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func refreshMenuBarExtraForDebug() {
         menuBarExtraController?.refreshForDebugControls()
+    }
+
+    func openTaskManagerWindow() {
+        TaskManagerWindowController.shared.show()
     }
 
     func showMainWindowFromMenuBar() {
