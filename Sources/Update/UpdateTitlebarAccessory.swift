@@ -706,14 +706,6 @@ struct HiddenTitlebarSidebarControlsView: View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
 
         ZStack(alignment: .leading) {
-            TitlebarControlsGapDragView(config: style.config)
-                .frame(width: hostWidth, height: hostHeight)
-
-            PassthroughHoverTrackingView { isHovering in
-                isHoveringHost = isHovering
-            }
-            .frame(width: hostWidth, height: hostHeight)
-
             TitlebarControlsView(
                 notificationStore: notificationStore,
                 viewModel: viewModel,
@@ -725,6 +717,14 @@ struct HiddenTitlebarSidebarControlsView: View {
                 visibilityMode: shouldPinControls ? .alwaysVisible : .onHover
             )
             .frame(width: hostWidth, height: hostHeight, alignment: .leading)
+
+            TitlebarControlsGapDragView(config: style.config)
+                .frame(width: hostWidth, height: hostHeight)
+
+            PassthroughHoverTrackingView { isHovering in
+                isHoveringHost = isHovering
+            }
+            .frame(width: hostWidth, height: hostHeight)
         }
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
         .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
@@ -772,7 +772,15 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             removeLocalMouseMonitor()
         }
 
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard bounds.contains(point) else { return nil }
+            switch NSApp.currentEvent?.type {
+            case .mouseMoved, .mouseEntered, .mouseExited:
+                return self
+            default:
+                return nil
+            }
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
