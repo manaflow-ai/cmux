@@ -9762,6 +9762,7 @@ struct VerticalTabsSidebar: View {
                 }
                 .background(
                     SidebarScrollViewResolver { scrollView in
+                        configureSidebarScrollView(scrollView)
                         dragAutoScrollController.attach(scrollView: scrollView)
                     }
                     .frame(width: 0, height: 0)
@@ -9809,6 +9810,19 @@ struct VerticalTabsSidebar: View {
                     flushPendingSelectedWorkspaceScroll(scrollProxy, laidOutWorkspaceRowIds: rowIds)
                 }
             }
+        }
+    }
+
+    private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
+        guard let scrollView else {
+            return
+        }
+
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        if #available(macOS 13.0, *) {
+            scrollView.scrollerStyle = .overlay
         }
     }
 
