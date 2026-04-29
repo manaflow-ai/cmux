@@ -206,22 +206,29 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         cmux_dock_command="$(cmux_dock_decode '\(encodedCommand)')"
         cmux_dock_working_directory="$(cmux_dock_decode '\(encodedWorkingDirectory)')"
         cmux_dock_shell="${SHELL:-/bin/sh}"
+        cmux_dock_bundle_bin=""
+        if [ -n "${CMUX_BUNDLED_CLI_PATH:-}" ]; then
+          cmux_dock_bundle_bin="$(dirname "$CMUX_BUNDLED_CLI_PATH")"
+        fi
         rm -f -- "$0" 2>/dev/null || true
         case "$(basename "$cmux_dock_shell")" in
           fish)
+            CMUX_DOCK_BUNDLE_BIN="$cmux_dock_bundle_bin" \
             CMUX_DOCK_START_COMMAND="$cmux_dock_command" \
             CMUX_DOCK_START_DIRECTORY="$cmux_dock_working_directory" \
-            exec "$cmux_dock_shell" -l -c 'if test -n "$CMUX_DOCK_START_DIRECTORY"; cd "$CMUX_DOCK_START_DIRECTORY"; end; eval "$CMUX_DOCK_START_COMMAND"; exec "$SHELL" -l'
+            exec "$cmux_dock_shell" -l -c 'if test -n "$CMUX_DOCK_BUNDLE_BIN"; and not contains -- "$CMUX_DOCK_BUNDLE_BIN" $PATH; set -gx PATH "$CMUX_DOCK_BUNDLE_BIN" $PATH; end; if test -n "$CMUX_DOCK_START_DIRECTORY"; cd "$CMUX_DOCK_START_DIRECTORY"; end; eval "$CMUX_DOCK_START_COMMAND"; exec "$SHELL" -l'
             ;;
           zsh|bash)
+            CMUX_DOCK_BUNDLE_BIN="$cmux_dock_bundle_bin" \
             CMUX_DOCK_START_COMMAND="$cmux_dock_command" \
             CMUX_DOCK_START_DIRECTORY="$cmux_dock_working_directory" \
-            exec "$cmux_dock_shell" -lc 'cd "$CMUX_DOCK_START_DIRECTORY" 2>/dev/null || true; eval "$CMUX_DOCK_START_COMMAND"; exec "${SHELL:-/bin/sh}" -l'
+            exec "$cmux_dock_shell" -lc 'if [ -n "${CMUX_DOCK_BUNDLE_BIN:-}" ]; then case ":${PATH:-}:" in *":$CMUX_DOCK_BUNDLE_BIN:"*) ;; *) PATH="$CMUX_DOCK_BUNDLE_BIN${PATH:+:$PATH}"; export PATH ;; esac; fi; cd "$CMUX_DOCK_START_DIRECTORY" 2>/dev/null || true; eval "$CMUX_DOCK_START_COMMAND"; exec "${SHELL:-/bin/sh}" -l'
             ;;
           *)
+            CMUX_DOCK_BUNDLE_BIN="$cmux_dock_bundle_bin" \
             CMUX_DOCK_START_COMMAND="$cmux_dock_command" \
             CMUX_DOCK_START_DIRECTORY="$cmux_dock_working_directory" \
-            exec "$cmux_dock_shell" -lc 'cd "$CMUX_DOCK_START_DIRECTORY" 2>/dev/null || true; eval "$CMUX_DOCK_START_COMMAND"; exec "${SHELL:-/bin/sh}" -l'
+            exec "$cmux_dock_shell" -lc 'if [ -n "${CMUX_DOCK_BUNDLE_BIN:-}" ]; then case ":${PATH:-}:" in *":$CMUX_DOCK_BUNDLE_BIN:"*) ;; *) PATH="$CMUX_DOCK_BUNDLE_BIN${PATH:+:$PATH}"; export PATH ;; esac; fi; cd "$CMUX_DOCK_START_DIRECTORY" 2>/dev/null || true; eval "$CMUX_DOCK_START_COMMAND"; exec "${SHELL:-/bin/sh}" -l'
             ;;
         esac
 
