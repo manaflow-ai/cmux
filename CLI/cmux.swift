@@ -2059,10 +2059,14 @@ struct CMUXCLI {
                 try runFeedClear()
                 return
             case "tui":
-                try runFeedTUI(socketPath: resolvedSocketPath, socketPassword: socketPasswordArg)
+                try runFeedTUI(
+                    arguments: Array(commandArgs.dropFirst()),
+                    socketPath: resolvedSocketPath,
+                    socketPassword: socketPasswordArg
+                )
                 return
             case "help", "--help", "-h":
-                print("Usage: cmux feed <tui|clear> [--yes]")
+                print("Usage: cmux feed tui [--opentui|--legacy]\n       cmux feed clear [--yes]")
                 return
             default:
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
@@ -8376,10 +8380,14 @@ struct CMUXCLI {
             """
         case "feed":
             return """
-            Usage: cmux feed tui
+            Usage: cmux feed tui [--opentui|--legacy]
                    cmux feed clear [--yes|-y]
 
             Open the keyboard-first Feed TUI or manage persisted Feed workstream history.
+
+            TUI options:
+              --opentui        Force the OpenTUI implementation and fail if unavailable
+              --legacy         Force the older built-in Swift TUI
             """
         case "opencode":
             return """
@@ -16816,13 +16824,26 @@ export default CMUXSessionRestore;
 
     private static let openTUIFeedCoreVersion = "0.1.106"
 
-    private func runFeedTUI(socketPath: String, socketPassword: String?) throws {
+    private enum FeedTUIImplementation {
+        case automatic
+        case openTUI
+        case legacy
+        case help
+    }
+
+    private func runFeedTUI(arguments: [String], socketPath: String, socketPassword: String?) throws {
         let resolvedSocketPassword = SocketPasswordResolver.resolve(
             explicit: socketPassword,
             socketPath: socketPath
         )
-        if ProcessInfo.processInfo.environment["CMUX_FEED_TUI_LEGACY"] == "1" {
+        let implementation = try parseFeedTUIImplementation(arguments: arguments)
+        if implementation == .help { return }
+        if implementation == .legacy || ProcessInfo.processInfo.environment["CMUX_FEED_TUI_LEGACY"] == "1" {
             try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
+            return
+        }
+        if implementation == .openTUI {
+            try runOpenTUIFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
             return
         }
 
@@ -16837,6 +16858,30 @@ export default CMUXSessionRestore;
         }
     }
 
+    private func parseFeedTUIImplementation(arguments: [String]) throws -> FeedTUIImplementation {
+        var implementation = FeedTUIImplementation.automatic
+        for argument in arguments {
+            switch argument {
+            case "--opentui":
+                guard implementation != .legacy else {
+                    throw CLIError(message: "cmux feed tui: choose only one TUI implementation")
+                }
+                implementation = .openTUI
+            case "--legacy":
+                guard implementation != .openTUI else {
+                    throw CLIError(message: "cmux feed tui: choose only one TUI implementation")
+                }
+                implementation = .legacy
+            case "--help", "-h":
+                print("Usage: cmux feed tui [--opentui|--legacy]")
+                return .help
+            default:
+                throw CLIError(message: "cmux feed tui: unknown argument \(argument)")
+            }
+        }
+        return implementation
+    }
+
     private func runOpenTUIFeedTUI(socketPath: String, socketPassword: String?) throws {
         guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
             throw CLIError(message: "cmux feed tui requires an interactive terminal")
@@ -16848,12 +16893,16 @@ export default CMUXSessionRestore;
         fputs("cmux feed tui: preparing OpenTUI Feed...\n", stderr)
         fflush(stderr)
         let appDirectory = try prepareOpenTUIFeedApp(bunPath: bunPath)
+        let sourceURL = appDirectory.appendingPathComponent("index.ts", isDirectory: false)
         fputs("cmux feed tui: starting OpenTUI Feed.\n", stderr)
         fflush(stderr)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: bunPath)
-        process.arguments = ["index.ts"]
-        process.currentDirectoryURL = appDirectory
+        process.arguments = [sourceURL.path]
+        process.currentDirectoryURL = URL(
+            fileURLWithPath: FileManager.default.currentDirectoryPath,
+            isDirectory: true
+        )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SOCKET"] = socketPath
@@ -16861,16 +16910,38 @@ export default CMUXSessionRestore;
             environment["CMUX_SOCKET_PASSWORD"] = socketPassword
         }
         environment["OTUI_USE_CONSOLE"] = environment["OTUI_USE_CONSOLE"] ?? "0"
+        environment["OTUI_USE_ALTERNATE_SCREEN"] = "1"
         environment["CMUX_FEED_TUI_PATH"] = "opentui"
         process.environment = environment
         process.standardInput = FileHandle.standardInput
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
 
+        let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
+        var didForegroundChild = false
         try process.run()
+        if originalForegroundProcessGroup > 0 {
+            let childProcessGroup = process.processIdentifier
+            try setTerminalForegroundProcessGroup(childProcessGroup)
+            _ = Darwin.kill(-childProcessGroup, SIGCONT)
+            didForegroundChild = true
+        }
+        defer {
+            if didForegroundChild {
+                try? setTerminalForegroundProcessGroup(originalForegroundProcessGroup)
+            }
+        }
         process.waitUntilExit()
         if process.terminationStatus == 0 || process.terminationStatus == 130 || (process.terminationReason == .uncaughtSignal && process.terminationStatus == SIGINT) { return }
         throw CLIError(message: "OpenTUI Feed exited with status \(process.terminationStatus)")
+    }
+
+    private func setTerminalForegroundProcessGroup(_ processGroup: pid_t) throws {
+        let previousHandler = signal(SIGTTOU, SIG_IGN)
+        defer { _ = signal(SIGTTOU, previousHandler) }
+        guard tcsetpgrp(STDIN_FILENO, processGroup) == 0 else {
+            throw CLIError(message: "cmux feed tui: failed to foreground OpenTUI process: \(String(cString: strerror(errno)))")
+        }
     }
 
     private func resolveBunExecutable() -> String? {

@@ -166,7 +166,15 @@ final class FeedSidebarUITests: XCTestCase {
 
     private func waitForFeedTUIReady(timeout: TimeInterval) -> Bool {
         return pollUntil(timeout: timeout, interval: 0.5) {
-            FileManager.default.fileExists(atPath: feedTUIReadyPath)
+            let payload = loadFeedTUIReadyPayload()
+            guard payload["stage"] == "opentui-ready",
+                  payload["tui"] == "opentui",
+                  payload["screen_mode"] == "alternate-screen",
+                  let cwd = payload["cwd"],
+                  !cwd.contains(".cmuxterm/feed-tui-opentui") else {
+                return false
+            }
+            return true
         }
     }
 

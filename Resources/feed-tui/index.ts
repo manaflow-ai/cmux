@@ -184,8 +184,12 @@ class FeedApp {
     this.renderer.on(CliRenderEvents.RESIZE, this.rendererRefreshHandler);
     this.renderer.on(CliRenderEvents.CAPABILITIES, this.rendererRefreshHandler);
     this.renderer.keyInput.on("keypress", this.keyHandler);
+    this.render();
+    writeReadyMarker("opentui-ready", {
+      cwd: process.cwd(),
+      screen_mode: this.renderer.screenMode,
+    });
     await this.refresh("Loaded Feed.");
-    writeReadyMarker("opentui-ready");
     this.refreshTimer = setInterval(() => {
       void this.refresh(undefined, false);
     }, 1_000);
@@ -1057,7 +1061,7 @@ function cardId(item: FeedItem): string {
   return `feed-card-${item.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
-function writeReadyMarker(stage: string): void {
+function writeReadyMarker(stage: string, details: Record<string, string> = {}): void {
   const markerPath = process.env.CMUX_FEED_TUI_READY_PATH?.trim();
   if (!markerPath) {
     return;
@@ -1068,6 +1072,7 @@ function writeReadyMarker(stage: string): void {
       pid: String(process.pid),
       time: String(Date.now() / 1000),
       tui: process.env.CMUX_FEED_TUI_PATH ?? "opentui",
+      ...details,
     });
     mkdirSync(dirname(markerPath), { recursive: true });
     writeFileSync(markerPath, `${payload}\n`, "utf8");
@@ -1084,6 +1089,7 @@ async function main() {
 
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
+    screenMode: "alternate-screen",
     useMouse: true,
     autoFocus: true,
     targetFps: 30,

@@ -301,7 +301,7 @@ the expected text without connecting to a cmux socket.
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux feedback --help` -> `Usage: cmux feedback`
-- `cmux feed --help` -> `Usage: cmux feed clear [--yes|-y]`
+- `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
 - `cmux opencode --help` -> `Usage: cmux opencode <install-hooks|uninstall-hooks>`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`
