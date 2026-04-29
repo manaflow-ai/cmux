@@ -679,6 +679,70 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Unmatched chord suffix must not trigger the action")
     }
 
+    func testBareKeyChordPrefixArmsAndSplitsOnSecondKey() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and manager")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let shortcut = StoredShortcut(
+            key: "`",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "d"
+        )
+
+        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct backtick prefix event")
+                return
+            }
+
+            guard let actionEvent = makeKeyDownEvent(
+                key: "d",
+                modifiers: [],
+                keyCode: 2,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct d action event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+                "Bare-key chord prefix must be consumed so the terminal does not receive `"
+            )
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: actionEvent),
+                "Second stroke after a bare-key chord prefix must dispatch the bound action"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+        _ = manager
+    }
+
     func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
