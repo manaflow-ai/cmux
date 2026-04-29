@@ -743,6 +743,65 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         _ = manager
     }
 
+    func testBareKeyChordMismatchDoesNotConsumeSecondKey() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // ` then d → splitRight, but the user will press ` then q (unbound second).
+        let shortcut = StoredShortcut(
+            key: "`",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "d"
+        )
+
+        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ),
+            let mismatchedSecondEvent = makeKeyDownEvent(
+                key: "q",
+                modifiers: [],
+                keyCode: 12,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct chord events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+                "Bare-key chord prefix should arm and consume the prefix event"
+            )
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: mismatchedSecondEvent),
+                "Mismatched second stroke after a bare-key chord prefix must NOT be consumed"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
     func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
