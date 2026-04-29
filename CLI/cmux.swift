@@ -961,12 +961,11 @@ final class SocketClient {
 
         var data = Data()
         var sawNewline = false
+        let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
 
         while true {
             try configureReceiveTimeout(
-                sawNewline
-                    ? Self.multilineResponseIdleTimeoutSeconds
-                    : (responseTimeout ?? Self.responseTimeoutSeconds)
+                sawNewline ? Self.multilineResponseIdleTimeoutSeconds : initialResponseTimeout
             )
 
             var buffer = [UInt8](repeating: 0, count: 8192)
@@ -1445,7 +1444,11 @@ final class SocketClient {
         return nil
     }
 
-    func sendV2(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+    func sendV2(
+        method: String,
+        params: [String: Any] = [:],
+        responseTimeout: TimeInterval? = nil
+    ) throws -> [String: Any] {
         let request: [String: Any] = [
             "id": UUID().uuidString,
             "method": method,
@@ -1460,7 +1463,7 @@ final class SocketClient {
             throw CLIError(message: "Failed to encode v2 request")
         }
 
-        let raw = try send(command: requestLine)
+        let raw = try send(command: requestLine, responseTimeout: responseTimeout)
 
         // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
         // before the JSON protocol starts. Surface these directly instead of letting
@@ -1590,6 +1593,23 @@ struct CMUXCLI {
     let args: [String]
 
     private static let debugLastSocketHintPath = "/tmp/cmux-last-socket-path"
+    private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
+    private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
+    private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+
+    private struct VMCreateIdempotencyStore: Codable {
+        var records: [String: VMCreateIdempotencyRecord] = [:]
+    }
+
+    private struct VMCreateIdempotencyRecord: Codable {
+        let key: String
+        let createdAt: TimeInterval
+    }
+
+    private struct ActiveVMCreateIdempotency {
+        let signature: String
+        let key: String
+    }
 
     private static func normalizedEnvValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1597,6 +1617,78 @@ struct CMUXCLI {
             return nil
         }
         return trimmed
+    }
+
+    private static func vmCreateIdempotencySignature(image: String?, provider: String?) -> String {
+        let normalizedImage = image?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedProvider = provider?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        return "image=\(normalizedImage)\u{1f}provider=\(normalizedProvider)"
+    }
+
+    private static func normalizedVMProvider(_ provider: String?) throws -> String? {
+        guard let trimmed = provider?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        let normalized = trimmed.lowercased()
+        guard normalized == "e2b" || normalized == "freestyle" else {
+            throw CLIError(message: "vm new: unsupported provider '\(trimmed)'. Expected e2b or freestyle.")
+        }
+        return normalized
+    }
+
+    private static func vmCreateIdempotencyStoreURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("vm-create-idempotency.json", isDirectory: false)
+    }
+
+    private static func loadVMCreateIdempotencyStore(from url: URL) -> VMCreateIdempotencyStore {
+        guard let data = try? Data(contentsOf: url),
+              let store = try? JSONDecoder().decode(VMCreateIdempotencyStore.self, from: data) else {
+            return VMCreateIdempotencyStore()
+        }
+        return store
+    }
+
+    private static func saveVMCreateIdempotencyStore(_ store: VMCreateIdempotencyStore, to url: URL) throws {
+        let directory = url.deletingLastPathComponent()
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(store)
+        try data.write(to: url, options: .atomic)
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private static func activeVMCreateIdempotency(image: String?, provider: String?) throws -> ActiveVMCreateIdempotency {
+        let url = vmCreateIdempotencyStoreURL()
+        let signature = vmCreateIdempotencySignature(image: image, provider: provider)
+        let now = Date().timeIntervalSince1970
+        var store = loadVMCreateIdempotencyStore(from: url)
+        store.records = store.records.filter { _, record in
+            !record.key.isEmpty && now - record.createdAt < vmCreateIdempotencyTTLSeconds
+        }
+        if let existing = store.records[signature] {
+            try saveVMCreateIdempotencyStore(store, to: url)
+            return ActiveVMCreateIdempotency(signature: signature, key: existing.key)
+        }
+        let key = UUID().uuidString.lowercased()
+        store.records[signature] = VMCreateIdempotencyRecord(key: key, createdAt: now)
+        try saveVMCreateIdempotencyStore(store, to: url)
+        return ActiveVMCreateIdempotency(signature: signature, key: key)
+    }
+
+    private static func clearVMCreateIdempotency(_ active: ActiveVMCreateIdempotency) {
+        let url = vmCreateIdempotencyStoreURL()
+        var store = loadVMCreateIdempotencyStore(from: url)
+        guard store.records[active.signature]?.key == active.key else { return }
+        store.records.removeValue(forKey: active.signature)
+        try? saveVMCreateIdempotencyStore(store, to: url)
     }
 
     private static func pathIsSocket(_ path: String) -> Bool {
@@ -1634,6 +1726,117 @@ struct CMUXCLI {
 #else
         return "/tmp/cmux.sock"
 #endif
+    }
+
+    private static let browserDisabledDefaultsKey = "browserDisabledOverride"
+    private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
+
+    private static func currentExecutableURL() -> URL? {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        guard size > 0 else {
+            return Bundle.main.executableURL?.standardizedFileURL
+        }
+
+        var buffer = Array<CChar>(repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buffer, &size) == 0 else {
+            return Bundle.main.executableURL?.standardizedFileURL
+        }
+        return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
+    }
+
+    private static func containingAppBundleIdentifier() -> String? {
+        guard let executableURL = currentExecutableURL() else { return nil }
+        var current = executableURL.deletingLastPathComponent().standardizedFileURL
+        while current.path != "/" {
+            if current.pathExtension == "app",
+               let bundle = Bundle(url: current),
+               let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
+                return bundleIdentifier
+            }
+
+            if current.lastPathComponent == "Contents" {
+                let appURL = current.deletingLastPathComponent().standardizedFileURL
+                if appURL.pathExtension == "app",
+                   let bundle = Bundle(url: appURL),
+                   let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
+                    return bundleIdentifier
+                }
+            }
+
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            guard parent.path != current.path else { break }
+            current = parent
+        }
+        return nil
+    }
+
+    private static func browserSettingsDomain(environment: [String: String]) -> String {
+        normalizedEnvValue(environment["CMUX_BUNDLE_ID"])
+        ?? containingAppBundleIdentifier()
+        ?? defaultBrowserSettingsDomain
+    }
+
+    private func runBrowserAvailabilityCommand(
+        command: String,
+        commandArgs: [String],
+        jsonOutput globalJSONOutput: Bool,
+        environment: [String: String]
+    ) throws {
+        var effectiveJSONOutput = globalJSONOutput
+        var args = commandArgs
+        if let jsonIndex = args.firstIndex(of: "--json") {
+            effectiveJSONOutput = true
+            args.remove(at: jsonIndex)
+        }
+
+        let action: String
+        if command == "browser" {
+            guard let first = args.first?.lowercased() else {
+                throw CLIError(message: "browser requires a subcommand")
+            }
+            action = first
+            args = Array(args.dropFirst())
+        } else {
+            action = command
+        }
+
+        guard args.isEmpty else {
+            throw CLIError(message: "Unexpected argument: \(args[0])")
+        }
+
+        let domain = Self.browserSettingsDomain(environment: environment)
+        let defaults = UserDefaults(suiteName: domain) ?? .standard
+
+        switch action {
+        case "disable", "disable-browser":
+            defaults.set(true, forKey: Self.browserDisabledDefaultsKey)
+            defaults.synchronize()
+        case "enable", "enable-browser":
+            defaults.set(false, forKey: Self.browserDisabledDefaultsKey)
+            defaults.synchronize()
+        case "status", "browser-status":
+            break
+        default:
+            throw CLIError(message: "Unknown browser availability command: \(action)")
+        }
+
+        let disabled = defaults.object(forKey: Self.browserDisabledDefaultsKey) == nil
+            ? false
+            : defaults.bool(forKey: Self.browserDisabledDefaultsKey)
+        let payload: [String: Any] = [
+            "enabled": !disabled,
+            "disabled": disabled,
+            "domain": domain,
+            "key": Self.browserDisabledDefaultsKey
+        ]
+        if effectiveJSONOutput {
+            print(jsonString(payload))
+        } else if action == "status" || action == "browser-status" {
+            print(disabled ? "disabled" : "enabled")
+        } else {
+            print(disabled ? "cmux browser disabled" : "cmux browser enabled")
+        }
     }
 
     func run() throws {
@@ -1746,6 +1949,11 @@ struct CMUXCLI {
             return
         }
 
+        if command == "vm-pty-connect" {
+            try runVMPtyConnect(commandArgs: commandArgs)
+            return
+        }
+
         // If the argument looks like a path (not a known command), open a workspace there.
         if looksLikePath(command) {
             try openPath(command, socketPath: resolvedSocketPath)
@@ -1754,10 +1962,16 @@ struct CMUXCLI {
 
         // Check for --help/-h on subcommands before connecting to the socket,
         // so help text is available even when cmux is not running.
+        let preSeparatorArgs: ArraySlice<String>
+        if let separatorIndex = commandArgs.firstIndex(of: "--") {
+            preSeparatorArgs = commandArgs[..<separatorIndex]
+        } else {
+            preSeparatorArgs = commandArgs[...]
+        }
         if command != "__tmux-compat",
            command != "claude-teams",
            command != "codex",
-           (commandArgs.contains("--help") || commandArgs.contains("-h")) {
+           preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
@@ -1986,6 +2200,20 @@ struct CMUXCLI {
             return
         }
 
+        let browserAvailabilityArgs = commandArgs.filter { $0 != "--json" }
+        if command == "disable-browser" ||
+            command == "enable-browser" ||
+            command == "browser-status" ||
+            (command == "browser" && ["disable", "enable", "status"].contains(browserAvailabilityArgs.first?.lowercased() ?? "")) {
+            try runBrowserAvailabilityCommand(
+                command: command,
+                commandArgs: commandArgs,
+                jsonOutput: jsonOutput,
+                environment: processEnv
+            )
+            return
+        }
+
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -2070,11 +2298,11 @@ struct CMUXCLI {
                     print("Already signed in\(email.map { " as \($0)" } ?? ""). Use `cmux auth logout` to sign out first.")
                     break
                 }
-                print("Opening sign-in popup on the cmux mac app.")
+                print("Opening sign-in popup on the cmux web app.")
                 // auth.begin_sign_in blocks on the server side until the
                 // popup completes (or 5min timeout). The response is the
                 // callback — no polling.
-                let result = try client.sendV2(method: "auth.begin_sign_in")
+                let result = try client.sendV2(method: "auth.begin_sign_in", responseTimeout: 305)
                 if (result["signed_in"] as? Bool) == true {
                     let email = (result["user"] as? [String: Any])?["email"] as? String
                     print("Signed in\(email.map { " as \($0)" } ?? "").")
@@ -2100,6 +2328,191 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: "Usage: cmux auth <status|login|logout>")
+            }
+
+        case "vm", "cloud":
+            let sub = commandArgs.first?.lowercased() ?? "ls"
+            let rest = Array(commandArgs.dropFirst())
+            switch sub {
+            case "ls", "list":
+                let response = try client.sendV2(method: "vm.list")
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let vms = (response["vms"] as? [[String: Any]]) ?? []
+                if vms.isEmpty {
+                    print("No cloud VMs. Try: cmux vm new")
+                    break
+                }
+                for vm in vms {
+                    let id = (vm["id"] as? String) ?? "?"
+                    let provider = (vm["provider"] as? String) ?? "?"
+                    let image = (vm["image"] as? String) ?? "?"
+                    print("\(id)  [\(provider)] \(image)")
+                }
+
+            case "new", "create":
+                let (imageOpt, rem0) = parseOption(rest, name: "--image")
+                let (providerOpt, rem1) = parseOption(rem0, name: "--provider")
+                let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
+                let remaining = rem1.filter { $0 != "--detach" && $0 != "-d" }
+                if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+                    throw CLIError(message: "vm new: unknown flag '\(unknown)'. Known flags: --image, --provider, --detach/-d")
+                }
+                // Stray positional args (e.g. a typo like `cmux vm new myvm`) previously fell
+                // through and still provisioned a VM. That silently costs the user money and
+                // hides the typo. Reject them explicitly.
+                if let extra = remaining.first(where: { !$0.hasPrefix("--") && $0 != "-d" }) {
+                    throw CLIError(
+                        message: "vm new: unexpected argument '\(extra)'. vm new takes no positional args; use --image / --provider / --detach."
+                    )
+                }
+                let normalizedProvider = try Self.normalizedVMProvider(providerOpt)
+                var params: [String: Any] = [:]
+                if let imageOpt { params["image"] = imageOpt }
+                if let normalizedProvider { params["provider"] = normalizedProvider }
+                let idempotency = try Self.activeVMCreateIdempotency(image: imageOpt, provider: normalizedProvider)
+                params["idempotency_key"] = idempotency.key
+                let vmCreateStartedAt = Date()
+                let response = try client.sendV2(
+                    method: "vm.create",
+                    params: params,
+                    responseTimeout: Self.vmCreateResponseTimeoutSeconds
+                )
+                logVMTiming(
+                    "create",
+                    vmID: (response["id"] as? String) ?? "?",
+                    provider: (response["provider"] as? String) ?? normalizedProvider ?? "?",
+                    startedAt: vmCreateStartedAt
+                )
+                if jsonOutput {
+                    Self.clearVMCreateIdempotency(idempotency)
+                    print(jsonString(response))
+                    break
+                }
+                let id = (response["id"] as? String) ?? "?"
+                let provider = (response["provider"] as? String) ?? "?"
+                let image = (response["image"] as? String) ?? "?"
+                if detach {
+                    Self.clearVMCreateIdempotency(idempotency)
+                    print("OK \(id)")
+                    print("  provider: \(provider)")
+                    print("  image:    \(image)")
+                    break
+                }
+                // Create the VM then drop the user into a cmux-managed workspace. Freestyle
+                // attaches over SSH; E2B attaches over cmuxd-remote WebSocket PTY.
+                let shortId = String(id.prefix(8))
+                print("Created \(id)  [\(provider)]  \(image)")
+                try vmOpenShell(
+                    id: id,
+                    workspaceName: "vm:\(shortId)",
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+                Self.clearVMCreateIdempotency(idempotency)
+
+            case "shell", "attach":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux \(command) shell <id>")
+                }
+                let shortId = String(vmId.prefix(8))
+                try vmOpenShell(
+                    id: vmId,
+                    workspaceName: "vm:\(shortId)",
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+
+            case "rm", "destroy", "delete":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux vm rm <id>")
+                }
+                _ = try client.sendV2(method: "vm.destroy", params: ["id": vmId], responseTimeout: 60)
+                if jsonOutput {
+                    print("{\"ok\":true,\"id\":\"\(vmId)\"}")
+                } else {
+                    print("OK \(vmId)")
+                }
+
+            case "ssh-info", "ssh":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux \(command) ssh <id>")
+                }
+                let response = try client.sendV2(method: "vm.ssh_info", params: ["id": vmId], responseTimeout: 60)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let host = (response["host"] as? String) ?? "?"
+                let port = (response["port"] as? Int) ?? 22
+                let username = (response["username"] as? String) ?? "?"
+                let cred = (response["credential"] as? [String: Any]) ?? [:]
+                let credKind = (cred["kind"] as? String) ?? "?"
+                let credValue = (cred["value"] as? String) ?? "?"
+                if credKind == "password" {
+                    print("ssh \(username)@\(host) -p \(port)")
+                    print("")
+                    print("  host:      \(host)")
+                    print("  port:      \(port)")
+                    print("  username:  \(username)")
+                    print("  password:  \(credValue)")
+                } else {
+                    print("authorizedKey credential not yet supported by `cmux \(command) ssh`; raw response:")
+                    print(jsonString(response))
+                }
+
+            case "ssh-attach":
+                try runVMSSHAttach(commandArgs: rest, client: client)
+
+            case "exec":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux vm exec <id> -- <command...>")
+                }
+                var commandArgsForVM: [String] = Array(rest.dropFirst())
+                // Consume a leading "--" separator if present.
+                if commandArgsForVM.first == "--" {
+                    commandArgsForVM.removeFirst()
+                }
+                guard !commandArgsForVM.isEmpty else {
+                    throw CLIError(message: "Usage: cmux vm exec <id> -- <command...>")
+                }
+                // Shell-quote each argv element before joining. Plain-space join previously
+                // dropped quoting so `cmux vm exec <id> -- printf '%s\n' "a b"` reached the
+                // VM as `printf %s\n a b`, changing semantics for any non-trivial command
+                // (Codex P2).
+                let command = commandArgsForVM.map(shellQuote).joined(separator: " ")
+                let response = try client.sendV2(
+                    method: "vm.exec",
+                    params: ["id": vmId, "command": command],
+                    responseTimeout: 35
+                )
+                let stdout = (response["stdout"] as? String) ?? ""
+                let stderr = (response["stderr"] as? String) ?? ""
+                let exitCode = (response["exit_code"] as? Int) ?? -1
+                if jsonOutput {
+                    print(jsonString(response))
+                    if exitCode != 0 {
+                        throw CLIError(message: "exit \(exitCode)")
+                    }
+                    break
+                }
+                if !stdout.isEmpty { print(stdout, terminator: stdout.hasSuffix("\n") ? "" : "\n") }
+                if !stderr.isEmpty {
+                    FileHandle.standardError.write(Data(stderr.utf8))
+                    if !stderr.hasSuffix("\n") {
+                        FileHandle.standardError.write(Data("\n".utf8))
+                    }
+                }
+                if exitCode != 0 {
+                    throw CLIError(message: "exit \(exitCode)")
+                }
+
+            default:
+                throw CLIError(message: "Usage: cmux \(command) <ls|new|shell|rm|exec|ssh> [args...]")
             }
 
         case "rpc":
@@ -2245,8 +2658,9 @@ struct CMUXCLI {
                                   (remote["enabled"] as? Bool) == true else {
                                 return ""
                             }
+                            let transport = (remote["transport"] as? String) ?? "remote"
                             let state = (remote["state"] as? String) ?? "unknown"
-                            return "  [ssh:\(state)]"
+                            return "  [\(transport):\(state)]"
                         }()
                         let prefix = selected ? "* " : "  "
                         let selTag = selected ? "  [selected]" : ""
@@ -2260,6 +2674,12 @@ struct CMUXCLI {
             try runSSH(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
         case "ssh-session-end":
             try runSSHSessionEnd(commandArgs: commandArgs, client: client)
+        case "vm-pty-attach":
+            try runVMPtyAttach(commandArgs: commandArgs, client: client)
+        case "vm-ssh-attach":
+            // Hidden compatibility alias for workspaces created before the split helper was
+            // nested under `cmux vm`.
+            try runVMSSHAttach(commandArgs: commandArgs, client: client)
 
         case "new-workspace":
             let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
@@ -4295,6 +4715,7 @@ struct CMUXCLI {
     }
     struct SSHCommandOptions {
         let destination: String
+        let displayDestination: String
         let port: Int?
         let identityFile: String?
         let workspaceName: String?
@@ -4303,6 +4724,64 @@ struct CMUXCLI {
         let extraArguments: [String]
         let localSocketPath: String
         let remoteRelayPort: Int
+        /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
+        /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
+        let skipDaemonBootstrap: Bool
+
+        init(
+            destination: String,
+            displayDestination: String? = nil,
+            port: Int?,
+            identityFile: String?,
+            workspaceName: String?,
+            noFocus: Bool,
+            sshOptions: [String],
+            extraArguments: [String],
+            localSocketPath: String,
+            remoteRelayPort: Int,
+            skipDaemonBootstrap: Bool = false
+        ) {
+            self.destination = destination
+            self.displayDestination = displayDestination ?? destination
+            self.port = port
+            self.identityFile = identityFile
+            self.workspaceName = workspaceName
+            self.noFocus = noFocus
+            self.sshOptions = sshOptions
+            self.extraArguments = extraArguments
+            self.localSocketPath = localSocketPath
+            self.remoteRelayPort = remoteRelayPort
+            self.skipDaemonBootstrap = skipDaemonBootstrap
+        }
+    }
+
+    private struct VMPtyWebSocketEndpoint {
+        let url: String
+        let headers: [String: String]
+        let token: String
+        let sessionId: String
+        let expiresAtUnix: Int64
+        let daemon: VMDaemonWebSocketEndpoint?
+    }
+
+    private struct VMDaemonWebSocketEndpoint {
+        let url: String
+        let headers: [String: String]
+        let token: String
+        let sessionId: String
+        let expiresAtUnix: Int64
+    }
+
+    private struct VMPtyWebSocketConfig: Codable {
+        let url: String
+        let headers: [String: String]
+        let token: String
+        let sessionId: String
+    }
+
+    private struct TerminalSize {
+        let cols: Int
+        let rows: Int
     }
 
     private struct RemoteDaemonManifest: Decodable {
@@ -4347,18 +4826,40 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let sshStartedAt = Date()
         // Use the socket path from this invocation (supports --socket overrides).
         let localSocketPath = client.socketPath
         let remoteRelayPort = generateRemoteRelayPort()
         let relayID = UUID().uuidString.lowercased()
         let relayToken = try randomHex(byteCount: 32)
         let sshOptions = try parseSSHCommandOptions(commandArgs, localSocketPath: localSocketPath, remoteRelayPort: remoteRelayPort)
+        try runSSHWithOptions(
+            sshOptions,
+            relayID: relayID,
+            relayToken: relayToken,
+            client: client,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat
+        )
+    }
+
+    /// Generic "open a workspace, SSH into the remote, bootstrap cmuxd-remote, forward socket,
+    /// drop the user in a shell" pipeline. The inner loop of `cmux ssh`; also called from
+    /// `cmux vm new`/`shell`/`attach` so cloud VMs reuse the exact same bootstrap.
+    private func runSSHWithOptions(
+        _ sshOptions: SSHCommandOptions,
+        relayID: String,
+        relayToken: String,
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        vmIDForSplitAttach: String? = nil
+    ) throws {
+        let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
             let elapsedMs = Int(Date().timeIntervalSince(sshStartedAt) * 1000)
             let suffix = extra.isEmpty ? "" : " \(extra)"
             cliDebugLog(
-                "cli.ssh.timing target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
+                "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
                 "stage=\(stage) elapsedMs=\(elapsedMs)\(suffix)"
             )
         }
@@ -4366,7 +4867,7 @@ struct CMUXCLI {
         logSSHTiming("parsed")
         let terminfoSource = localXtermGhosttyTerminfoSource()
         cliDebugLog(
-            "cli.ssh.timing target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
+            "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
             "stage=terminfo elapsedMs=0 mode=deferred term=xterm-256color " +
             "source=\(terminfoSource == nil ? 0 : 1)"
         )
@@ -4376,13 +4877,22 @@ struct CMUXCLI {
             remoteRelayPort: sshOptions.remoteRelayPort
         )
         let initialSSHCommand = buildSSHCommandText(sshOptions)
-        let remoteTerminalBootstrapScript = sshOptions.extraArguments.isEmpty
-            ? buildInteractiveRemoteShellScript(
-                remoteRelayPort: sshOptions.remoteRelayPort,
-                shellFeatures: shellFeaturesValue,
-                terminfoSource: terminfoSource
-            )
-            : nil
+        // For VM workspaces (Freestyle), skip the interactive bootstrap script: the russh
+        // gateway forwards shell-request PTYs but stalls on exec-channel I/O, and the bootstrap
+        // script is only meaningful if cmuxd-remote is participating. Let ssh open a plain
+        // interactive shell instead.
+        let remoteTerminalBootstrapScript: String?
+        if sshOptions.skipDaemonBootstrap {
+            remoteTerminalBootstrapScript = nil
+        } else {
+            remoteTerminalBootstrapScript = sshOptions.extraArguments.isEmpty
+                ? buildInteractiveRemoteShellScript(
+                    remoteRelayPort: sshOptions.remoteRelayPort,
+                    shellFeatures: shellFeaturesValue,
+                    terminfoSource: terminfoSource
+                )
+                : nil
+        }
         let remoteTerminalSSHCommand = buildSSHCommandText(
             sshOptions,
             remoteBootstrapScript: remoteTerminalBootstrapScript
@@ -4393,42 +4903,68 @@ struct CMUXCLI {
             localCLIPath: resolvedExecutableURL()?.path,
             foregroundAuthToken: deferredRemoteReconnectToken
         )
+        let sshConnectionTimingCommand = sshConnectionTimingLocalCommand(
+            target: sshOptions.displayDestination,
+            relayPort: sshOptions.remoteRelayPort
+        )
+        let combinedLocalCommand = combinedLocalShellCommand([
+            deferredRemoteReconnectCommand,
+            sshConnectionTimingCommand,
+        ])
         let configuredForegroundAuthToken = deferredRemoteReconnectCommand == nil ? nil : deferredRemoteReconnectToken
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
-            localCommand: deferredRemoteReconnectCommand
+            localCommand: combinedLocalCommand
         )
         let startupRemoteTerminalSSHCommand = buildSSHCommandText(
             sshOptions,
             remoteBootstrapScript: remoteTerminalBootstrapScript,
-            localCommand: deferredRemoteReconnectCommand
+            localCommand: combinedLocalCommand
         )
         let initialSSHStartupCommand: String
         let remoteTerminalSSHStartupCommand: String
         if let remoteTerminalBootstrapScript, !remoteTerminalBootstrapScript.isEmpty {
-            let bootstrapSSHStartupCommand = try buildBootstrapSSHStartupCommand(
+            initialSSHStartupCommand = try buildBootstrapSSHStartupCommand(
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommand: deferredRemoteReconnectCommand
+                localCommand: combinedLocalCommand
             )
-            initialSSHStartupCommand = bootstrapSSHStartupCommand
-            remoteTerminalSSHStartupCommand = bootstrapSSHStartupCommand
+            remoteTerminalSSHStartupCommand = buildReusableBootstrapSSHStartupCommand(
+                options: sshOptions,
+                remoteBootstrapScript: remoteTerminalBootstrapScript,
+                shellFeatures: shellFeaturesValue,
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                localCommand: combinedLocalCommand
+            )
         } else {
             initialSSHStartupCommand = try buildSSHStartupCommand(
                 sshCommand: startupInitialSSHCommand,
                 shellFeatures: "",
                 remoteRelayPort: sshOptions.remoteRelayPort
             )
-            remoteTerminalSSHStartupCommand = try buildSSHStartupCommand(
+            remoteTerminalSSHStartupCommand = buildReusableSSHStartupCommand(
                 sshCommand: startupRemoteTerminalSSHCommand,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort
             )
         }
+        let reusableTerminalStartupCommand: String
+        if let vmIDForSplitAttach,
+           sshOptions.skipDaemonBootstrap {
+            let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+            let splitAttachCommand = "\(shellQuote(executablePath)) vm ssh-attach --id \(shellQuote(vmIDForSplitAttach))"
+            reusableTerminalStartupCommand = buildReusableSSHStartupCommand(
+                sshCommand: splitAttachCommand,
+                shellFeatures: shellFeaturesValue,
+                remoteRelayPort: 0
+            )
+        } else {
+            reusableTerminalStartupCommand = remoteTerminalSSHStartupCommand
+        }
         cliDebugLog(
-            "cli.ssh.start target=\(sshOptions.destination) port=\(sshOptions.port.map(String.init) ?? "nil") " +
+            "cli.ssh.start target=\(sshOptions.displayDestination) port=\(sshOptions.port.map(String.init) ?? "nil") " +
             "relayPort=\(sshOptions.remoteRelayPort) localSocket=\(sshOptions.localSocketPath) " +
             "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
             "workspaceName=\(sshOptions.workspaceName?.replacingOccurrences(of: " ", with: "_") ?? "nil") " +
@@ -4451,7 +4987,7 @@ struct CMUXCLI {
             "window=\(workspaceWindowId.map { String($0.prefix(8)) } ?? "nil")"
         )
         cliDebugLog(
-            "cli.ssh.timing target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
+            "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
             "workspace=\(String(workspaceId.prefix(8))) stage=workspace.create elapsedMs=\(Int(Date().timeIntervalSince(workspaceCreateStartedAt) * 1000))"
         )
         let configuredPayload: [String: Any]
@@ -4466,7 +5002,7 @@ struct CMUXCLI {
 
             var configureParams: [String: Any] = [
                 "workspace_id": workspaceId,
-                "destination": sshOptions.destination,
+                "destination": sshOptions.displayDestination,
                 "auto_connect": deferredRemoteReconnectCommand == nil,
             ]
             if let configuredForegroundAuthToken {
@@ -4487,11 +5023,14 @@ struct CMUXCLI {
                 configureParams["relay_token"] = relayToken
                 configureParams["local_socket_path"] = sshOptions.localSocketPath
             }
-            configureParams["terminal_startup_command"] = remoteTerminalSSHStartupCommand
+            configureParams["terminal_startup_command"] = reusableTerminalStartupCommand
+            if sshOptions.skipDaemonBootstrap {
+                configureParams["skip_daemon_bootstrap"] = true
+            }
 
             cliDebugLog(
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
-                "target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
+                "target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
                 "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
                 "deferredReconnect=\(deferredRemoteReconnectCommand == nil ? 0 : 1) " +
                 "sshOptions=\(remoteSSHOptions.joined(separator: "|"))"
@@ -4506,14 +5045,19 @@ struct CMUXCLI {
             // so we intentionally select the newly created workspace after wiring
             // up the remote connection — unless --no-focus is passed.
             if !sshOptions.noFocus {
+                let selectStartedAt = Date()
                 _ = try client.sendV2(method: "workspace.select", params: selectParams)
+                cliDebugLog(
+                    "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
+                    "workspace=\(String(workspaceId.prefix(8))) stage=workspace.select elapsedMs=\(Int(Date().timeIntervalSince(selectStartedAt) * 1000))"
+                )
             }
             let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"
             cliDebugLog(
                 "cli.ssh.remote.configure.ok workspace=\(String(workspaceId.prefix(8))) state=\(remoteState)"
             )
             cliDebugLog(
-                "cli.ssh.timing target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
+                "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
                 "workspace=\(String(workspaceId.prefix(8))) stage=workspace.remote.configure elapsedMs=\(Int(Date().timeIntervalSince(configureStartedAt) * 1000))"
             )
         } catch {
@@ -4531,14 +5075,22 @@ struct CMUXCLI {
 
         var payload = configuredPayload
 
-        payload["ssh_command"] = initialSSHCommand
-        payload["ssh_startup_command"] = initialSSHStartupCommand
-        payload["ssh_terminal_command"] = remoteTerminalSSHCommand
-        payload["ssh_terminal_startup_command"] = remoteTerminalSSHStartupCommand
+        let redactsDestination = sshOptions.destination != sshOptions.displayDestination
+        if redactsDestination {
+            payload["ssh_command"] = "<redacted>"
+            payload["ssh_terminal_command"] = "<redacted>"
+            payload["ssh_startup_command"] = "<redacted>"
+            payload["ssh_terminal_startup_command"] = "<redacted>"
+        } else {
+            payload["ssh_command"] = initialSSHCommand
+            payload["ssh_terminal_command"] = remoteTerminalSSHCommand
+            payload["ssh_startup_command"] = initialSSHStartupCommand
+            payload["ssh_terminal_startup_command"] = reusableTerminalStartupCommand
+        }
         payload["ssh_env_overrides"] = [
             "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
         ]
-        payload["remote_relay_port"] = remoteRelayPort
+        payload["remote_relay_port"] = sshOptions.remoteRelayPort
         logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -4546,7 +5098,7 @@ struct CMUXCLI {
             let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? workspaceId
             let remote = payload["remote"] as? [String: Any]
             let state = (remote?["state"] as? String) ?? "unknown"
-            print("OK workspace=\(workspaceHandle) target=\(sshOptions.destination) state=\(state)")
+            print("OK workspace=\(workspaceHandle) target=\(sshOptions.displayDestination) state=\(state)")
         }
     }
 
@@ -4645,6 +5197,20 @@ struct CMUXCLI {
         remoteBootstrapScript: String? = nil,
         localCommand: String? = nil
     ) -> String {
+        buildSSHCommandArguments(
+            options,
+            remoteBootstrapScript: remoteBootstrapScript,
+            localCommand: localCommand
+        )
+        .map(shellQuote)
+        .joined(separator: " ")
+    }
+
+    private func buildSSHCommandArguments(
+        _ options: SSHCommandOptions,
+        remoteBootstrapScript: String? = nil,
+        localCommand: String? = nil
+    ) -> [String] {
         var parts = baseSSHArguments(options, localCommand: localCommand)
         let trimmedRemoteBootstrap = remoteBootstrapScript?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4667,7 +5233,7 @@ struct CMUXCLI {
             parts.append(options.destination)
             parts.append(contentsOf: options.extraArguments)
         }
-        return parts.map(shellQuote).joined(separator: " ")
+        return parts
     }
 
     func buildBootstrapSSHStartupCommand(
@@ -4683,6 +5249,26 @@ struct CMUXCLI {
             localCommand: localCommand
         )
         return try buildSSHStartupCommand(
+            sshCommand: commandSnippet,
+            shellFeatures: shellFeatures,
+            remoteRelayPort: remoteRelayPort,
+            isShellSnippet: true
+        )
+    }
+
+    func buildReusableBootstrapSSHStartupCommand(
+        options: SSHCommandOptions,
+        remoteBootstrapScript: String,
+        shellFeatures: String,
+        remoteRelayPort: Int,
+        localCommand: String? = nil
+    ) -> String {
+        let commandSnippet = buildSSHBootstrapCommandSnippet(
+            options: options,
+            remoteBootstrapScript: remoteBootstrapScript,
+            localCommand: localCommand
+        )
+        return buildReusableSSHStartupCommand(
             sshCommand: commandSnippet,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
@@ -4815,6 +5401,7 @@ struct CMUXCLI {
         terminfoSource: String? = nil
     ) -> String {
         let remoteTerminalLines = interactiveRemoteTerminalSetupLines(terminfoSource: terminfoSource)
+        let remoteLocaleLines = RemoteShellEnvironment.utf8LocaleSetupLines()
         let remoteEnvExportLines = interactiveRemoteShellExportLines(shellFeatures: shellFeatures)
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
         let remoteCallerExportLines = [
@@ -4824,6 +5411,7 @@ struct CMUXCLI {
         ]
         let relaySocket = remoteRelayPort > 0 ? "127.0.0.1:\(remoteRelayPort)" : nil
         var commonShellExportLines = remoteTerminalLines
+        commonShellExportLines.append(contentsOf: remoteLocaleLines)
         commonShellExportLines.append(contentsOf: remoteEnvExportLines)
         commonShellExportLines.append("export PATH=\"$HOME/.cmux/bin:$PATH\"")
         commonShellExportLines.append("export CMUX_BUNDLED_CLI_PATH=\"$HOME/.cmux/bin/cmux\"")
@@ -5139,14 +5727,20 @@ struct CMUXCLI {
             guard !trimmed.isEmpty else { continue }
             merged.append(trimmed)
         }
-        if !hasSSHOptionKey(merged, key: "ControlMaster") {
+        let controlMaster = sshOptionValue(named: "ControlMaster", in: merged)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let controlMasterDisabled = ["no", "false", "off"].contains(controlMaster ?? "")
+        if controlMaster == nil {
             merged.append("ControlMaster=auto")
         }
-        if !hasSSHOptionKey(merged, key: "ControlPersist") {
-            merged.append("ControlPersist=600")
-        }
-        if !hasSSHOptionKey(merged, key: "ControlPath") {
-            merged.append("ControlPath=\(defaultSSHControlPathTemplate(remoteRelayPort: remoteRelayPort))")
+        if !controlMasterDisabled {
+            if !hasSSHOptionKey(merged, key: "ControlPersist") {
+                merged.append("ControlPersist=600")
+            }
+            if !hasSSHOptionKey(merged, key: "ControlPath") {
+                merged.append("ControlPath=\(defaultSSHControlPathTemplate(remoteRelayPort: remoteRelayPort))")
+            }
         }
         return merged
     }
@@ -5202,6 +5796,39 @@ struct CMUXCLI {
         remoteRelayPort: Int,
         isShellSnippet: Bool = false
     ) throws -> String {
+        let script = buildSSHStartupScriptBody(
+            sshCommand: sshCommand,
+            shellFeatures: shellFeatures,
+            remoteRelayPort: remoteRelayPort,
+            isShellSnippet: isShellSnippet
+        )
+        return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
+    }
+
+    func buildReusableSSHStartupCommand(
+        sshCommand: String,
+        shellFeatures: String,
+        remoteRelayPort: Int,
+        isShellSnippet: Bool = false
+    ) -> String {
+        let script = buildSSHStartupScriptBody(
+            sshCommand: sshCommand,
+            shellFeatures: shellFeatures,
+            remoteRelayPort: remoteRelayPort,
+            isShellSnippet: isShellSnippet
+        )
+        return reusableShellStartupCommand(
+            scriptBody: script,
+            tempPrefix: "cmux-ssh-startup"
+        )
+    }
+
+    private func buildSSHStartupScriptBody(
+        sshCommand: String,
+        shellFeatures: String,
+        remoteRelayPort: Int,
+        isShellSnippet: Bool
+    ) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
             ? ""
@@ -5212,6 +5839,7 @@ struct CMUXCLI {
             scriptLines.append(shellFeaturesBootstrap)
         }
         scriptLines += [
+            "rm -f -- \"$0\" 2>/dev/null || true",
             "CMUX_SSH_SESSION_ENDED=0",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
             "trap 'cmux_ssh_session_end' EXIT HUP INT TERM",
@@ -5225,10 +5853,19 @@ struct CMUXCLI {
             "cmux_ssh_status=$?",
             "trap - EXIT HUP INT TERM",
             "cmux_ssh_session_end",
+            // Hold the pane so the user can see the error instead of silently falling
+            // back to a local shell. Without this, Ghostty's PTY respawns a login shell
+            // after the startup command exits, and a dead VM looks identical to "I never
+            // SSH'd" — the surface shows `Last login: ... on ttys072` + a local prompt.
+            "if [ \"$cmux_ssh_status\" -ne 0 ]; then",
+            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n' \"$cmux_ssh_status\" >&2",
+            "  printf '\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n' >&2",
+            "  printf '\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' >&2",
+            "  IFS= read -r _cmux_dismiss_key 2>/dev/null || true",
+            "fi",
             "exit $cmux_ssh_status",
         ]
-        let script = scriptLines.joined(separator: "\n")
-        return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
+        return scriptLines.joined(separator: "\n")
     }
 
     private func writeSSHStartupScript(_ scriptBody: String, remoteRelayPort: Int) throws -> String {
@@ -5240,6 +5877,30 @@ struct CMUXCLI {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
         return shellQuote(scriptURL.path)
+    }
+
+    private func reusableShellStartupCommand(
+        scriptBody: String,
+        tempPrefix: String
+    ) -> String {
+        let fullScript = "#!/bin/sh\n\(scriptBody)\n"
+        let encodedScript = Data(fullScript.utf8).base64EncodedString()
+        let encodedLiteral = shellQuote(encodedScript)
+        let wrapper = [
+            "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/\(tempPrefix).XXXXXX\") || exit 1",
+            "cmux_cleanup() { rm -f -- \"$cmux_tmp\" 2>/dev/null || true; }",
+            "trap 'cmux_cleanup' EXIT HUP INT TERM",
+            "(printf %s \(encodedLiteral) | base64 -d 2>/dev/null || printf %s \(encodedLiteral) | base64 -D 2>/dev/null) > \"$cmux_tmp\" || exit 1",
+            "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
+            "/bin/sh \"$cmux_tmp\"",
+            "cmux_status=$?",
+            "trap - EXIT HUP INT TERM",
+            "cmux_cleanup",
+            "unset cmux_tmp cmux_status",
+            "unset -f cmux_cleanup 2>/dev/null || true",
+            "exit $cmux_status",
+        ].joined(separator: "\n")
+        return "/bin/sh -c \(shellQuote(wrapper))"
     }
 
     private func buildSSHSessionEndShellCommand(remoteRelayPort: Int) -> String {
@@ -5256,6 +5917,669 @@ struct CMUXCLI {
             "cmux ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" >/dev/null 2>&1 || true;",
             "fi",
         ].joined(separator: " ")
+    }
+
+    /// Open an interactive cmux-managed shell on a cloud VM. Freestyle uses the existing SSH
+    /// workspace path. E2B uses the cmuxd-remote WebSocket PTY path because E2B does not expose
+    /// raw TCP/22.
+    private func logVMTiming(
+        _ stage: String,
+        vmID: String,
+        provider: String? = nil,
+        transport: String? = nil,
+        startedAt: Date,
+        extra: String = ""
+    ) {
+        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        var parts = [
+            "cli.vm.timing",
+            "vm=\(String(vmID.prefix(8)))",
+            "stage=\(stage)",
+            "elapsedMs=\(elapsedMs)",
+        ]
+        if let provider, !provider.isEmpty {
+            parts.append("provider=\(provider)")
+        }
+        if let transport, !transport.isEmpty {
+            parts.append("transport=\(transport)")
+        }
+        if !extra.isEmpty {
+            parts.append(extra)
+        }
+        cliDebugLog(parts.joined(separator: " "))
+    }
+
+    private func vmOpenShell(id: String, workspaceName: String?, client: SocketClient, jsonOutput: Bool, idFormat: CLIIDFormat) throws {
+        let attachInfoStartedAt = Date()
+        let response = try client.sendV2(
+            method: "vm.attach_info",
+            params: ["id": id, "require_daemon": true],
+            responseTimeout: Self.vmAttachResponseTimeoutSeconds
+        )
+        let transport = (response["transport"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? "ssh"
+        logVMTiming("attach_info", vmID: id, transport: transport, startedAt: attachInfoStartedAt)
+        if transport == "websocket" {
+            let endpoint = try parseVMPtyWebSocketEndpoint(response)
+            guard endpoint.daemon != nil else {
+                throw CLIError(
+                    message: "vm.attach_info returned a WebSocket PTY without daemon/proxy support. Rebuild the cloud VM image or snapshot with the current cmuxd-remote."
+                )
+            }
+            try runVMPtyWebSocketWorkspace(
+                id: id,
+                endpoint: endpoint,
+                workspaceName: workspaceName,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
+            )
+            return
+        }
+        let options = try vmSSHOptions(
+            fromAttachInfo: response,
+            workspaceName: workspaceName,
+            client: client,
+            remoteRelayPort: generateRemoteRelayPort()
+        )
+        let relayID = UUID().uuidString.lowercased()
+        let relayToken = try randomHex(byteCount: 32)
+        try runSSHWithOptions(
+            options,
+            relayID: relayID,
+            relayToken: relayToken,
+            client: client,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            vmIDForSplitAttach: id
+        )
+    }
+
+    private func vmSSHOptions(
+        fromAttachInfo response: [String: Any],
+        workspaceName: String?,
+        client: SocketClient,
+        remoteRelayPort: Int
+    ) throws -> SSHCommandOptions {
+        guard (response["transport"] as? String) == "ssh",
+              let host = response["host"] as? String,
+              let port = response["port"] as? Int,
+              let username = response["username"] as? String,
+              let cred = response["credential"] as? [String: Any],
+              let kind = cred["kind"] as? String
+        else {
+            throw CLIError(message: "vm.attach_info returned malformed SSH payload: \(response)")
+        }
+        guard kind == "password" else {
+            if kind == "authorizedKey" {
+                throw CLIError(
+                    message: "authorizedKey credentials aren't supported by `cmux vm shell` yet; received from server."
+                )
+            }
+            throw CLIError(message: "vm.attach_info returned unknown credential kind: \(kind)")
+        }
+        guard let token = cred["value"] as? String,
+              !token.isEmpty else {
+            throw CLIError(message: "vm.attach_info password credential missing `value`")
+        }
+
+        // Freestyle gateway has a fresh host key per session and we re-mint per attach,
+        // so skip the StrictHostKeyChecking prompt and known_hosts caching.
+        //
+        // IdentitiesOnly=yes + IdentityFile=/dev/null is load-bearing: the gateway
+        // authenticates via the SSH "none" method with the token embedded in the username.
+        // If OpenSSH offers local pubkeys first, the gateway rejects before "none" can run.
+        //
+        // Each VM pane needs an independent gateway session. Reusing OpenSSH control sockets
+        // can make a new split disturb the original shell.
+        let sshOptionStrings = [
+            "StrictHostKeyChecking=no",
+            "UserKnownHostsFile=/dev/null",
+            "LogLevel=ERROR",
+            "IdentitiesOnly=yes",
+            "IdentityFile=/dev/null",
+            "PreferredAuthentications=none,password",
+            "ControlMaster=no",
+        ]
+        return SSHCommandOptions(
+            destination: "\(username):\(token)@\(host)",
+            displayDestination: "\(username)@\(host)",
+            port: port,
+            identityFile: nil,
+            workspaceName: workspaceName,
+            noFocus: false,
+            sshOptions: sshOptionStrings,
+            extraArguments: [],
+            localSocketPath: client.socketPath,
+            remoteRelayPort: remoteRelayPort,
+            skipDaemonBootstrap: true
+        )
+    }
+
+    private func runVMSSHAttach(commandArgs: [String], client: SocketClient) throws {
+        let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "vm ssh-attach: unknown flag '\(unknown)'")
+        }
+        guard remaining.isEmpty else {
+            throw CLIError(message: "Usage: cmux vm ssh-attach --id <vm-id>")
+        }
+        guard let vmID = vmIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !vmID.isEmpty else {
+            throw CLIError(message: "Usage: cmux vm ssh-attach --id <vm-id>")
+        }
+
+        let attachInfoStartedAt = Date()
+        let response = try client.sendV2(method: "vm.attach_info", params: ["id": vmID], responseTimeout: Self.vmAttachResponseTimeoutSeconds)
+        logVMTiming("attach_info", vmID: vmID, transport: "ssh", startedAt: attachInfoStartedAt)
+        let options = try vmSSHOptions(
+            fromAttachInfo: response,
+            workspaceName: nil,
+            client: client,
+            remoteRelayPort: 0
+        )
+        let sshArguments = buildSSHCommandArguments(options)
+        guard let launchPath = sshArguments.first else {
+            throw CLIError(message: "vm ssh-attach: failed to construct ssh command")
+        }
+        client.close()
+        try execInteractiveProgram(
+            launchPath: launchPath,
+            arguments: Array(sshArguments.dropFirst())
+        )
+    }
+
+    private func parseVMPtyWebSocketEndpoint(_ response: [String: Any]) throws -> VMPtyWebSocketEndpoint {
+        func parseHeaders(_ value: Any?) -> [String: String] {
+            guard let raw = value as? [String: Any] else { return [:] }
+            return raw.reduce(into: [String: String]()) { result, pair in
+                if let headerValue = pair.value as? String {
+                    result[pair.key] = headerValue
+                }
+            }
+        }
+        guard let url = response["url"] as? String,
+              let token = response["token"] as? String,
+              let sessionId = response["session_id"] as? String else {
+            throw CLIError(message: "vm.attach_info websocket endpoint missing url/token/session_id: \(response)")
+        }
+        let headers = parseHeaders(response["headers"])
+        let expiresAtUnix = (response["expires_at_unix"] as? Int64)
+            ?? Int64((response["expires_at_unix"] as? Double) ?? 0)
+        let daemon: VMDaemonWebSocketEndpoint?
+        if let daemonResponse = response["daemon"] as? [String: Any],
+           let daemonURL = daemonResponse["url"] as? String,
+           let daemonToken = daemonResponse["token"] as? String,
+           let daemonSessionID = daemonResponse["session_id"] as? String {
+            let daemonHeaders = parseHeaders(daemonResponse["headers"])
+            let daemonExpiresAtUnix = (daemonResponse["expires_at_unix"] as? Int64)
+                ?? Int64((daemonResponse["expires_at_unix"] as? Double) ?? 0)
+            daemon = VMDaemonWebSocketEndpoint(
+                url: daemonURL,
+                headers: daemonHeaders,
+                token: daemonToken,
+                sessionId: daemonSessionID,
+                expiresAtUnix: daemonExpiresAtUnix
+            )
+        } else {
+            daemon = nil
+        }
+        return VMPtyWebSocketEndpoint(
+            url: url,
+            headers: headers,
+            token: token,
+            sessionId: sessionId,
+            expiresAtUnix: expiresAtUnix,
+            daemon: daemon
+        )
+    }
+
+    private func runVMPtyWebSocketWorkspace(
+        id: String,
+        endpoint: VMPtyWebSocketEndpoint,
+        workspaceName: String?,
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let startedAt = Date()
+        let configURL = try writeVMPtyWebSocketConfig(endpoint)
+        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let initialStartupCommand = "\(shellQuote(executablePath)) vm-pty-connect --config \(shellQuote(configURL.path)) --id \(shellQuote(id))"
+        let splitStartupCommand = "\(shellQuote(executablePath)) vm-pty-attach --id \(shellQuote(id))"
+        var params: [String: Any] = [
+            "initial_command": initialStartupCommand,
+        ]
+        if let workspaceName = workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workspaceName.isEmpty {
+            params["title"] = workspaceName
+        }
+        let workspaceCreateStartedAt = Date()
+        let workspaceCreate = try client.sendV2(method: "workspace.create", params: params)
+        guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
+            throw CLIError(message: "workspace.create did not return workspace_id")
+        }
+        logVMTiming(
+            "workspace.create",
+            vmID: id,
+            transport: "websocket",
+            startedAt: workspaceCreateStartedAt,
+            extra: "workspace=\(String(workspaceId.prefix(8)))"
+        )
+
+        let target = URL(string: endpoint.url)?.host ?? "websocket"
+        let configureStartedAt = Date()
+        var configureParams: [String: Any] = [
+            "workspace_id": workspaceId,
+            "destination": target,
+            "transport": "websocket",
+            "auto_connect": endpoint.daemon != nil,
+            "terminal_startup_command": splitStartupCommand,
+            "skip_daemon_bootstrap": true,
+        ]
+        if let daemon = endpoint.daemon {
+            configureParams["daemon_websocket_url"] = daemon.url
+            configureParams["daemon_websocket_headers"] = daemon.headers
+            configureParams["daemon_websocket_token"] = daemon.token
+            configureParams["daemon_websocket_session_id"] = daemon.sessionId
+            configureParams["daemon_websocket_expires_at_unix"] = daemon.expiresAtUnix
+        }
+        let configuredPayload: [String: Any]
+        do {
+            configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+            logVMTiming(
+                "workspace.remote.configure",
+                vmID: id,
+                transport: "websocket",
+                startedAt: configureStartedAt,
+                extra: "workspace=\(String(workspaceId.prefix(8)))"
+            )
+
+            var selectParams: [String: Any] = ["workspace_id": workspaceId]
+            if let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !workspaceWindowId.isEmpty {
+                selectParams["window_id"] = workspaceWindowId
+            }
+            let selectStartedAt = Date()
+            _ = try client.sendV2(method: "workspace.select", params: selectParams)
+            logVMTiming(
+                "workspace.select",
+                vmID: id,
+                transport: "websocket",
+                startedAt: selectStartedAt,
+                extra: "workspace=\(String(workspaceId.prefix(8)))"
+            )
+        } catch {
+            do {
+                _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+            } catch {
+                let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
+                FileHandle.standardError.write(Data(warning.utf8))
+            }
+            throw error
+        }
+
+        var payload = configuredPayload
+        payload["workspace_id"] = workspaceId
+        payload["workspace_ref"] = workspaceCreate["workspace_ref"] ?? payload["workspace_ref"] ?? NSNull()
+        payload["window_id"] = workspaceCreate["window_id"] ?? payload["window_id"] ?? NSNull()
+        payload["window_ref"] = workspaceCreate["window_ref"] ?? payload["window_ref"] ?? NSNull()
+        payload["vm_id"] = id
+        payload["transport"] = "websocket"
+        payload["target"] = target
+        payload["expires_at_unix"] = endpoint.expiresAtUnix
+        logVMTiming(
+            "complete",
+            vmID: id,
+            transport: "websocket",
+            startedAt: startedAt,
+            extra: "workspace=\(String(workspaceId.prefix(8)))"
+        )
+
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? workspaceId
+            print("OK workspace=\(workspaceHandle) target=\(target) transport=websocket")
+        }
+    }
+
+    private func writeVMPtyWebSocketConfig(_ endpoint: VMPtyWebSocketEndpoint) throws -> URL {
+        let config = VMPtyWebSocketConfig(
+            url: endpoint.url,
+            headers: endpoint.headers,
+            token: endpoint.token,
+            sessionId: endpoint.sessionId
+        )
+        let data = try JSONEncoder().encode(config)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-pty-\(UUID().uuidString.lowercased()).json")
+        try data.write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        return url
+    }
+
+    private func runVMPtyConnect(commandArgs: [String]) throws {
+        let (configPath, rem0) = parseOption(commandArgs, name: "--config")
+        let (vmIDOpt, remaining) = parseOption(rem0, name: "--id")
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "vm-pty-connect: unknown flag '\(unknown)'")
+        }
+        guard let configPath else {
+            throw CLIError(message: "Usage: cmux vm-pty-connect --config <path>")
+        }
+        let configURL = URL(fileURLWithPath: (configPath as NSString).expandingTildeInPath)
+        let data = try Data(contentsOf: configURL)
+        try? FileManager.default.removeItem(at: configURL)
+        let config = try JSONDecoder().decode(VMPtyWebSocketConfig.self, from: data)
+        let vmID = vmIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let startedAt = Date()
+        let debugEvent: ((String) -> Void)? = {
+            guard let vmID, !vmID.isEmpty else { return nil }
+            return { [self] stage in
+                logVMTiming(stage, vmID: vmID, transport: "websocket", startedAt: startedAt)
+            }
+        }()
+        try VMPtyWebSocketBridge(config: config, debugEvent: debugEvent).run()
+    }
+
+    private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
+        let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "vm-pty-attach: unknown flag '\(unknown)'")
+        }
+        guard remaining.isEmpty else {
+            throw CLIError(message: "Usage: cmux vm-pty-attach --id <vm-id>")
+        }
+        guard let vmID = vmIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !vmID.isEmpty else {
+            throw CLIError(message: "Usage: cmux vm-pty-attach --id <vm-id>")
+        }
+
+        let startedAt = Date()
+        func log(_ stage: String, extra: String = "") {
+            logVMTiming(stage, vmID: vmID, transport: "websocket", startedAt: startedAt, extra: extra)
+        }
+
+        let attachInfoStartedAt = Date()
+        let response = try client.sendV2(method: "vm.attach_info", params: ["id": vmID], responseTimeout: Self.vmAttachResponseTimeoutSeconds)
+        logVMTiming("attach_info", vmID: vmID, transport: "websocket", startedAt: attachInfoStartedAt)
+        let endpoint = try parseVMPtyWebSocketEndpoint(response)
+        let config = VMPtyWebSocketConfig(
+            url: endpoint.url,
+            headers: endpoint.headers,
+            token: endpoint.token,
+            sessionId: endpoint.sessionId
+        )
+        try VMPtyWebSocketBridge(config: config, debugEvent: { stage in
+            log(stage)
+        }).run()
+    }
+
+    private final class VMPtyWebSocketBridgeDelegate: NSObject, URLSessionWebSocketDelegate {
+        private let openSemaphore = DispatchSemaphore(value: 0)
+        private let lock = NSLock()
+        private var opened = false
+        private var closed = false
+
+        func urlSession(
+            _ session: URLSession,
+            webSocketTask: URLSessionWebSocketTask,
+            didOpenWithProtocol protocol: String?
+        ) {
+            lock.lock()
+            opened = true
+            lock.unlock()
+            openSemaphore.signal()
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            webSocketTask: URLSessionWebSocketTask,
+            didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+            reason: Data?
+        ) {
+            lock.lock()
+            closed = true
+            lock.unlock()
+            openSemaphore.signal()
+        }
+
+        func waitForOpen(timeout: TimeInterval) -> Bool {
+            if openSemaphore.wait(timeout: .now() + timeout) != .success {
+                return false
+            }
+            lock.lock()
+            defer { lock.unlock() }
+            return opened && !closed
+        }
+
+        var isClosed: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return closed
+        }
+    }
+
+    private final class VMPtyWebSocketBridge {
+        private let config: VMPtyWebSocketConfig
+        private let debugEvent: ((String) -> Void)?
+        private let sendQueue = DispatchQueue(label: "com.cmux.vm-pty.websocket.send")
+        private let stopLock = NSLock()
+        private var stopped = false
+        private var task: URLSessionWebSocketTask?
+
+        init(config: VMPtyWebSocketConfig, debugEvent: ((String) -> Void)? = nil) {
+            self.config = config
+            self.debugEvent = debugEvent
+        }
+
+        func run() throws {
+            guard let url = URL(string: config.url),
+                  url.scheme == "wss" || url.scheme == "ws" else {
+                throw CLIError(message: "vm-pty-connect: invalid websocket url")
+            }
+            var request = URLRequest(url: url)
+            for (key, value) in config.headers {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+
+            let delegate = VMPtyWebSocketBridgeDelegate()
+            let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+            let task = session.webSocketTask(with: request)
+            self.task = task
+            defer {
+                markStopped()
+                task.cancel(with: .normalClosure, reason: nil)
+                session.invalidateAndCancel()
+            }
+            task.resume()
+            guard delegate.waitForOpen(timeout: 15) else {
+                throw CLIError(message: "vm-pty-connect: timed out opening websocket")
+            }
+            debugEvent?("websocket.open")
+
+            try sendAuthFrame()
+            debugEvent?("websocket.auth")
+            try waitForReady(delegate: delegate)
+            debugEvent?("websocket.ready")
+
+            let rawMode = TerminalRawMode()
+            defer { rawMode?.restore() }
+            let resizeSource = startResizeSource()
+            defer { resizeSource.cancel() }
+            startInputPump()
+            try receiveOutputLoop(delegate: delegate)
+        }
+
+        private func sendAuthFrame() throws {
+            let size = Self.currentTerminalSize()
+            let auth: [String: Any] = [
+                "type": "auth",
+                "token": config.token,
+                "session_id": config.sessionId,
+                "cols": size.cols,
+                "rows": size.rows,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: auth, options: [])
+            let text = String(data: data, encoding: .utf8) ?? "{}"
+            try sendSync(.string(text))
+        }
+
+        private func waitForReady(delegate: VMPtyWebSocketBridgeDelegate) throws {
+            while true {
+                guard let message = try receiveSync(delegate: delegate) else {
+                    throw CLIError(message: "vm-pty-connect: websocket closed before ready")
+                }
+                if case .string(let text) = message, text.contains("\"ready\"") {
+                    return
+                }
+            }
+        }
+
+        private func startResizeSource() -> DispatchSourceSignal {
+            signal(SIGWINCH, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(
+                signal: SIGWINCH,
+                queue: DispatchQueue(label: "com.cmux.vm-pty.resize")
+            )
+            source.setEventHandler { [weak self] in
+                guard let self else { return }
+                let size = Self.currentTerminalSize()
+                let payload: [String: Any] = ["type": "resize", "cols": size.cols, "rows": size.rows]
+                guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
+                      let text = String(data: data, encoding: .utf8) else {
+                    return
+                }
+                self.sendAsync(.string(text))
+            }
+            source.resume()
+            return source
+        }
+
+        private static func currentTerminalSize() -> TerminalSize {
+            var size = winsize()
+            if ioctl(STDIN_FILENO, TIOCGWINSZ, &size) == 0,
+               size.ws_col > 0,
+               size.ws_row > 0 {
+                return TerminalSize(cols: Int(size.ws_col), rows: Int(size.ws_row))
+            }
+            return TerminalSize(cols: 80, rows: 24)
+        }
+
+        private func startInputPump() {
+            DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+                guard let self else { return }
+                var buffer = [UInt8](repeating: 0, count: 8192)
+                while !self.isStopped {
+                    let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
+                    if count > 0 {
+                        self.sendAsync(.data(Data(buffer.prefix(count))))
+                    } else if count == 0 {
+                        self.task?.cancel(with: .normalClosure, reason: nil)
+                        return
+                    } else if errno != EINTR {
+                        self.task?.cancel(with: .goingAway, reason: nil)
+                        return
+                    }
+                }
+            }
+        }
+
+        private func receiveOutputLoop(delegate: VMPtyWebSocketBridgeDelegate) throws {
+            while let message = try receiveSync(delegate: delegate) {
+                switch message {
+                case .data(let data):
+                    FileHandle.standardOutput.write(data)
+                case .string:
+                    continue
+                @unknown default:
+                    continue
+                }
+            }
+        }
+
+        private func receiveSync(delegate: VMPtyWebSocketBridgeDelegate) throws -> URLSessionWebSocketTask.Message? {
+            guard let task else { throw CLIError(message: "vm-pty-connect: websocket task missing") }
+            let semaphore = DispatchSemaphore(value: 0)
+            var received: Result<URLSessionWebSocketTask.Message, Error>?
+            task.receive { result in
+                received = result
+                semaphore.signal()
+            }
+            semaphore.wait()
+            switch received {
+            case .success(let message):
+                return message
+            case .failure(let error):
+                if delegate.isClosed || isStopped {
+                    return nil
+                }
+                throw error
+            case nil:
+                return nil
+            }
+        }
+
+        private func sendAsync(_ message: URLSessionWebSocketTask.Message) {
+            sendQueue.async { [weak self] in
+                try? self?.sendSync(message)
+            }
+        }
+
+        private func sendSync(_ message: URLSessionWebSocketTask.Message) throws {
+            guard let task else { throw CLIError(message: "vm-pty-connect: websocket task missing") }
+            let semaphore = DispatchSemaphore(value: 0)
+            var sendError: Error?
+            task.send(message) { error in
+                sendError = error
+                semaphore.signal()
+            }
+            semaphore.wait()
+            if let sendError {
+                throw sendError
+            }
+        }
+
+        private var isStopped: Bool {
+            stopLock.lock()
+            defer { stopLock.unlock() }
+            return stopped
+        }
+
+        private func markStopped() {
+            stopLock.lock()
+            stopped = true
+            stopLock.unlock()
+        }
+    }
+
+    private final class TerminalRawMode {
+        private var original = termios()
+        private var restored = false
+
+        init?() {
+            guard tcgetattr(STDIN_FILENO, &original) == 0 else {
+                return nil
+            }
+            var raw = original
+            cfmakeraw(&raw)
+            guard tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0 else {
+                return nil
+            }
+        }
+
+        deinit {
+            restore()
+        }
+
+        func restore() {
+            guard !restored else { return }
+            tcsetattr(STDIN_FILENO, TCSANOW, &original)
+            restored = true
+        }
     }
 
     private func runSSHSessionEnd(commandArgs: [String], client: SocketClient) throws {
@@ -5489,6 +6813,30 @@ struct CMUXCLI {
         ].joined(separator: " ")
     }
 
+    private func sshConnectionTimingLocalCommand(target: String, relayPort: Int) -> String {
+        let escapedTarget = target
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return [
+            "cmux_ssh_log_path=\"$(tr -d '\\r\\n' < /tmp/cmux-last-debug-log-path 2>/dev/null || true)\";",
+            "if [ -n \"$cmux_ssh_log_path\" ]; then",
+            "cmux_ssh_ts=\"$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec=\"milliseconds\").replace(\"+00:00\", \"Z\"))' 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)\";",
+            "printf '%s [cmux-cli] cli.ssh.handshake target=\(escapedTarget) relayPort=\(relayPort) stage=ssh.connected workspace=%s surface=%s\\n' \"$cmux_ssh_ts\" \"${CMUX_WORKSPACE_ID:-nil}\" \"${CMUX_SURFACE_ID:-nil}\" >> \"$cmux_ssh_log_path\";",
+            "fi;",
+            "unset cmux_ssh_log_path cmux_ssh_ts;",
+        ].joined(separator: " ")
+    }
+
+    private func combinedLocalShellCommand(_ parts: [String?]) -> String? {
+        let filtered = parts.compactMap { raw -> String? in
+            guard let raw else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard !filtered.isEmpty else { return nil }
+        return filtered.joined(separator: " ")
+    }
+
     private func shouldDeferRemoteReconnect(in options: [String]) -> Bool {
         guard !hasSSHOptionKey(options, key: "LocalCommand"),
               !hasSSHOptionKey(options, key: "PermitLocalCommand") else {
@@ -5539,6 +6887,27 @@ struct CMUXCLI {
             return value
         }
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private func execInteractiveProgram(
+        launchPath: String,
+        arguments: [String]
+    ) throws -> Never {
+        var argv = ([launchPath] + arguments).map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+        }
+        argv.append(nil)
+
+        if launchPath.contains("/") {
+            execv(launchPath, &argv)
+        } else {
+            execvp(launchPath, &argv)
+        }
+        let code = errno
+        throw CLIError(message: "Failed to launch \(launchPath): \(String(cString: strerror(code)))")
     }
 
     private func sshOptionValue(named key: String, in options: [String]) -> String? {
@@ -7056,8 +8425,38 @@ struct CMUXCLI {
             Usage: cmux auth <status|login|logout>
 
             status   Print whether the user is signed in (add `cmux --json` for JSON).
-            login    Open the sign-in popup on the cmux mac app and wait for it to finish.
+            login    Open the sign-in popup on the cmux web app and wait for it to finish.
             logout   Clear the current session.
+            """
+        case "vm", "cloud":
+            return """
+            Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh> [args...]
+
+            Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
+
+            Subcommands:
+              ls                        List your cloud VMs.
+              new [--image <template>] [--provider <e2b|freestyle>] [--detach|-d]
+                                        Create a new VM. By default drops you into a shell on
+                                        the VM (like `docker run -it`). Pass --detach/-d to
+                                        just print the id and exit (scripting primitive).
+              shell <id>                Drop into an interactive shell on an existing VM.
+                                        Alias: `attach <id>`.
+              rm <id>                   Destroy a VM.
+              exec <id> -- <command...> Run a shell command inside the VM and print stdout.
+              ssh <id>                  Print a ready-to-paste SSH one-liner when the VM
+                                        provider exposes SSH.
+
+            Env:
+              CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).
+                                         `bun run dev` derives this from CMUX_PORT/PORT for
+                                         local testing from the web worktree.
+
+            Example:
+              cmux vm new
+              cmux vm ls
+              cmux cloud exec <id> -- echo hello
+              cmux vm rm <id>
             """
         case "rpc":
             return """
@@ -7084,6 +8483,25 @@ struct CMUXCLI {
             Usage: cmux shortcuts
 
             Open the Settings window to Keyboard Shortcuts.
+            """
+        case "disable-browser":
+            return """
+            Usage: cmux disable-browser [--json]
+
+            Disable cmux browser creation and link interception. This overrides
+            browser settings from settings.json until re-enabled.
+            """
+        case "enable-browser":
+            return """
+            Usage: cmux enable-browser [--json]
+
+            Re-enable cmux browser creation and link interception.
+            """
+        case "browser-status":
+            return """
+            Usage: cmux browser-status [--json]
+
+            Print whether cmux browser creation and link interception are enabled.
             """
         case "restore-session":
             return """
@@ -8297,6 +9715,7 @@ struct CMUXCLI {
             Subcommands:
               open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>]
                 open/open-split/new default to $CMUX_WORKSPACE_ID when --workspace is omitted and --window is not set
+              disable | enable | status
               goto|navigate <url> [--snapshot-after]
               back|forward|reload [--snapshot-after]
               url|get-url
@@ -8402,722 +9821,6 @@ struct CMUXCLI {
         return true
     }
 
-    private static let cmuxThemeOverrideBundleIdentifier = "com.cmuxterm.app"
-    private static let cmuxThemesBlockStart = "# cmux themes start"
-    private static let cmuxThemesBlockEnd = "# cmux themes end"
-    private static let cmuxThemesReloadNotificationName = "com.cmuxterm.themes.reload-config"
-
-    private struct ThemeSelection {
-        let rawValue: String?
-        let light: String?
-        let dark: String?
-        let sourcePath: String?
-    }
-
-    private struct ThemeReloadStatus {
-        let requested: Bool
-        let targetBundleIdentifier: String
-    }
-
-    private enum ThemePickerTargetMode: String {
-        case both
-        case light
-        case dark
-    }
-
-    private func shouldUseInteractiveThemePicker(jsonOutput: Bool) -> Bool {
-        guard !jsonOutput else { return false }
-        return isatty(STDIN_FILENO) == 1 && isatty(STDOUT_FILENO) == 1
-    }
-
-    private func runInteractiveThemes() throws {
-        guard let helperURL = bundledHelperURL(named: "ghostty") else {
-            throw CLIError(message: "Bundled Ghostty theme picker helper not found")
-        }
-
-        let selection = currentThemeSelection()
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_THEME_PICKER_CONFIG"] = try cmuxThemeOverrideConfigURL().path
-        environment["CMUX_THEME_PICKER_BUNDLE_ID"] = currentCmuxAppBundleIdentifier() ?? Self.cmuxThemeOverrideBundleIdentifier
-        environment["CMUX_THEME_PICKER_TARGET"] = defaultThemePickerTargetMode(current: selection).rawValue
-        environment["CMUX_THEME_PICKER_COLOR_SCHEME"] = defaultAppearancePrefersDarkThemes() ? "dark" : "light"
-        if let light = selection.light {
-            environment["CMUX_THEME_PICKER_INITIAL_LIGHT"] = light
-        }
-        if let dark = selection.dark {
-            environment["CMUX_THEME_PICKER_INITIAL_DARK"] = dark
-        }
-        if let resourcesURL = bundledGhosttyResourcesURL() {
-            environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
-        }
-
-        try execInteractiveHelper(
-            executablePath: helperURL.path,
-            arguments: ["+list-themes"],
-            environment: environment
-        )
-    }
-
-    private func defaultThemePickerTargetMode(current: ThemeSelection) -> ThemePickerTargetMode {
-        if let light = current.light,
-           let dark = current.dark,
-           light.caseInsensitiveCompare(dark) == .orderedSame {
-            return .both
-        }
-        return defaultAppearancePrefersDarkThemes() ? .dark : .light
-    }
-
-    private func defaultAppearancePrefersDarkThemes() -> Bool {
-        let globalDefaults = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)
-        let interfaceStyle = (globalDefaults?["AppleInterfaceStyle"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return interfaceStyle?.caseInsensitiveCompare("Dark") == .orderedSame
-    }
-
-    private func bundledHelperURL(named helperName: String) -> URL? {
-        let fileManager = FileManager.default
-        guard let executableURL = resolvedExecutableURL() else { return nil }
-
-        var candidates: [URL] = [
-            executableURL.deletingLastPathComponent().appendingPathComponent(helperName, isDirectory: false)
-        ]
-
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while true {
-            if current.lastPathComponent == "Contents" {
-                candidates.append(
-                    current
-                        .appendingPathComponent("Resources", isDirectory: true)
-                        .appendingPathComponent("bin", isDirectory: true)
-                        .appendingPathComponent(helperName, isDirectory: false)
-                )
-            }
-
-            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
-            let repoHelper = current
-                .appendingPathComponent("ghostty", isDirectory: true)
-                .appendingPathComponent("zig-out", isDirectory: true)
-                .appendingPathComponent("bin", isDirectory: true)
-                .appendingPathComponent(helperName, isDirectory: false)
-            if fileManager.fileExists(atPath: projectMarker.path),
-               fileManager.isExecutableFile(atPath: repoHelper.path) {
-                candidates.append(repoHelper)
-                break
-            }
-
-            guard let parent = parentSearchURL(for: current) else { break }
-            current = parent
-        }
-
-        return candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) })
-    }
-
-    private func execInteractiveHelper(
-        executablePath: String,
-        arguments: [String],
-        environment: [String: String]
-    ) throws -> Never {
-        var argv = ([executablePath] + arguments).map { strdup($0) }
-        defer {
-            for item in argv {
-                free(item)
-            }
-        }
-        argv.append(nil)
-
-        var envp = environment
-            .map { key, value in strdup("\(key)=\(value)") }
-        defer {
-            for item in envp {
-                free(item)
-            }
-        }
-        envp.append(nil)
-
-        execve(executablePath, &argv, &envp)
-        let code = errno
-        throw CLIError(message: "Failed to launch interactive theme picker: \(String(cString: strerror(code)))")
-    }
-
-    private func bundledGhosttyResourcesURL() -> URL? {
-        let fileManager = FileManager.default
-        guard let executableURL = resolvedExecutableURL() else { return nil }
-
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while true {
-            if current.lastPathComponent == "Contents" {
-                let candidate = current
-                    .appendingPathComponent("Resources", isDirectory: true)
-                    .appendingPathComponent("ghostty", isDirectory: true)
-                if fileManager.fileExists(atPath: candidate.path) {
-                    return candidate
-                }
-            }
-
-            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
-            let repoResources = current
-                .appendingPathComponent("Resources", isDirectory: true)
-                .appendingPathComponent("ghostty", isDirectory: true)
-            if fileManager.fileExists(atPath: projectMarker.path),
-               fileManager.fileExists(atPath: repoResources.path) {
-                return repoResources
-            }
-
-            guard let parent = parentSearchURL(for: current) else { break }
-            current = parent
-        }
-
-        return Bundle.main.resourceURL?.appendingPathComponent("ghostty", isDirectory: true)
-    }
-
-    private func runThemes(commandArgs: [String], jsonOutput: Bool) throws {
-        if commandArgs.isEmpty {
-            if shouldUseInteractiveThemePicker(jsonOutput: jsonOutput) {
-                try runInteractiveThemes()
-                return
-            }
-            try printThemesList(jsonOutput: jsonOutput)
-            return
-        }
-
-        guard let subcommand = commandArgs.first else {
-            try printThemesList(jsonOutput: jsonOutput)
-            return
-        }
-
-        switch subcommand {
-        case "list":
-            if commandArgs.count > 1 {
-                throw CLIError(message: "themes list does not take any positional arguments")
-            }
-            try printThemesList(jsonOutput: jsonOutput)
-        case "set":
-            try runThemesSet(
-                args: Array(commandArgs.dropFirst()),
-                jsonOutput: jsonOutput
-            )
-        case "clear":
-            if commandArgs.count > 1 {
-                throw CLIError(message: "themes clear does not take any positional arguments")
-            }
-            try runThemesClear(jsonOutput: jsonOutput)
-        default:
-            if subcommand.hasPrefix("-") {
-                throw CLIError(message: "Unknown themes subcommand '\(subcommand)'. Run 'cmux themes --help'.")
-            }
-
-            try runThemesSet(
-                args: commandArgs,
-                jsonOutput: jsonOutput
-            )
-        }
-    }
-
-    private func printThemesList(jsonOutput: Bool) throws {
-        let themes = availableThemeNames()
-        let current = currentThemeSelection()
-        let configPath = try cmuxThemeOverrideConfigURL().path
-
-        if jsonOutput {
-            let currentPayload: [String: Any] = [
-                "raw_value": current.rawValue ?? NSNull(),
-                "light": current.light ?? NSNull(),
-                "dark": current.dark ?? NSNull(),
-                "source_path": current.sourcePath ?? NSNull()
-            ]
-            let payload: [String: Any] = [
-                "themes": themes.map { theme in
-                    [
-                        "name": theme,
-                        "current_light": current.light?.caseInsensitiveCompare(theme) == .orderedSame,
-                        "current_dark": current.dark?.caseInsensitiveCompare(theme) == .orderedSame
-                    ]
-                },
-                "current": currentPayload,
-                "config_path": configPath
-            ]
-            print(jsonString(payload))
-            return
-        }
-
-        print("Current light: \(current.light ?? "inherit")")
-        print("Current dark: \(current.dark ?? "inherit")")
-        print("Config: \(configPath)")
-        if let sourcePath = current.sourcePath {
-            print("Source: \(sourcePath)")
-        }
-        print("")
-
-        guard !themes.isEmpty else {
-            print("No themes found.")
-            return
-        }
-
-        for theme in themes {
-            var badges: [String] = []
-            if current.light?.caseInsensitiveCompare(theme) == .orderedSame {
-                badges.append("light")
-            }
-            if current.dark?.caseInsensitiveCompare(theme) == .orderedSame {
-                badges.append("dark")
-            }
-            let badgeText = badges.isEmpty ? "" : "  [\(badges.joined(separator: ", "))]"
-            print("\(theme)\(badgeText)")
-        }
-    }
-
-    private func runThemesSet(args: [String], jsonOutput: Bool) throws {
-        let (lightOpt, rem0) = parseOption(args, name: "--light")
-        let (darkOpt, rem1) = parseOption(rem0, name: "--dark")
-
-        if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "themes set: unknown flag '\(unknown)'. Known flags: --light <theme>, --dark <theme>")
-        }
-
-        let availableThemes = availableThemeNames()
-        let current = currentThemeSelection()
-
-        let lightTheme: String?
-        let darkTheme: String?
-
-        if lightOpt == nil && darkOpt == nil {
-            let joinedTheme = rem1.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !joinedTheme.isEmpty else {
-                throw CLIError(message: "themes set requires a theme name or --light/--dark flags")
-            }
-            let resolved = try validatedThemeName(joinedTheme, availableThemes: availableThemes)
-            lightTheme = resolved
-            darkTheme = resolved
-        } else {
-            if !rem1.isEmpty {
-                throw CLIError(message: "themes set: unexpected argument '\(rem1.joined(separator: " "))'")
-            }
-            lightTheme = try lightOpt.map { try validatedThemeName($0, availableThemes: availableThemes) } ?? current.light
-            darkTheme = try darkOpt.map { try validatedThemeName($0, availableThemes: availableThemes) } ?? current.dark
-        }
-
-        guard let rawThemeValue = encodedThemeValue(light: lightTheme, dark: darkTheme) else {
-            throw CLIError(message: "themes set requires at least one theme")
-        }
-
-        let configURL = try writeManagedThemeOverride(rawThemeValue: rawThemeValue)
-        let reloadStatus = reloadThemesIfPossible()
-
-        if jsonOutput {
-            let payload: [String: Any] = [
-                "ok": true,
-                "light": lightTheme ?? NSNull(),
-                "dark": darkTheme ?? NSNull(),
-                "raw_value": rawThemeValue,
-                "config_path": configURL.path,
-                "reload_requested": reloadStatus.requested,
-                "reload_target_bundle_id": reloadStatus.targetBundleIdentifier
-            ]
-            print(jsonString(payload))
-            return
-        }
-
-        print(
-            "OK light=\(lightTheme ?? "-") dark=\(darkTheme ?? "-") config=\(configURL.path) reload=requested"
-        )
-    }
-
-    private func runThemesClear(jsonOutput: Bool) throws {
-        let configURL = try clearManagedThemeOverride()
-        let reloadStatus = reloadThemesIfPossible()
-
-        if jsonOutput {
-            let payload: [String: Any] = [
-                "ok": true,
-                "cleared": true,
-                "config_path": configURL.path,
-                "reload_requested": reloadStatus.requested,
-                "reload_target_bundle_id": reloadStatus.targetBundleIdentifier
-            ]
-            print(jsonString(payload))
-            return
-        }
-
-        print("OK cleared config=\(configURL.path) reload=requested")
-    }
-
-    private func currentThemeSelection() -> ThemeSelection {
-        var rawValue: String?
-        var sourcePath: String?
-
-        for url in themeConfigSearchURLs() {
-            guard let contents = try? String(contentsOf: url, encoding: .utf8),
-                  let nextValue = lastThemeDirective(in: contents) else {
-                continue
-            }
-            rawValue = nextValue
-            sourcePath = url.path
-        }
-
-        return parseThemeSelection(rawValue: rawValue, sourcePath: sourcePath)
-    }
-
-    private func parseThemeSelection(rawValue: String?, sourcePath: String?) -> ThemeSelection {
-        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawValue.isEmpty else {
-            return ThemeSelection(rawValue: nil, light: nil, dark: nil, sourcePath: sourcePath)
-        }
-
-        var fallbackTheme: String?
-        var lightTheme: String?
-        var darkTheme: String?
-
-        for token in rawValue.split(separator: ",").map(String.init) {
-            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !entry.isEmpty else { continue }
-
-            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
-            if parts.count != 2 {
-                if fallbackTheme == nil {
-                    fallbackTheme = entry
-                }
-                continue
-            }
-
-            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { continue }
-
-            switch key {
-            case "light":
-                if lightTheme == nil {
-                    lightTheme = value
-                }
-            case "dark":
-                if darkTheme == nil {
-                    darkTheme = value
-                }
-            default:
-                if fallbackTheme == nil {
-                    fallbackTheme = value
-                }
-            }
-        }
-
-        let resolvedLight = lightTheme ?? fallbackTheme ?? darkTheme
-        let resolvedDark = darkTheme ?? fallbackTheme ?? lightTheme
-        return ThemeSelection(rawValue: rawValue, light: resolvedLight, dark: resolvedDark, sourcePath: sourcePath)
-    }
-
-    private func encodedThemeValue(light: String?, dark: String?) -> String? {
-        let normalizedLight = light?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedDark = dark?.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        switch (normalizedLight?.isEmpty == false ? normalizedLight : nil, normalizedDark?.isEmpty == false ? normalizedDark : nil) {
-        case let (lightTheme?, darkTheme?):
-            return "light:\(lightTheme),dark:\(darkTheme)"
-        case let (lightTheme?, nil):
-            return "light:\(lightTheme)"
-        case let (nil, darkTheme?):
-            return "dark:\(darkTheme)"
-        case (nil, nil):
-            return nil
-        }
-    }
-
-    private func availableThemeNames() -> [String] {
-        let fileManager = FileManager.default
-        var seen: Set<String> = []
-        var themes: [String] = []
-
-        for directoryURL in themeDirectoryURLs() {
-            guard let entries = try? fileManager.contentsOfDirectory(
-                at: directoryURL,
-                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            ) else {
-                continue
-            }
-
-            for entry in entries {
-                let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
-                guard values?.isDirectory != true else { continue }
-                guard values?.isRegularFile == true || values?.isRegularFile == nil else { continue }
-                let name = entry.lastPathComponent
-                let folded = name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                if seen.insert(folded).inserted {
-                    themes.append(name)
-                }
-            }
-        }
-
-        return themes.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-    }
-
-    private func themeDirectoryURLs() -> [URL] {
-        let fileManager = FileManager.default
-        let processEnv = ProcessInfo.processInfo.environment
-        var urls: [URL] = []
-        var seen: Set<String> = []
-
-        func appendIfExisting(_ url: URL?) {
-            guard let url else { return }
-            let standardized = url.standardizedFileURL
-            guard fileManager.fileExists(atPath: standardized.path) else { return }
-            if seen.insert(standardized.path).inserted {
-                urls.append(standardized)
-            }
-        }
-
-        if let resourcesDir = processEnv["GHOSTTY_RESOURCES_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !resourcesDir.isEmpty {
-            appendIfExisting(URL(fileURLWithPath: resourcesDir, isDirectory: true).appendingPathComponent("themes", isDirectory: true))
-        }
-
-        appendIfExisting(
-            Bundle.main.resourceURL?
-                .appendingPathComponent("ghostty", isDirectory: true)
-                .appendingPathComponent("themes", isDirectory: true)
-        )
-
-        if let executableURL = resolvedExecutableURL() {
-            var current = executableURL.deletingLastPathComponent().standardizedFileURL
-            while true {
-                if current.lastPathComponent == "Resources" {
-                    appendIfExisting(
-                        current
-                            .appendingPathComponent("ghostty", isDirectory: true)
-                            .appendingPathComponent("themes", isDirectory: true)
-                    )
-                }
-                if current.lastPathComponent == "Contents" {
-                    appendIfExisting(
-                        current
-                            .appendingPathComponent("Resources", isDirectory: true)
-                            .appendingPathComponent("ghostty", isDirectory: true)
-                            .appendingPathComponent("themes", isDirectory: true)
-                    )
-                }
-
-                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
-                let repoThemes = current.appendingPathComponent("Resources/ghostty/themes", isDirectory: true)
-                if fileManager.fileExists(atPath: projectMarker.path),
-                   fileManager.fileExists(atPath: repoThemes.path) {
-                    appendIfExisting(repoThemes)
-                    break
-                }
-
-                guard let parent = parentSearchURL(for: current) else { break }
-                current = parent
-            }
-        }
-
-        if let xdgDataDirs = processEnv["XDG_DATA_DIRS"] {
-            for dataDir in xdgDataDirs.split(separator: ":").map(String.init).filter({ !$0.isEmpty }) {
-                appendIfExisting(
-                    URL(fileURLWithPath: NSString(string: dataDir).expandingTildeInPath, isDirectory: true)
-                        .appendingPathComponent("ghostty/themes", isDirectory: true)
-                )
-            }
-        }
-
-        appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
-        appendIfExisting(URL(fileURLWithPath: NSString(string: "~/.config/ghostty/themes").expandingTildeInPath, isDirectory: true))
-        appendIfExisting(
-            URL(
-                fileURLWithPath: NSString(
-                    string: "~/Library/Application Support/com.mitchellh.ghostty/themes"
-                ).expandingTildeInPath,
-                isDirectory: true
-            )
-        )
-
-        return urls
-    }
-
-    private func validatedThemeName(_ rawValue: String, availableThemes: [String]) throws -> String {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw CLIError(message: "Theme name cannot be empty")
-        }
-        if let matched = availableThemes.first(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
-            return matched
-        }
-        if availableThemes.isEmpty {
-            return trimmed
-        }
-        throw CLIError(message: "Unknown theme '\(trimmed)'. Run 'cmux themes' to list available themes.")
-    }
-
-    private func themeConfigSearchURLs() -> [URL] {
-        let rawPaths = [
-            "~/.config/ghostty/config",
-            "~/.config/ghostty/config.ghostty",
-            "~/Library/Application Support/com.mitchellh.ghostty/config",
-            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
-            "~/Library/Application Support/\(Self.cmuxThemeOverrideBundleIdentifier)/config",
-            "~/Library/Application Support/\(Self.cmuxThemeOverrideBundleIdentifier)/config.ghostty",
-        ]
-
-        return rawPaths.map {
-            URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath, isDirectory: false)
-        }
-    }
-
-    private func lastThemeDirective(in contents: String) -> String? {
-        var lastValue: String?
-
-        for line in contents.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty || trimmed.hasPrefix("#") {
-                continue
-            }
-
-            let parts = trimmed.split(separator: "=", maxSplits: 1).map(String.init)
-            guard parts.count == 2 else { continue }
-            guard parts[0].trimmingCharacters(in: .whitespacesAndNewlines) == "theme" else { continue }
-
-            let value = parts[1]
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-            if !value.isEmpty {
-                lastValue = value
-            }
-        }
-
-        return lastValue
-    }
-
-    private func cmuxThemeOverrideConfigURL() throws -> URL {
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw CLIError(message: "Unable to resolve Application Support directory")
-        }
-        return appSupport
-            .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
-            .appendingPathComponent("config.ghostty", isDirectory: false)
-    }
-
-    private func writeManagedThemeOverride(rawThemeValue: String) throws -> URL {
-        let fileManager = FileManager.default
-        let configURL = try cmuxThemeOverrideConfigURL()
-        let directoryURL = configURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-
-        let existingContents = try readOptionalThemeOverrideContents(at: configURL) ?? ""
-        let strippedContents = removingManagedThemeOverride(from: existingContents)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let block = """
-        \(Self.cmuxThemesBlockStart)
-        theme = \(rawThemeValue)
-        \(Self.cmuxThemesBlockEnd)
-        """
-
-        let nextContents = strippedContents.isEmpty ? "\(block)\n" : "\(strippedContents)\n\n\(block)\n"
-        try nextContents.write(to: configURL, atomically: true, encoding: .utf8)
-        return configURL
-    }
-
-    private func clearManagedThemeOverride() throws -> URL {
-        let fileManager = FileManager.default
-        let configURL = try cmuxThemeOverrideConfigURL()
-        guard let existingContents = try readOptionalThemeOverrideContents(at: configURL) else {
-            return configURL
-        }
-
-        let strippedContents = removingManagedThemeOverride(from: existingContents)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if strippedContents.isEmpty {
-            do {
-                try fileManager.removeItem(at: configURL)
-            } catch {
-                guard !isThemeOverrideFileNotFoundError(error) else {
-                    return configURL
-                }
-                throw error
-            }
-        } else {
-            try strippedContents.appending("\n").write(to: configURL, atomically: true, encoding: .utf8)
-        }
-
-        return configURL
-    }
-
-    private func readOptionalThemeOverrideContents(at url: URL) throws -> String? {
-        do {
-            return try String(contentsOf: url, encoding: .utf8)
-        } catch {
-            guard isThemeOverrideFileNotFoundError(error) else {
-                throw error
-            }
-            return nil
-        }
-    }
-
-    private func isThemeOverrideFileNotFoundError(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        if nsError.domain == NSCocoaErrorDomain {
-            return nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError
-        }
-        if nsError.domain == NSPOSIXErrorDomain {
-            return nsError.code == ENOENT
-        }
-        return false
-    }
-
-    private func removingManagedThemeOverride(from contents: String) -> String {
-        let pattern = #"(?ms)\n?# cmux themes start\n.*?\n# cmux themes end\n?"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return contents
-        }
-        let fullRange = NSRange(contents.startIndex..<contents.endIndex, in: contents)
-        return regex.stringByReplacingMatches(in: contents, options: [], range: fullRange, withTemplate: "")
-    }
-
-    private func reloadThemesIfPossible() -> ThemeReloadStatus {
-        let bundleIdentifier = currentCmuxAppBundleIdentifier() ?? Self.cmuxThemeOverrideBundleIdentifier
-        DistributedNotificationCenter.default().post(
-            name: Notification.Name(Self.cmuxThemesReloadNotificationName),
-            object: nil,
-            userInfo: ["bundleIdentifier": bundleIdentifier]
-        )
-        return ThemeReloadStatus(requested: true, targetBundleIdentifier: bundleIdentifier)
-    }
-
-    private func currentCmuxAppBundleIdentifier() -> String? {
-        if let bundleIdentifier = ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !bundleIdentifier.isEmpty {
-            return bundleIdentifier
-        }
-
-        if let bundleIdentifier = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !bundleIdentifier.isEmpty {
-            return bundleIdentifier
-        }
-
-        guard let executableURL = resolvedExecutableURL() else {
-            return nil
-        }
-
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while true {
-            if current.pathExtension == "app",
-               let bundleIdentifier = Bundle(url: current)?.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !bundleIdentifier.isEmpty {
-                return bundleIdentifier
-            }
-
-            if current.lastPathComponent == "Contents" {
-                let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app",
-                   let bundleIdentifier = Bundle(url: appURL)?.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !bundleIdentifier.isEmpty {
-                    return bundleIdentifier
-                }
-            }
-
-            guard let parent = parentSearchURL(for: current) else {
-                break
-            }
-            current = parent
-        }
-
-        return nil
-    }
-
     /// Escape and quote a string for safe embedding in a v1 socket command.
     /// The socket tokenizer treats `\` and `"` as special inside quoted strings,
     /// so both must be escaped before wrapping in double quotes. Newlines and
@@ -9131,7 +9834,7 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\r", with: "\\r")
         return "\"\(escaped)\""
     }
-    private func parseOption(_ args: [String], name: String) -> (String?, [String]) {
+    func parseOption(_ args: [String], name: String) -> (String?, [String]) {
         var remaining: [String] = []
         var value: String?
         var skipNext = false
@@ -9827,7 +10530,7 @@ struct CMUXCLI {
         return UUID(uuidString: value) != nil
     }
 
-    private func jsonString(_ object: Any) -> String {
+    func jsonString(_ object: Any) -> String {
         var options: JSONSerialization.WritingOptions = [.prettyPrinted]
         options.insert(.withoutEscapingSlashes)
         guard JSONSerialization.isValidJSONObject(object),
@@ -17409,7 +18112,7 @@ export default CMUXSessionRestore;
 
     // Foundation can walk past "/" into "/.." when repeatedly deleting path
     // components, so stop once the canonical root is reached.
-    private func parentSearchURL(for url: URL) -> URL? {
+    func parentSearchURL(for url: URL) -> URL? {
         let standardized = url.standardizedFileURL
         let path = standardized.path
         guard !path.isEmpty, path != "/" else {
@@ -17505,7 +18208,7 @@ export default CMUXSessionRestore;
         return Bundle.main.executableURL?.path ?? args.first
     }
 
-    private func resolvedExecutableURL() -> URL? {
+    func resolvedExecutableURL() -> URL? {
         guard let executable = currentExecutablePath(), !executable.isEmpty else {
             return nil
         }
@@ -17538,6 +18241,7 @@ export default CMUXSessionRestore;
         Commands:
           welcome
           shortcuts
+          disable-browser | enable-browser | browser-status
           restore-session
           feedback [--email <email> --body <text> [--image <path> ...]]
           themes [list|set|clear]
@@ -17551,6 +18255,7 @@ export default CMUXSessionRestore;
           version
           capabilities
           auth <status|login|logout>
+          vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
           list-windows
@@ -17626,6 +18331,7 @@ export default CMUXSessionRestore;
           markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
+          browser disable | enable | status
           browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)
           browser open-split [url]
           browser goto|navigate <url> [--snapshot-after]

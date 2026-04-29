@@ -936,6 +936,7 @@ final class FileExplorerContainerView: NSView {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
+        scrollView.horizontalScrollElasticity = .none
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
@@ -975,6 +976,7 @@ final class FileExplorerContainerView: NSView {
         searchScrollView.translatesAutoresizingMaskIntoConstraints = false
         searchScrollView.hasVerticalScroller = true
         searchScrollView.hasHorizontalScroller = false
+        searchScrollView.horizontalScrollElasticity = .none
         searchScrollView.autohidesScrollers = true
         searchScrollView.borderType = .noBorder
         searchScrollView.drawsBackground = false
@@ -1579,6 +1581,8 @@ final class FileExplorerCellView: NSTableCellView {
     private let loadingIndicator = NSProgressIndicator()
     private var trackingArea: NSTrackingArea?
     var onHover: ((Bool) -> Void)?
+    private var nameLabelTrailingToLoadingConstraint: NSLayoutConstraint!
+    private var nameLabelTrailingToContainerConstraint: NSLayoutConstraint!
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
@@ -1607,6 +1611,7 @@ final class FileExplorerCellView: NSTableCellView {
         loadingIndicator.style = .spinning
         loadingIndicator.controlSize = .small
         loadingIndicator.isHidden = true
+        loadingIndicator.setAccessibilityIdentifier("FileExplorerLoadingIndicator")
 
         addSubview(iconView)
         addSubview(nameLabel)
@@ -1624,13 +1629,26 @@ final class FileExplorerCellView: NSTableCellView {
 
             iconToTextConstraint,
             nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: loadingIndicator.leadingAnchor, constant: -4),
 
             loadingIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
             loadingIndicator.widthAnchor.constraint(equalToConstant: 12),
             loadingIndicator.heightAnchor.constraint(equalToConstant: 12),
         ])
+
+        nameLabelTrailingToLoadingConstraint = nameLabel.trailingAnchor.constraint(
+            lessThanOrEqualTo: loadingIndicator.leadingAnchor,
+            constant: -2
+        )
+        nameLabelTrailingToContainerConstraint = nameLabel.trailingAnchor.constraint(
+            lessThanOrEqualTo: trailingAnchor,
+            constant: -2
+        )
+        NSLayoutConstraint.activate([
+            nameLabelTrailingToLoadingConstraint,
+            nameLabelTrailingToContainerConstraint
+        ])
+        nameLabelTrailingToLoadingConstraint.isActive = false
     }
 
     func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
@@ -1671,9 +1689,13 @@ final class FileExplorerCellView: NSTableCellView {
         if node.isLoading {
             loadingIndicator.isHidden = false
             loadingIndicator.startAnimation(nil)
+            nameLabelTrailingToLoadingConstraint.isActive = true
+            nameLabelTrailingToContainerConstraint.isActive = false
         } else {
             loadingIndicator.isHidden = true
             loadingIndicator.stopAnimation(nil)
+            nameLabelTrailingToLoadingConstraint.isActive = false
+            nameLabelTrailingToContainerConstraint.isActive = true
         }
 
         if let error = node.error {

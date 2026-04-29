@@ -234,6 +234,52 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
     }
 
+    func testMenuBarOnlyPreferenceDefaultsToRegularActivationPolicy() {
+        let suiteName = "MenuBarOnlySettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
+        XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
+
+        defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        XCTAssertTrue(MenuBarOnlySettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .accessory)
+        XCTAssertTrue(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
+
+        defaults.set(false, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
+        XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
+    }
+
+    func testMenuBarOnlyForcesMenuBarExtraVisible() {
+        let suiteName = "MenuBarOnlyVisibilityTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(false, forKey: MenuBarExtraSettings.showInMenuBarKey)
+        XCTAssertFalse(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
+
+        defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        XCTAssertTrue(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
+
+        defaults.set(false, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        defaults.set(true, forKey: MenuBarExtraSettings.showInMenuBarKey)
+        XCTAssertTrue(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
+    }
+
     func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

@@ -2068,6 +2068,15 @@ class TerminalController {
                 ]
             )
         case "auth.status":
+            // Await the AuthManager bootstrap so the socket never reports a transient
+            // signed_in=false during on-launch session restoration (tokens exist on
+            // disk but refreshSession() hasn't populated Published state yet).
+            let semaphore = DispatchSemaphore(value: 0)
+            Task { @MainActor in
+                await AuthManager.shared.awaitBootstrapped()
+                semaphore.signal()
+            }
+            semaphore.wait()
             return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: false))
         case "auth.begin_sign_in":
             // Fire the popup on main, then block the socket worker thread
@@ -2093,6 +2102,114 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: false))
+
+        // Cloud VMs. Socket → Mac app → VMClient HTTP → cmux web backend. The CLI never touches
+        // Stack Auth tokens directly; AuthManager.shared inside the mac app does.
+        case "vm.list":
+            return v2VmCall(id: id) {
+                let items = try await VMClient.shared.list()
+                return [
+                    "vms": items.map { ["id": $0.id, "provider": $0.provider, "image": $0.image, "createdAt": $0.createdAt] as [String: Any] },
+                ]
+            }
+        case "vm.create":
+            let image = params["image"] as? String
+            let provider = params["provider"] as? String
+            let idempotencyKey = (params["idempotency_key"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let idempotencyKey, !idempotencyKey.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.create requires `idempotency_key`")
+            }
+            return v2VmCall(id: id) {
+                let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
+                return ["id": vm.id, "provider": vm.provider, "image": vm.image, "createdAt": vm.createdAt]
+            }
+        case "vm.destroy":
+            guard let vmId = params["id"] as? String else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.destroy requires `id`")
+            }
+            return v2VmCall(id: id) {
+                try await VMClient.shared.destroy(id: vmId)
+                return ["ok": true]
+            }
+        case "vm.exec":
+            guard let vmId = params["id"] as? String else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.exec requires `id`")
+            }
+            guard let command = params["command"] as? String else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.exec requires `command`")
+            }
+            let timeoutMs = max(1, v2Int(params, "timeout_ms") ?? 30_000)
+            return v2VmCall(id: id) {
+                let r = try await VMClient.shared.exec(id: vmId, command: command, timeoutMs: timeoutMs)
+                return ["exit_code": r.exitCode, "stdout": r.stdout, "stderr": r.stderr]
+            }
+        case "vm.ssh_info":
+            guard let vmId = params["id"] as? String else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`")
+            }
+            return v2VmCall(id: id) {
+                let ep = try await VMClient.shared.openSSH(id: vmId)
+                var credPayload: [String: Any] = [:]
+                switch ep.credential {
+                case .password(let value):
+                    credPayload = ["kind": "password", "value": value]
+                case .authorizedKey(let pem):
+                    credPayload = ["kind": "authorizedKey", "private_key_pem": pem]
+                }
+                return [
+                    "host": ep.host,
+                    "port": ep.port,
+                    "username": ep.username,
+                    "credential": credPayload,
+                    "public_key_fingerprint": ep.publicKeyFingerprint ?? NSNull(),
+                ]
+            }
+        case "vm.attach_info":
+            guard let vmId = params["id"] as? String else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.attach_info requires `id`")
+            }
+            let requireDaemon = v2Bool(params, "require_daemon") ?? v2Bool(params, "requireDaemon") ?? false
+            return v2VmCall(id: id) {
+                let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
+                switch endpoint {
+                case .ssh(let ep):
+                    var credPayload: [String: Any] = [:]
+                    switch ep.credential {
+                    case .password(let value):
+                        credPayload = ["kind": "password", "value": value]
+                    case .authorizedKey(let pem):
+                        credPayload = ["kind": "authorizedKey", "private_key_pem": pem]
+                    }
+                    return [
+                        "transport": "ssh",
+                        "host": ep.host,
+                        "port": ep.port,
+                        "username": ep.username,
+                        "credential": credPayload,
+                        "public_key_fingerprint": ep.publicKeyFingerprint ?? NSNull(),
+                    ]
+                case .websocket(let ep):
+                    var payload: [String: Any] = [
+                        "transport": "websocket",
+                        "url": ep.url,
+                        "headers": ep.headers,
+                        "token": ep.token,
+                        "session_id": ep.sessionId,
+                        "expires_at_unix": ep.expiresAtUnix,
+                    ]
+                    if let daemon = ep.daemon {
+                        payload["daemon"] = [
+                            "url": daemon.url,
+                            "headers": daemon.headers,
+                            "token": daemon.token,
+                            "session_id": daemon.sessionId,
+                            "expires_at_unix": daemon.expiresAtUnix,
+                        ]
+                    }
+                    return payload
+                }
+            }
 
         // Windows
         case "window.list":
@@ -2513,6 +2630,12 @@ class TerminalController {
             "auth.status",
             "auth.begin_sign_in",
             "auth.sign_out",
+            "vm.list",
+            "vm.create",
+            "vm.destroy",
+            "vm.exec",
+            "vm.attach_info",
+            "vm.ssh_info",
             "window.list",
             "window.current",
             "window.focus",
@@ -3064,6 +3187,50 @@ class TerminalController {
         ])
     }
 
+    /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
+    /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
+    /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
+    private func v2VmCall(
+        id: Any?,
+        timeoutSeconds: TimeInterval = 17 * 60,
+        _ work: @escaping () async throws -> [String: Any]
+    ) -> String {
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result: Result<[String: Any], Error>?
+        let task = Task {
+            do {
+                result = .success(try await work())
+            } catch {
+                result = .failure(error)
+            }
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+            task.cancel()
+            return v2Error(
+                id: id,
+                code: "timeout",
+                message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
+            )
+        }
+        switch result {
+        case .success(let payload):
+            return v2Ok(id: id, result: payload)
+        case .failure(let error):
+            return v2Error(
+                id: id,
+                code: "vm_error",
+                message: String(describing: error)
+            )
+        case nil:
+            return v2Error(
+                id: id,
+                code: "vm_error",
+                message: "unknown vm error"
+            )
+        }
+    }
+
     private func v2Error(id: Any?, code: String, message: String, data: Any? = nil) -> String {
         var err: [String: Any] = ["code": code, "message": message]
         if let data {
@@ -3139,10 +3306,74 @@ class TerminalController {
         return v2EnsureHandleRef(kind: kind, uuid: uuid)
     }
 
+    func v2WorkspaceRefs(for ids: [UUID]) -> [UUID: String] {
+        var refs: [UUID: String] = [:]
+        refs.reserveCapacity(ids.count)
+        for id in ids {
+            refs[id] = v2EnsureHandleRef(kind: .workspace, uuid: id)
+        }
+        return refs
+    }
+
+    func v2WorkspacePaneAndSurfaceRefs(
+        workspaceId: UUID,
+        paneId: UUID?,
+        surfaceId: UUID
+    ) -> (workspaceRef: String, paneRef: String?, surfaceRef: String) {
+        return (
+            workspaceRef: v2EnsureHandleRef(kind: .workspace, uuid: workspaceId),
+            paneRef: paneId.map { v2EnsureHandleRef(kind: .pane, uuid: $0) },
+            surfaceRef: v2EnsureHandleRef(kind: .surface, uuid: surfaceId)
+        )
+    }
+
     private func v2TabRef(uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         let surfaceRef = v2EnsureHandleRef(kind: .surface, uuid: uuid)
         return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
+    }
+
+    private func v2BrowserDisabledExternalOpenResult(
+        rawURL: String? = nil,
+        url: URL?,
+        tabManager: TabManager?
+    ) -> V2CallResult {
+        if let rawURL, url == nil {
+            return .err(
+                code: "invalid_params",
+                message: "Invalid URL",
+                data: ["url": rawURL]
+            )
+        }
+        guard let url else {
+            return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
+        }
+
+        var result: V2CallResult = .err(
+            code: "external_open_failed",
+            message: "Failed to open URL externally",
+            data: ["url": url.absoluteString]
+        )
+        v2MainSync {
+            guard NSWorkspace.shared.open(url) else { return }
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": v2OrNull(nil),
+                "workspace_ref": v2Ref(kind: .workspace, uuid: nil),
+                "pane_id": v2OrNull(nil),
+                "pane_ref": v2Ref(kind: .pane, uuid: nil),
+                "surface_id": v2OrNull(nil),
+                "surface_ref": v2Ref(kind: .surface, uuid: nil),
+                "created_split": false,
+                "opened_externally": true,
+                "browser_disabled": true,
+                "placement_strategy": "external_browser_disabled",
+                "url": url.absoluteString
+            ])
+        }
+        return result
     }
 
     private func v2RefreshKnownRefs() {
@@ -3951,6 +4182,10 @@ class TerminalController {
 
         let identityFile = v2RawString(params, "identity_file")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sshOptions = v2StringArray(params, "ssh_options") ?? []
+        let transportRaw = v2RawString(params, "transport")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let transport = WorkspaceRemoteTransport(rawValue: transportRaw ?? "") ?? .ssh
         let autoConnect = v2Bool(params, "auto_connect") ?? true
         var relayPort: Int?
         if v2HasNonNullParam(params, "relay_port") {
@@ -3968,6 +4203,38 @@ class TerminalController {
         let localSocketPath = v2RawString(params, "local_socket_path")
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let daemonWebSocketURL = v2RawString(params, "daemon_websocket_url")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let daemonWebSocketToken = v2RawString(params, "daemon_websocket_token")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let daemonWebSocketSessionID = v2RawString(params, "daemon_websocket_session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let daemonWebSocketExpiresAtUnix = (params["daemon_websocket_expires_at_unix"] as? Int64)
+            ?? Int64((params["daemon_websocket_expires_at_unix"] as? Double) ?? 0)
+        let rawDaemonHeaders = params["daemon_websocket_headers"] as? [String: Any] ?? [:]
+        let daemonWebSocketHeaders = rawDaemonHeaders.reduce(into: [String: String]()) { result, pair in
+            if let value = pair.value as? String {
+                result[pair.key] = value
+            }
+        }
+        let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
+        if let daemonWebSocketURL,
+           !daemonWebSocketURL.isEmpty,
+           let daemonWebSocketToken,
+           !daemonWebSocketToken.isEmpty,
+           let daemonWebSocketSessionID,
+           !daemonWebSocketSessionID.isEmpty {
+            daemonWebSocketEndpoint = WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: daemonWebSocketURL,
+                headers: daemonWebSocketHeaders,
+                token: daemonWebSocketToken,
+                sessionId: daemonWebSocketSessionID,
+                expiresAtUnix: daemonWebSocketExpiresAtUnix
+            )
+        } else {
+            daemonWebSocketEndpoint = nil
+        }
+        let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
         if relayPort != nil {
             guard let relayID, !relayID.isEmpty else {
                 return .err(code: "invalid_params", message: "relay_id is required when relay_port is set", data: nil)
@@ -3981,7 +4248,7 @@ class TerminalController {
 #if DEBUG
         cmuxDebugLog(
             "workspace.remote.configure.request workspace=\(workspaceId.uuidString.prefix(8)) " +
-            "target=\(destination) port=\(sshPort.map(String.init) ?? "nil") " +
+            "target=\(destination) transport=\(transport.rawValue) port=\(sshPort.map(String.init) ?? "nil") " +
             "autoConnect=\(autoConnect ? 1 : 0) relayPort=\(relayPort.map(String.init) ?? "nil") " +
             "localSocket=\(localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? localSocketPath! : "nil") " +
             "sshOptions=\(sshOptions.joined(separator: "|"))"
@@ -4000,6 +4267,7 @@ class TerminalController {
             }
 
             let config = WorkspaceRemoteConfiguration(
+                transport: transport,
                 destination: destination,
                 port: sshPort,
                 identityFile: identityFile?.isEmpty == true ? nil : identityFile,
@@ -4010,7 +4278,9 @@ class TerminalController {
                 relayToken: relayToken?.isEmpty == true ? nil : relayToken,
                 localSocketPath: localSocketPath,
                 terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
-                foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken
+                foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
+                daemonWebSocketEndpoint: daemonWebSocketEndpoint,
+                skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
 
@@ -4776,6 +5046,13 @@ class TerminalController {
                     result = .err(code: "invalid_state", message: "Duplicate is only available for browser tabs", data: nil)
                     return
                 }
+                guard BrowserAvailabilitySettings.isEnabled() else {
+                    result = v2BrowserDisabledExternalOpenResult(
+                        url: browserPanel.currentURL,
+                        tabManager: tabManager
+                    )
+                    return
+                }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
                 guard let newPanel = workspace.newBrowserSurface(
@@ -4825,6 +5102,14 @@ class TerminalController {
                 let url = urlRaw.flatMap { URL(string: $0) }
                 if urlRaw != nil && url == nil {
                     result = .err(code: "invalid_params", message: "Invalid URL", data: ["url": v2OrNull(urlRaw)])
+                    return
+                }
+                guard BrowserAvailabilitySettings.isEnabled() else {
+                    result = v2BrowserDisabledExternalOpenResult(
+                        rawURL: urlRaw,
+                        url: url,
+                        tabManager: tabManager
+                    )
                     return
                 }
 
@@ -5095,6 +5380,9 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
         v2MainSync {
@@ -6442,6 +6730,9 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
@@ -8035,6 +8326,10 @@ class TerminalController {
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
+
+        if BrowserAvailabilitySettings.isDisabled() {
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
         v2MainSync {
@@ -10587,7 +10882,12 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
-        let url = v2String(params, "url").flatMap(URL.init(string:))
+        let urlStr = v2String(params, "url")
+        let url = urlStr.flatMap(URL.init(string:))
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
@@ -14202,6 +14502,26 @@ class TerminalController {
         return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
     }
 
+    private func openExternallyWhenBrowserDisabled(rawURL: String? = nil, url: URL?) -> String {
+        if let rawURL, url == nil {
+            return "ERROR: Invalid URL \(rawURL)"
+        }
+        guard let url else { return "ERROR: cmux browser is disabled" }
+
+        let opened: Bool
+        if Thread.isMainThread {
+            opened = NSWorkspace.shared.open(url)
+        } else {
+            var didOpen = false
+            DispatchQueue.main.sync {
+                didOpen = NSWorkspace.shared.open(url)
+            }
+            opened = didOpen
+        }
+
+        return opened ? "OK external_browser_disabled \(url.absoluteString)" : "ERROR: Failed to open URL externally"
+    }
+
     // MARK: - Browser Panel Commands
 
     private func openBrowser(_ args: String) -> String {
@@ -14209,6 +14529,9 @@ class TerminalController {
 
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let url: URL? = trimmed.isEmpty ? nil : URL(string: trimmed)
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            return openExternallyWhenBrowserDisabled(rawURL: trimmed.isEmpty ? nil : trimmed, url: url)
+        }
 
         var result = "ERROR: Failed to create browser panel"
         let focus = socketCommandAllowsInAppFocusMutations()
@@ -14598,6 +14921,7 @@ class TerminalController {
         // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=...
         var panelType: PanelType = .terminal
         var direction: SplitDirection = .right
+        var urlRaw: String? = nil
         var url: URL? = nil
         var invalidDirection = false
 
@@ -14615,13 +14939,17 @@ class TerminalController {
                     invalidDirection = true
                 }
             } else if partStr.hasPrefix("--url=") {
-                let urlStr = String(partStr.dropFirst(6))
-                url = URL(string: urlStr)
+                let urlStr = String(partStr.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+                urlRaw = urlStr.isEmpty ? nil : urlStr
+                url = urlRaw.flatMap { URL(string: $0) }
             }
         }
 
         if invalidDirection {
             return "ERROR: Invalid direction. Use left, right, up, or down."
+        }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            return openExternallyWhenBrowserDisabled(rawURL: urlRaw, url: url)
         }
 
         let orientation = direction.orientation
@@ -16144,6 +16472,7 @@ class TerminalController {
         // Parse arguments: --type=terminal|browser --pane=<pane_id> --url=...
         var panelType: PanelType = .terminal
         var paneArg: String? = nil
+        var urlRaw: String? = nil
         var url: URL? = nil
 
         let parts = args.split(separator: " ")
@@ -16155,9 +16484,13 @@ class TerminalController {
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {
-                let urlStr = String(partStr.dropFirst(6))
-                url = URL(string: urlStr)
+                let urlStr = String(partStr.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+                urlRaw = urlStr.isEmpty ? nil : urlStr
+                url = urlRaw.flatMap { URL(string: $0) }
             }
+        }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            return openExternallyWhenBrowserDisabled(rawURL: urlRaw, url: url)
         }
 
         var result = "ERROR: Failed to create tab"
