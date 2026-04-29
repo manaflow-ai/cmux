@@ -13353,11 +13353,20 @@ private extension NSApplication {
             }
         }
 #endif
+        if event.type == .leftMouseDown,
+           AppDelegate.shared?.handleMinimalModeTitlebarMouseDown(event: event) == true {
+            return
+        }
         cmux_applicationSendEvent(event)
     }
 }
 
 private extension AppDelegate {
+    @discardableResult
+    func handleMinimalModeTitlebarMouseDown(event: NSEvent) -> Bool {
+        windowDecorationsController.handleMinimalModeTitlebarMouseDown(event: event)
+    }
+
     @discardableResult
     func handleMinimalModeSidebarChromeMouseDown(window: NSWindow, event: NSEvent) -> Bool {
         windowDecorationsController.handleMinimalModeSidebarChromeMouseDown(window: window, event: event)
