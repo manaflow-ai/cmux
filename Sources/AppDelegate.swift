@@ -5276,6 +5276,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    /// Sends the literal character of a bare-key chord prefix to the focused Ghostty
+    /// surface. Used by the implicit double-tap-leader behavior so a user with a
+    /// bare-key leader can still type the literal character by pressing it twice.
+    ///
+    /// Returns `true` iff a focused terminal surface was found and `sendText` was
+    /// invoked. If no terminal is focused, returns `false` so the caller can decide
+    /// whether to consume the event.
+    private func sendLiteralChordPrefixToFocusedSurface(
+        prefix: ShortcutStroke,
+        event: NSEvent
+    ) -> Bool {
+        let preferredWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let responder = preferredWindow?.firstResponder
+            ?? NSApp.keyWindow?.firstResponder
+            ?? NSApp.mainWindow?.firstResponder
+        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
+              let surface = ghosttyView.terminalSurface else {
+            return false
+        }
+        surface.sendText(prefix.key)
+        return true
+    }
+
     private func focusedTerminalShortcutContext(preferredWindow: NSWindow? = nil) -> FocusedTerminalShortcutContext? {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         let responder = targetWindow?.firstResponder
@@ -11190,6 +11213,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
             _ = tabManager?.reopenMostRecentlyClosedBrowserPanel()
+            return true
+        }
+
+        // Implicit `<leader><leader>` → send literal leader to focused terminal.
+        // Only fires when the armed chord prefix has no modifiers and the second
+        // event is the same bare key with no modifiers, AND no configured chord
+        // binding above matched. This gives bare-key leader users a free
+        // tmux-style send-prefix without any settings.json wiring; an explicit
+        // user binding for `<prefix><prefix>` always wins because the configured
+        // chord match loop above runs first.
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent,
+           prefix.modifierFlags.isEmpty,
+           normalizedFlags.isEmpty,
+           matchShortcutStroke(event: event, stroke: prefix),
+           sendLiteralChordPrefixToFocusedSurface(prefix: prefix, event: event) {
             return true
         }
 

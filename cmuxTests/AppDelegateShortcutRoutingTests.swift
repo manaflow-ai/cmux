@@ -811,13 +811,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let focusedPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            XCTFail("Expected test window with focused terminal panel")
             return
         }
 
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // Make the Ghostty surface the first responder so sendLiteralChordPrefixToFocusedSurface
+        // can resolve it via cmuxOwningGhosttyView(for: window.firstResponder).
+        guard let terminalView = surfaceView(in: focusedPanel.hostedView) else {
+            XCTFail("Expected a GhosttyNSView inside the focused panel's hosted view")
+            return
+        }
+        XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected to make Ghostty surface the first responder")
 
         // Bind ` then d so a bare-key leader is configured.
         let shortcut = StoredShortcut(
