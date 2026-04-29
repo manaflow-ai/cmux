@@ -1061,6 +1061,7 @@ private enum SessionTranscriptLoadError: Error {
 private enum SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
+    private static let maxPreviewTurns = 500
     private static let maxTurnTextCharacters = 40_000
     private static let newlineByte: UInt8 = 10
 
@@ -1117,6 +1118,7 @@ private enum SessionTranscriptLoader {
         var lineIndex = 0
         var isSkippingOversizedLine = false
         var oversizedPreviewRole: SessionTranscriptRole?
+        var didHitTurnLimit = false
 
         func finishLine() {
             defer {
@@ -1125,16 +1127,22 @@ private enum SessionTranscriptLoader {
                 isSkippingOversizedLine = false
                 oversizedPreviewRole = nil
             }
+            guard turns.count < maxPreviewTurns else {
+                didHitTurnLimit = true
+                return
+            }
             guard !isSkippingOversizedLine else {
                 if let oversizedPreviewRole {
                     turns.append(largeRecordTurn(id: lineIndex, role: oversizedPreviewRole))
                 }
+                didHitTurnLimit = turns.count >= maxPreviewTurns
                 return
             }
             guard let parsed = parseLineData(lineData, agent: agent, id: lineIndex) else {
                 return
             }
             turns.append(parsed)
+            didHitTurnLimit = turns.count >= maxPreviewTurns
         }
 
         func appendSegment(_ segment: Data.SubSequence) {
@@ -1164,14 +1172,23 @@ private enum SessionTranscriptLoader {
             while let newline = chunk[start..<chunk.endIndex].firstIndex(of: newlineByte) {
                 appendSegment(chunk[start..<newline])
                 finishLine()
+                if didHitTurnLimit {
+                    break
+                }
                 start = chunk.index(after: newline)
+            }
+            if didHitTurnLimit {
+                break
             }
             if start < chunk.endIndex {
                 appendSegment(chunk[start..<chunk.endIndex])
             }
         }
-        if !lineData.isEmpty || isSkippingOversizedLine {
+        if !didHitTurnLimit, !lineData.isEmpty || isSkippingOversizedLine {
             finishLine()
+        }
+        if didHitTurnLimit {
+            appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
 
         return coalesce(turns)
@@ -1211,6 +1228,7 @@ private enum SessionTranscriptLoader {
         var turnId = 0
         var currentMessageId: String?
         var currentMessageRole: SessionTranscriptRole = .event
+        var didHitTurnLimit = false
 
         while sqlite3_step(stmt) == SQLITE_ROW {
             try Task.checkCancellation()
@@ -1225,6 +1243,14 @@ private enum SessionTranscriptLoader {
             }
             turns.append(turn)
             turnId += 1
+            if turns.count >= maxPreviewTurns {
+                didHitTurnLimit = true
+                break
+            }
+        }
+
+        if didHitTurnLimit {
+            appendTurnLimitMarker(to: &turns, id: turnId)
         }
 
         return coalesce(turns)
@@ -1580,6 +1606,16 @@ private enum SessionTranscriptLoader {
             )
         )
     }
+
+    private static func appendTurnLimitMarker(to turns: inout [SessionTranscriptTurn], id: Int) {
+        turns.append(
+            SessionTranscriptTurn(
+                id: id,
+                role: .event,
+                text: String(localized: "sessionIndex.preview.truncated", defaultValue: "Preview truncated")
+            )
+        )
+    }
 }
 
 private struct SessionTranscriptPopoverHost: NSViewRepresentable {
@@ -1726,6 +1762,49 @@ private final class PopoverAnchorView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         onDidMoveToWindow?()
+    }
+}
+
+/// Invisible AppKit view that fires `onEscape` when Escape is pressed while
+/// the popover content is key. Lives in the popover's view tree so it inherits
+/// the popover's responder chain.
+private struct EscapeKeyCatcher: NSViewRepresentable {
+    let onEscape: () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = EscapeMonitorView()
+        view.onEscape = onEscape
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? EscapeMonitorView)?.onEscape = onEscape
+    }
+
+    private final class EscapeMonitorView: NSView {
+        var onEscape: (() -> Void)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, let win = self.window, win.isKeyWindow else { return event }
+                if event.keyCode == 53 {
+                    self.onEscape?()
+                    return nil
+                }
+                return event
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
     }
 }
 
@@ -1881,6 +1960,9 @@ private struct SectionPopoverView: View {
         // fixed height; it made SwiftUI center-distribute slack space
         // and squashed the top header padding.
         .frame(width: 360)
+        .background(
+            EscapeKeyCatcher { onDismiss() }
+        )
         // Single SwiftUI-owned lifecycle for the initial load and every
         // query change. `.task(id: query)` auto-cancels on view disappear
         // AND on any `query` change, so we don't need onAppear +
