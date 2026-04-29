@@ -1056,6 +1056,7 @@ private enum SessionTranscriptRole: Equatable, Sendable {
 
 private enum SessionTranscriptLoadError: Error {
     case missingFile
+    case databaseError(String)
 }
 
 private enum SessionTranscriptLoader {
@@ -1198,14 +1199,25 @@ private enum SessionTranscriptLoader {
     }
 
     private static func loadOpenCodeSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
-        let dbPath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
-        guard FileManager.default.fileExists(atPath: dbPath) else {
+        let snapshot: OpenCodeDatabaseSnapshot.Snapshot
+        do {
+            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-preview") else {
+                throw SessionTranscriptLoadError.missingFile
+            }
+            snapshot = madeSnapshot
+        } catch SessionTranscriptLoadError.missingFile {
             throw SessionTranscriptLoadError.missingFile
+        } catch {
+            throw SessionTranscriptLoadError.databaseError(error.localizedDescription)
         }
+        defer { snapshot.remove() }
+
         var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+        let openResult = sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil)
+        guard openResult == SQLITE_OK, let db else {
+            let message = sqliteMessage(db) ?? "SQLite open failed with code \(openResult)"
             sqlite3_close(db)
-            throw SessionTranscriptLoadError.missingFile
+            throw SessionTranscriptLoadError.databaseError(message)
         }
         defer { sqlite3_close(db) }
         _ = sqlite3_busy_timeout(db, 50)
@@ -1218,9 +1230,11 @@ private enum SessionTranscriptLoader {
             ORDER BY m.time_created, m.id, p.time_created, p.id
             """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+        let prepareResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+        guard prepareResult == SQLITE_OK, let stmt else {
+            let message = sqliteMessage(db) ?? "SQLite prepare failed with code \(prepareResult)"
             sqlite3_finalize(stmt)
-            throw SessionTranscriptLoadError.missingFile
+            throw SessionTranscriptLoadError.databaseError(message)
         }
         defer { sqlite3_finalize(stmt) }
 
@@ -1261,6 +1275,11 @@ private enum SessionTranscriptLoader {
 
     private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
         guard let cString = sqlite3_column_text(stmt, index) else { return nil }
+        return String(cString: cString)
+    }
+
+    private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
+        guard let db, let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
     }
 
