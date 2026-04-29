@@ -32,7 +32,7 @@
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1941	Sources/SessionIndexStore.swift
 1843	cmuxTests/WindowAndDragTests.swift
-1798	Sources/Update/UpdateTitlebarAccessory.swift
+1957	Sources/Update/UpdateTitlebarAccessory.swift
 1730	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1692	cmuxTests/CmuxConfigTests.swift
 1676	Sources/KeyboardShortcutSettingsFileStore.swift
