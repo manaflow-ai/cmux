@@ -812,104 +812,35 @@ func isMinimalModeWindowTitlebarClickCandidate(
     )
 }
 
-struct MinimalModeTitlebarDoubleClickHandlerView: NSViewRepresentable {
+struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
     var isEnabled: Bool
-    var topStripHeight: CGFloat
 
-    final class Coordinator {
-        weak var view: NSView?
+    private final class PassthroughView: NSView {
         var isEnabled = false
-        var topStripHeight: CGFloat = 0
-        var monitor: Any?
-        var lastClick: MinimalModeTitlebarClickRecord?
 
-        deinit {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if isEnabled {
+                window?.acceptsMouseMovedEvents = true
             }
         }
     }
-
-    private final class PassthroughView: NSView {
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
         let view = PassthroughView(frame: .zero)
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.clear.cgColor
-
-        context.coordinator.view = view
-        context.coordinator.isEnabled = isEnabled
-        context.coordinator.topStripHeight = topStripHeight
-
-        let coordinator = context.coordinator
-        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak coordinator] event in
-            guard let coordinator,
-                  coordinator.isEnabled,
-                  let view = coordinator.view,
-                  let window = view.window,
-                  event.window === window else {
-                coordinator?.lastClick = nil
-                return event
-            }
-
-            let point = view.convert(event.locationInWindow, from: nil)
-            let windowPoint = view.convert(point, to: nil)
-            guard isPointInMinimalModeTitlebarBand(
-                isEnabled: coordinator.isEnabled,
-                point: point,
-                bounds: view.bounds,
-                topStripHeight: coordinator.topStripHeight
-            ) else {
-                coordinator.lastClick = nil
-                return event
-            }
-            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint) else {
-                coordinator.lastClick = nil
-                return event
-            }
-
-            let windowNumber = window.windowNumber
-            let isDoubleClick = minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: event.clickCount,
-                timestamp: event.timestamp,
-                locationInWindow: windowPoint,
-                windowNumber: windowNumber,
-                previous: coordinator.lastClick,
-                doubleClickInterval: NSEvent.doubleClickInterval
-            )
-
-            guard isDoubleClick else {
-                coordinator.lastClick = MinimalModeTitlebarClickRecord(
-                    windowNumber: windowNumber,
-                    timestamp: event.timestamp,
-                    locationInWindow: windowPoint
-                )
-                return event
-            }
-
-            coordinator.lastClick = nil
-            let result = handleTitlebarDoubleClick(
-                window: window,
-                behavior: .standardAction
-            )
-            #if DEBUG
-            cmuxDebugLog(
-                "titlebar.minimalDoubleClickHandler.result=\(String(describing: result)) point=\(windowDragHandleFormatPoint(point)) height=\(String(format: "%.1f", coordinator.topStripHeight))"
-            )
-            #endif
-            return result.consumesEvent ? nil : event
-        }
-
+        view.isEnabled = isEnabled
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.view = nsView
-        context.coordinator.isEnabled = isEnabled
-        context.coordinator.topStripHeight = topStripHeight
+        guard let view = nsView as? PassthroughView else { return }
+        view.isEnabled = isEnabled
+        if isEnabled {
+            view.window?.acceptsMouseMovedEvents = true
+        }
     }
 }

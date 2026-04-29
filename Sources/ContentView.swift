@@ -3117,10 +3117,7 @@ struct ContentView: View {
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
                 .background(
-                    MinimalModeTitlebarDoubleClickHandlerView(
-                        isEnabled: isMinimalMode && !isFullScreen,
-                        topStripHeight: MinimalModeChromeMetrics.titlebarHeight
-                    )
+                    MinimalModeTitlebarEventSurfaceView(isEnabled: isMinimalMode && !isFullScreen)
                 )
         )
 

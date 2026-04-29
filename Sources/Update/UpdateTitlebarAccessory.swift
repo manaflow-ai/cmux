@@ -721,7 +721,10 @@ struct HiddenTitlebarSidebarControlsView: View {
             TitlebarControlsGapDragView(config: style.config)
                 .frame(width: hostWidth, height: hostHeight)
 
-            PassthroughHoverTrackingView { isHovering in
+            PassthroughHoverTrackingView(
+                config: style.config,
+                passButtonColumnsThroughForPassiveHitTests: shouldPinControls
+            ) { isHovering in
                 isHoveringHost = isHovering
             }
             .frame(width: hostWidth, height: hostHeight)
@@ -750,19 +753,27 @@ enum TitlebarControlsVisibilityMode {
 }
 
 private struct PassthroughHoverTrackingView: NSViewRepresentable {
+    let config: TitlebarControlsStyleConfig
+    let passButtonColumnsThroughForPassiveHitTests: Bool
     let onHoverChanged: (Bool) -> Void
 
     func makeNSView(context: Context) -> TrackingView {
         let view = TrackingView()
+        view.config = config
+        view.passButtonColumnsThroughForPassiveHitTests = passButtonColumnsThroughForPassiveHitTests
         view.onHoverChanged = onHoverChanged
         return view
     }
 
     func updateNSView(_ nsView: TrackingView, context: Context) {
+        nsView.config = config
+        nsView.passButtonColumnsThroughForPassiveHitTests = passButtonColumnsThroughForPassiveHitTests
         nsView.onHoverChanged = onHoverChanged
     }
 
     final class TrackingView: NSView {
+        var config = TitlebarControlsStyle.classic.config
+        var passButtonColumnsThroughForPassiveHitTests = false
         var onHoverChanged: ((Bool) -> Void)?
         private var trackingArea: NSTrackingArea?
         private var localMouseMonitor: Any?
@@ -776,7 +787,13 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             guard bounds.contains(point) else { return nil }
             guard NSEvent.pressedMouseButtons == 0 else { return nil }
             switch NSApp.currentEvent?.type {
-            case .none, .mouseMoved, .mouseEntered, .mouseExited:
+            case .none:
+                if passButtonColumnsThroughForPassiveHitTests,
+                   TitlebarControlsHitRegions.pointFallsInButtonColumn(point, config: config) {
+                    return nil
+                }
+                return self
+            case .mouseMoved, .mouseEntered, .mouseExited:
                 return self
             default:
                 return nil
