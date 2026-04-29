@@ -49,7 +49,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
             return
         }
         XCTAssertEqual(secondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected secondary bar to match the right sidebar mode bar. geometry=\(geometry)")
-        XCTAssertEqual(secondaryBarHeight, 24, accuracy: 0.5, "Expected right sidebar chrome to use the compact minimal-mode lane height. geometry=\(geometry)")
+        XCTAssertEqual(secondaryBarHeight, 28, accuracy: 0.5, "Expected right sidebar chrome to use the standard minimal-mode lane height. geometry=\(geometry)")
         XCTAssertEqual(CGFloat(secondaryBarHeight), alphaTab.frame.height, accuracy: 2, "Expected secondary bar to match Bonsplit pane tab height. geometry=\(geometry) alphaTab=\(alphaTab.frame)")
 
         let controlHeightKeys = [
@@ -69,6 +69,25 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         XCTAssertEqual(directoryControlHeight, modeControlHeight, accuracy: 0.5, "Expected By folder pill to match mode button height. geometry=\(controlGeometry)")
         XCTAssertEqual(agentControlHeight, modeControlHeight, accuracy: 0.5, "Expected By agent pill to match mode button height. geometry=\(controlGeometry)")
         XCTAssertEqual(scopeControlHeight, modeControlHeight, accuracy: 0.5, "Expected This folder only control to match mode button height. geometry=\(controlGeometry)")
+
+        let feedButton = app.buttons["RightSidebarModeButton.feed"]
+        XCTAssertTrue(feedButton.waitForExistence(timeout: 5))
+        feedButton.click()
+
+        let feedControlHeightKeys = [
+            "rightSidebarSecondaryControl_feed_actionableHeight",
+            "rightSidebarSecondaryControl_feed_activityHeight",
+        ]
+        guard let feedGeometry = waitForJSONNumbers(feedControlHeightKeys, greaterThan: 1, atPath: dataPath, timeout: 5),
+              let feedSecondaryBarHeight = Double(feedGeometry["rightSidebarSecondaryBarHeight"] ?? ""),
+              let actionableControlHeight = Double(feedGeometry["rightSidebarSecondaryControl_feed_actionableHeight"] ?? ""),
+              let activityControlHeight = Double(feedGeometry["rightSidebarSecondaryControl_feed_activityHeight"] ?? "") else {
+            XCTFail("Timed out waiting for feed secondary bar geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        XCTAssertEqual(feedSecondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected feed secondary bar to match the mode bar. geometry=\(feedGeometry)")
+        XCTAssertEqual(actionableControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed Actionable pill to match mode button height. geometry=\(feedGeometry)")
+        XCTAssertEqual(activityControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed Activity pill to match mode button height. geometry=\(feedGeometry)")
     }
 
     private func waitForJSONNumbers(_ keys: [String], greaterThan threshold: Double, atPath path: String, timeout: TimeInterval) -> [String: String]? {

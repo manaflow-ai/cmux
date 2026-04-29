@@ -51,6 +51,14 @@ struct RightSidebarChromePillModifier: ViewModifier {
     }
 }
 
+struct RightSidebarChromeBottomBorderModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .bottom) {
+            WindowChromeBorder(orientation: .horizontal, ignoresSafeArea: false)
+        }
+    }
+}
+
 extension View {
     func rightSidebarChromeBar(
         leadingPadding: CGFloat = RightSidebarChromeMetrics.barHorizontalPadding,
@@ -84,5 +92,9 @@ extension View {
                 geometryKeyPrefix: geometryKeyPrefix
             )
         )
+    }
+
+    func rightSidebarChromeBottomBorder() -> some View {
+        modifier(RightSidebarChromeBottomBorderModifier())
     }
 }

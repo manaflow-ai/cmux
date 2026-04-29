@@ -16,7 +16,7 @@
 4600	cmuxTests/TerminalAndGhosttyTests.swift
 4503	cmuxTests/GhosttyConfigTests.swift
 4292	Sources/BrowserWindowPortal.swift
-3816	Sources/Feed/FeedPanelView.swift
+3840	Sources/Feed/FeedPanelView.swift
 3660	cmuxTests/BrowserConfigTests.swift
 3197	cmuxTests/BrowserPanelTests.swift
 3126	cmuxTests/WorkspaceRemoteConnectionTests.swift

@@ -79,7 +79,6 @@ struct FeedPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            Divider()
             FeedListView(filter: filter, items: viewModel.items)
         }
     }
@@ -99,16 +98,15 @@ struct FeedPanelView: View {
             #endif
         }
         .rightSidebarChromeBar()
+        .rightSidebarChromeBottomBorder()
+        .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
     private var controlBarContent: some View {
         HStack(spacing: 6) {
             ForEach(Filter.allCases) { f in
-                FeedButton(
-                    label: f.label,
-                    leadingIcon: f.symbolName,
-                    kind: .ghost,
-                    size: .compact,
+                FeedSecondaryFilterButton(
+                    filter: f,
                     isSelected: filter == f
                 ) {
                     filter = f
@@ -116,6 +114,32 @@ struct FeedPanelView: View {
             }
             Spacer(minLength: 4)
         }
+    }
+}
+
+private struct FeedSecondaryFilterButton: View {
+    let filter: FeedPanelView.Filter
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: filter.symbolName)
+                    .font(.system(size: 10, weight: .medium))
+                Text(filter.label)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .rightSidebarChromePill(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                geometryKeyPrefix: "rightSidebarSecondaryControl_feed_\(filter.rawValue)"
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(filter.label)
     }
 }
 

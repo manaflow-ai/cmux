@@ -158,9 +158,7 @@ struct RightSidebarPanelView: View {
         ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
                 modeBar
-                    .overlay(alignment: .bottom) {
-                        WindowChromeBorder(orientation: .horizontal, ignoresSafeArea: false)
-                    }
+                    .rightSidebarChromeBottomBorder()
                 contentForMode
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

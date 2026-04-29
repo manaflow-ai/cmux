@@ -43,7 +43,6 @@ struct SessionIndexView: View {
         let focusEntries = visibleEntriesForFocus()
         VStack(spacing: 0) {
             controlBar
-            Divider()
             if store.isLoading && store.entries.isEmpty {
                 loadingView
             } else if store.entries.isEmpty {
@@ -126,6 +125,7 @@ struct SessionIndexView: View {
             .disabled(store.isLoading)
         }
         .rightSidebarChromeBar()
+        .rightSidebarChromeBottomBorder()
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
