@@ -14,6 +14,7 @@ import os
 import re
 import shlex
 import subprocess
+import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -116,20 +117,23 @@ def run_probe(cli_path: str, probe: HelpProbe) -> ProbeResult:
         "CMUX_TAB_ID",
     ]:
         env.pop(key, None)
-    no_socket = f"/tmp/cmux-no-socket-{uuid.uuid4().hex}.sock"
-    env["CMUX_SOCKET_PATH"] = no_socket
-    env["CMUX_SOCKET"] = no_socket
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-    proc = subprocess.run(
-        [cli_path, *tokens[1:]],
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=5.0,
-        env=env,
-    )
+    with tempfile.TemporaryDirectory(prefix="cmux-no-socket-") as tmpdir:
+        no_socket = os.path.join(tmpdir, f"socket-{uuid.uuid4().hex}.sock")
+        env["CMUX_SOCKET_PATH"] = no_socket
+        env["CMUX_SOCKET"] = no_socket
+
+        proc = subprocess.run(  # noqa: S603
+            [cli_path, *tokens[1:]],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5.0,
+            env=env,
+        )
+
     return ProbeResult(
         returncode=proc.returncode,
         stdout=proc.stdout.strip(),
@@ -143,7 +147,7 @@ def main() -> int:
         cli_path = resolve_cmux_cli()
         probes = load_help_probes()
         negative_probes = load_negative_help_probes()
-    except Exception as exc:
+    except (RuntimeError, OSError, ValueError) as exc:
         print(f"FAIL: {exc}")
         return 1
 
@@ -154,7 +158,7 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             failures.append(f"{probe.command}: timed out")
             continue
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError) as exc:
             failures.append(f"{probe.command}: {exc}")
             continue
 
@@ -162,6 +166,12 @@ def main() -> int:
         if result.returncode != 0:
             failures.append(
                 f"{probe.command}: expected exit 0, got {result.returncode}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+            continue
+        if result.socket_path in merged:
+            failures.append(
+                f"{probe.command}: unexpected socket usage with forced socket {result.socket_path!r}\n"
                 f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
             )
             continue
@@ -177,7 +187,7 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             failures.append(f"{probe.command}: timed out")
             continue
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError) as exc:
             failures.append(f"{probe.command}: {exc}")
             continue
 
