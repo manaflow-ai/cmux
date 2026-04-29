@@ -48,12 +48,20 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard NSApp.currentEvent?.type == .leftMouseDown else { return nil }
         guard shouldAcceptAction else { return nil }
         guard bounds.contains(point) else { return nil }
-        guard TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) != nil else {
+        guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) else {
             return nil
         }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
+            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                payload["\(telemetryPrefix)LastHitTestSlot"] = slot.debugName
+                payload["\(telemetryPrefix)LastHitTestPoint"] = windowDragHandleFormatPoint(point)
+                payload["\(telemetryPrefix)LastHitTestWindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
+            }
+        }
+        #endif
         return self
     }
 
