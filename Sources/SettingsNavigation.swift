@@ -108,14 +108,16 @@ enum SettingsNavigationRequest {
     static let notificationName = Notification.Name("cmux.settings.navigate")
     private static let targetKey = "target"
     private static let anchorKey = "anchor"
+    private static let highlightKey = "highlight"
 
-    static func post(_ target: SettingsNavigationTarget, anchorID: String? = nil) {
+    static func post(_ target: SettingsNavigationTarget, anchorID: String? = nil, highlight: Bool = false) {
         NotificationCenter.default.post(
             name: notificationName,
             object: nil,
             userInfo: [
                 targetKey: target.rawValue,
-                anchorKey: anchorID ?? SettingsSearchIndex.sectionID(for: target)
+                anchorKey: anchorID ?? SettingsSearchIndex.sectionID(for: target),
+                highlightKey: highlight
             ]
         )
     }
@@ -132,9 +134,11 @@ enum SettingsNavigationRequest {
             return nil
         }
         let anchorID = notification.userInfo?[anchorKey] as? String
+        let shouldHighlight = notification.userInfo?[highlightKey] as? Bool ?? false
         return SettingsNavigationDestination(
             target: target,
-            anchorID: anchorID ?? SettingsSearchIndex.sectionID(for: target)
+            anchorID: anchorID ?? SettingsSearchIndex.sectionID(for: target),
+            shouldHighlight: shouldHighlight
         )
     }
 }
@@ -142,6 +146,7 @@ enum SettingsNavigationRequest {
 struct SettingsNavigationDestination {
     let target: SettingsNavigationTarget
     let anchorID: String
+    let shouldHighlight: Bool
 }
 
 struct SettingsSearchHighlightState: Equatable {

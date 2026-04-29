@@ -7190,12 +7190,18 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
-            highlightedSearchAnchorID = destination.anchorID
-            searchHighlightToken += 1
+            if destination.shouldHighlight {
+                highlightedSearchAnchorID = destination.anchorID
+                searchHighlightToken += 1
+            } else {
+                highlightedSearchAnchorID = nil
+            }
             DispatchQueue.main.async {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     proxy.scrollTo(SettingsSearchIndex.sectionID(for: destination.target), anchor: .top)
-                    proxy.scrollTo(destination.anchorID, anchor: .center)
+                    if destination.shouldHighlight {
+                        proxy.scrollTo(destination.anchorID, anchor: .center)
+                    }
                 }
             }
         }
@@ -8253,7 +8259,7 @@ private struct SettingsRootView: View {
         guard let entry = SettingsSearchIndex.entry(withID: entryID) else { return }
         selectedSidebarEntryID = entry.id
         selectedSectionRaw = entry.target.rawValue
-        SettingsNavigationRequest.post(entry.target, anchorID: entry.id)
+        SettingsNavigationRequest.post(entry.target, anchorID: entry.id, highlight: isSearching)
     }
 
     private func navigate(
