@@ -5439,7 +5439,8 @@ struct SettingsView: View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
-            subtitle: browserEnabledSubtitle
+            subtitle: browserEnabledSubtitle,
+            searchAnchorID: SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser")
         ) {
             Toggle("", isOn: browserEnabledBinding)
                 .labelsHidden()
