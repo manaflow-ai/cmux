@@ -4,7 +4,7 @@
 18966	CLI/cmux.swift
 16465	Sources/TerminalController.swift
 15761	Sources/ContentView.swift
-13939	Sources/AppDelegate.swift
+14023	Sources/AppDelegate.swift
 13645	Sources/Workspace.swift
 13271	Sources/GhosttyTerminalView.swift
 10549	Sources/Panels/BrowserPanel.swift
@@ -61,7 +61,6 @@
 714	Sources/AppleScriptSupport.swift
 708	Sources/App/MenuBarExtraController.swift
 683	Sources/SocketControlSettings.swift
-666	cmuxUITests/FeedSidebarUITests.swift
 664	Sources/App/ShortcutRoutingSupport.swift
 654	Sources/MainWindowFocusController.swift
 643	Sources/Panels/BrowserPopupWindowController.swift

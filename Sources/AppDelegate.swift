@@ -734,6 +734,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
     private var didSetupFeedSidebarUITest = false
     private var feedSidebarUITestObservers: [NSObjectProtocol] = []
+    private var feedSidebarUITestResultPoller: DispatchSourceTimer?
+    private let feedSidebarUITestDataLock = NSLock()
     private var didSetupPortalStatsUITestDiagnostics = false
     private var portalStatsUITestObservers: [NSObjectProtocol] = []
     private struct UITestRenderDiagnosticsSnapshot {
@@ -2247,7 +2249,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didSetupFeedSidebarUITest = true
 
         setupFeedSidebarUITestReveal(resultPath: path)
-        writeFeedSidebarUITestData(["stage": "revealOnly"], at: path)
+        if let requestId = env["CMUX_UI_TEST_FEED_SIDEBAR_REQUEST_ID"], !requestId.isEmpty {
+            setupFeedSidebarUITestPermissionRequest(resultPath: path, requestId: requestId)
+        }
+        writeFeedSidebarUITestData(["stage": "ready"], at: path)
     }
 
     private func setupFeedSidebarUITestReveal(resultPath: String) {
@@ -2287,7 +2292,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.main.async(execute: attemptReveal)
     }
 
+    private func setupFeedSidebarUITestPermissionRequest(resultPath: String, requestId: String) {
+        let event = WorkstreamEvent(
+            sessionId: "uitest-\(requestId)",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Write",
+            toolInputJSON: #"{"file_path":"/tmp/feeduitest"}"#,
+            requestId: requestId
+        )
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            FeedCoordinator.shared.store?.ingest(event)
+            self.writeFeedSidebarUITestData([
+                "requestId": requestId,
+                "published": "1",
+                "status": "pending",
+            ], at: resultPath)
+        }
+
+        let startedAt = Date()
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            let items = FeedCoordinator.shared.snapshot(pendingOnly: false)
+            guard let item = items.first(where: { Self.feedSidebarUITestItem($0, matches: requestId) }) else {
+                if Date().timeIntervalSince(startedAt) > 120 {
+                    self.writeFeedSidebarUITestData([
+                        "requestId": requestId,
+                        "status": "missing",
+                    ], at: resultPath)
+                    timer.cancel()
+                }
+                return
+            }
+
+            var updates = Self.feedSidebarUITestResultFields(for: item)
+            updates["requestId"] = requestId
+            updates["published"] = "1"
+            self.writeFeedSidebarUITestData(updates, at: resultPath)
+
+            if case .pending = item.status {
+                return
+            }
+            timer.cancel()
+        }
+        feedSidebarUITestResultPoller?.cancel()
+        feedSidebarUITestResultPoller = timer
+        timer.resume()
+    }
+
+    private static func feedSidebarUITestItem(_ item: WorkstreamItem, matches requestId: String) -> Bool {
+        if case .permissionRequest(let itemRequestId, _, _, _) = item.payload {
+            return itemRequestId == requestId
+        }
+        return false
+    }
+
+    private static func feedSidebarUITestResultFields(for item: WorkstreamItem) -> [String: String] {
+        switch item.status {
+        case .pending:
+            return ["status": "pending"]
+        case .expired:
+            return ["status": "expired"]
+        case .telemetry:
+            return ["status": "telemetry"]
+        case .resolved(let decision, _):
+            var fields = ["status": "resolved"]
+            if case .permission(let mode) = decision {
+                fields["mode"] = mode.rawValue
+            }
+            return fields
+        }
+    }
+
     private func writeFeedSidebarUITestData(_ updates: [String: String], at path: String) {
+        feedSidebarUITestDataLock.lock()
+        defer { feedSidebarUITestDataLock.unlock() }
+
         var payload: [String: String] = {
             guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
