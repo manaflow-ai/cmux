@@ -3,7 +3,8 @@ import Darwin
 import XCTest
 
 /// Exercises the right-sidebar Feed end-to-end: boot the app with a
-/// dedicated socket, inject a synthetic permission request over that socket,
+/// dedicated socket, inject a synthetic permission request through the same
+/// V2 dispatcher used by that socket,
 /// toggle the sidebar to Dock mode, drive the Feed TUI from the keyboard,
 /// and assert the hook-side response carries the resolved decision.
 final class FeedSidebarUITests: XCTestCase {
@@ -12,7 +13,6 @@ final class FeedSidebarUITests: XCTestCase {
     private var feedResultPath = ""
     private var feedTUIReadyPath = ""
     private var requestId = ""
-    private var lastSocketProbe = ""
     private let modeKey = "socketControlMode"
     private let launchTag = "ui-tests-feed-sidebar"
 
@@ -53,11 +53,11 @@ final class FeedSidebarUITests: XCTestCase {
 
         XCTAssertTrue(
             waitForInAppSocketReady(timeout: 75),
-            "Expected app-side control socket readiness at \(socketPath). probe=\(lastSocketProbe) diagnostics=\(loadDiagnostics())"
+            "Expected app-side control socket readiness at \(socketPath). diagnostics=\(loadDiagnostics())"
         )
         XCTAssertTrue(
             revealDockMode(in: app),
-            "Dock mode did not open in the right sidebar. probe=\(lastSocketProbe) diagnostics=\(loadDiagnostics())"
+            "Dock mode did not open in the right sidebar. diagnostics=\(loadDiagnostics())"
         )
 
         let focusButton = app.buttons["Focus Control"].firstMatch
@@ -71,10 +71,9 @@ final class FeedSidebarUITests: XCTestCase {
             "Feed TUI was not ready. marker=\(loadFeedTUIReadyMarker()) result=\(loadFeedResult())"
         )
 
-        let feedPush = try sendFeedPush(requestId: requestId, waitSeconds: 120)
         XCTAssertTrue(
-            waitForFeedItem(requestId: requestId, timeout: 10),
-            "feed.push did not publish pending item. result=\(loadFeedResult())"
+            waitForFeedPushPendingObserved(timeout: 15),
+            "feed.push did not publish a pending item. result=\(loadFeedResult())"
         )
 
         // The TUI blocks on keyboard input. Refresh first so it observes the
@@ -83,8 +82,8 @@ final class FeedSidebarUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.0)
         app.typeKey(.return, modifierFlags: [])
 
-        // Await the hook-side reply from the socket feed.push.
-        let result = try feedPush.result(timeout: 35)
+        // Await the hook-side reply from the Feed dispatcher.
+        let result = try waitForFeedPushResult(timeout: 35)
         XCTAssertEqual(
             result.status, "resolved",
             "Expected feed.push to resolve, got status=\(result.status)"
@@ -118,314 +117,46 @@ final class FeedSidebarUITests: XCTestCase {
     private func waitForInAppSocketReady(timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             let diagnostics = loadDiagnostics()
-            guard diagnostics["socketReady"] == "1", diagnostics["socketPingResponse"] == "PONG" else { return false }
-            return waitForSocketPong(timeout: 1)
-        }
-    }
-
-    private final class FeedPushFuture {
-        private let semaphore = DispatchSemaphore(value: 0)
-        private var outcome: Result<FeedPushResult, Error>?
-
-        func resolve(_ outcome: Result<FeedPushResult, Error>) {
-            self.outcome = outcome
-            semaphore.signal()
-        }
-
-        func result(timeout: TimeInterval) throws -> FeedPushResult {
-            let deadline: DispatchTime = .now() + timeout
-            if semaphore.wait(timeout: deadline) == .timedOut {
-                throw NSError(domain: "FeedPush", code: 1,
-                              userInfo: [NSLocalizedDescriptionKey: "feed.push never returned"])
-            }
-            return try outcome!.get()
-        }
-    }
-
-    private func sendFeedPush(requestId: String, waitSeconds: Double) throws -> FeedPushFuture {
-        let future = FeedPushFuture()
-        DispatchQueue.global().async {
-            do {
-                let params: [String: Any] = [
-                    "event": [
-                        "session_id": "uitest-\(requestId)",
-                        "hook_event_name": "PermissionRequest",
-                        "_source": "claude",
-                        "tool_name": "Write",
-                        "tool_input": ["file_path": "/tmp/feeduitest"],
-                        "_opencode_request_id": requestId,
-                    ],
-                    "wait_timeout_seconds": waitSeconds,
-                ]
-                let frame: [String: Any] = [
-                    "id": UUID().uuidString,
-                    "method": "feed.push",
-                    "params": params,
-                ]
-                let data = try JSONSerialization.data(withJSONObject: frame)
-                let line = (String(data: data, encoding: .utf8) ?? "{}") + "\n"
-                let response = try self.sendSocketLine(line, responseTimeout: waitSeconds + 5)
-                guard let respData = response.data(using: .utf8),
-                      let respObj = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
-                      (respObj["ok"] as? Bool) == true,
-                      let result = respObj["result"] as? [String: Any],
-                      let status = result["status"] as? String
-                else {
-                    future.resolve(.failure(NSError(
-                        domain: "FeedPush", code: 2,
-                        userInfo: [NSLocalizedDescriptionKey: "invalid response: \(response)"]
-                    )))
-                    return
-                }
-                let mode = (result["decision"] as? [String: Any])?["mode"] as? String ?? ""
-                future.resolve(.success(FeedPushResult(status: status, mode: mode)))
-            } catch {
-                future.resolve(.failure(error))
-            }
-        }
-        return future
-    }
-
-    private func waitForFeedItem(requestId: String, timeout: TimeInterval) -> Bool {
-        pollUntil(timeout: timeout, interval: 0.2) {
-            let frame: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": "feed.list",
-                "params": ["pending_only": false],
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: frame),
-                  let line = String(data: data, encoding: .utf8),
-                  let response = try? self.sendSocketLine("\(line)\n", responseTimeout: 3),
-                  let responseData = response.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-                  object["ok"] as? Bool == true,
-                  let result = object["result"] as? [String: Any],
-                  let items = result["items"] as? [[String: Any]] else {
+            guard diagnostics["socketReady"] == "1", diagnostics["socketPingResponse"] == "PONG" else {
                 return false
             }
-            return items.contains { item in
-                item["request_id"] as? String == requestId && item["status"] as? String == "pending"
-            }
-        }
-    }
-
-    private func sendLine(_ line: String, responseTimeout: TimeInterval = 2.0) throws -> String {
-        let sockFd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard sockFd != -1 else {
-            throw NSError(
-                domain: "FeedSidebarUITests",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "socket() failed errno=\(errno)"]
-            )
-        }
-        defer { close(sockFd) }
-
-        var socketTimeout = timeval(
-            tv_sec: Int(responseTimeout.rounded(.down)),
-            tv_usec: Int32(((responseTimeout - floor(responseTimeout)) * 1_000_000).rounded())
-        )
-        var noSigPipe: Int32 = 1
-        _ = withUnsafePointer(to: &noSigPipe) { ptr in
-            setsockopt(
-                sockFd,
-                SOL_SOCKET,
-                SO_NOSIGPIPE,
-                ptr,
-                socklen_t(MemoryLayout<Int32>.size)
-            )
-        }
-        _ = withUnsafePointer(to: &socketTimeout) { ptr in
-            setsockopt(
-                sockFd,
-                SOL_SOCKET,
-                SO_RCVTIMEO,
-                ptr,
-                socklen_t(MemoryLayout<timeval>.size)
-            )
-        }
-        _ = withUnsafePointer(to: &socketTimeout) { ptr in
-            setsockopt(
-                sockFd,
-                SOL_SOCKET,
-                SO_SNDTIMEO,
-                ptr,
-                socklen_t(MemoryLayout<timeval>.size)
-            )
-        }
-
-        var addr = sockaddr_un()
-        memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
-        let pathBytes = Array(socketPath.utf8CString)
-        guard pathBytes.count <= maxLen else {
-            throw NSError(
-                domain: "FeedSidebarUITests",
-                code: 4,
-                userInfo: [NSLocalizedDescriptionKey: "socket path too long: \(socketPath)"]
-            )
-        }
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
-            memset(raw, 0, maxLen)
-            for index in 0..<pathBytes.count {
-                raw[index] = pathBytes[index]
-            }
-        }
-
-        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-        let addrLen = socklen_t(pathOffset + pathBytes.count)
-        addr.sun_len = UInt8(min(Int(addrLen), 255))
-        let result = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { base in
-                connect(sockFd, base, addrLen)
-            }
-        }
-        guard result == 0 else {
-            throw NSError(
-                domain: "FeedSidebarUITests",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "connect() failed errno=\(errno)"]
-            )
-        }
-
-        let payload = line.hasSuffix("\n") ? line : "\(line)\n"
-        let wrote = payload.withCString { cString in
-            var remaining = strlen(cString)
-            var pointer = UnsafeRawPointer(cString)
-            while remaining > 0 {
-                let written = write(sockFd, pointer, remaining)
-                if written <= 0 { return false }
-                remaining -= written
-                pointer = pointer.advanced(by: written)
+            if let expectedPath = diagnostics["socketExpectedPath"], !expectedPath.isEmpty {
+                socketPath = expectedPath
             }
             return true
         }
-        guard wrote else {
+    }
+
+    private func waitForFeedPushPendingObserved(timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout, interval: 0.2) {
+            self.loadFeedResult()["pushPendingObserved"] == "1"
+        }
+    }
+
+    private func waitForFeedPushResult(timeout: TimeInterval) throws -> FeedPushResult {
+        var payload: [String: String] = [:]
+        let resolved = pollUntil(timeout: timeout, interval: 0.2) {
+            payload = self.loadFeedResult()
+            return payload["pushResultStatus"] != nil || payload["pushError"] != nil
+        }
+        guard resolved else {
             throw NSError(
-                domain: "FeedSidebarUITests",
-                code: 5,
-                userInfo: [NSLocalizedDescriptionKey: "write() failed errno=\(errno)"]
+                domain: "FeedPush",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "feed.push never returned. result=\(loadFeedResult())"]
             )
         }
-
-        // Read until newline or EOF.
-        var buffer = Data()
-        var chunk = [UInt8](repeating: 0, count: 4096)
-        while true {
-            let n = recv(sockFd, &chunk, chunk.count, 0)
-            if n < 0 {
-                if errno == EAGAIN || errno == EWOULDBLOCK { break }
-                throw NSError(
-                    domain: "FeedSidebarUITests",
-                    code: 6,
-                    userInfo: [NSLocalizedDescriptionKey: "recv() failed errno=\(errno)"]
-                )
-            }
-            if n <= 0 { break }
-            buffer.append(chunk, count: n)
-            if chunk.prefix(n).contains(0x0A) { break }
-        }
-        return String(data: buffer, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-
-    private func sendSocketLine(_ line: String, responseTimeout: TimeInterval = 2.0) throws -> String {
-        do {
-            let response = try sendLine(line, responseTimeout: responseTimeout)
-            if !response.isEmpty {
-                return response
-            }
-            if let fallback = socketCommandViaNetcat(line, responseTimeout: responseTimeout), !fallback.isEmpty {
-                return fallback
-            }
-            return response
-        } catch {
-            if let response = socketCommandViaNetcat(line, responseTimeout: responseTimeout) {
-                return response
-            }
+        if let error = payload["pushError"] {
             throw NSError(
-                domain: "FeedSidebarUITests",
-                code: 7,
-                userInfo: [
-                    NSLocalizedDescriptionKey: "socket command failed at \(socketPath): \(error.localizedDescription)"
-                ]
+                domain: "FeedPush",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "feed.push failed: \(error). result=\(payload)"]
             )
         }
-    }
-
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        var resolvedPath: String?
-        let completed = pollUntil(timeout: timeout) {
-            let originalPath = self.socketPath
-            for candidate in self.socketCandidates() {
-                guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                self.socketPath = candidate
-                let response = try? self.sendSocketLine("ping", responseTimeout: 2)
-                self.lastSocketProbe = "candidate=\(candidate) response=\(response ?? "nil")"
-                if response == "PONG" {
-                    resolvedPath = candidate
-                    return true
-                }
-                self.socketPath = originalPath
-            }
-            return false
-        }
-        if let resolvedPath {
-            socketPath = resolvedPath
-        }
-        return completed
-    }
-
-    private func socketCandidates() -> [String] {
-        var candidates = [socketPath, taggedSocketPath()]
-        var seen = Set<String>()
-        candidates.removeAll { !seen.insert($0).inserted }
-        return candidates
-    }
-
-    private func taggedSocketPath() -> String {
-        let slug = launchTag
-            .lowercased()
-            .replacingOccurrences(of: ".", with: "-")
-            .replacingOccurrences(of: "_", with: "-")
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
-        return "/tmp/cmux-debug-\(slug).sock"
-    }
-
-    private func socketCommandViaNetcat(_ line: String, responseTimeout: TimeInterval = 2.0) -> String? {
-        let nc = "/usr/bin/nc"
-        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
-
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
-        let payload = line.trimmingCharacters(in: CharacterSet(charactersIn: "\r\n"))
-        let script = "printf '%s\\n' \(shellSingleQuote(payload)) | \(nc) -U \(shellSingleQuote(socketPath)) -w \(timeoutSeconds) 2>/dev/null"
-        proc.arguments = ["-lc", script]
-
-        let outPipe = Pipe()
-        proc.standardOutput = outPipe
-
-        do {
-            try proc.run()
-        } catch {
-            return nil
-        }
-
-        proc.waitUntilExit()
-
-        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-        guard let outStr = String(data: outData, encoding: .utf8) else { return nil }
-        let trimmed = outStr.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func shellSingleQuote(_ value: String) -> String {
-        if value.isEmpty { return "''" }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        return FeedPushResult(
+            status: payload["pushResultStatus"] ?? "",
+            mode: payload["pushResultMode"] ?? ""
+        )
     }
 
     private func waitForFeedTUIReady(timeout: TimeInterval) -> Bool {
@@ -460,10 +191,6 @@ final class FeedSidebarUITests: XCTestCase {
     private func revealDockMode(in app: XCUIApplication) -> Bool {
         app.activate()
         if waitForFeedSidebarReveal(timeout: 5), waitForDockModeVisible(in: app, timeout: 8) {
-            return true
-        }
-
-        if focusDockModeViaSocket(), waitForDockModeVisible(in: app, timeout: 8) {
             return true
         }
 
@@ -510,87 +237,10 @@ final class FeedSidebarUITests: XCTestCase {
         }
     }
 
-    private func focusDockModeViaSocket() -> Bool {
-        if let response = try? sendSocketLine("debug_right_sidebar_focus feed", responseTimeout: 3) {
-            lastSocketProbe = "right-sidebar-focus-v1 response=\(response)"
-            if response.hasPrefix("OK:") {
-                return true
-            }
-        } else {
-            lastSocketProbe = "right-sidebar-focus-v1 response=nil"
-        }
-
-        let frame: [String: Any] = [
-            "id": UUID().uuidString,
-            "method": "debug.right_sidebar.focus",
-            "params": [
-                "mode": "feed",
-                "focus_first_item": true,
-            ],
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame),
-              let line = String(data: data, encoding: .utf8) else {
-            lastSocketProbe = "right-sidebar-focus encode-failed"
-            return false
-        }
-        let response: String
-        do {
-            response = try sendSocketLine("\(line)\n", responseTimeout: 10)
-            lastSocketProbe = "right-sidebar-focus response=\(response)"
-        } catch {
-            lastSocketProbe = "right-sidebar-focus error=\(error.localizedDescription)"
-            return false
-        }
-        guard let responseData = response.data(using: .utf8),
-              let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
-            return false
-        }
-        guard responseObject["ok"] as? Bool == true else {
-            return false
-        }
-        if let result = responseObject["result"] as? [String: Any] {
-            return result["focused"] as? Bool == true
-        }
-        return false
-    }
-
     private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             element.exists && element.isHittable
         }
-    }
-
-    private func portalStatsTotals() throws -> [String: Any] {
-        let frame: [String: Any] = [
-            "id": UUID().uuidString,
-            "method": "debug.portal.stats",
-            "params": [:],
-        ]
-        let data = try JSONSerialization.data(withJSONObject: frame)
-        let line = (String(data: data, encoding: .utf8) ?? "{}") + "\n"
-        let response = try sendSocketLine(line)
-        guard let respData = response.data(using: .utf8),
-              let respObj = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
-              (respObj["ok"] as? Bool) == true,
-              let result = respObj["result"] as? [String: Any],
-              let totals = result["totals"] as? [String: Any] else {
-            throw NSError(
-                domain: "FeedSidebarUITests",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "invalid portal stats response: \(response)"]
-            )
-        }
-        return totals
-    }
-
-    private func integerValue(in dictionary: [String: Any], key: String) -> Int {
-        if let value = dictionary[key] as? Int {
-            return value
-        }
-        if let value = dictionary[key] as? NSNumber {
-            return value.intValue
-        }
-        return Int(dictionary[key] as? String ?? "") ?? 0
     }
 
     private func launchAndEnsureUsable(_ app: XCUIApplication) {
@@ -614,7 +264,6 @@ final class FeedSidebarUITests: XCTestCase {
 
     private func removeSocketFile() {
         try? FileManager.default.removeItem(atPath: socketPath)
-        try? FileManager.default.removeItem(atPath: taggedSocketPath())
     }
 
     private func loadDiagnostics() -> [String: String] {
