@@ -93,6 +93,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         button.title = ""
         button.bezelStyle = .regularSquare
         button.setButtonType(.momentaryChange)
+        button.action = #selector(buttonPressed(_:))
         button.identifier = NSUserInterfaceItemIdentifier(slot.accessibilityIdentifier)
         button.setAccessibilityIdentifier(slot.accessibilityIdentifier)
         button.setAccessibilityLabel(slot.accessibilityLabel)
