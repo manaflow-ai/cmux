@@ -13,7 +13,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "SettingsShellLab",
-            path: "Sources/SettingsShellLab"
+            path: "Sources/SettingsShellLab",
+            resources: [.process("Resources")]
         ),
     ]
 )

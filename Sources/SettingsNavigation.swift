@@ -201,15 +201,17 @@ private struct SettingsSearchHighlightModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background {
-                TimelineView(.animation) { context in
-                    let opacity = highlightOpacity(at: context.date, for: highlightState)
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.accentColor.opacity(opacity * 0.24))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Color.accentColor.opacity(opacity), lineWidth: 2.5)
-                        )
-                        .shadow(color: Color.accentColor.opacity(opacity * 0.24), radius: 8, x: 0, y: 0)
+                if matches(highlightState) {
+                    TimelineView(.animation) { context in
+                        let opacity = highlightOpacity(at: context.date, for: highlightState)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.accentColor.opacity(opacity * 0.24))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(Color.accentColor.opacity(opacity), lineWidth: 2.5)
+                            )
+                            .shadow(color: Color.accentColor.opacity(opacity * 0.24), radius: 8, x: 0, y: 0)
+                    }
                 }
             }
     }

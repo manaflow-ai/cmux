@@ -6608,7 +6608,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     ) {
 #if DEBUG
-        cmuxDebugLog("settings.open.present path=swiftuiWindowGroup")
+        cmuxDebugLog("settings.open.present path=swiftuiWindow")
 #endif
         showFallbackSettingsWindow(navigationTarget)
         activateApplication()

@@ -40,9 +40,11 @@ struct SettingsDetailView: View {
             Section {
                 Button(String(localized: "detail.primaryAction", defaultValue: "Open Related File")) {
                 }
+                .disabled(true)
 
                 Button(String(localized: "detail.secondaryAction", defaultValue: "Restore Defaults")) {
                 }
+                .disabled(true)
             }
         }
         .formStyle(.grouped)

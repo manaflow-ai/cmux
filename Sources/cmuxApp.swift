@@ -740,10 +740,14 @@ struct cmuxApp: App {
             }
         }
 
-        WindowGroup(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
+        Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
             SettingsRootView()
+                .background(WindowAccessor { window in
+                    SettingsWindowPresenter.configure(window: window)
+                })
         }
         .defaultSize(width: 980, height: 680)
+        .windowResizability(.contentMinSize)
         .commands {
             SidebarCommands()
         }
@@ -2434,31 +2438,82 @@ private struct AcknowledgmentsView: View {
 @MainActor
 enum SettingsWindowPresenter {
     static let windowID = "settings"
+    static let windowIdentifier = "cmux.settings"
+    static let minimumSize = NSSize(width: 820, height: 540)
 
     private static var openWindow: (@MainActor () -> Void)?
+    private static weak var settingsWindow: NSWindow?
     private static var pendingNavigationTarget: SettingsNavigationTarget?
+    private static var shouldOpenWhenConfigured = false
 
     static func configure(openWindow: @escaping @MainActor () -> Void) {
         self.openWindow = openWindow
+        if shouldOpenWhenConfigured {
+            shouldOpenWhenConfigured = false
+            openWindow()
+        }
+    }
+
+    static func configure(window: NSWindow) {
+        settingsWindow = window
+        window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
+        window.minSize = minimumSize
+        window.contentMinSize = minimumSize
     }
 
     static func show(navigationTarget: SettingsNavigationTarget? = nil) {
 #if DEBUG
-        cmuxDebugLog("settings.window.show path=swiftuiWindowGroup")
+        cmuxDebugLog("settings.window.show path=swiftuiWindow")
 #endif
         if let navigationTarget {
             pendingNavigationTarget = navigationTarget
+        } else {
+            pendingNavigationTarget = nil
         }
-        openWindow?()
-        if let navigationTarget {
-            SettingsNavigationRequest.post(navigationTarget)
+
+        if let window = existingWindow() {
+            pendingNavigationTarget = nil
+            focus(window)
+            if let navigationTarget {
+                SettingsNavigationRequest.post(navigationTarget)
+            }
+            return
         }
+
+        guard let openWindow else {
+            shouldOpenWhenConfigured = true
+            return
+        }
+        openWindow()
     }
 
     static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
         let target = pendingNavigationTarget
         pendingNavigationTarget = nil
         return target
+    }
+
+    static func refocusIfVisible() {
+        guard let window = existingWindow() else { return }
+        focus(window)
+    }
+
+    private static func existingWindow() -> NSWindow? {
+        if let settingsWindow, settingsWindow.isVisible || settingsWindow.isMiniaturized {
+            return settingsWindow
+        }
+        return NSApp.windows.first {
+            $0.identifier?.rawValue == windowIdentifier && ($0.isVisible || $0.isMiniaturized)
+        }
+    }
+
+    private static func focus(_ window: NSWindow) {
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 }
 
@@ -5454,6 +5509,7 @@ struct SettingsView: View {
             get: { menuBarOnly },
             set: { newValue in
                 menuBarOnly = newValue
+                SettingsWindowPresenter.refocusIfVisible()
             }
         )
     }
@@ -8280,15 +8336,17 @@ private struct SettingsRootView: View {
             SettingsView()
         }
         .navigationSplitViewStyle(.balanced)
+        .frame(minWidth: SettingsWindowPresenter.minimumSize.width, minHeight: SettingsWindowPresenter.minimumSize.height)
         .onChange(of: searchText) { _, newValue in
             guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             selectedSidebarEntryID = SettingsSearchIndex.sectionID(for: selectedSection)
         }
         .onAppear {
+            searchText = ""
             if let target = SettingsWindowPresenter.consumePendingNavigationTarget() {
                 navigate(to: target, postRequest: true)
-            } else if !isSearching {
-                selectedSidebarEntryID = SettingsSearchIndex.sectionID(for: selectedSection)
+            } else {
+                navigate(to: selectedSection, postRequest: true)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
