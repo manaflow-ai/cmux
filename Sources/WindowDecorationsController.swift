@@ -125,6 +125,7 @@ final class WindowDecorationsController {
             }
             let window = target.window
             let locationInWindow = target.locationInWindow
+            self.applyMinimalModeSidebarTitlebarClickTarget(to: window)
             let isHovering = isMinimalModeSidebarChromeHoverCandidate(
                 window: window,
                 locationInWindow: locationInWindow
@@ -294,6 +295,14 @@ final class WindowDecorationsController {
             && !window.styleMask.contains(.fullScreen)
         guard shouldInstall,
               let titlebarView = window.standardWindowButton(.closeButton)?.superview else {
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
+                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                    payload["minimalSidebarTitlebarClickTargetInstalled"] = "false"
+                    payload["minimalSidebarTitlebarClickTargetWindowNumber"] = String(window.windowNumber)
+                }
+            }
+            #endif
             removeMinimalModeSidebarTitlebarClickTarget(from: window)
             return
         }
@@ -331,6 +340,17 @@ final class WindowDecorationsController {
             width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
             height: hostHeight
         )
+
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
+            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                payload["minimalSidebarTitlebarClickTargetInstalled"] = "true"
+                payload["minimalSidebarTitlebarClickTargetWindowNumber"] = String(window.windowNumber)
+                payload["minimalSidebarTitlebarClickTargetFrameInWindow"] = NSStringFromRect(target.convert(target.bounds, to: nil))
+                payload["minimalSidebarTitlebarClickTargetTitlebarBounds"] = NSStringFromRect(titlebarView.bounds)
+            }
+        }
+        #endif
     }
 
     private func removeMinimalModeSidebarTitlebarClickTarget(from window: NSWindow) {
