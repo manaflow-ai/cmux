@@ -848,10 +848,6 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
                 emitHoverChanged(false)
                 return
             }
-            guard event.window == nil || event.window === window else {
-                emitHoverChanged(false)
-                return
-            }
 
             let pointInWindow = event.window === window
                 ? event.locationInWindow
