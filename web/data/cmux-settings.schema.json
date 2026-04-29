@@ -557,6 +557,7 @@
               "splitRight",
               "splitDown",
               "toggleSplitZoom",
+              "equalizeSplits",
               "splitBrowserRight",
               "splitBrowserDown",
               "openBrowser",

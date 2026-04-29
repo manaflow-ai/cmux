@@ -702,6 +702,14 @@ struct cmuxApp: App {
                     performBrowserSplitFromMenu(direction: .down)
                 }
 
+                splitCommandButton(title: String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits"), shortcut: menuShortcut(for: .equalizeSplits)) {
+                    guard let workspace = activeTabManager.selectedWorkspace,
+                          activeTabManager.equalizeSplits(tabId: workspace.id) else {
+                        NSSound.beep()
+                        return
+                    }
+                }
+
                 Divider()
 
                 // Numbered workspace selection (9 = last workspace)

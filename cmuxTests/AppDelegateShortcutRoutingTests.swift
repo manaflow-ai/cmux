@@ -1,4 +1,5 @@
 import XCTest
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,6 +12,16 @@ private final class FakeWKInspectorContainerView: NSView {}
 private final class FocusableTestView: NSView {
     override var acceptsFirstResponder: Bool { true }
 }
+
+private func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+    switch node {
+    case .pane:
+        return []
+    case .split(let split):
+        return [split] + shortcutRoutingSplitNodes(in: split.first) + shortcutRoutingSplitNodes(in: split.second)
+    }
+}
+
 private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
     var afterMenuMissCallCount = 0
     var pasteCallCount = 0
@@ -677,6 +688,63 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Unmatched chord suffix must not trigger the action")
+    }
+
+    func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              workspace.newTerminalSplit(from: rightPanel.id, orientation: .vertical) != nil else {
+            XCTFail("Expected nested split setup")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let seededSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertGreaterThanOrEqual(seededSplits.count, 2, "Expected nested splits")
+
+        for (index, split) in seededSplits.enumerated() {
+            guard let splitId = UUID(uuidString: split.id) else {
+                XCTFail("Expected split ID to be a UUID")
+                return
+            }
+            let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
+            XCTAssertTrue(workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId))
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "=",
+            modifiers: [.command, .control],
+            keyCode: 24,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Ctrl+= event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        let equalizedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertEqual(equalizedSplits.count, seededSplits.count)
+        for split in equalizedSplits {
+            XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
+        }
     }
 
     func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
