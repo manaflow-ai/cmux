@@ -29,22 +29,11 @@ struct SettingsShellView: View {
             .searchable(
                 text: $searchText,
                 placement: .sidebar,
-                prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search Settings"))
+                prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search"))
             )
         } detail: {
             SettingsDetailView(section: selectedSection)
                 .navigationTitle(selectedSection.title)
-                .toolbar {
-                    ToolbarItem {
-                        Button {
-                        } label: {
-                            Label(
-                                String(localized: "toolbar.reset", defaultValue: "Reset"),
-                                systemImage: "arrow.counterclockwise"
-                            )
-                        }
-                    }
-                }
         }
         .navigationSplitViewStyle(.balanced)
     }

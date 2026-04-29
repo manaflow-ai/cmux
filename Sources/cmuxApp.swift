@@ -2545,6 +2545,188 @@ enum SettingsNavigationRequest {
     }
 }
 
+private enum SettingsSearchEntryKind {
+    case section
+    case setting
+}
+
+private struct SettingsSearchEntry: Identifiable {
+    let id: String
+    let kind: SettingsSearchEntryKind
+    let target: SettingsNavigationTarget
+    let title: String
+    let subtitle: String?
+    let symbolName: String
+    let normalizedSearchText: String
+
+    init(
+        id: String,
+        kind: SettingsSearchEntryKind,
+        target: SettingsNavigationTarget,
+        title: String,
+        subtitle: String?,
+        symbolName: String,
+        searchText: String
+    ) {
+        self.id = id
+        self.kind = kind
+        self.target = target
+        self.title = title
+        self.subtitle = subtitle
+        self.symbolName = symbolName
+        normalizedSearchText = SettingsSearchIndex.normalized("\(title) \(subtitle ?? "") \(searchText)")
+    }
+}
+
+private enum SettingsSearchIndex {
+    static let defaultSelectionID = sectionID(for: .account)
+
+    private static let sectionEntries: [SettingsSearchEntry] = SettingsNavigationTarget.allCases.map { target in
+        SettingsSearchEntry(
+            id: sectionID(for: target),
+            kind: .section,
+            target: target,
+            title: target.title,
+            subtitle: nil,
+            symbolName: target.symbolName,
+            searchText: target.searchText
+        )
+    }
+
+    private static let settingEntries: [SettingsSearchEntry] = [
+        setting(.account, "account", String(localized: "settings.section.account", defaultValue: "Account"), "sign in login team sync user profile"),
+        setting(.app, "language", String(localized: "settings.app.language", defaultValue: "Language"), "locale translation japanese english restart"),
+        setting(.app, "appearance", String(localized: "settings.app.appearance", defaultValue: "Appearance"), "theme light dark system"),
+        setting(.app, "app-icon", String(localized: "settings.app.appIcon", defaultValue: "App Icon"), "dock icon alternate"),
+        setting(.app, "new-workspace-placement", String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"), "workspace order position"),
+        setting(.app, "minimal-mode", String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"), "presentation compact chrome"),
+        setting(.app, "keep-workspace-open", String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"), "close last surface shortcut cmd w"),
+        setting(.app, "focus-pane-first-click", String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"), "mouse click focus"),
+        setting(.app, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
+        setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview"),
+        setting(.app, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
+        setting(.app, "reorder-notification", String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"), "workspace notification order"),
+        setting(.app, "dock-badge", String(localized: "settings.app.dockBadge", defaultValue: "Dock Badge"), "unread count app icon"),
+        setting(.app, "menu-bar-only", String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"), "dock icon cmd tab"),
+        setting(.app, "show-menu-bar", String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"), "menu extra status item"),
+        setting(.app, "unread-pane-ring", String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"), "notification blue ring pane"),
+        setting(.app, "pane-flash", String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), "notification flash highlight"),
+        setting(.app, "desktop-notifications", String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"), "permission alerts test notification"),
+        setting(.app, "notification-sound", String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), "custom sound alert audio"),
+        setting(.app, "notification-command", String(localized: "settings.notifications.command", defaultValue: "Notification Command"), "shell command environment variables"),
+        setting(.app, "telemetry", String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), "analytics crash usage"),
+        setting(.app, "warn-before-quit", String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), "cmd q confirmation"),
+        setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
+        setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
+        setting(.app, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
+        setting(.app, "sidebar-branch-layout", String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), "branch directory vertical inline"),
+        setting(.app, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"),
+        setting(.app, "show-branch-directory", String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), "git cwd path"),
+        setting(.app, "show-pull-requests", String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), "review pr mr link"),
+        setting(.app, "open-pr-links", String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"), "pull request link browser"),
+        setting(.app, "open-port-links", String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"), "port link browser"),
+        setting(.app, "show-ssh", String(localized: "settings.app.showSSH", defaultValue: "Show SSH in Sidebar"), "remote target"),
+        setting(.app, "show-ports", String(localized: "settings.app.showPorts", defaultValue: "Show Listening Ports in Sidebar"), "localhost port"),
+        setting(.app, "show-log", String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"), "status message"),
+        setting(.app, "show-progress", String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"), "progress bar"),
+        setting(.app, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
+        setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
+        setting(.workspaceColors, "indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "tab color indicator"),
+        setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
+        setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
+        setting(.workspaceColors, "palette", String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"), "named colors palette"),
+        setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
+        setting(.sidebarAppearance, "light-tint", String(localized: "settings.sidebarAppearance.tintColorLight", defaultValue: "Light Mode Tint"), "sidebar color light"),
+        setting(.sidebarAppearance, "dark-tint", String(localized: "settings.sidebarAppearance.tintColorDark", defaultValue: "Dark Mode Tint"), "sidebar color dark"),
+        setting(.sidebarAppearance, "tint-opacity", String(localized: "settings.sidebarAppearance.tintOpacity", defaultValue: "Tint Opacity"), "sidebar color opacity"),
+        setting(.sidebarAppearance, "reset-tint", String(localized: "settings.sidebarAppearance.reset", defaultValue: "Reset Sidebar Tint"), "restore default sidebar appearance"),
+        setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
+        setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
+        setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
+        setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
+        setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
+        setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
+        setting(.automation, "port-base", String(localized: "settings.automation.portBase", defaultValue: "Port Base"), "CMUX_PORT start"),
+        setting(.automation, "port-range", String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), "CMUX_PORT_END workspace ports"),
+        setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo"),
+        setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
+        setting(.browser, "theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
+        setting(.browser, "terminal-links", String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"), "click links browser"),
+        setting(.browser, "intercept-open", String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"), "open command urls"),
+        setting(.browser, "host-whitelist", String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"), "hosts wildcard terminal links"),
+        setting(.browser, "external-patterns", String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"), "regex url rules default browser"),
+        setting(.browser, "http-allowlist", String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"), "localhost non https warning"),
+        setting(.browserImport, "import-data", String(localized: "settings.browser.import", defaultValue: "Import Browser Data"), "bookmarks history cookies profiles"),
+        setting(.browserImport, "import-hint", String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"), "blank tab browser import"),
+        setting(.browser, "react-grab", String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"), "npm react grab toolbar"),
+        setting(.browser, "history", String(localized: "settings.browser.history", defaultValue: "Browsing History"), "clear visited suggestions"),
+        setting(.globalHotkey, "enable-hotkey", String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"), "global shortcut show hide windows"),
+        setting(.globalHotkey, "shortcut", String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), "keyboard recorder command option control"),
+        setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
+        setting(.keyboardShortcuts, "show-hints", String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"), "modifier hold hints keyboard"),
+        setting(.keyboardShortcuts, "shortcuts", String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), "keybindings commands"),
+        setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")
+    ]
+
+    private static let allEntries = sectionEntries + settingEntries
+
+    private static let entriesByID: [String: SettingsSearchEntry] = Dictionary(
+        uniqueKeysWithValues: allEntries.map { ($0.id, $0) }
+    )
+
+    static func entries(matching query: String) -> [SettingsSearchEntry] {
+        let tokens = normalizedTokens(for: query)
+        guard !tokens.isEmpty else { return sectionEntries }
+        return allEntries.filter { entry in
+            tokens.allSatisfy { token in entry.normalizedSearchText.contains(token) }
+        }
+    }
+
+    static func entry(withID id: String) -> SettingsSearchEntry? {
+        entriesByID[id]
+    }
+
+    static func sectionEntry(for target: SettingsNavigationTarget) -> SettingsSearchEntry {
+        entriesByID[sectionID(for: target)] ?? sectionEntries[0]
+    }
+
+    static func sectionID(for target: SettingsNavigationTarget) -> String {
+        "section:\(target.rawValue)"
+    }
+
+    static func normalized(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    private static func setting(
+        _ target: SettingsNavigationTarget,
+        _ idSuffix: String,
+        _ title: String,
+        _ searchText: String
+    ) -> SettingsSearchEntry {
+        SettingsSearchEntry(
+            id: "setting:\(target.rawValue):\(idSuffix)",
+            kind: .setting,
+            target: target,
+            title: title,
+            subtitle: target.title,
+            symbolName: target.symbolName,
+            searchText: "\(target.searchText) \(searchText)"
+        )
+    }
+
+    private static func normalizedTokens(for query: String) -> [String] {
+        normalized(query)
+            .split { character in
+                character.unicodeScalars.allSatisfy { scalar in
+                    CharacterSet.whitespacesAndNewlines.contains(scalar)
+                        || CharacterSet.punctuationCharacters.contains(scalar)
+                }
+            }
+            .map(String.init)
+    }
+}
+
 @MainActor
 enum SettingsWindowPresenter {
     static let windowID = "settings"
@@ -2573,14 +2755,6 @@ enum SettingsWindowPresenter {
         let target = pendingNavigationTarget
         pendingNavigationTarget = nil
         return target
-    }
-}
-
-private enum SettingsResetRequest {
-    static let notificationName = Notification.Name("cmux.settings.reset")
-
-    static func post() {
-        NotificationCenter.default.post(name: notificationName, object: nil)
     }
 }
 
@@ -6104,7 +6278,7 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             configurationReview: .action,
-                            "Desktop Notifications",
+                            String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"),
                             subtitle: notificationPermissionSubtitle
                         ) {
                             HStack(spacing: 6) {
@@ -6198,10 +6372,10 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             configurationReview: .json("notifications.command"),
-                            "Notification Command",
-                            subtitle: "Run a shell command when a notification arrives. $CMUX_NOTIFICATION_TITLE, $CMUX_NOTIFICATION_SUBTITLE, $CMUX_NOTIFICATION_BODY are set."
+                            String(localized: "settings.notifications.command", defaultValue: "Notification Command"),
+                            subtitle: String(localized: "settings.notifications.command.subtitle", defaultValue: "Run a shell command when a notification arrives. $CMUX_NOTIFICATION_TITLE, $CMUX_NOTIFICATION_SUBTITLE, $CMUX_NOTIFICATION_BODY are set.")
                         ) {
-                            TextField("say \"done\"", text: $notificationCustomCommand)
+                            TextField(String(localized: "settings.notifications.command.placeholder", defaultValue: "say \"done\""), text: $notificationCustomCommand)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 200)
                         }
@@ -7252,9 +7426,6 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reloadWorkspaceTabColorSettings()
         }
-        .onReceive(NotificationCenter.default.publisher(for: SettingsResetRequest.notificationName)) { _ in
-            resetAllSettings()
-        }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let target = SettingsNavigationRequest.target(from: notification) else { return }
             DispatchQueue.main.async {
@@ -8225,27 +8396,39 @@ private struct GlobalHotkeySection: View {
 
 private struct SettingsRootView: View {
     @SceneStorage("selectedSettingsSection") private var selectedSectionRaw = SettingsNavigationTarget.account.rawValue
+    @SceneStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID = SettingsSearchIndex.defaultSelectionID
     @State private var searchText = ""
 
     private var selectedSection: SettingsNavigationTarget {
         SettingsNavigationTarget(rawValue: selectedSectionRaw) ?? .account
     }
 
-    private var filteredSections: [SettingsNavigationTarget] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return SettingsNavigationTarget.allCases }
-        return SettingsNavigationTarget.allCases.filter { item in
-            item.title.localizedStandardContains(query)
-                || item.searchText.localizedStandardContains(query)
-        }
+    private var sidebarEntries: [SettingsSearchEntry] {
+        SettingsSearchIndex.entries(matching: searchText)
+    }
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var sidebarSelection: Binding<String> {
+        Binding(
+            get: { selectedSidebarEntryID },
+            set: { selectSidebarEntry($0) }
+        )
     }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selectedSectionRaw) {
-                ForEach(filteredSections) { item in
-                    Label(item.title, systemImage: item.symbolName)
-                        .tag(item.rawValue)
+            List(selection: sidebarSelection) {
+                if sidebarEntries.isEmpty {
+                    Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(sidebarEntries) { entry in
+                        SettingsSidebarEntryRow(entry: entry)
+                            .tag(entry.id)
+                    }
                 }
             }
             .listStyle(.sidebar)
@@ -8253,36 +8436,79 @@ private struct SettingsRootView: View {
             .searchable(
                 text: $searchText,
                 placement: .sidebar,
-                prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search Settings"))
+                prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search"))
             )
         } detail: {
             SettingsView()
                 .navigationTitle(selectedSection.title)
-                .toolbar {
-                    ToolbarItem {
-                        Button {
-                            SettingsResetRequest.post()
-                        } label: {
-                            Label(
-                                String(localized: "settings.section.reset", defaultValue: "Reset"),
-                                systemImage: "arrow.counterclockwise"
-                            )
-                        }
-                    }
-                }
         }
         .navigationSplitViewStyle(.balanced)
-        .onChange(of: selectedSectionRaw) { _, newValue in
-            guard let target = SettingsNavigationTarget(rawValue: newValue) else { return }
-            SettingsNavigationRequest.post(target)
+        .onChange(of: searchText) { _, newValue in
+            guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            selectedSidebarEntryID = SettingsSearchIndex.sectionID(for: selectedSection)
         }
         .onAppear {
-            guard let target = SettingsWindowPresenter.consumePendingNavigationTarget() else { return }
-            selectedSectionRaw = target.rawValue
-            SettingsNavigationRequest.post(target)
+            if let target = SettingsWindowPresenter.consumePendingNavigationTarget() {
+                navigate(to: target, postRequest: true)
+            } else if !isSearching {
+                selectedSidebarEntryID = SettingsSearchIndex.sectionID(for: selectedSection)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
-            selectedSectionRaw = SettingsNavigationRequest.target(from: notification)?.rawValue ?? selectedSectionRaw
+            guard let target = SettingsNavigationRequest.target(from: notification) else { return }
+            let selectedEntry = SettingsSearchIndex.entry(withID: selectedSidebarEntryID)
+            let shouldPreserveSearchSelection = isSearching && selectedEntry?.target == target
+            navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection, postRequest: false)
+        }
+    }
+
+    private func selectSidebarEntry(_ entryID: String) {
+        guard let entry = SettingsSearchIndex.entry(withID: entryID) else { return }
+        selectedSidebarEntryID = entry.id
+        selectedSectionRaw = entry.target.rawValue
+        SettingsNavigationRequest.post(entry.target)
+    }
+
+    private func navigate(
+        to target: SettingsNavigationTarget,
+        preferSectionSelection: Bool = true,
+        postRequest: Bool
+    ) {
+        selectedSectionRaw = target.rawValue
+        if preferSectionSelection {
+            selectedSidebarEntryID = SettingsSearchIndex.sectionID(for: target)
+        }
+        if postRequest {
+            SettingsNavigationRequest.post(target)
+        }
+    }
+}
+
+private struct SettingsSidebarEntryRow: View {
+    let entry: SettingsSearchEntry
+
+    var body: some View {
+        switch entry.kind {
+        case .section:
+            Label(entry.title, systemImage: entry.symbolName)
+        case .setting:
+            HStack(spacing: 10) {
+                Image(systemName: entry.symbolName)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.title)
+                        .lineLimit(1)
+
+                    if let subtitle = entry.subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
         }
     }
 }

@@ -49661,6 +49661,23 @@
         }
       }
     },
+    "settings.app.appearance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外観"
+          }
+        }
+      }
+    },
     "settings.app.appIcon.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -56799,6 +56816,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "알림 소리"
+          }
+        }
+      }
+    },
+    "settings.notifications.desktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ通知"
+          }
+        }
+      }
+    },
+    "settings.notifications.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知コマンド"
+          }
+        }
+      }
+    },
+    "settings.notifications.command.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run a shell command when a notification arrives. $CMUX_NOTIFICATION_TITLE, $CMUX_NOTIFICATION_SUBTITLE, $CMUX_NOTIFICATION_BODY are set."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知が届いたときにシェルコマンドを実行します。$CMUX_NOTIFICATION_TITLE、$CMUX_NOTIFICATION_SUBTITLE、$CMUX_NOTIFICATION_BODY が設定されます。"
+          }
+        }
+      }
+    },
+    "settings.notifications.command.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "say \"done\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "say \"done\""
           }
         }
       }
@@ -68547,13 +68632,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search Settings"
+            "value": "Search"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定を検索"
+            "value": "検索"
+          }
+        }
+      }
+    },
+    "settings.search.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Results"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結果なし"
           }
         }
       }
