@@ -1741,6 +1741,11 @@ struct CMUXCLI {
             return
         }
 
+        if command == "__real-tmux-pane-proxy" {
+            try runRealTmuxPaneProxy(commandArgs: commandArgs)
+            return
+        }
+
         // If the argument looks like a path (not a known command), open a workspace there.
         if looksLikePath(command) {
             try openPath(command, socketPath: resolvedSocketPath)
@@ -17057,6 +17062,253 @@ export default CMUXSessionRestore;
             info["CMUXCommit"] = normalizedCommit
         }
         return info.isEmpty ? nil : info
+    }
+
+    private func runRealTmuxPaneProxy(commandArgs: [String]) throws {
+        guard let paneId = optionValue(commandArgs, name: "--pane")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              paneId.hasPrefix("%"),
+              paneId.dropFirst().allSatisfy({ $0.isNumber }) else {
+            throw CLIError(message: "__real-tmux-pane-proxy requires --pane %pane_id")
+        }
+        guard let tmuxPath = realTmuxExecutablePath() else {
+            throw CLIError(message: "tmux executable not found")
+        }
+        guard let sessionId = runRealTmuxOutput(
+            tmuxPath: tmuxPath,
+            arguments: ["display-message", "-p", "-t", paneId, "#{session_id}"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionId.isEmpty else {
+            throw CLIError(message: "tmux pane \(paneId) is not available")
+        }
+
+        setbuf(stdout, nil)
+        var originalTermios = termios()
+        let hasTermios = tcgetattr(STDIN_FILENO, &originalTermios) == 0
+        if hasTermios {
+            var rawTermios = originalTermios
+            cfmakeraw(&rawTermios)
+            _ = tcsetattr(STDIN_FILENO, TCSANOW, &rawTermios)
+        }
+        defer {
+            if hasTermios {
+                _ = tcsetattr(STDIN_FILENO, TCSANOW, &originalTermios)
+            }
+        }
+
+        if let capture = runRealTmuxOutput(
+            tmuxPath: tmuxPath,
+            arguments: ["capture-pane", "-pe", "-t", paneId]
+        ) {
+            FileHandle.standardOutput.write(Data("\u{001B}[H\u{001B}[2J".utf8))
+            FileHandle.standardOutput.write(Data(capture.utf8))
+            if !capture.hasSuffix("\n") {
+                FileHandle.standardOutput.write(Data("\n".utf8))
+            }
+        }
+
+        let controlProcess = Process()
+        let controlInput = Pipe()
+        let controlOutput = Pipe()
+        let controlError = Pipe()
+        controlProcess.executableURL = URL(fileURLWithPath: tmuxPath)
+        controlProcess.arguments = ["-C", "attach-session", "-t", sessionId]
+        controlProcess.standardInput = controlInput
+        controlProcess.standardOutput = controlOutput
+        controlProcess.standardError = controlError
+
+        let done = DispatchSemaphore(value: 0)
+        let lineQueue = DispatchQueue(label: "cmux.real-tmux-pane-proxy.output")
+        var outputBuffer = Data()
+        var didFinish = false
+
+        func finishProxy(status: Int32) -> Never {
+            if !didFinish {
+                didFinish = true
+                controlOutput.fileHandleForReading.readabilityHandler = nil
+                controlError.fileHandleForReading.readabilityHandler = nil
+                if controlProcess.isRunning {
+                    controlInput.fileHandleForWriting.write(Data("detach-client\n".utf8))
+                    controlProcess.terminate()
+                }
+            }
+            exit(status)
+        }
+
+        controlOutput.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else {
+                done.signal()
+                return
+            }
+            lineQueue.async {
+                outputBuffer.append(chunk)
+                while let newline = outputBuffer.firstIndex(of: 0x0A) {
+                    let line = outputBuffer[..<newline]
+                    outputBuffer.removeSubrange(...newline)
+                    let action = self.handleRealTmuxControlLine(Data(line), paneId: paneId)
+                    switch action {
+                    case .continue:
+                        break
+                    case .exit:
+                        done.signal()
+                    }
+                }
+            }
+        }
+        controlError.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty {
+                FileHandle.standardError.write(data)
+            }
+        }
+
+        controlProcess.terminationHandler = { _ in done.signal() }
+        try controlProcess.run()
+        controlInput.fileHandleForWriting.write(Data("refresh-client -A \(paneId):on\n".utf8))
+
+        FileHandle.standardInput.readabilityHandler = { [self] handle in
+            let input = handle.availableData
+            guard !input.isEmpty else {
+                FileHandle.standardInput.readabilityHandler = nil
+                return
+            }
+            self.sendRealTmuxInput(input, tmuxPath: tmuxPath, paneId: paneId)
+        }
+        done.wait()
+        FileHandle.standardInput.readabilityHandler = nil
+        let status: Int32 = controlProcess.isRunning ? 1 : (controlProcess.terminationStatus == 0 ? 0 : 1)
+        finishProxy(status: status)
+    }
+
+    private enum RealTmuxControlLineAction {
+        case `continue`
+        case exit
+    }
+
+    private func handleRealTmuxControlLine(_ line: Data, paneId: String) -> RealTmuxControlLineAction {
+        let outputPrefix = Data("%output ".utf8)
+        guard line.starts(with: outputPrefix) else {
+            if line.starts(with: Data("%window-close ".utf8)) ||
+                line.starts(with: Data("%unlinked-window-close ".utf8)) ||
+                line.starts(with: Data("%sessions-changed".utf8)) {
+                return .exit
+            }
+            return .continue
+        }
+        let bytes = [UInt8](line)
+        let prefixCount = outputPrefix.count
+        guard bytes.count > prefixCount else { return .continue }
+        var cursor = prefixCount
+        let paneBytes = [UInt8](paneId.utf8)
+        guard bytes.count >= cursor + paneBytes.count,
+              Array(bytes[cursor..<(cursor + paneBytes.count)]) == paneBytes else {
+            return .continue
+        }
+        cursor += paneBytes.count
+        guard cursor < bytes.count, bytes[cursor] == 0x20 else { return .continue }
+        cursor += 1
+        let payload = decodeRealTmuxControlPayload(Array(bytes[cursor...]))
+        if !payload.isEmpty {
+            FileHandle.standardOutput.write(payload)
+        }
+        return .continue
+    }
+
+    private func decodeRealTmuxControlPayload(_ bytes: [UInt8]) -> Data {
+        var decoded: [UInt8] = []
+        decoded.reserveCapacity(bytes.count)
+        var index = 0
+        while index < bytes.count {
+            if bytes[index] == 0x5C,
+               index + 3 < bytes.count,
+               let first = realTmuxOctalValue(bytes[index + 1]),
+               let second = realTmuxOctalValue(bytes[index + 2]),
+               let third = realTmuxOctalValue(bytes[index + 3]) {
+                decoded.append(UInt8((first << 6) | (second << 3) | third))
+                index += 4
+            } else {
+                decoded.append(bytes[index])
+                index += 1
+            }
+        }
+        return Data(decoded)
+    }
+
+    private func realTmuxOctalValue(_ byte: UInt8) -> Int? {
+        guard byte >= 0x30, byte <= 0x37 else { return nil }
+        return Int(byte - 0x30)
+    }
+
+    private func sendRealTmuxInput(_ data: Data, tmuxPath: String, paneId: String) {
+        var literalBuffer = Data()
+        func flushLiteralBuffer() {
+            guard !literalBuffer.isEmpty else { return }
+            if let text = String(data: literalBuffer, encoding: .utf8), !text.isEmpty {
+                _ = runRealTmux(tmuxPath: tmuxPath, arguments: ["send-keys", "-l", "-t", paneId, text])
+            } else {
+                for byte in literalBuffer {
+                    _ = runRealTmux(tmuxPath: tmuxPath, arguments: ["send-keys", "-H", "-t", paneId, String(format: "%02x", byte)])
+                }
+            }
+            literalBuffer.removeAll(keepingCapacity: true)
+        }
+        for byte in data {
+            switch byte {
+            case 0x03:
+                flushLiteralBuffer()
+                _ = runRealTmux(tmuxPath: tmuxPath, arguments: ["send-keys", "-t", paneId, "C-c"])
+            case 0x04:
+                flushLiteralBuffer()
+                _ = runRealTmux(tmuxPath: tmuxPath, arguments: ["send-keys", "-t", paneId, "C-d"])
+            case 0x0D, 0x0A:
+                flushLiteralBuffer()
+                _ = runRealTmux(tmuxPath: tmuxPath, arguments: ["send-keys", "-t", paneId, "Enter"])
+            case 0x1B:
+                flushLiteralBuffer()
+                _ = runRealTmux(tmuxPath: tmuxPath, arguments: ["send-keys", "-t", paneId, "Escape"])
+            default:
+                literalBuffer.append(byte)
+            }
+        }
+        flushLiteralBuffer()
+    }
+
+    private func realTmuxExecutablePath() -> String? {
+        ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    @discardableResult
+    private func runRealTmux(tmuxPath: String, arguments: [String]) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = arguments
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return false
+        }
+        return process.terminationStatus == 0
+    }
+
+    private func runRealTmuxOutput(tmuxPath: String, arguments: [String]) -> String? {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+        guard process.terminationStatus == 0 else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)
     }
 
     private func versionInfoFromProjectFile() -> [String: String]? {
