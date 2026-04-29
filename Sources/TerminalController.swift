@@ -8250,7 +8250,7 @@ class TerminalController {
 
             let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let sourceSurfaceId else {
-                result = .err(code: "not_found", message: "No focused surface to split", data: nil)
+                result = .err(code: "not_found", message: "No focused surface to open editor from", data: nil)
                 return
             }
             guard ws.panels[sourceSurfaceId] != nil else {
@@ -8259,19 +8259,13 @@ class TerminalController {
             }
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
-
-            let directionStr = v2String(params, "direction") ?? "right"
-            guard let direction = parseSplitDirection(directionStr) else {
-                result = .err(code: "invalid_params", message: "Invalid direction '\(directionStr)' (left|right|up|down)", data: nil)
+            guard let sourcePaneId = ws.paneId(forPanelId: sourceSurfaceId) ?? ws.bonsplitController.focusedPaneId else {
+                result = .err(code: "not_found", message: "No target pane found for editor", data: nil)
                 return
             }
-            let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
-            let insertFirst = (direction == .left || direction == .up)
 
-            let createdPanel = ws.newEditorSplit(
-                from: sourceSurfaceId,
-                orientation: orientation,
-                insertFirst: insertFirst,
+            let createdPanel = ws.newEditorSurface(
+                inPane: sourcePaneId,
                 filePath: filePath,
                 focus: v2FocusAllowed()
             )

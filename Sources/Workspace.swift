@@ -10697,11 +10697,11 @@ final class Workspace: Identifiable, ObservableObject {
             return editorPanel
         }
 
-        if let sourcePanelId = panelId ?? focusedPanelId,
-           let editorPanel = newEditorSplit(
-               from: sourcePanelId,
-               orientation: .horizontal,
-               insertFirst: false,
+        let targetPaneId = (panelId ?? focusedPanelId).flatMap { paneId(forPanelId: $0) }
+            ?? bonsplitController.focusedPaneId
+        if let targetPaneId,
+           let editorPanel = newEditorSurface(
+               inPane: targetPaneId,
                workspaceRootDirectory: rootDirectory,
                focus: true
            ) {
@@ -10736,10 +10736,11 @@ final class Workspace: Identifiable, ObservableObject {
                 return ed
             }
         }
-        return newEditorSplit(
-            from: panelId,
-            orientation: .horizontal,
-            insertFirst: false,
+        guard let paneId = paneId(forPanelId: panelId) ?? bonsplitController.focusedPaneId else {
+            return nil
+        }
+        return newEditorSurface(
+            inPane: paneId,
             filePath: filePath,
             focus: true
         )
@@ -14115,17 +14116,7 @@ extension Workspace: BonsplitDelegate {
         if CmuxSurfaceTabBarBuiltInAction(configID: identifier) == .newEditor {
             let directory = normalizedSidebarDirectory(currentDirectory)
                 ?? FileManager.default.homeDirectoryForCurrentUser.path
-            if let sourcePanelId = effectiveSelectedPanelId(inPane: pane) ?? focusedPanelId {
-                _ = newEditorSplit(
-                    from: sourcePanelId,
-                    orientation: .horizontal,
-                    insertFirst: false,
-                    workspaceRootDirectory: directory,
-                    focus: true
-                )
-            } else {
-                _ = newEditorSurface(inPane: pane, workspaceRootDirectory: directory)
-            }
+            _ = newEditorSurface(inPane: pane, workspaceRootDirectory: directory, focus: true)
             return
         }
 
@@ -14208,17 +14199,7 @@ extension Workspace: BonsplitDelegate {
         case "editor":
             let directory = normalizedSidebarDirectory(currentDirectory)
                 ?? FileManager.default.homeDirectoryForCurrentUser.path
-            if let sourcePanelId = effectiveSelectedPanelId(inPane: pane) ?? focusedPanelId {
-                _ = newEditorSplit(
-                    from: sourcePanelId,
-                    orientation: .horizontal,
-                    insertFirst: false,
-                    workspaceRootDirectory: directory,
-                    focus: true
-                )
-            } else {
-                _ = newEditorSurface(inPane: pane, workspaceRootDirectory: directory)
-            }
+            _ = newEditorSurface(inPane: pane, workspaceRootDirectory: directory, focus: true)
         default:
             _ = newTerminalSurface(inPane: pane)
         }

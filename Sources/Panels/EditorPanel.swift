@@ -88,7 +88,10 @@ final class EditorPanel: Panel, ObservableObject {
     // MARK: - File watching
 
     private nonisolated(unsafe) var fileWatchSource: DispatchSourceFileSystemObject?
+    private nonisolated(unsafe) var directoryWatchSource: DispatchSourceFileSystemObject?
     private var fileDescriptor: Int32 = -1
+    private var directoryDescriptor: Int32 = -1
+    private var pendingExternalReloadTask: Task<Void, Never>?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.editor-file-watch", qos: .utility)
 
@@ -136,6 +139,8 @@ final class EditorPanel: Panel, ObservableObject {
     func close() {
         isClosed = true
         stopFileWatcher()
+        pendingExternalReloadTask?.cancel()
+        pendingExternalReloadTask = nil
         if let wv = webView {
             wv.configuration.userContentController.removeScriptMessageHandler(forName: Self.bridgeHandlerName)
             wv.removeFromSuperview()
@@ -465,42 +470,84 @@ final class EditorPanel: Panel, ObservableObject {
 
     private func startFileWatcher() {
         guard !filePath.isEmpty else { return }
-        let fd = open(filePath, O_EVTONLY)
-        guard fd >= 0 else { return }
-        fileDescriptor = fd
 
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
+        if fileWatchSource == nil {
+            let fd = open(filePath, O_EVTONLY)
+            if fd >= 0 {
+                fileDescriptor = fd
 
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            if flags.contains(.delete) || flags.contains(.rename) {
-                Task { @MainActor in
-                    self.stopFileWatcher()
-                    self.loadFileContent()
-                    if self.isFileUnavailable {
-                        self.scheduleReattach(attempt: 1)
-                    } else {
-                        self.startFileWatcher()
+                let source = DispatchSource.makeFileSystemObjectSource(
+                    fileDescriptor: fd,
+                    eventMask: [.write, .delete, .rename, .extend, .attrib],
+                    queue: watchQueue
+                )
+
+                source.setEventHandler { [weak self] in
+                    guard let self else { return }
+                    let flags = source.data
+                    Task { @MainActor in
+                        self.handleFileSystemEvent(flags, shouldReattach: flags.contains(.delete) || flags.contains(.rename))
                     }
                 }
-            } else {
-                Task { @MainActor in
-                    self.loadFileContent()
+
+                source.setCancelHandler {
+                    Darwin.close(fd)
                 }
+
+                source.resume()
+                fileWatchSource = source
             }
         }
 
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
+        if directoryWatchSource == nil {
+            let directoryPath = (filePath as NSString).deletingLastPathComponent
+            let fd = open(directoryPath, O_EVTONLY)
+            guard fd >= 0 else { return }
+            directoryDescriptor = fd
 
-        source.resume()
-        fileWatchSource = source
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .delete, .rename, .attrib],
+                queue: watchQueue
+            )
+
+            source.setEventHandler { [weak self] in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.handleFileSystemEvent(source.data, shouldReattach: true)
+                }
+            }
+
+            source.setCancelHandler {
+                Darwin.close(fd)
+            }
+
+            source.resume()
+            directoryWatchSource = source
+        }
+    }
+
+    private func handleFileSystemEvent(_ flags: DispatchSource.FileSystemEvent, shouldReattach: Bool) {
+        guard !isClosed else { return }
+        let reattach = shouldReattach || flags.contains(.delete) || flags.contains(.rename)
+        scheduleExternalFileReload(reattachWatcher: reattach)
+    }
+
+    private func scheduleExternalFileReload(reattachWatcher: Bool) {
+        pendingExternalReloadTask?.cancel()
+        pendingExternalReloadTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard !Task.isCancelled, let self, !self.isClosed else { return }
+            if reattachWatcher {
+                self.stopFileWatcher(cancelPendingReload: false)
+            }
+            self.loadFileContent()
+            if self.isFileUnavailable {
+                self.scheduleReattach(attempt: 1)
+            } else {
+                self.startFileWatcher()
+            }
+        }
     }
 
     private func scheduleReattach(attempt: Int) {
@@ -520,16 +567,27 @@ final class EditorPanel: Panel, ObservableObject {
         }
     }
 
-    private func stopFileWatcher() {
+    private func stopFileWatcher(cancelPendingReload: Bool = true) {
+        if cancelPendingReload {
+            pendingExternalReloadTask?.cancel()
+            pendingExternalReloadTask = nil
+        }
         if let source = fileWatchSource {
             source.cancel()
             fileWatchSource = nil
         }
         fileDescriptor = -1
+        if let source = directoryWatchSource {
+            source.cancel()
+            directoryWatchSource = nil
+        }
+        directoryDescriptor = -1
     }
 
     deinit {
         fileWatchSource?.cancel()
+        directoryWatchSource?.cancel()
+        pendingExternalReloadTask?.cancel()
     }
 
     // MARK: - Language detection

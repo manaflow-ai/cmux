@@ -11937,7 +11937,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
                 return true
             case .newEditor:
-                _ = tabManager?.selectedWorkspace?.newEditorSplitFromFocusedPanel(focus: true)
+                _ = tabManager?.selectedWorkspace?.newEditorSurfaceInFocusedPane(focus: true)
                 return true
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {

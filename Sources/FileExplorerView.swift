@@ -527,6 +527,28 @@ struct FileExplorerPanelView: NSViewRepresentable {
             openFileInCodeViewer(node.path)
         }
 
+        func performPrimaryClick(row: Int, in outlineView: NSOutlineView) {
+            guard row >= 0,
+                  row < outlineView.numberOfRows,
+                  let node = outlineView.item(atRow: row) as? FileExplorerNode else {
+                return
+            }
+
+            store.select(node: node)
+            if node.isDirectory {
+                if outlineView.isItemExpanded(node) {
+                    outlineView.collapseItem(node)
+                    store.collapse(node: node)
+                } else {
+                    store.expand(node: node)
+                    outlineView.expandItem(node)
+                }
+                return
+            }
+
+            openFileInCodeViewer(node.path)
+        }
+
         // MARK: - Path-Owned Navigation
 
         func ensureSelection(in outlineView: NSOutlineView, fallbackToFirstVisible: Bool, scroll: Bool) {
@@ -1783,6 +1805,17 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     var onQuickSearchChanged: ((String?) -> Void)?
     private var quickSearchActive = false
     private var quickSearchQuery = ""
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let row = row(at: point)
+        let isDisclosureClick = row >= 0 && frameOfOutlineCell(atRow: row).contains(point)
+
+        super.mouseDown(with: event)
+
+        guard event.clickCount == 1, row >= 0, !isDisclosureClick else { return }
+        fileExplorerCoordinator?.performPrimaryClick(row: row, in: self)
+    }
 
     override func keyDown(with event: NSEvent) {
         if let mode = RightSidebarMode.modeShortcut(for: event) {
