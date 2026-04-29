@@ -349,13 +349,33 @@ struct MinimalModeTitlebarControlHitRegionView: NSViewRepresentable {
 }
 
 func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint) -> Bool {
-    MinimalModeTitlebarControlHitRegionRegistry.containsWindowPoint(locationInWindow, in: window)
+    if isMinimalModeSidebarTitlebarControlButtonHit(window: window, locationInWindow: locationInWindow) {
+        return true
+    }
+    return MinimalModeTitlebarControlHitRegionRegistry.containsWindowPoint(locationInWindow, in: window)
 }
 
 enum MinimalModeSidebarTitlebarControlsMetrics {
     static let leadingInset: CGFloat = 72
     static let hostWidth: CGFloat = 124
     static let hostHeight: CGFloat = 28
+}
+
+enum MinimalModeSidebarControlActionSlot: Int {
+    case toggleSidebar
+    case showNotifications
+    case newTab
+
+    var debugName: String {
+        switch self {
+        case .toggleSidebar:
+            return "toggleSidebar"
+        case .showNotifications:
+            return "showNotifications"
+        case .newTab:
+            return "newTab"
+        }
+    }
 }
 
 final class MinimalModeSidebarChromeHoverState: ObservableObject {
@@ -405,6 +425,49 @@ func isMinimalModeSidebarChromeHoverCandidate(
     let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset
     let maxX = minX + MinimalModeSidebarTitlebarControlsMetrics.hostWidth
     return locationInWindow.x >= minX && locationInWindow.x <= maxX
+}
+
+private func titlebarControlsStyleConfig(defaults: UserDefaults) -> TitlebarControlsStyleConfig {
+    let style = TitlebarControlsStyle(rawValue: defaults.integer(forKey: "titlebarControlsStyle")) ?? .classic
+    return style.config
+}
+
+func minimalModeSidebarControlActionSlot(
+    window: NSWindow,
+    locationInWindow: NSPoint,
+    defaults: UserDefaults = .standard
+) -> MinimalModeSidebarControlActionSlot? {
+    guard isMinimalModeSidebarChromeHoverCandidate(
+        window: window,
+        locationInWindow: locationInWindow,
+        defaults: defaults
+    ) else {
+        return nil
+    }
+
+    let localPoint = NSPoint(
+        x: locationInWindow.x - MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
+        y: MinimalModeSidebarTitlebarControlsMetrics.hostHeight / 2
+    )
+    let ranges = TitlebarControlsHitRegions.buttonXRanges(
+        config: titlebarControlsStyleConfig(defaults: defaults)
+    )
+    for (index, range) in ranges.enumerated() where range.contains(localPoint.x) {
+        return MinimalModeSidebarControlActionSlot(rawValue: index)
+    }
+    return nil
+}
+
+func isMinimalModeSidebarTitlebarControlButtonHit(
+    window: NSWindow,
+    locationInWindow: NSPoint,
+    defaults: UserDefaults = .standard
+) -> Bool {
+    minimalModeSidebarControlActionSlot(
+        window: window,
+        locationInWindow: locationInWindow,
+        defaults: defaults
+    ) != nil
 }
 
 #if DEBUG

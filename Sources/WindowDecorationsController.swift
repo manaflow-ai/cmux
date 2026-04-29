@@ -113,12 +113,43 @@ final class WindowDecorationsController {
                 eventType: event.type
             )
             #endif
+            if event.type == .leftMouseDown,
+               let slot = minimalModeSidebarControlActionSlot(window: window, locationInWindow: event.locationInWindow) {
+                MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
+                self.performMinimalModeSidebarControlAction(slot, window: window)
+                return nil
+            }
             if isHovering {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
             } else {
                 MinimalModeSidebarChromeHoverState.shared.clear()
             }
             return event
+        }
+    }
+
+    private func performMinimalModeSidebarControlAction(
+        _ slot: MinimalModeSidebarControlActionSlot,
+        window: NSWindow
+    ) {
+        #if DEBUG
+        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            payload["minimalSidebarWindowMonitorLastAction"] = slot.debugName
+        }
+        #endif
+
+        Task { @MainActor [weak window] in
+            guard let window else { return }
+            switch slot {
+            case .toggleSidebar:
+                _ = AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: window)
+            case .showNotifications:
+                AppDelegate.shared?.toggleNotificationsPopover(animated: true)
+            case .newTab:
+                _ = AppDelegate.shared?.performNewWorkspaceAction(
+                    debugSource: "titlebar.minimalSidebarControl"
+                )
+            }
         }
     }
 

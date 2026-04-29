@@ -752,20 +752,6 @@ struct HiddenTitlebarSidebarControlsView: View {
                 width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
                 height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
             )
-
-            MinimalModeSidebarControlsClickProxyView(
-                config: style.config,
-                isEnabled: shouldPinControls,
-                onToggleSidebar: onToggleSidebar,
-                onToggleNotifications: { [viewModel] in
-                    onToggleNotifications(viewModel.notificationsAnchorView)
-                },
-                onNewTab: onNewTab
-            )
-            .frame(
-                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
-                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
-            )
         }
         .frame(
             width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
@@ -956,106 +942,6 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
                 payload["minimalSidebarHostFrameInWindow"] = NSStringFromRect(frameInWindow)
             }
             #endif
-        }
-    }
-}
-
-private enum MinimalModeSidebarControlActionSlot: Int {
-    case toggleSidebar
-    case showNotifications
-    case newTab
-
-    var debugName: String {
-        switch self {
-        case .toggleSidebar:
-            return "toggleSidebar"
-        case .showNotifications:
-            return "showNotifications"
-        case .newTab:
-            return "newTab"
-        }
-    }
-}
-
-private struct MinimalModeSidebarControlsClickProxyView: NSViewRepresentable {
-    let config: TitlebarControlsStyleConfig
-    let isEnabled: Bool
-    let onToggleSidebar: () -> Void
-    let onToggleNotifications: () -> Void
-    let onNewTab: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> ClickProxyView {
-        let view = ClickProxyView()
-        view.coordinator = context.coordinator
-        return view
-    }
-
-    func updateNSView(_ nsView: ClickProxyView, context: Context) {
-        context.coordinator.config = config
-        context.coordinator.isEnabled = isEnabled
-        context.coordinator.onToggleSidebar = onToggleSidebar
-        context.coordinator.onToggleNotifications = onToggleNotifications
-        context.coordinator.onNewTab = onNewTab
-        nsView.coordinator = context.coordinator
-    }
-
-    final class Coordinator {
-        var config = TitlebarControlsStyle.classic.config
-        var isEnabled = false
-        var onToggleSidebar: (() -> Void)?
-        var onToggleNotifications: (() -> Void)?
-        var onNewTab: (() -> Void)?
-
-        func actionSlot(at point: NSPoint) -> MinimalModeSidebarControlActionSlot? {
-            guard isEnabled else { return nil }
-            let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
-            for (index, range) in ranges.enumerated() where range.contains(point.x) {
-                return MinimalModeSidebarControlActionSlot(rawValue: index)
-            }
-            return nil
-        }
-
-        func performAction(_ slot: MinimalModeSidebarControlActionSlot) {
-            #if DEBUG
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
-                payload["minimalSidebarClickProxyLastAction"] = slot.debugName
-            }
-            #endif
-
-            switch slot {
-            case .toggleSidebar:
-                onToggleSidebar?()
-            case .showNotifications:
-                onToggleNotifications?()
-            case .newTab:
-                onNewTab?()
-            }
-        }
-    }
-
-    final class ClickProxyView: NSView {
-        weak var coordinator: Coordinator?
-
-        override var mouseDownCanMoveWindow: Bool { false }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            guard NSApp.currentEvent?.type == .leftMouseDown else { return nil }
-            guard bounds.contains(point) else { return nil }
-            guard coordinator?.actionSlot(at: point) != nil else { return nil }
-            return self
-        }
-
-        override func mouseDown(with event: NSEvent) {
-            let point = convert(event.locationInWindow, from: nil)
-            guard bounds.contains(point), let slot = coordinator?.actionSlot(at: point) else {
-                super.mouseDown(with: event)
-                return
-            }
-            coordinator?.performAction(slot)
         }
     }
 }
