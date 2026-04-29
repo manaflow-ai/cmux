@@ -9809,9 +9809,14 @@ struct VerticalTabsSidebar: View {
                         minHeight: geometryProxy.size.height
                     )
                 }
+                .scrollIndicators(.automatic)
                 .background(
                     SidebarScrollViewResolver { scrollView in
-                        dragAutoScrollController.attach(scrollView: scrollView)
+                        if let scrollView {
+                            scrollView.autohidesScrollers = true
+                            scrollView.scrollerStyle = .overlay
+                            dragAutoScrollController.attach(scrollView: scrollView)
+                        }
                     }
                     .frame(width: 0, height: 0)
                 )
@@ -12171,6 +12176,13 @@ private final class SidebarScrollViewResolverView: NSView {
     func resolveScrollView() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            if let scrollView = enclosingScrollView {
+                let contentHeight = scrollView.documentView?.bounds.height ?? 0
+                let visibleHeight = scrollView.contentView.bounds.height
+                scrollView.hasVerticalScroller = contentHeight > visibleHeight + 1
+                scrollView.autohidesScrollers = true
+                scrollView.scrollerStyle = .overlay
+            }
             onResolve?(self.enclosingScrollView)
         }
     }
