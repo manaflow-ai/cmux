@@ -56,19 +56,7 @@ final class MinimalModeSidebarControlActionView: NSView {
     override init(frame frameRect: NSRect) {
         var buttons: [MinimalModeSidebarControlActionSlot: NSButton] = [:]
         for slot in [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab] {
-            let button = NSButton(frame: .zero)
-            button.isBordered = false
-            button.isTransparent = true
-            button.title = ""
-            button.bezelStyle = .regularSquare
-            button.setButtonType(.momentaryChange)
-            button.target = nil
-            button.action = #selector(buttonPressed(_:))
-            button.identifier = NSUserInterfaceItemIdentifier(slot.accessibilityIdentifier)
-            button.setAccessibilityIdentifier(slot.accessibilityIdentifier)
-            button.setAccessibilityLabel(slot.accessibilityLabel)
-            button.setAccessibilityRole(.button)
-            buttons[slot] = button
+            buttons[slot] = Self.makeButton(for: slot)
         }
         self.buttons = buttons
         super.init(frame: frameRect)
@@ -84,17 +72,7 @@ final class MinimalModeSidebarControlActionView: NSView {
     required init?(coder: NSCoder) {
         var buttons: [MinimalModeSidebarControlActionSlot: NSButton] = [:]
         for slot in [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab] {
-            let button = NSButton(frame: .zero)
-            button.isBordered = false
-            button.isTransparent = true
-            button.title = ""
-            button.bezelStyle = .regularSquare
-            button.setButtonType(.momentaryChange)
-            button.identifier = NSUserInterfaceItemIdentifier(slot.accessibilityIdentifier)
-            button.setAccessibilityIdentifier(slot.accessibilityIdentifier)
-            button.setAccessibilityLabel(slot.accessibilityLabel)
-            button.setAccessibilityRole(.button)
-            buttons[slot] = button
+            buttons[slot] = Self.makeButton(for: slot)
         }
         self.buttons = buttons
         super.init(coder: coder)
@@ -106,6 +84,20 @@ final class MinimalModeSidebarControlActionView: NSView {
         }
         observeRevealState()
         syncButtons()
+    }
+
+    private static func makeButton(for slot: MinimalModeSidebarControlActionSlot) -> NSButton {
+        let button = MinimalModeSidebarControlButton(slot: slot)
+        button.isBordered = false
+        button.isTransparent = true
+        button.title = ""
+        button.bezelStyle = .regularSquare
+        button.setButtonType(.momentaryChange)
+        button.identifier = NSUserInterfaceItemIdentifier(slot.accessibilityIdentifier)
+        button.setAccessibilityIdentifier(slot.accessibilityIdentifier)
+        button.setAccessibilityLabel(slot.accessibilityLabel)
+        button.setAccessibilityRole(.button)
+        return button
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
@@ -223,6 +215,31 @@ final class MinimalModeSidebarControlActionView: NSView {
             window: window,
             locationInWindow: windowPoint
         )
+    }
+}
+
+private final class MinimalModeSidebarControlButton: NSButton {
+    let slot: MinimalModeSidebarControlActionSlot
+
+    init(slot: MinimalModeSidebarControlActionSlot) {
+        self.slot = slot
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func accessibilityIdentifier() -> String {
+        slot.accessibilityIdentifier
+    }
+
+    override func accessibilityLabel() -> String? {
+        slot.accessibilityLabel
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        .button
     }
 }
 
