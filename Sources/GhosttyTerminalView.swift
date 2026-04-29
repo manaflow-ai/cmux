@@ -3824,12 +3824,19 @@ class GhosttyApp {
                 // calls back into Ghostty. Defer that work until this open_url callback returns.
                 // From here cmux owns the open attempt and the deferred path falls back externally.
                 Task { @MainActor [url, sourceWorkspaceId, sourcePanelId, host] in
-                    _ = Self.openEmbeddedBrowserLink(
+                    let didOpen = Self.openEmbeddedBrowserLink(
                         url: url,
                         sourceWorkspaceId: sourceWorkspaceId,
                         sourcePanelId: sourcePanelId,
                         host: host
                     )
+                    guard didOpen else {
+                        #if DEBUG
+                        cmuxDebugLog("link.openURL deferred open failed url=\(url)")
+                        #endif
+                        NSSound.beep()
+                        return
+                    }
                 }
                 return true
             }

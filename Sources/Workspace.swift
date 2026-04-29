@@ -983,10 +983,9 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            let restoreURL = BrowserAvailabilitySettings.isEnabled() ? url : nil
             if let panel = newBrowserSurface(
                 inPane: paneId,
-                url: restoreURL,
+                url: url,
                 focus: false,
                 creationPolicy: .restoration
             ) {
@@ -1019,10 +1018,9 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            let restoreURL = BrowserAvailabilitySettings.isEnabled() ? url : nil
             if let panel = newBrowserSurface(
                 inPane: paneId,
-                url: restoreURL,
+                url: url,
                 focus: false,
                 creationPolicy: .restoration
             ) {
@@ -10138,7 +10136,11 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
-        guard BrowserAvailabilitySettings.isEnabled() || creationPolicy.permitsCreationWhenBrowserDisabled else {
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
+        guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            if let url {
+                _ = NSWorkspace.shared.open(url)
+            }
             return nil
         }
 
@@ -10163,6 +10165,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: panelId
             ),
             initialURL: url,
+            renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
@@ -10231,7 +10234,11 @@ final class Workspace: Identifiable, ObservableObject {
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
-        guard BrowserAvailabilitySettings.isEnabled() || creationPolicy.permitsCreationWhenBrowserDisabled else {
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
+        guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            if let externalURL = url ?? initialRequest?.url {
+                _ = NSWorkspace.shared.open(externalURL)
+            }
             return nil
         }
 
@@ -10248,6 +10255,7 @@ final class Workspace: Identifiable, ObservableObject {
             ),
             initialURL: url,
             initialRequest: initialRequest,
+            renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,

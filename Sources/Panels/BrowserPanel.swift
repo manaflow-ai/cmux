@@ -2684,6 +2684,7 @@ final class BrowserPanel: Panel, ObservableObject {
         profileID: UUID? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
+        renderInitialNavigation: Bool = true,
         bypassInsecureHTTPHostOnce: String? = nil,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         isRemoteWorkspace: Bool = false,
@@ -2810,7 +2811,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
         if let initialRequest {
             restoredSessionShouldRenderWebView = nil
-            shouldRenderWebView = true
+            currentURL = initialRequest.url
+            shouldRenderWebView = renderInitialNavigation
+            guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
                shouldBlockInsecureHTTPNavigation(to: url) {
@@ -2827,7 +2830,9 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         } else if let url = initialURL {
             restoredSessionShouldRenderWebView = nil
-            shouldRenderWebView = true
+            currentURL = url
+            shouldRenderWebView = renderInitialNavigation
+            guard renderInitialNavigation else { return }
             navigate(to: url)
         }
     }
