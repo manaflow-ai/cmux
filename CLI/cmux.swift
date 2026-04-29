@@ -328,6 +328,11 @@ private struct ClaudeHookSessionRecord: Codable {
     var launchCommand: AgentHookLaunchCommandRecord?
     var lastSubtitle: String?
     var lastBody: String?
+    // True while Claude is blocked on an AskUserQuestion tool call (set by
+    // PreToolUse, cleared by Stop/UserPromptSubmit). Lets the Notification
+    // handler tell a real input-needed event apart from Claude Code's 60s
+    // idle_prompt that fires after Stop has already marked the session Idle.
+    var pendingQuestion: Bool?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -391,7 +396,8 @@ private final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         lastSubtitle: String? = nil,
-        lastBody: String? = nil
+        lastBody: String? = nil,
+        pendingQuestion: Bool? = nil
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -406,6 +412,7 @@ private final class ClaudeHookSessionStore {
                 launchCommand: nil,
                 lastSubtitle: nil,
                 lastBody: nil,
+                pendingQuestion: nil,
                 startedAt: now,
                 updatedAt: now
             )
@@ -427,6 +434,9 @@ private final class ClaudeHookSessionStore {
             }
             if let body = normalizeOptional(lastBody) {
                 record.lastBody = body
+            }
+            if let pendingQuestion {
+                record.pendingQuestion = pendingQuestion
             }
             record.updatedAt = now
             state.sessions[normalized] = record
@@ -13552,7 +13562,8 @@ struct CMUXCLI {
                         surfaceId: surfaceId,
                         cwd: parsedInput.cwd,
                         lastSubtitle: completion.subtitle,
-                        lastBody: completion.body
+                        lastBody: completion.body,
+                        pendingQuestion: false
                     )
                 }
 
@@ -13589,6 +13600,16 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            if let sessionId = parsedInput.sessionId {
+                let existingSurfaceId = mappedSession?.surfaceId ?? ""
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: existingSurfaceId,
+                    cwd: parsedInput.cwd,
+                    pendingQuestion: false
+                )
+            }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setClaudeStatus(
                 client: client,
@@ -13609,8 +13630,17 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            // Distinguish a real blocking notification from Claude Code's 60s
+            // idle_prompt. Permission prompts are always blocking; idle_prompts
+            // after Stop only restate that Claude is idle. AskUserQuestion is
+            // tracked separately via pendingQuestion in the session record.
+            let isPermissionPrompt = summary.subtitle == "Permission"
+            let hasPendingQuestion = mappedSession?.pendingQuestion == true
+            let isBlockingInput = isPermissionPrompt || hasPendingQuestion
+
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
+               hasPendingQuestion,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
                 summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
             }
@@ -13639,13 +13669,15 @@ struct CMUXCLI {
             }
 
             let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
-            _ = try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
-            )
+            if isBlockingInput {
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Needs input",
+                    icon: "bell.fill",
+                    color: "#4C8DFF"
+                )
+            }
             print(response)
 
         case "session-end":
@@ -13710,12 +13742,24 @@ struct CMUXCLI {
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
                     lastSubtitle: "Waiting",
-                    lastBody: question
+                    lastBody: question,
+                    pendingQuestion: true
                 )
                 // Don't clear notifications or set status here.
                 // The Notification hook fires right after and will use the saved question.
                 print("OK")
                 return
+            }
+
+            if let sessionId = parsedInput.sessionId {
+                let existingSurfaceId = mappedSession?.surfaceId ?? ""
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: existingSurfaceId,
+                    cwd: parsedInput.cwd,
+                    pendingQuestion: false
+                )
             }
 
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
