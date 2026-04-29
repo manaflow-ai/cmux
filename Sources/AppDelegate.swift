@@ -10519,6 +10519,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+           let mode = RightSidebarMode.modeShortcut(for: event) {
+            _ = focusRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: true,
+                preferredWindow: rightSidebarWindow
+            )
+            return true
+        }
+
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
@@ -10589,16 +10599,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                event: event,
                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
            ) {
-            return true
-        }
-
-        if let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
-           let mode = RightSidebarMode.modeShortcut(for: event) {
-            _ = focusRightSidebarInActiveMainWindow(
-                mode: mode,
-                focusFirstItem: true,
-                preferredWindow: rightSidebarWindow
-            )
             return true
         }
 
