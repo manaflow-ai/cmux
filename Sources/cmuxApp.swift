@@ -2569,11 +2569,10 @@ struct SettingsNavigationDestination {
 
 private struct SettingsSearchHighlightState: Equatable {
     let anchorID: String?
-    let token: Int
 }
 
 private struct SettingsSearchHighlightStateKey: EnvironmentKey {
-    static let defaultValue = SettingsSearchHighlightState(anchorID: nil, token: 0)
+    static let defaultValue = SettingsSearchHighlightState(anchorID: nil)
 }
 
 private extension EnvironmentValues {
@@ -2619,21 +2618,16 @@ private struct SettingsSearchHighlightModifier: ViewModifier {
     func body(content: Content) -> some View {
         if isHighlighted {
             content
-                .phaseAnimator([0.0, 1.0, 0.0], trigger: highlightState.token) { view, phase in
-                    view
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.accentColor.opacity(phase * 0.16))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Color.accentColor.opacity(phase * 0.9), lineWidth: 2)
-                        )
-                } animation: { phase in
-                    phase > 0
-                        ? .easeOut(duration: 0.16)
-                        : .easeInOut(duration: 0.7)
-                }
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.22))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.accentColor, lineWidth: 2.5)
+                )
+                .shadow(color: Color.accentColor.opacity(0.22), radius: 8, x: 0, y: 0)
+                .animation(.easeInOut(duration: 0.16), value: isHighlighted)
         } else {
             content
         }
@@ -5591,7 +5585,6 @@ struct SettingsView: View {
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
     @Environment(\.openWindow) private var openWindow
     @State private var highlightedSearchAnchorID: String?
-    @State private var searchHighlightToken = 0
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -7583,7 +7576,7 @@ struct SettingsView: View {
                 .padding(.top, 20)
                 .environment(
                     \.settingsSearchHighlightState,
-                    SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken)
+                    SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID)
                 )
             }
         .toggleStyle(.switch)
@@ -7619,7 +7612,6 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
             highlightedSearchAnchorID = destination.anchorID
-            searchHighlightToken += 1
             DispatchQueue.main.async {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     proxy.scrollTo(SettingsSearchIndex.sectionID(for: destination.target), anchor: .top)
