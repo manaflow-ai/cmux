@@ -9,7 +9,7 @@ struct SettingsShellLabApp: App {
         WindowGroup(String(localized: "app.window.title", defaultValue: "Settings Shell Lab")) {
             SettingsShellView()
         }
-        .defaultSize(width: 900, height: 620)
+        .defaultSize(width: 980, height: 680)
         .commands {
             SidebarCommands()
         }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsShellView: View {
     @SceneStorage("selectedSettingsSection") private var selectedSectionRaw = SettingsSection.general.rawValue
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var searchText = ""
 
     private var selectedSection: SettingsSection {
@@ -17,7 +18,7 @@ struct SettingsShellView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selectedSectionRaw) {
                 ForEach(filteredSections) { section in
                     Label(section.title, systemImage: section.symbolName)
@@ -31,6 +32,7 @@ struct SettingsShellView: View {
                 placement: .sidebar,
                 prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search"))
             )
+            .navigationSplitViewColumnWidth(210)
         } detail: {
             SettingsDetailView(section: selectedSection)
         }

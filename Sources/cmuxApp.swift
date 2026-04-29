@@ -743,7 +743,7 @@ struct cmuxApp: App {
         WindowGroup(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
             SettingsRootView()
         }
-        .defaultSize(width: 900, height: 620)
+        .defaultSize(width: 980, height: 680)
         .commands {
             SidebarCommands()
         }
@@ -8397,6 +8397,7 @@ private struct GlobalHotkeySection: View {
 private struct SettingsRootView: View {
     @SceneStorage("selectedSettingsSection") private var selectedSectionRaw = SettingsNavigationTarget.account.rawValue
     @SceneStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID = SettingsSearchIndex.defaultSelectionID
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var searchText = ""
 
     private var selectedSection: SettingsNavigationTarget {
@@ -8419,7 +8420,7 @@ private struct SettingsRootView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: sidebarSelection) {
                 if sidebarEntries.isEmpty {
                     Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
@@ -8438,6 +8439,7 @@ private struct SettingsRootView: View {
                 placement: .sidebar,
                 prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search"))
             )
+            .navigationSplitViewColumnWidth(210)
         } detail: {
             SettingsView()
         }
