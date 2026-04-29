@@ -706,6 +706,11 @@ struct HiddenTitlebarSidebarControlsView: View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
 
         ZStack(alignment: .leading) {
+            PassthroughHoverTrackingView { isHovering in
+                isHoveringHost = isHovering
+            }
+            .frame(width: hostWidth, height: hostHeight)
+
             TitlebarControlsView(
                 notificationStore: notificationStore,
                 viewModel: viewModel,
@@ -720,14 +725,6 @@ struct HiddenTitlebarSidebarControlsView: View {
 
             TitlebarControlsGapDragView(config: style.config)
                 .frame(width: hostWidth, height: hostHeight)
-
-            PassthroughHoverTrackingView(
-                config: style.config,
-                passButtonColumnsThroughForPassiveHitTests: shouldPinControls
-            ) { isHovering in
-                isHoveringHost = isHovering
-            }
-            .frame(width: hostWidth, height: hostHeight)
         }
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
         .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
@@ -753,27 +750,19 @@ enum TitlebarControlsVisibilityMode {
 }
 
 private struct PassthroughHoverTrackingView: NSViewRepresentable {
-    let config: TitlebarControlsStyleConfig
-    let passButtonColumnsThroughForPassiveHitTests: Bool
     let onHoverChanged: (Bool) -> Void
 
     func makeNSView(context: Context) -> TrackingView {
         let view = TrackingView()
-        view.config = config
-        view.passButtonColumnsThroughForPassiveHitTests = passButtonColumnsThroughForPassiveHitTests
         view.onHoverChanged = onHoverChanged
         return view
     }
 
     func updateNSView(_ nsView: TrackingView, context: Context) {
-        nsView.config = config
-        nsView.passButtonColumnsThroughForPassiveHitTests = passButtonColumnsThroughForPassiveHitTests
         nsView.onHoverChanged = onHoverChanged
     }
 
     final class TrackingView: NSView {
-        var config = TitlebarControlsStyle.classic.config
-        var passButtonColumnsThroughForPassiveHitTests = false
         var onHoverChanged: ((Bool) -> Void)?
         private var trackingArea: NSTrackingArea?
         private var localMouseMonitor: Any?
@@ -790,10 +779,6 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             switch event?.type {
             case .none:
                 refreshHoverForHitTest(event: event)
-                if passButtonColumnsThroughForPassiveHitTests,
-                   TitlebarControlsHitRegions.pointFallsInButtonColumn(point, config: config) {
-                    return nil
-                }
                 return self
             case .mouseMoved, .mouseEntered, .mouseExited:
                 refreshHoverForHitTest(event: event)
