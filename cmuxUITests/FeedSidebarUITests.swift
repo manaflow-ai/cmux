@@ -9,6 +9,7 @@ final class FeedSidebarUITests: XCTestCase {
     private var socketPath = ""
     private var diagnosticsPath = ""
     private var feedResultPath = ""
+    private var feedTUIReadyPath = ""
     private var requestId = ""
     private var lastSocketProbe = ""
     private let modeKey = "socketControlMode"
@@ -20,10 +21,12 @@ final class FeedSidebarUITests: XCTestCase {
         socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
         diagnosticsPath = "/tmp/cmux-feed-sidebar-\(UUID().uuidString).json"
         feedResultPath = "/tmp/cmux-feed-sidebar-result-\(UUID().uuidString).json"
+        feedTUIReadyPath = "/tmp/cmux-feed-sidebar-tui-ready-\(UUID().uuidString).json"
         requestId = "uitest-\(UUID().uuidString)"
         removeSocketFile()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: feedResultPath)
+        try? FileManager.default.removeItem(atPath: feedTUIReadyPath)
     }
 
     func testFeedReceivesAndResolvesPermissionRequest() throws {
@@ -44,6 +47,7 @@ final class FeedSidebarUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_PORTAL_STATS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_FEED_SIDEBAR_RESULT_PATH"] = feedResultPath
         app.launchEnvironment["CMUX_UI_TEST_FEED_SIDEBAR_REQUEST_ID"] = requestId
+        app.launchEnvironment["CMUX_UI_TEST_FEED_TUI_READY_PATH"] = feedTUIReadyPath
         launchAndEnsureUsable(app)
 
         XCTAssertTrue(
@@ -67,8 +71,8 @@ final class FeedSidebarUITests: XCTestCase {
         )
         focusButton.click()
         XCTAssertTrue(
-            waitForOpenTUIFeedAppPrepared(timeout: 45),
-            "OpenTUI Feed app was not prepared"
+            waitForFeedTUIReady(timeout: 45),
+            "Feed TUI was not ready. marker=\(loadFeedTUIReadyMarker()) result=\(loadFeedResult())"
         )
 
         // The TUI blocks on keyboard input. Refresh first so it observes the
@@ -428,18 +432,9 @@ final class FeedSidebarUITests: XCTestCase {
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    private func waitForOpenTUIFeedAppPrepared(timeout: TimeInterval) -> Bool {
-        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
-        let markerPath = URL(fileURLWithPath: homePath, isDirectory: true)
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("feed-tui-opentui", isDirectory: true)
-            .appendingPathComponent("node_modules", isDirectory: true)
-            .appendingPathComponent("@opentui", isDirectory: true)
-            .appendingPathComponent("core", isDirectory: true)
-            .appendingPathComponent("package.json", isDirectory: false)
-            .path
+    private func waitForFeedTUIReady(timeout: TimeInterval) -> Bool {
         return pollUntil(timeout: timeout, interval: 0.5) {
-            FileManager.default.fileExists(atPath: markerPath)
+            FileManager.default.fileExists(atPath: feedTUIReadyPath)
         }
     }
 
@@ -625,6 +620,10 @@ final class FeedSidebarUITests: XCTestCase {
             return [:]
         }
         return object
+    }
+
+    private func loadFeedTUIReadyMarker() -> String {
+        (try? String(contentsOfFile: feedTUIReadyPath, encoding: .utf8)) ?? ""
     }
 
     private func pollUntil(timeout: TimeInterval, interval: TimeInterval = 0.1, _ predicate: () -> Bool) -> Bool {

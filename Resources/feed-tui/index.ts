@@ -1,5 +1,7 @@
 import net from "node:net";
 import { randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import {
   Box,
   CliRenderEvents,
@@ -181,6 +183,7 @@ class FeedApp {
     this.renderer.on(CliRenderEvents.CAPABILITIES, this.rendererRefreshHandler);
     this.renderer.keyInput.on("keypress", this.keyHandler);
     await this.refresh("Loaded Feed.");
+    writeReadyMarker("opentui-ready");
     this.refreshTimer = setInterval(() => {
       void this.refresh(undefined, false);
     }, 1_000);
@@ -1037,6 +1040,25 @@ function formatError(error: unknown): string {
 
 function cardId(item: FeedItem): string {
   return `feed-card-${item.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
+function writeReadyMarker(stage: string): void {
+  const markerPath = process.env.CMUX_FEED_TUI_READY_PATH?.trim();
+  if (!markerPath) {
+    return;
+  }
+  try {
+    const payload = JSON.stringify({
+      stage,
+      pid: String(process.pid),
+      time: String(Date.now() / 1000),
+      tui: process.env.CMUX_FEED_TUI_PATH ?? "opentui",
+    });
+    mkdirSync(dirname(markerPath), { recursive: true });
+    writeFileSync(markerPath, `${payload}\n`, "utf8");
+  } catch {
+    // Best-effort test marker only.
+  }
 }
 
 async function main() {

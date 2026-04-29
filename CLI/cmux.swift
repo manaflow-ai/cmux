@@ -16861,6 +16861,7 @@ export default CMUXSessionRestore;
             environment["CMUX_SOCKET_PASSWORD"] = socketPassword
         }
         environment["OTUI_USE_CONSOLE"] = environment["OTUI_USE_CONSOLE"] ?? "0"
+        environment["CMUX_FEED_TUI_PATH"] = "opentui"
         process.environment = environment
         process.standardInput = FileHandle.standardInput
         process.standardOutput = FileHandle.standardOutput
@@ -17014,6 +17015,7 @@ export default CMUXSessionRestore;
         var scrollOffset = 0
         var statusLine = ""
         var selectedQuestionOptions: [String: Set<String>] = [:]
+        var didWriteReadyMarker = false
         while true {
             let items = try feedTUIItems(client: client)
             if let selectedItemID,
@@ -17034,6 +17036,10 @@ export default CMUXSessionRestore;
                 scrollOffset: scrollOffset,
                 statusLine: statusLine
             )
+            if !didWriteReadyMarker {
+                writeFeedTUIReadyMarker(stage: "legacy-ready")
+                didWriteReadyMarker = true
+            }
             statusLine = ""
 
             let key = readFeedTUIKey(timeoutMilliseconds: 1_000)
@@ -17094,6 +17100,23 @@ export default CMUXSessionRestore;
                 continue
             }
         }
+    }
+
+    private func writeFeedTUIReadyMarker(stage: String) {
+        guard let path = ProcessInfo.processInfo.environment["CMUX_FEED_TUI_READY_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return
+        }
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let payload = """
+        {"stage":"\(stage)","pid":"\(getpid())","time":"\(Date().timeIntervalSince1970)"}
+        """
+        try? payload.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func feedTUIItems(client: SocketClient) throws -> [FeedTUIItem] {

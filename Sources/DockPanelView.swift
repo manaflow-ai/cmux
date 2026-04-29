@@ -453,10 +453,16 @@ final class DockControlsStore: ObservableObject {
     }
 
     private static func defaultFeedControl() -> DockControlDefinition {
-        DockControlDefinition(
+        var env: [String: String] = [:]
+        if let readyPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEED_TUI_READY_PATH"],
+           !readyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            env["CMUX_FEED_TUI_READY_PATH"] = readyPath
+        }
+        return DockControlDefinition(
             id: "feed",
             title: String(localized: "dock.default.feed.title", defaultValue: "Feed"),
-            command: "cmux feed tui"
+            command: "cmux feed tui",
+            env: env
         )
     }
 
