@@ -47,14 +47,14 @@ struct DockControlDefinition: Codable, Equatable, Identifiable {
             throw DecodingError.dataCorruptedError(
                 forKey: .id,
                 in: container,
-                debugDescription: "Dock control id must not be blank"
+                debugDescription: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank.")
             )
         }
         guard !normalizedCommand.isEmpty else {
             throw DecodingError.dataCorruptedError(
                 forKey: .command,
                 in: container,
-                debugDescription: "Dock control command must not be blank"
+                debugDescription: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
             )
         }
         id = normalizedID
@@ -257,6 +257,8 @@ final class DockControlsStore: ObservableObject {
 
     private var lastRootDirectory: String?
     private var lastWorkspaceId: UUID?
+    private var activeConfigURL: URL?
+    private var loadedWithoutWorkspace = false
     private var hasLoadedConfiguration = false
     private var controlsVisibleInUI = false
 
@@ -266,11 +268,18 @@ final class DockControlsStore: ObservableObject {
 
     func activate(rootDirectory: String?, workspaceId: UUID?) {
         controlsVisibleInUI = true
-        guard hasLoadedConfiguration, lastRootDirectory == rootDirectory, lastWorkspaceId == workspaceId else {
+        if hasLoadedConfiguration,
+           lastRootDirectory == rootDirectory,
+           !(loadedWithoutWorkspace && workspaceId != nil) {
+            lastWorkspaceId = workspaceId ?? lastWorkspaceId
+            setControlsVisibleInUI(true)
+            return
+        }
+        guard hasLoadedConfiguration, lastRootDirectory == rootDirectory else {
             reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
             return
         }
-        setControlsVisibleInUI(true)
+        reload(rootDirectory: rootDirectory, workspaceId: workspaceId)
     }
 
     func deactivate() {
@@ -281,9 +290,11 @@ final class DockControlsStore: ObservableObject {
     func reload(rootDirectory: String?, workspaceId: UUID?) {
         lastRootDirectory = rootDirectory
         lastWorkspaceId = workspaceId
+        loadedWithoutWorkspace = workspaceId == nil
         hasLoadedConfiguration = true
         errorMessage = nil
         trustRequest = nil
+        activeConfigURL = nil
 
         guard let workspaceId else {
             replaceControls(with: [])
@@ -293,6 +304,7 @@ final class DockControlsStore: ObservableObject {
 
         do {
             let resolution = try Self.resolve(rootDirectory: rootDirectory)
+            activeConfigURL = resolution.sourceURL
             if let request = trustRequestIfNeeded(for: resolution) {
                 replaceControls(with: [])
                 sourceLabel = String(
@@ -329,7 +341,12 @@ final class DockControlsStore: ObservableObject {
 
     func openConfiguration() {
         do {
-            let target = try Self.preferredEditableConfigURL(rootDirectory: lastRootDirectory)
+            let target: URL
+            if let activeConfigURL {
+                target = activeConfigURL
+            } else {
+                target = try Self.preferredEditableConfigURL(rootDirectory: lastRootDirectory)
+            }
             if !FileManager.default.fileExists(atPath: target.path) {
                 try Self.writeTemplate(to: target)
             }
@@ -464,6 +481,10 @@ final class DockControlsStore: ObservableObject {
     }
 
     private static func defaultFeedControl() -> DockControlDefinition {
+        defaultFeedControl(command: defaultFeedCommand())
+    }
+
+    private static func defaultFeedControl(command: String) -> DockControlDefinition {
         var env: [String: String] = [:]
         var forceOpenTUI = false
         if let readyPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEED_TUI_READY_PATH"],
@@ -476,11 +497,11 @@ final class DockControlsStore: ObservableObject {
             }
             forceOpenTUI = true
         }
-        let command = defaultFeedCommand() + (forceOpenTUI ? " --opentui" : "")
+        let resolvedCommand = command + (forceOpenTUI ? " --opentui" : "")
         return DockControlDefinition(
             id: "feed",
             title: String(localized: "dock.default.feed.title", defaultValue: "Feed"),
-            command: command,
+            command: resolvedCommand,
             env: env
         )
     }
@@ -560,7 +581,7 @@ final class DockControlsStore: ObservableObject {
             withIntermediateDirectories: true
         )
         let file = DockConfigFile(controls: [
-            defaultFeedControl(),
+            defaultFeedControl(command: "cmux feed tui"),
             DockControlDefinition(
                 id: "git",
                 title: "Git",

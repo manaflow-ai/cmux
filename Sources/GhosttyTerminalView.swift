@@ -3875,6 +3875,7 @@ final class TerminalSurfaceRegistry {
     private let lock = NSLock()
     private let surfaces = NSHashTable<AnyObject>.weakObjects()
     private var runtimeSurfaceOwners: [UInt: UUID] = [:]
+    private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
 
     private init() {}
 
@@ -3882,6 +3883,14 @@ final class TerminalSurfaceRegistry {
         lock.lock()
         defer { lock.unlock() }
         surfaces.add(surface)
+        surfaceFocusPlacements[surface.id] = surface.focusPlacement
+    }
+
+    func unregister(_ surface: TerminalSurface) {
+        lock.lock()
+        defer { lock.unlock() }
+        surfaces.remove(surface)
+        surfaceFocusPlacements.removeValue(forKey: surface.id)
     }
 
     func registerRuntimeSurface(_ surface: ghostty_surface_t, ownerId: UUID) {
@@ -3912,7 +3921,9 @@ final class TerminalSurfaceRegistry {
     }
 
     func isRightSidebarDockSurface(id: UUID) -> Bool {
-        surface(id: id)?.focusPlacement == .rightSidebarDock
+        lock.lock()
+        defer { lock.unlock() }
+        return surfaceFocusPlacements[id] == .rightSidebarDock
     }
 
     func allSurfaces() -> [TerminalSurface] {
@@ -5553,6 +5564,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
     deinit {
+        TerminalSurfaceRegistry.shared.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
 
         let callbackContext = surfaceCallbackContext

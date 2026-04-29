@@ -93799,6 +93799,40 @@
         }
       }
     },
+    "dock.error.blankControlCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock control command must not be blank."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockコントロールのコマンドは空にできません。"
+          }
+        }
+      }
+    },
+    "dock.error.blankControlID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock control id must not be blank."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DockコントロールのIDは空にできません。"
+          }
+        }
+      }
+    },
     "dock.error.title": {
       "extractionState": "manual",
       "localizations": {

@@ -16660,6 +16660,13 @@ export default CMUXSessionRestore;
         let label: String
     }
 
+    private struct FeedTUIQuestion {
+        let id: String
+        let prompt: String
+        let multiSelect: Bool
+        let options: [FeedTUIOption]
+    }
+
     private struct FeedTUIItem {
         let id: String
         let requestId: String?
@@ -16673,6 +16680,7 @@ export default CMUXSessionRestore;
         let defaultMode: String?
         let questionMultiSelect: Bool
         let questionOptions: [FeedTUIOption]
+        let questions: [FeedTUIQuestion]
 
         var isPending: Bool {
             status == "pending"
@@ -16707,6 +16715,7 @@ export default CMUXSessionRestore;
                 }
                 return FeedTUIOption(id: id, label: label)
             } ?? []
+            let questions = Self.questions(dict: dict, fallbackOptions: options)
             return FeedTUIItem(
                 id: id,
                 requestId: dict["request_id"] as? String,
@@ -16719,8 +16728,48 @@ export default CMUXSessionRestore;
                 detail: detail,
                 defaultMode: dict["default_mode"] as? String,
                 questionMultiSelect: (dict["question_multi_select"] as? Bool) ?? false,
-                questionOptions: options
+                questionOptions: options,
+                questions: questions
             )
+        }
+
+        private static func questions(dict: [String: Any], fallbackOptions: [FeedTUIOption]) -> [FeedTUIQuestion] {
+            if let rawQuestions = dict["questions"] as? [[String: Any]] {
+                let parsed = rawQuestions.enumerated().compactMap { index, raw -> FeedTUIQuestion? in
+                    let prompt = (raw["prompt"] as? String)
+                        ?? (raw["question"] as? String)
+                        ?? (raw["header"] as? String)
+                        ?? ""
+                    let options = (raw["options"] as? [[String: Any]])?.compactMap { option -> FeedTUIOption? in
+                        guard let id = option["id"] as? String,
+                              let label = option["label"] as? String else {
+                            return nil
+                        }
+                        return FeedTUIOption(id: id, label: label)
+                    } ?? []
+                    guard !prompt.isEmpty || !options.isEmpty else { return nil }
+                    return FeedTUIQuestion(
+                        id: (raw["id"] as? String) ?? "question-\(index + 1)",
+                        prompt: prompt,
+                        multiSelect: (raw["multi_select"] as? Bool) ?? (raw["multiSelect"] as? Bool) ?? false,
+                        options: options
+                    )
+                }
+                if !parsed.isEmpty {
+                    return parsed
+                }
+            }
+            let prompt = (dict["question_prompt"] as? String)
+                ?? (dict["title"] as? String)
+                ?? "Answer the agent question."
+            return [
+                FeedTUIQuestion(
+                    id: "question-1",
+                    prompt: prompt,
+                    multiSelect: (dict["question_multi_select"] as? Bool) ?? false,
+                    options: fallbackOptions
+                )
+            ]
         }
 
         private static func defaultTitle(kind: String, dict: [String: Any]) -> String {
@@ -16921,10 +16970,12 @@ export default CMUXSessionRestore;
         var didForegroundChild = false
         try process.run()
         if originalForegroundProcessGroup > 0 {
-            let childProcessGroup = process.processIdentifier
-            try setTerminalForegroundProcessGroup(childProcessGroup)
-            _ = Darwin.kill(-childProcessGroup, SIGCONT)
-            didForegroundChild = true
+            let childProcessGroup = getpgid(process.processIdentifier)
+            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
+                try setTerminalForegroundProcessGroup(childProcessGroup)
+                _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                didForegroundChild = true
+            }
         }
         defer {
             if didForegroundChild {
@@ -17213,9 +17264,10 @@ export default CMUXSessionRestore;
     }
 
     private func feedTUIItems(client: SocketClient) throws -> [FeedTUIItem] {
-        let payload = try client.sendV2(method: "feed.list", params: ["pending_only": false])
+        let payload = try client.sendV2(method: "feed.list", params: ["pending_only": true])
         let rawItems = payload["items"] as? [[String: Any]] ?? []
         return rawItems.compactMap(FeedTUIItem.parse)
+            .filter(\.canResolve)
             .sorted { lhs, rhs in
                 switch (lhs.createdAt, rhs.createdAt) {
                 case (.some(let lhsDate), .some(let rhsDate)) where lhsDate != rhsDate:
@@ -17379,13 +17431,18 @@ export default CMUXSessionRestore;
         case "exitPlan":
             return "Plan: Enter default, a auto, m manual, u ultraplan, b bypass, f replan, d deny"
         case "question":
-            let optionText = item.questionOptions.enumerated().map { index, option in
+            let questionCount = max(item.questions.count, 1)
+            let firstQuestion = item.questions.first
+            let optionText = (firstQuestion?.options ?? item.questionOptions).enumerated().map { index, option in
                 "\(index + 1)=\(option.label)"
             }.joined(separator: "  ")
+            if questionCount > 1 {
+                return "Question: Enter sends defaults for \(questionCount) prompts"
+            }
             if optionText.isEmpty {
                 return "Question: Enter sends an empty answer"
             }
-            let suffix = item.questionMultiSelect ? "  Enter sends selected options" : ""
+            let suffix = (firstQuestion?.multiSelect ?? item.questionMultiSelect) ? "  Enter sends selected options" : ""
             return "Question: \(optionText)\(suffix)"
         default:
             return ""
@@ -17459,7 +17516,10 @@ export default CMUXSessionRestore;
             )
             return "Plan \(mode) sent"
         case "question":
-            if item.questionOptions.isEmpty {
+            let primaryQuestion = item.questions.first
+            let primaryOptions = primaryQuestion?.options ?? item.questionOptions
+            let primaryMultiSelect = primaryQuestion?.multiSelect ?? item.questionMultiSelect
+            if primaryOptions.isEmpty {
                 guard key == .enter else {
                     return "Question has no selectable options"
                 }
@@ -17470,10 +17530,21 @@ export default CMUXSessionRestore;
                 return "Question answer sent"
             }
 
-            if item.questionMultiSelect {
+            if item.questions.count > 1, key == .enter {
+                let selections = item.questions.map { question in
+                    question.options.first?.label ?? ""
+                }
+                _ = try client.sendV2(
+                    method: "feed.question.reply",
+                    params: ["request_id": requestId, "selections": selections]
+                )
+                return "Question answer sent"
+            }
+
+            if primaryMultiSelect {
                 switch key {
                 case .number(let index):
-                    guard let option = feedTUIOption(in: item.questionOptions, at: index - 1) else {
+                    guard let option = feedTUIOption(in: primaryOptions, at: index - 1) else {
                         return "No option \(index)"
                     }
                     var selections = selectedQuestionOptions[requestId] ?? Set<String>()
@@ -17487,7 +17558,7 @@ export default CMUXSessionRestore;
                     return "Selected: \(option.label)"
                 case .enter:
                     let selected = selectedQuestionOptions[requestId] ?? Set<String>()
-                    let selections = item.questionOptions
+                    let selections = primaryOptions
                         .filter { selected.contains($0.id) }
                         .map(\.label)
                     _ = try client.sendV2(
@@ -17504,9 +17575,9 @@ export default CMUXSessionRestore;
             let option: FeedTUIOption?
             switch key {
             case .number(let index):
-                option = feedTUIOption(in: item.questionOptions, at: index - 1)
+                option = feedTUIOption(in: primaryOptions, at: index - 1)
             case .enter:
-                option = item.questionOptions.first
+                option = primaryOptions.first
             default:
                 return "Key is not available for questions"
             }
@@ -17616,6 +17687,8 @@ export default CMUXSessionRestore;
             return .ultraplan
         case 49...57:
             return .number(Int(byte - 48))
+        case 48:
+            return .number(10)
         default:
             return .ignored
         }

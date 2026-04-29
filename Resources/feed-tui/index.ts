@@ -19,6 +19,13 @@ interface FeedOption {
   label: string;
 }
 
+interface FeedQuestion {
+  id: string;
+  prompt: string;
+  multiSelect: boolean;
+  options: FeedOption[];
+}
+
 interface FeedItem {
   id: string;
   requestId?: string;
@@ -32,6 +39,7 @@ interface FeedItem {
   defaultMode?: string;
   questionMultiSelect: boolean;
   questionOptions: FeedOption[];
+  questions: FeedQuestion[];
   canResolve: boolean;
 }
 
@@ -220,10 +228,11 @@ class FeedApp {
     }
     this.loading = true;
     try {
-      const result = await this.client.request<FeedListResult>("feed.list", { pending_only: false });
+      const result = await this.client.request<FeedListResult>("feed.list", { pending_only: true });
       const nextItems = (result.items ?? [])
         .map(parseFeedItem)
         .filter((item): item is FeedItem => Boolean(item))
+        .filter((item) => item.canResolve)
         .sort(compareLatestFirst);
       this.items = nextItems;
       this.restoreSelection();
@@ -723,7 +732,7 @@ class FeedApp {
     if (!item.requestId) {
       return;
     }
-    const option = questionOption(item, action);
+    const option = questionOption(item.questions[0]?.options ?? item.questionOptions, action);
     if (!option) {
       this.statusMessage = "No option for selected question.";
       this.render();
@@ -742,19 +751,25 @@ class FeedApp {
   }
 
   private questionSelectionsForReply(item: FeedItem, action: string): string[] | undefined {
-    if (item.questionOptions.length === 0) {
+    const primaryQuestion = item.questions[0];
+    const primaryOptions = primaryQuestion?.options ?? item.questionOptions;
+    const primaryMultiSelect = primaryQuestion?.multiSelect ?? item.questionMultiSelect;
+    if (primaryOptions.length === 0) {
       return [];
     }
-    if (item.questionMultiSelect) {
+    if (item.questions.length > 1 && action === "default") {
+      return item.questions.map((question) => question.options[0]?.label ?? "");
+    }
+    if (primaryMultiSelect) {
       if (!item.requestId) {
         return undefined;
       }
       const selected = this.questionSelections.get(item.requestId) ?? new Set<string>();
-      return item.questionOptions
+      return primaryOptions
         .filter((option) => selected.has(option.id))
         .map((option) => option.label);
     }
-    const option = action === "default" ? item.questionOptions[0] : questionOption(item, action);
+    const option = action === "default" ? primaryOptions[0] : questionOption(primaryOptions, action);
     return option ? [option.label] : undefined;
   }
 }
@@ -770,18 +785,9 @@ function parseFeedItem(raw: Record<string, unknown>): FeedItem | undefined {
   }
 
   const questionOptions = Array.isArray(raw.question_options)
-    ? raw.question_options
-        .map((option) => {
-          if (!option || typeof option !== "object") {
-            return undefined;
-          }
-          const optionRecord = option as Record<string, unknown>;
-          const optionId = stringValue(optionRecord.id);
-          const label = stringValue(optionRecord.label);
-          return optionId && label ? { id: optionId, label } : undefined;
-        })
-        .filter((option): option is FeedOption => Boolean(option))
+    ? parseFeedOptions(raw.question_options)
     : [];
+  const questions = parseFeedQuestions(raw.questions, questionOptions, raw);
 
   const item: FeedItem = {
     id,
@@ -796,11 +802,62 @@ function parseFeedItem(raw: Record<string, unknown>): FeedItem | undefined {
     defaultMode: stringValue(raw.default_mode),
     questionMultiSelect: raw.question_multi_select === true,
     questionOptions,
+    questions,
     canResolve: status === "pending" &&
       Boolean(stringValue(raw.request_id)) &&
       ["permissionRequest", "exitPlan", "question"].includes(kind),
   };
   return item;
+}
+
+function parseFeedOptions(raw: unknown): FeedOption[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((option) => {
+      if (!option || typeof option !== "object") {
+        return undefined;
+      }
+      const optionRecord = option as Record<string, unknown>;
+      const optionId = stringValue(optionRecord.id);
+      const label = stringValue(optionRecord.label);
+      return optionId && label ? { id: optionId, label } : undefined;
+    })
+    .filter((option): option is FeedOption => Boolean(option));
+}
+
+function parseFeedQuestions(raw: unknown, fallbackOptions: FeedOption[], item: Record<string, unknown>): FeedQuestion[] {
+  if (Array.isArray(raw)) {
+    const parsed = raw
+      .map((question, index) => {
+        if (!question || typeof question !== "object") {
+          return undefined;
+        }
+        const record = question as Record<string, unknown>;
+        const prompt = stringValue(record.prompt) || stringValue(record.question) || stringValue(record.header);
+        const options = parseFeedOptions(record.options);
+        if (!prompt && options.length === 0) {
+          return undefined;
+        }
+        return {
+          id: stringValue(record.id) || `question-${index + 1}`,
+          prompt: prompt || "Answer the agent question.",
+          multiSelect: record.multi_select === true || record.multiSelect === true,
+          options,
+        };
+      })
+      .filter((question): question is FeedQuestion => Boolean(question));
+    if (parsed.length > 0) {
+      return parsed;
+    }
+  }
+  return [{
+    id: "question-1",
+    prompt: stringValue(item.question_prompt) || stringValue(item.title) || "Answer the agent question.",
+    multiSelect: item.question_multi_select === true,
+    options: fallbackOptions,
+  }];
 }
 
 function defaultTitle(kind: string, raw: Record<string, unknown>): string {
@@ -1015,6 +1072,9 @@ function actionForKey(key: KeyEvent): string | undefined {
   if (/^[1-9]$/.test(keyText)) {
     return `option:${keyText}`;
   }
+  if (keyText === "0") {
+    return "option:10";
+  }
   return undefined;
 }
 
@@ -1050,12 +1110,12 @@ function planMode(action: string, defaultMode: string | undefined): string {
   }
 }
 
-function questionOption(item: FeedItem, action: string): FeedOption | undefined {
+function questionOption(options: FeedOption[], action: string): FeedOption | undefined {
   if (action.startsWith("option:")) {
     const index = Number(action.slice("option:".length)) - 1;
-    return item.questionOptions[index];
+    return options[index];
   }
-  return item.questionOptions[0];
+  return options[0];
 }
 
 function formatError(error: unknown): string {
