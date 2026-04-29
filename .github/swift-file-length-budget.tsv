@@ -55,7 +55,7 @@
 829	cmuxUITests/TerminalCmdClickUITests.swift
 807	Sources/TerminalSSHSessionDetector.swift
 785	Sources/App/TerminalDirectoryOpenSupport.swift
-790	cmuxUITests/BonsplitTabDragUITests.swift
+799	cmuxUITests/BonsplitTabDragUITests.swift
 761	Sources/GhosttyConfig.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 729	Sources/MainWindowFocusController.swift

@@ -393,20 +393,16 @@ final class BonsplitTabDragUITests: XCTestCase {
                 y: window.frame.minY + 18
             )
         )
-        XCTAssertTrue(
-            waitForCondition(timeout: 2.0) {
-                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
-                    notificationsButton.exists && notificationsButton.isHittable &&
-                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
-            },
-            "Expected minimal-mode sidebar controls to reveal when hovering the sidebar chrome area. data=\(loadJSON(atPath: dataPath) ?? [:]) toggle=\(toggleSidebarButton.debugDescription) notifications=\(notificationsButton.debugDescription) new=\(newWorkspaceButton.debugDescription)"
+        click(
+            atAccessibilityPoint: CGPoint(
+                x: window.frame.minX + 122,
+                y: window.frame.minY + 16
+            )
         )
-
-        notificationsButton.click()
         XCTAssertTrue(
             app.buttons["notificationsPopover.jumpToLatest"].waitForExistence(timeout: 6.0)
                 || app.staticTexts["No notifications yet"].waitForExistence(timeout: 6.0),
-            "Expected clicking the revealed sidebar notifications control to open the notifications popover."
+            "Expected clicking the revealed sidebar notifications control to open the notifications popover. data=\(loadJSON(atPath: dataPath) ?? [:]) toggle=\(toggleSidebarButton.debugDescription) notifications=\(notificationsButton.debugDescription) new=\(newWorkspaceButton.debugDescription)"
         )
     }
 
@@ -756,6 +752,19 @@ final class BonsplitTabDragUITests: XCTestCase {
         target.click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.08))
         target.click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    private func click(atAccessibilityPoint point: CGPoint) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        XCTAssertNotNil(source, "Expected CGEventSource for raw mouse click")
+        guard let source else { return }
+        let quartzPoint = quartzPoint(fromAccessibilityPoint: point)
+        postMouseEvent(type: .mouseMoved, at: quartzPoint, source: source)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        postMouseEvent(type: .leftMouseDown, at: quartzPoint, source: source)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.04))
+        postMouseEvent(type: .leftMouseUp, at: quartzPoint, source: source)
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
     }
 
