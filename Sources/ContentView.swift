@@ -2498,8 +2498,8 @@ struct ContentView: View {
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// Native titlebar inset reported by AppKit. Minimal WindowGroup hosts can still need this
-    /// cancelled, but app-owned chrome stays at the shared fixed height below.
+    /// Native titlebar inset reported by AppKit. Standard mode keeps content below this zone;
+    /// minimal WindowGroup hosts can still need it cancelled.
     @State private var titlebarPadding: CGFloat = WindowChromeMetrics.defaultTitlebarHeight
     /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
     /// main windows use MainWindowHostingView and report zero.
@@ -2526,7 +2526,7 @@ struct ContentView: View {
         titlebarPadding: CGFloat,
         hostingSafeAreaTop: CGFloat
     ) -> CGFloat {
-        guard isMinimalMode else { return WindowChromeMetrics.appTitlebarHeight }
+        guard isMinimalMode else { return titlebarPadding }
         guard !isFullScreen else { return 0 }
         return -max(0, min(titlebarPadding, hostingSafeAreaTop))
     }

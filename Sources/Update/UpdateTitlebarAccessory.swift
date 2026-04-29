@@ -177,58 +177,90 @@ extension Notification.Name {
 
 private enum NotificationsPopoverVisibilityUserInfoKey {
     static let isShown = "isShown"
+    static let windowNumber = "windowNumber"
 }
 
 final class NotificationsPopoverVisibilityState: ObservableObject {
     static let shared = NotificationsPopoverVisibilityState()
 
     @Published private(set) var isShown = false
+    @Published private(set) var shownWindowNumbers: Set<Int> = []
     private var shownPopoverIDs: Set<ObjectIdentifier> = []
+    private var shownPopoverWindowNumbers: [ObjectIdentifier: Int] = [:]
+    private var sourceLessShown = false
 
     private init() {}
 
     func setShown(_ newValue: Bool) {
-        setShown(newValue, source: nil)
+        setShown(newValue, source: nil, windowNumber: nil)
     }
 
-    func setShown(_ newValue: Bool, source: AnyObject?) {
+    func setShown(_ newValue: Bool, source: AnyObject?, windowNumber: Int? = nil) {
         if Thread.isMainThread {
-            setShownOnMain(newValue, source: source)
+            setShownOnMain(newValue, source: source, windowNumber: windowNumber)
         } else {
             DispatchQueue.main.async { [weak self] in
-                self?.setShown(newValue, source: source)
+                self?.setShown(newValue, source: source, windowNumber: windowNumber)
             }
         }
     }
 
-    private func setShownOnMain(_ newValue: Bool, source: AnyObject?) {
+    func isShown(in windowNumber: Int?) -> Bool {
+        guard let windowNumber else { return isShown }
+        return sourceLessShown || shownWindowNumbers.contains(windowNumber)
+    }
+
+    private func setShownOnMain(_ newValue: Bool, source: AnyObject?, windowNumber: Int?) {
         if let source {
             let id = ObjectIdentifier(source)
             if newValue {
                 shownPopoverIDs.insert(id)
+                if let windowNumber {
+                    shownPopoverWindowNumbers[id] = windowNumber
+                }
             } else {
                 shownPopoverIDs.remove(id)
+                shownPopoverWindowNumbers.removeValue(forKey: id)
             }
-            updateShown(!shownPopoverIDs.isEmpty)
         } else {
             shownPopoverIDs.removeAll()
-            updateShown(newValue)
+            shownPopoverWindowNumbers.removeAll()
+            sourceLessShown = newValue
         }
+        updateShown()
     }
 
-    private func updateShown(_ newValue: Bool) {
+    private func updateShown() {
+        let newWindowNumbers = Set(shownPopoverWindowNumbers.values)
+        if shownWindowNumbers != newWindowNumbers {
+            shownWindowNumbers = newWindowNumbers
+        }
+        let newValue = sourceLessShown || !shownPopoverIDs.isEmpty
         guard isShown != newValue else { return }
         isShown = newValue
     }
+
+    #if DEBUG
+    func resetForTesting() {
+        shownPopoverIDs.removeAll()
+        shownPopoverWindowNumbers.removeAll()
+        sourceLessShown = false
+        updateShown()
+    }
+    #endif
 }
 
-private func postNotificationsPopoverVisibilityDidChange(isShown: Bool, source: AnyObject? = nil) {
+private func postNotificationsPopoverVisibilityDidChange(isShown: Bool, source: AnyObject? = nil, windowNumber: Int? = nil) {
     let state = NotificationsPopoverVisibilityState.shared
-    state.setShown(isShown, source: source)
+    state.setShown(isShown, source: source, windowNumber: windowNumber)
+    var userInfo: [String: Any] = [NotificationsPopoverVisibilityUserInfoKey.isShown: state.isShown]
+    if let windowNumber {
+        userInfo[NotificationsPopoverVisibilityUserInfoKey.windowNumber] = windowNumber
+    }
     NotificationCenter.default.post(
         name: .cmuxNotificationsPopoverVisibilityDidChange,
         object: nil,
-        userInfo: [NotificationsPopoverVisibilityUserInfoKey.isShown: state.isShown]
+        userInfo: userInfo
     )
 }
 
@@ -362,7 +394,7 @@ struct TitlebarControlsView: View {
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @State private var shortcutRefreshTick = 0
     @State private var isHoveringControls = false
-    @State private var isNotificationsPopoverShown = false
+    @State private var hostWindowNumber: Int?
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
@@ -402,8 +434,7 @@ struct TitlebarControlsView: View {
             return true
         }
         return isHoveringControls
-            || isNotificationsPopoverShown
-            || popoverVisibilityState.isShown
+            || popoverVisibilityState.isShown(in: hostWindowNumber)
             || shouldShowTitlebarShortcutHints
     }
 
@@ -422,6 +453,9 @@ struct TitlebarControlsView: View {
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
                 WindowAccessor { window in
+                    if hostWindowNumber != window.windowNumber {
+                        hostWindowNumber = window.windowNumber
+                    }
                     modifierKeyMonitor.setHostWindow(window)
                 }
                 .frame(width: 0, height: 0)
@@ -433,16 +467,11 @@ struct TitlebarControlsView: View {
                 shortcutRefreshTick &+= 1
             }
             .onAppear {
-                isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .cmuxNotificationsPopoverVisibilityDidChange)) { notification in
-                isNotificationsPopoverShown = (notification.userInfo?[NotificationsPopoverVisibilityUserInfoKey.isShown] as? Bool) ?? false
-            }
-            .onAppear {
                 modifierKeyMonitor.start()
             }
             .onDisappear {
                 modifierKeyMonitor.stop()
+                hostWindowNumber = nil
             }
     }
 
@@ -741,12 +770,11 @@ struct HiddenTitlebarSidebarControlsView: View {
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
-    @State private var isNotificationsPopoverShown = false
     @State private var hostWindowNumber: Int?
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
 
     private var shouldPinControls: Bool {
-        isHoveringHost || isHoveringWindowChrome || isNotificationsPopoverShown || popoverVisibilityState.isShown
+        isHoveringHost || isHoveringWindowChrome || popoverVisibilityState.isShown(in: hostWindowNumber)
     }
 
     var body: some View {
@@ -812,15 +840,6 @@ struct HiddenTitlebarSidebarControlsView: View {
             alignment: .leading
         )
         .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
-        .onAppear {
-            isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
-            popoverVisibilityState.setShown(isNotificationsPopoverShown)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .cmuxNotificationsPopoverVisibilityDidChange)) { notification in
-            let nextValue = (notification.userInfo?[NotificationsPopoverVisibilityUserInfoKey.isShown] as? Bool) ?? false
-            isNotificationsPopoverShown = nextValue
-            popoverVisibilityState.setShown(nextValue)
-        }
         .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
             isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
             #if DEBUG
@@ -834,7 +853,6 @@ struct HiddenTitlebarSidebarControlsView: View {
         .onDisappear {
             isHoveringHost = false
             isHoveringWindowChrome = false
-            isNotificationsPopoverShown = false
             if let hostWindowNumber {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(false, windowNumber: hostWindowNumber)
             }
@@ -1434,7 +1452,11 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-                postNotificationsPopoverVisibilityDidChange(isShown: true, source: notificationsPopover)
+                postNotificationsPopoverVisibilityDidChange(
+                    isShown: true,
+                    source: notificationsPopover,
+                    windowNumber: window.windowNumber
+                )
                 return
             }
         }
@@ -1445,7 +1467,11 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-                postNotificationsPopoverVisibilityDidChange(isShown: true, source: notificationsPopover)
+                postNotificationsPopoverVisibilityDidChange(
+                    isShown: true,
+                    source: notificationsPopover,
+                    windowNumber: window.windowNumber
+                )
                 return
             }
         }
@@ -1455,7 +1481,11 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let anchorRect = NSRect(x: 12, y: bounds.maxY - 8, width: 1, height: 1)
         notificationsPopover.animates = animated
         notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-        postNotificationsPopoverVisibilityDidChange(isShown: true, source: notificationsPopover)
+        postNotificationsPopoverVisibilityDidChange(
+            isShown: true,
+            source: notificationsPopover,
+            windowNumber: window.windowNumber
+        )
     }
 
     func dismissNotificationsPopover() {
@@ -1994,7 +2024,11 @@ final class UpdateTitlebarAccessoryController {
         detachedNotificationsPopover = popover
         detachedNotificationsPopoverDelegate = delegate
         popover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-        postNotificationsPopoverVisibilityDidChange(isShown: true, source: popover)
+        postNotificationsPopoverVisibilityDidChange(
+            isShown: true,
+            source: popover,
+            windowNumber: window.windowNumber
+        )
     }
 
     func isNotificationsPopoverShown() -> Bool {

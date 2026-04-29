@@ -1740,9 +1740,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 titlebarPadding: 32,
                 hostingSafeAreaTop: 0
             ),
-            WindowChromeMetrics.appTitlebarHeight,
+            32,
             accuracy: 0.5,
-            "Standard mode should use the shared app chrome height instead of the native titlebar measurement"
+            "Standard mode should preserve the measured titlebar inset so content stays below the draggable titlebar zone"
         )
 
         XCTAssertEqual(
@@ -1781,6 +1781,35 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "SwiftUI WindowGroup windows still need their native titlebar safe area cancelled"
         )
     }
+
+    func testNotificationsPopoverVisibilityIsScopedByWindow() {
+        let state = NotificationsPopoverVisibilityState.shared
+        state.resetForTesting()
+        defer { state.resetForTesting() }
+
+        let firstPopover = NSObject()
+        let secondPopover = NSObject()
+
+        state.setShown(true, source: firstPopover, windowNumber: 101)
+        XCTAssertTrue(state.isShown)
+        XCTAssertTrue(state.isShown(in: 101))
+        XCTAssertFalse(state.isShown(in: 202))
+
+        state.setShown(true, source: secondPopover, windowNumber: 202)
+        XCTAssertTrue(state.isShown(in: 101))
+        XCTAssertTrue(state.isShown(in: 202))
+
+        state.setShown(false, source: firstPopover)
+        XCTAssertTrue(state.isShown)
+        XCTAssertFalse(state.isShown(in: 101))
+        XCTAssertTrue(state.isShown(in: 202))
+
+        state.setShown(false, source: secondPopover)
+        XCTAssertFalse(state.isShown)
+        XCTAssertFalse(state.isShown(in: 101))
+        XCTAssertFalse(state.isShown(in: 202))
+    }
+
     func testWindowChromeTitlebarHeightClampsToSharedRange() {
         [WindowChromeMetrics.appTitlebarHeight, WindowChromeMetrics.bonsplitTabBarHeight, WindowChromeMetrics.secondaryTitlebarHeight, MinimalModeChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.secondaryBarHeight].forEach { XCTAssertEqual($0, WindowChromeMetrics.sharedChromeBarHeight) }
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(12), 28)

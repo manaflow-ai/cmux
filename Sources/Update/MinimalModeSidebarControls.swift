@@ -193,7 +193,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             .sink { [weak self] _ in self?.syncButtons() }
             .store(in: &cancellables)
 
-        NotificationsPopoverVisibilityState.shared.$isShown
+        NotificationsPopoverVisibilityState.shared.$shownWindowNumbers
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.syncButtons() }
             .store(in: &cancellables)
@@ -212,7 +212,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         guard requiresRevealedState else { return true }
         guard let window else { return false }
         return MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
-            || NotificationsPopoverVisibilityState.shared.isShown
+            || NotificationsPopoverVisibilityState.shared.isShown(in: window.windowNumber)
     }
 
     private func shouldAcceptAction(at localPoint: NSPoint) -> Bool {
