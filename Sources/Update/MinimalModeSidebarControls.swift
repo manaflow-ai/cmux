@@ -174,6 +174,10 @@ final class MinimalModeSidebarControlActionView: NSView {
             super.mouseDown(with: event)
             return
         }
+        guard shouldAcceptAction(at: localPoint) else {
+            super.mouseDown(with: event)
+            return
+        }
         performAction(slot: slot, anchorView: self, locationInWindow: event.locationInWindow)
     }
 
@@ -256,13 +260,9 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
 
     private func shouldAcceptAction(at localPoint: NSPoint) -> Bool {
-        if isRevealed { return true }
-        guard isEnabled, requiresRevealedState, let window else { return false }
-        let windowPoint = convert(localPoint, to: nil)
-        return isMinimalModeSidebarChromeHoverCandidate(
-            window: window,
-            locationInWindow: windowPoint
-        )
+        guard isEnabled else { return false }
+        guard requiresRevealedState else { return true }
+        return isRevealed
     }
 }
 
