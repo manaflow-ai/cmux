@@ -4,7 +4,7 @@
 19973	CLI/cmux.swift
 16745	Sources/TerminalController.swift
 15872	Sources/ContentView.swift
-14157	Sources/AppDelegate.swift
+14148	Sources/AppDelegate.swift
 13686	Sources/Workspace.swift
 13354	Sources/GhosttyTerminalView.swift
 10603	Sources/Panels/BrowserPanel.swift
@@ -27,8 +27,8 @@
 2292	cmuxTests/TabManagerUnitTests.swift
 2188	Sources/TerminalWindowPortal.swift
 2153	cmuxTests/SessionPersistenceTests.swift
+2036	Sources/Update/UpdateTitlebarAccessory.swift
 2026	cmuxTests/CJKIMEInputTests.swift
-2007	Sources/Update/UpdateTitlebarAccessory.swift
 1949	Sources/FileExplorerView.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1941	Sources/SessionIndexStore.swift
@@ -39,10 +39,10 @@
 1517	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1423	Sources/TerminalNotificationStore.swift
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
+1332	Sources/WindowDragHandleView.swift
 1292	cmuxUITests/SidebarHelpMenuUITests.swift
 1255	cmuxTests/NotificationAndMenuBarTests.swift
 1215	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
-1191	Sources/WindowDragHandleView.swift
 1187	cmuxUITests/MultiWindowNotificationsUITests.swift
 1165	Sources/Auth/AuthManager.swift
 1001	Sources/FileExplorerStore.swift
