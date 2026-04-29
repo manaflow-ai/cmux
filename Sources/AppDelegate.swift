@@ -10589,7 +10589,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // history): after command-palette/notification handling and browser omnibar
         // arrow navigation above, plain key events have no app-level shortcut behavior.
         if normalizedFlags.isEmpty && activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
-            return false
+            // Without modifiers and without an armed chord, the only way an event
+            // can still be a shortcut is if the user configured a bare-key chord
+            // leader (e.g. tmux-style ` as a prefix). Skip the early-return only
+            // when such a binding actually exists.
+            if !hasConfiguredBareKeyChordPrefix() {
+                return false
+            }
         }
 
         // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
@@ -12064,6 +12070,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return window.windowNumber
         }
         return event.windowNumber > 0 ? event.windowNumber : nil
+    }
+
+    /// True iff at least one configured shortcut has a chord whose first stroke has no modifiers.
+    /// Used by `handleCustomShortcut` to know whether bare-key keyDown events still need to be
+    /// considered for chord arming, instead of being short-circuited as non-shortcut input.
+    private func hasConfiguredBareKeyChordPrefix() -> Bool {
+        let context = preferredRegisteredMainWindowContext()
+        let configuredShortcuts = configuredCmuxShortcutActions(for: context)
+            .compactMap(\.shortcut)
+        let builtInShortcuts = configuredShortcutChordActions.map {
+            KeyboardShortcutSettings.shortcut(for: $0)
+        }
+        for shortcut in builtInShortcuts + configuredShortcuts {
+            guard shortcut.hasChord else { continue }
+            if shortcut.firstStroke.modifierFlags.isEmpty {
+                return true
+            }
+        }
+        return false
     }
 
     private func armConfiguredShortcutChordIfNeeded(
