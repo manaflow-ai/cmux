@@ -215,6 +215,11 @@ final class EditorPanel: Panel, ObservableObject {
         fileExplorerStore.setRootPath(trimmedRoot)
     }
 
+    /// Stop showing the embedded file explorer while keeping the current file open.
+    func clearWorkspaceFileExplorer() {
+        workspaceRootDirectory = nil
+    }
+
     /// Enter diff mode comparing the current file against base content.
     func enterDiffMode(baseContent: String, baseLabel: String?) {
         isDirty = false

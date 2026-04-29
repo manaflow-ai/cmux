@@ -1995,12 +1995,8 @@ final class FileExplorerHeaderView: NSView {
         searchButton.bezelStyle = .roundRect
         searchButton.controlSize = .small
         searchButton.isBordered = true
-        searchButton.imagePosition = .imageOnly
-        searchButton.image = NSImage(
-            systemSymbolName: "magnifyingglass",
-            accessibilityDescription: String(localized: "fileExplorer.search.button", defaultValue: "Search")
-        )?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .medium))
-        searchButton.contentTintColor = .labelColor
+        searchButton.title = String(localized: "fileExplorer.search.button", defaultValue: "Search")
+        searchButton.font = .systemFont(ofSize: 11, weight: .medium)
         searchButton.toolTip = String(localized: "fileExplorer.search.buttonHelp", defaultValue: "Search Files")
         searchButton.target = self
         searchButton.action = #selector(searchButtonClicked(_:))
@@ -2024,7 +2020,7 @@ final class FileExplorerHeaderView: NSView {
 
             searchButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             searchButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            searchButton.widthAnchor.constraint(equalToConstant: 24),
+            searchButton.widthAnchor.constraint(equalToConstant: 58),
             searchButton.heightAnchor.constraint(equalToConstant: 22),
         ])
         applyHeaderState()

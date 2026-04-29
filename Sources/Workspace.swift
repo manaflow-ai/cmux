@@ -10625,7 +10625,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Open a file in the workspace editor/file area, reusing an existing
-    /// workspace-root editor when possible so file clicks stay inside cmux.
+    /// editor tab when possible so file clicks stay inside cmux.
     @discardableResult
     func openOrFocusWorkspaceEditor(
         from panelId: UUID? = nil,
@@ -10657,41 +10657,14 @@ final class Workspace: Identifiable, ObservableObject {
                   canonicalEditorPath(editorPanel.filePath) == canonical else {
                 continue
             }
-            if !editorPanel.hasWorkspaceFileExplorer {
-                editorPanel.ensureWorkspaceFileExplorer(rootDirectory: rootDirectory)
+            if editorPanel.hasWorkspaceFileExplorer {
+                editorPanel.clearWorkspaceFileExplorer()
             }
             return finish(editorPanel, panelId: existingId)
         }
 
         for existingId in editorPanelIds {
             guard let editorPanel = panels[existingId] as? EditorPanel,
-                  editorPanel.hasWorkspaceFileExplorer,
-                  let existingRootDirectory = editorPanel.workspaceRootDirectory,
-                  canonicalEditorPath(existingRootDirectory) == canonicalRootDirectory,
-                  editorPanel.navigateToFile(filePath) else {
-                continue
-            }
-            return finish(editorPanel, panelId: existingId)
-        }
-
-        for existingId in editorPanelIds {
-            guard let editorPanel = panels[existingId] as? EditorPanel,
-                  editorPanel.hasWorkspaceFileExplorer,
-                  let existingRootDirectory = editorPanel.workspaceRootDirectory,
-                  isFilePath(filePath, insideDirectory: existingRootDirectory),
-                  editorPanel.navigateToFile(filePath) else {
-                continue
-            }
-            if canonicalEditorPath(existingRootDirectory) != canonicalRootDirectory,
-               isSameOrDescendantPath(rootDirectory, of: existingRootDirectory) {
-                editorPanel.ensureWorkspaceFileExplorer(rootDirectory: rootDirectory)
-            }
-            return finish(editorPanel, panelId: existingId)
-        }
-
-        for existingId in editorPanelIds {
-            guard let editorPanel = panels[existingId] as? EditorPanel,
-                  !editorPanel.hasWorkspaceFileExplorer,
                   !editorPanel.filePath.isEmpty,
                   canonicalEditorPath(workspaceEditorRootDirectory(
                     for: editorPanel.filePath,
@@ -10700,7 +10673,9 @@ final class Workspace: Identifiable, ObservableObject {
                   editorPanel.navigateToFile(filePath) else {
                 continue
             }
-            editorPanel.ensureWorkspaceFileExplorer(rootDirectory: rootDirectory)
+            if editorPanel.hasWorkspaceFileExplorer {
+                editorPanel.clearWorkspaceFileExplorer()
+            }
             return finish(editorPanel, panelId: existingId)
         }
 
@@ -10709,20 +10684,18 @@ final class Workspace: Identifiable, ObservableObject {
         if let targetPaneId,
            let editorPanel = newEditorSurface(
                inPane: targetPaneId,
-               workspaceRootDirectory: rootDirectory,
+               filePath: filePath,
                focus: true
            ) {
-            _ = editorPanel.navigateToFile(filePath)
             return finish(editorPanel)
         }
 
         if let paneId = bonsplitController.focusedPaneId,
            let editorPanel = newEditorSurface(
                inPane: paneId,
-               workspaceRootDirectory: rootDirectory,
+               filePath: filePath,
                focus: true
            ) {
-            _ = editorPanel.navigateToFile(filePath)
             return finish(editorPanel)
         }
 

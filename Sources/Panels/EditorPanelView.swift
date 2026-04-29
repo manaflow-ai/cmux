@@ -103,8 +103,8 @@ struct EditorPanelView: View {
             Button {
                 panel.triggerFind()
             } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
+                Text(String(localized: "editor.find", defaultValue: "Find"))
+                    .font(.system(size: 10, weight: .medium))
             }
             .buttonStyle(.plain)
             .foregroundColor(.secondary)
@@ -113,8 +113,8 @@ struct EditorPanelView: View {
                 Button {
                     panel.save()
                 } label: {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 11))
+                    Text(String(localized: "editor.save", defaultValue: "Save"))
+                        .font(.system(size: 10, weight: .medium))
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(panel.isDirty ? .accentColor : .secondary)

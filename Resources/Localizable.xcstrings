@@ -93724,6 +93724,23 @@
         }
       }
     },
+    "editor.find": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        }
+      }
+    },
     "editor.fileUnavailable": {
       "extractionState": "manual",
       "localizations": {

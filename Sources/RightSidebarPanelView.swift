@@ -394,11 +394,11 @@ private struct ModeBarButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack {
-                Image(systemName: mode.symbolName)
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .frame(width: 28, height: 24)
+            Text(mode.label)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(minWidth: 42, maxWidth: 68, minHeight: 24)
             .foregroundStyle(foregroundColor)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
