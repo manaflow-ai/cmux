@@ -21,6 +21,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("factory defaults", contains: SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
     }
 
+    func testSettingsPathAnchorIncludesBrowserEnabled() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "browser.enabled"),
+            SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser")
+        )
+    }
+
     private func assertSearch(
         _ query: String,
         contains expectedID: String,

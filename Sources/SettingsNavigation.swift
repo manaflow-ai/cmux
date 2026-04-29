@@ -415,6 +415,7 @@ enum SettingsSearchIndex {
         "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
         "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
         "automation.portRange": settingID(for: .automation, idSuffix: "port-range"),
+        "browser.enabled": settingID(for: .browser, idSuffix: "enable-browser"),
         "browser.defaultSearchEngine": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.showSearchSuggestions": settingID(for: .browser, idSuffix: "search-suggestions"),
         "browser.theme": settingID(for: .browser, idSuffix: "theme"),
