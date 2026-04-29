@@ -309,7 +309,8 @@ final class WindowTerminalHostView: NSView {
         at point: NSPoint,
         visibleHostedViews: [GhosttySurfaceScrollView]
     ) -> Bool {
-        guard let rightMostEdge = visibleHostedViews.map(\.frame.maxX).max() else { return false }
+        let contentHostedViews = visibleHostedViews.filter { !$0.isRightSidebarDockSurface }
+        guard let rightMostEdge = contentHostedViews.map(\.frame.maxX).max() else { return false }
         let trailingGap = bounds.maxX - rightMostEdge
         guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightMostEdge).contains(point.x)
@@ -1675,6 +1676,7 @@ final class WindowTerminalPortal: NSObject {
         let orphanTerminalSubviewCount: Int
         let visibleOrphanTerminalSubviewCount: Int
         let staleEntryCount: Int
+        let visibleInvalidAnchorEntryCount: Int
     }
 
     func debugStats() -> DebugStats {
@@ -1682,6 +1684,7 @@ final class WindowTerminalPortal: NSObject {
         var mappedTerminalSubviewCount = 0
         var orphanTerminalSubviewCount = 0
         var visibleOrphanTerminalSubviewCount = 0
+        var visibleInvalidAnchorEntryCount = 0
 
         for hostedView in terminalSubviews {
             let hostedId = ObjectIdentifier(hostedView)
@@ -1698,6 +1701,20 @@ final class WindowTerminalPortal: NSObject {
             }
         }
 
+        for entry in entriesByHostedId.values where entry.visibleInUI {
+            guard let anchor = entry.anchorView else {
+                visibleInvalidAnchorEntryCount += 1
+                continue
+            }
+            let anchorInvalidForCurrentHost =
+                anchor.window !== window ||
+                anchor.superview == nil ||
+                (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
+            if anchorInvalidForCurrentHost {
+                visibleInvalidAnchorEntryCount += 1
+            }
+        }
+
         let staleEntryCount = entriesByHostedId.values.reduce(0) { partialResult, entry in
             guard let hostedView = entry.hostedView else { return partialResult + 1 }
             return hostedView.superview === hostView ? partialResult : partialResult + 1
@@ -1711,7 +1728,8 @@ final class WindowTerminalPortal: NSObject {
             mappedTerminalSubviewCount: mappedTerminalSubviewCount,
             orphanTerminalSubviewCount: orphanTerminalSubviewCount,
             visibleOrphanTerminalSubviewCount: visibleOrphanTerminalSubviewCount,
-            staleEntryCount: staleEntryCount
+            staleEntryCount: staleEntryCount,
+            visibleInvalidAnchorEntryCount: visibleInvalidAnchorEntryCount
         )
     }
 
@@ -2110,6 +2128,7 @@ enum TerminalWindowPortalRegistry {
             "orphan_terminal_subview_count": 0,
             "visible_orphan_terminal_subview_count": 0,
             "stale_entry_count": 0,
+            "visible_invalid_anchor_entry_count": 0,
             "mapped_hosted_count": 0,
         ]
 
@@ -2122,6 +2141,7 @@ enum TerminalWindowPortalRegistry {
                 stats.orphanTerminalSubviewCount == 0 &&
                 stats.visibleOrphanTerminalSubviewCount == 0 &&
                 stats.staleEntryCount == 0 &&
+                stats.visibleInvalidAnchorEntryCount == 0 &&
                 mappedHostedCount == stats.entryCount
 
             portals.append([
@@ -2134,6 +2154,7 @@ enum TerminalWindowPortalRegistry {
                 "orphan_terminal_subview_count": stats.orphanTerminalSubviewCount,
                 "visible_orphan_terminal_subview_count": stats.visibleOrphanTerminalSubviewCount,
                 "stale_entry_count": stats.staleEntryCount,
+                "visible_invalid_anchor_entry_count": stats.visibleInvalidAnchorEntryCount,
                 "integrity_ok": integrityOK,
             ])
 
@@ -2144,6 +2165,7 @@ enum TerminalWindowPortalRegistry {
             totals["orphan_terminal_subview_count", default: 0] += stats.orphanTerminalSubviewCount
             totals["visible_orphan_terminal_subview_count", default: 0] += stats.visibleOrphanTerminalSubviewCount
             totals["stale_entry_count", default: 0] += stats.staleEntryCount
+            totals["visible_invalid_anchor_entry_count", default: 0] += stats.visibleInvalidAnchorEntryCount
             totals["mapped_hosted_count", default: 0] += mappedHostedCount
         }
 

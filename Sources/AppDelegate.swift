@@ -732,6 +732,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupMultiWindowNotificationsUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
+    private var didSetupFeedSidebarUITest = false
+    private var didStartFeedSidebarUITestPush = false
+    private var feedSidebarUITestObservers: [NSObjectProtocol] = []
+    private var didSetupPortalStatsUITestDiagnostics = false
+    private var portalStatsUITestObservers: [NSObjectProtocol] = []
     private struct UITestRenderDiagnosticsSnapshot {
         let panelId: UUID
         let drawCount: Int
@@ -942,6 +947,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
+#if DEBUG
+            setupFeedSidebarUITestIfNeeded()
+#endif
         }
 
         DistributedNotificationCenter.default().addObserver(
@@ -1177,6 +1185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         appendUITestRenderDiagnosticsIfNeeded(&payload, environment: env)
         appendUITestSocketDiagnosticsIfNeeded(&payload, environment: env)
+        appendUITestPortalDiagnosticsIfNeeded(&payload, environment: env)
 
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
@@ -1229,6 +1238,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["socketPathMatches"] = health.socketPathMatches ? "1" : "0"
         payload["socketPathExists"] = health.socketPathExists ? "1" : "0"
         payload["socketFailureSignals"] = failureSignals.joined(separator: ",")
+    }
+
+    private func appendUITestPortalDiagnosticsIfNeeded(
+        _ payload: inout [String: String],
+        environment env: [String: String]
+    ) {
+        guard env["CMUX_UI_TEST_PORTAL_STATS"] == "1" else { return }
+
+        let stats = TerminalWindowPortalRegistry.debugPortalStats()
+        payload["portal_count"] = Self.uiTestStringValue(stats["portal_count"])
+        payload["portal_hosted_mapping_count"] = Self.uiTestStringValue(stats["hosted_mapping_count"])
+        payload["portal_guarded_bind_blocked_count"] = Self.uiTestStringValue(stats["guarded_bind_blocked_count"])
+        if let totals = stats["totals"] as? [String: Any] {
+            for (key, value) in totals {
+                payload["portal_\(key)"] = Self.uiTestStringValue(value)
+            }
+        }
+    }
+
+    private static func uiTestStringValue(_ value: Any?) -> String {
+        switch value {
+        case let value as String:
+            return value
+        case let value as Bool:
+            return value ? "1" : "0"
+        case let value as Int:
+            return String(value)
+        case let value as NSNumber:
+            return value.stringValue
+        case let value as UUID:
+            return value.uuidString
+        case .some(let value):
+            return String(describing: value)
+        case .none:
+            return ""
+        }
     }
 
     private func appendUITestRenderDiagnosticsIfNeeded(
@@ -1457,6 +1502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupBonsplitTabDragUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
+        setupPortalStatsUITestDiagnosticsIfNeeded()
 
         let env = ProcessInfo.processInfo.environment
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
@@ -2176,6 +2222,197 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         observe(.terminalPortalVisibilityDidChange, "displayUITest.terminalPortalVisibilityDidChange")
 
         writeUITestDiagnosticsIfNeeded(stage: "displayUITest.setup")
+    }
+
+    private func setupPortalStatsUITestDiagnosticsIfNeeded() {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_PORTAL_STATS"] == "1" else { return }
+        guard !didSetupPortalStatsUITestDiagnostics else { return }
+        didSetupPortalStatsUITestDiagnostics = true
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .terminalPortalVisibilityDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
+        }
+        portalStatsUITestObservers.append(observer)
+        writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.portalStats.setup")
+    }
+
+    private func setupFeedSidebarUITestIfNeeded() {
+        let env = ProcessInfo.processInfo.environment
+        guard !didSetupFeedSidebarUITest else { return }
+        guard let path = env["CMUX_UI_TEST_FEED_SIDEBAR_RESULT_PATH"], !path.isEmpty else { return }
+        didSetupFeedSidebarUITest = true
+
+        setupFeedSidebarUITestReveal(resultPath: path)
+        writeFeedSidebarUITestData(["stage": "revealOnly"], at: path)
+    }
+
+    private func setupFeedSidebarUITestReveal(resultPath: String) {
+        var observer: NSObjectProtocol?
+        let attemptReveal: () -> Void = { [weak self] in
+            guard let self else { return }
+            let result = self.debugRevealRightSidebarInActiveMainWindow(
+                mode: .dock,
+                focusFirstItem: false,
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            self.writeFeedSidebarUITestData([
+                "reveal": result.revealed ? "1" : "0",
+                "revealVisible": result.visible ? "1" : "0",
+                "revealContextFound": result.contextFound ? "1" : "0",
+                "revealStateFound": result.stateFound ? "1" : "0",
+                "revealActiveMode": result.activeMode ?? "",
+            ], at: resultPath)
+            self.writeUITestDiagnosticsIfNeeded(
+                stage: result.revealed ? "feedSidebarUITest.reveal.ok" : "feedSidebarUITest.reveal.pending"
+            )
+            if result.revealed {
+                self.startFeedSidebarUITestPushIfNeeded(resultPath: resultPath)
+                if let observer {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+            }
+        }
+
+        observer = NotificationCenter.default.addObserver(
+            forName: .mainWindowContextsDidChange,
+            object: self,
+            queue: .main
+        ) { _ in
+            attemptReveal()
+        }
+        if let observer {
+            feedSidebarUITestObservers.append(observer)
+        }
+        DispatchQueue.main.async(execute: attemptReveal)
+    }
+
+    private func startFeedSidebarUITestPushIfNeeded(resultPath: String) {
+        let env = ProcessInfo.processInfo.environment
+        guard !didStartFeedSidebarUITestPush else { return }
+        guard let requestId = env["CMUX_UI_TEST_FEED_SIDEBAR_REQUEST_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !requestId.isEmpty else {
+            return
+        }
+        didStartFeedSidebarUITestPush = true
+
+        writeFeedSidebarUITestData([
+            "pushStarted": "1",
+            "pushRequestId": requestId,
+        ], at: resultPath)
+        observeFeedSidebarUITestPending(requestId: requestId, resultPath: resultPath)
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var updates = Self.feedSidebarUITestPushUpdates(response: Self.runFeedSidebarUITestPush(requestId: requestId))
+            if updates["pushResultStatus"] == "resolved" { updates["shortcutResponse"] = TerminalController.shared.handleSocketLine("simulate_shortcut ctrl+3") }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.writeFeedSidebarUITestData(updates, at: resultPath)
+                self.writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.push.finished")
+            }
+        }
+    }
+
+    private func observeFeedSidebarUITestPending(
+        requestId: String,
+        resultPath: String,
+        remainingAttempts: Int = 75
+    ) {
+        let pending = FeedCoordinator.shared.snapshot(pendingOnly: false).contains { item in
+            guard item.status.isPending else { return false }
+            if case .permissionRequest(let itemRequestId, _, _, _) = item.payload {
+                return itemRequestId == requestId
+            }
+            return false
+        }
+        if pending {
+            writeFeedSidebarUITestData([
+                "pushPendingObserved": "1",
+            ], at: resultPath)
+            return
+        }
+        guard remainingAttempts > 0 else {
+            writeFeedSidebarUITestData([
+                "pushPendingObserved": "0",
+            ], at: resultPath)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.observeFeedSidebarUITestPending(
+                requestId: requestId,
+                resultPath: resultPath,
+                remainingAttempts: remainingAttempts - 1
+            )
+        }
+    }
+
+    private static func runFeedSidebarUITestPush(requestId: String) -> String {
+        let params: [String: Any] = [
+            "event": [
+                "session_id": "uitest-\(requestId)",
+                "hook_event_name": "PermissionRequest",
+                "_source": "claude",
+                "tool_name": "Write",
+                "tool_input": ["file_path": "/tmp/feeduitest"],
+                "_opencode_request_id": requestId,
+            ],
+            "wait_timeout_seconds": 120,
+        ]
+        let frame: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": "feed.push",
+            "params": params,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: frame),
+              let line = String(data: data, encoding: .utf8) else {
+            return "{\"ok\":false,\"error\":{\"message\":\"failed to encode feed.push frame\"}}"
+        }
+        return TerminalController.shared.handleSocketLine(line)
+    }
+
+    private static func feedSidebarUITestPushUpdates(response: String) -> [String: String] {
+        var updates: [String: String] = ["pushResponse": response]
+        guard let data = response.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            updates["pushError"] = "invalid response: \(response)"
+            return updates
+        }
+        guard object["ok"] as? Bool == true else {
+            let error = object["error"] as? [String: Any]
+            updates["pushError"] = (error?["message"] as? String) ?? "feed.push returned ok=false"
+            return updates
+        }
+        guard let result = object["result"] as? [String: Any],
+              let status = result["status"] as? String else {
+            updates["pushError"] = "feed.push response missing result.status"
+            return updates
+        }
+        updates["pushResultStatus"] = status
+        if let decision = result["decision"] as? [String: Any],
+           let mode = decision["mode"] as? String {
+            updates["pushResultMode"] = mode
+        }
+        return updates
+    }
+
+    private func writeFeedSidebarUITestData(_ updates: [String: String], at path: String) {
+        var payload: [String: String] = {
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+                return [:]
+            }
+            return object
+        }()
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 #endif
 
@@ -5235,6 +5472,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         keyboardFocusCoordinator(for: window)?.ownsRightSidebarFocus(responder) == true
     }
 
+    func shouldRouteRightSidebarModeShortcut(in window: NSWindow?) -> Bool {
+        guard let window,
+              let responder = window.firstResponder else {
+            return false
+        }
+        if isRightSidebarFocusResponder(responder, in: window) {
+            return true
+        }
+        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
+              let panelId = ghosttyView.terminalSurface?.id else {
+            return false
+        }
+        return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId)
+    }
+
     func allowsTerminalKeyboardFocus(
         workspaceId: UUID,
         panelId: UUID,
@@ -5257,6 +5509,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let workspaceId = ghosttyView.tabId,
               let panelId = ghosttyView.terminalSurface?.id else {
+            return nil
+        }
+        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
             return nil
         }
         return TerminalKeyboardFocusRequest(
@@ -5344,6 +5599,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         return result
     }
+
+#if DEBUG
+    func debugRevealRightSidebarInActiveMainWindow(
+        mode: RightSidebarMode,
+        focusFirstItem: Bool,
+        preferredWindow: NSWindow? = nil
+    ) -> (
+        revealed: Bool,
+        focusApplied: Bool,
+        contextFound: Bool,
+        stateFound: Bool,
+        visible: Bool,
+        activeMode: String?
+    ) {
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
+        let window = context.flatMap { $0.window ?? windowForMainWindowId($0.windowId) }
+        if let window {
+            if !window.isKeyWindow {
+                if !NSApp.isActive {
+                    NSRunningApplication.current.activate(options: [.activateAllWindows])
+                }
+                window.makeKeyAndOrderFront(nil)
+            }
+            setActiveMainWindow(window)
+        }
+
+        guard let state = context?.fileExplorerState ?? fileExplorerState else {
+            return (
+                revealed: false,
+                focusApplied: false,
+                contextFound: context != nil,
+                stateFound: false,
+                visible: false,
+                activeMode: nil
+            )
+        }
+
+        if state.mode != mode {
+            state.mode = mode
+        }
+        state.setVisible(true)
+
+        let focusApplied = context?.keyboardFocusCoordinator.focusRightSidebar(
+            mode: mode,
+            focusFirstItem: focusFirstItem
+        ) ?? false
+
+        return (
+            revealed: state.isVisible && state.mode == mode,
+            focusApplied: focusApplied,
+            contextFound: context != nil,
+            stateFound: true,
+            visible: state.isVisible,
+            activeMode: state.mode.rawValue
+        )
+    }
+#endif
 
     @discardableResult
     func focusFileSearchInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
@@ -6635,25 +6947,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static func presentPreferencesWindow(
         navigationTarget: SettingsNavigationTarget? = nil,
         showFallbackSettingsWindow: @MainActor (SettingsNavigationTarget?) -> Void = { target in
-            SettingsWindowController.shared.show(navigationTarget: target)
+            SettingsWindowPresenter.show(navigationTarget: target)
         },
         activateApplication: @MainActor () -> Void = {
             NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         }
     ) {
 #if DEBUG
-        cmuxDebugLog("settings.open.present path=customWindowDirect")
+        cmuxDebugLog("settings.open.present path=swiftuiWindow")
 #endif
         showFallbackSettingsWindow(navigationTarget)
         activateApplication()
-        if let window = SettingsWindowController.shared.window {
-            window.orderFrontRegardless()
-            window.makeKeyAndOrderFront(nil)
-            DispatchQueue.main.async {
-                window.orderFrontRegardless()
-                window.makeKeyAndOrderFront(nil)
-            }
-        }
 #if DEBUG
         cmuxDebugLog("settings.open.present activate=1")
 #endif
@@ -10283,6 +10587,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if let mode = RightSidebarMode.modeShortcut(for: event),
+           let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+           shouldRouteRightSidebarModeShortcut(in: rightSidebarWindow) {
+            _ = focusRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: true,
+                preferredWindow: rightSidebarWindow
+            )
+            return true
+        }
+
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
@@ -10353,17 +10668,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                event: event,
                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
            ) {
-            return true
-        }
-
-        if let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
-           let mode = RightSidebarMode.modeShortcut(for: event),
-           rightSidebarWindow.firstResponder.map({ isRightSidebarFocusResponder($0, in: rightSidebarWindow) }) == true {
-            _ = focusRightSidebarInActiveMainWindow(
-                mode: mode,
-                focusFirstItem: true,
-                preferredWindow: rightSidebarWindow
-            )
             return true
         }
 
@@ -13373,6 +13677,15 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
+        if let mode = RightSidebarMode.modeShortcut(for: event),
+           AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: true,
+                preferredWindow: self
+            )
+            return true
+        }
         if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can

@@ -15,6 +15,7 @@ enum RightSidebarMode: String, CaseIterable {
     case find
     case sessions
     case feed
+    case dock
 
     var label: String {
         switch self {
@@ -22,6 +23,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
+        case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         }
     }
 
@@ -31,6 +33,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return "magnifyingglass"
         case .sessions: return "bubble.left.and.text.bubble.right"
         case .feed: return "dot.radiowaves.left.and.right"
+        case .dock: return "dock.rectangle"
         }
     }
 
@@ -40,6 +43,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
+        case .dock: return .switchRightSidebarToDock
         }
     }
 }
@@ -58,6 +62,9 @@ extension RightSidebarMode {
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFeed).matches(event: event) {
             return .feed
+        }
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToDock).matches(event: event) {
+            return .dock
         }
         return nil
     }
@@ -136,6 +143,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
+    let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
 
     @StateObject private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
@@ -143,6 +151,7 @@ struct RightSidebarPanelView: View {
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
     @StateObject private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @StateObject private var dockStore = DockControlsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
@@ -187,6 +196,8 @@ struct RightSidebarPanelView: View {
             modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
         }
+        .onChange(of: fileExplorerState.mode) { _, mode in if mode != .dock { dockStore.deactivate() } }
+        .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
     }
 
     private var modeBar: some View {
@@ -258,6 +269,8 @@ struct RightSidebarPanelView: View {
                 }
         case .feed:
             FeedPanelView()
+        case .dock:
+            DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
         }
     }
 

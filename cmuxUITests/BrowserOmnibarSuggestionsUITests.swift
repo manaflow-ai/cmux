@@ -284,7 +284,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         loadObserved = waitForCondition(timeout: 8.0) {
             ((omnibar.value as? String) ?? "").lowercased().contains("example.com")
         }
-        XCTAssertTrue(loadObserved, "Expected omnibar to reflect the navigated URL after load. value=\(omnibar.value)")
+        XCTAssertTrue(loadObserved, "Expected omnibar to reflect the navigated URL after load. value=\(String(describing: omnibar.value))")
 
         let valueAfterLoad = (omnibar.value as? String) ?? ""
         omnibar.typeText("zx")
