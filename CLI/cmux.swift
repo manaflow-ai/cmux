@@ -1728,6 +1728,117 @@ struct CMUXCLI {
 #endif
     }
 
+    private static let browserDisabledDefaultsKey = "browserDisabledOverride"
+    private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
+
+    private static func currentExecutableURL() -> URL? {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        guard size > 0 else {
+            return Bundle.main.executableURL?.standardizedFileURL
+        }
+
+        var buffer = Array<CChar>(repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buffer, &size) == 0 else {
+            return Bundle.main.executableURL?.standardizedFileURL
+        }
+        return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
+    }
+
+    private static func containingAppBundleIdentifier() -> String? {
+        guard let executableURL = currentExecutableURL() else { return nil }
+        var current = executableURL.deletingLastPathComponent().standardizedFileURL
+        while current.path != "/" {
+            if current.pathExtension == "app",
+               let bundle = Bundle(url: current),
+               let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
+                return bundleIdentifier
+            }
+
+            if current.lastPathComponent == "Contents" {
+                let appURL = current.deletingLastPathComponent().standardizedFileURL
+                if appURL.pathExtension == "app",
+                   let bundle = Bundle(url: appURL),
+                   let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
+                    return bundleIdentifier
+                }
+            }
+
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            guard parent.path != current.path else { break }
+            current = parent
+        }
+        return nil
+    }
+
+    private static func browserSettingsDomain(environment: [String: String]) -> String {
+        normalizedEnvValue(environment["CMUX_BUNDLE_ID"])
+        ?? containingAppBundleIdentifier()
+        ?? defaultBrowserSettingsDomain
+    }
+
+    private func runBrowserAvailabilityCommand(
+        command: String,
+        commandArgs: [String],
+        jsonOutput globalJSONOutput: Bool,
+        environment: [String: String]
+    ) throws {
+        var effectiveJSONOutput = globalJSONOutput
+        var args = commandArgs
+        if let jsonIndex = args.firstIndex(of: "--json") {
+            effectiveJSONOutput = true
+            args.remove(at: jsonIndex)
+        }
+
+        let action: String
+        if command == "browser" {
+            guard let first = args.first?.lowercased() else {
+                throw CLIError(message: "browser requires a subcommand")
+            }
+            action = first
+            args = Array(args.dropFirst())
+        } else {
+            action = command
+        }
+
+        guard args.isEmpty else {
+            throw CLIError(message: "Unexpected argument: \(args[0])")
+        }
+
+        let domain = Self.browserSettingsDomain(environment: environment)
+        let defaults = UserDefaults(suiteName: domain) ?? .standard
+
+        switch action {
+        case "disable", "disable-browser":
+            defaults.set(true, forKey: Self.browserDisabledDefaultsKey)
+            defaults.synchronize()
+        case "enable", "enable-browser":
+            defaults.set(false, forKey: Self.browserDisabledDefaultsKey)
+            defaults.synchronize()
+        case "status", "browser-status":
+            break
+        default:
+            throw CLIError(message: "Unknown browser availability command: \(action)")
+        }
+
+        let disabled = defaults.object(forKey: Self.browserDisabledDefaultsKey) == nil
+            ? false
+            : defaults.bool(forKey: Self.browserDisabledDefaultsKey)
+        let payload: [String: Any] = [
+            "enabled": !disabled,
+            "disabled": disabled,
+            "domain": domain,
+            "key": Self.browserDisabledDefaultsKey
+        ]
+        if effectiveJSONOutput {
+            print(jsonString(payload))
+        } else if action == "status" || action == "browser-status" {
+            print(disabled ? "disabled" : "enabled")
+        } else {
+            print(disabled ? "cmux browser disabled" : "cmux browser enabled")
+        }
+    }
+
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
         let envSocketPath: String? = {
@@ -2081,6 +2192,20 @@ struct CMUXCLI {
         // Unified hook setup for all agents
         if command == "setup-hooks" || command == "uninstall-hooks" {
             try runSetupHooks(uninstall: command == "uninstall-hooks")
+            return
+        }
+
+        let browserAvailabilityArgs = commandArgs.filter { $0 != "--json" }
+        if command == "disable-browser" ||
+            command == "enable-browser" ||
+            command == "browser-status" ||
+            (command == "browser" && ["disable", "enable", "status"].contains(browserAvailabilityArgs.first?.lowercased() ?? "")) {
+            try runBrowserAvailabilityCommand(
+                command: command,
+                commandArgs: commandArgs,
+                jsonOutput: jsonOutput,
+                environment: processEnv
+            )
             return
         }
 
@@ -8344,6 +8469,25 @@ struct CMUXCLI {
 
             Open the Settings window to Keyboard Shortcuts.
             """
+        case "disable-browser":
+            return """
+            Usage: cmux disable-browser [--json]
+
+            Disable cmux browser creation and link interception. This overrides
+            browser settings from settings.json until re-enabled.
+            """
+        case "enable-browser":
+            return """
+            Usage: cmux enable-browser [--json]
+
+            Re-enable cmux browser creation and link interception.
+            """
+        case "browser-status":
+            return """
+            Usage: cmux browser-status [--json]
+
+            Print whether cmux browser creation and link interception are enabled.
+            """
         case "restore-session":
             return """
             Usage: cmux restore-session
@@ -9556,6 +9700,7 @@ struct CMUXCLI {
             Subcommands:
               open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>]
                 open/open-split/new default to $CMUX_WORKSPACE_ID when --workspace is omitted and --window is not set
+              disable | enable | status
               goto|navigate <url> [--snapshot-after]
               back|forward|reload [--snapshot-after]
               url|get-url
@@ -17826,6 +17971,7 @@ export default CMUXSessionRestore;
         Commands:
           welcome
           shortcuts
+          disable-browser | enable-browser | browser-status
           restore-session
           feedback [--email <email> --body <text> [--image <path> ...]]
           themes [list|set|clear]
@@ -17915,6 +18061,7 @@ export default CMUXSessionRestore;
           markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
+          browser disable | enable | status
           browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)
           browser open-split [url]
           browser goto|navigate <url> [--snapshot-after]

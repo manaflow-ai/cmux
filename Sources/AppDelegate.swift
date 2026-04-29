@@ -11019,6 +11019,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func openBrowserAndFocusAddressBar(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
+        guard BrowserAvailabilitySettings.isEnabled() else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.openAndFocus result=blocked_browser_disabled " +
+                "insertAtEnd=\(insertAtEnd ? 1 : 0) url=\(redactedDebugURL(url))"
+            )
+#endif
+            return nil
+        }
+
         let preferredProfileID =
             tabManager?.focusedBrowserPanel?.profileID
             ?? tabManager?.selectedWorkspace?.preferredBrowserProfileID
@@ -11511,6 +11521,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled() else {
+#if DEBUG
+            cmuxDebugLog("split.browser.shortcut blocked reason=browser_disabled")
+#endif
+            return false
+        }
+
         _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
 
         #if DEBUG

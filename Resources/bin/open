@@ -61,6 +61,17 @@ is_false_setting() {
     return 1
 }
 
+is_true_setting() {
+    local normalized
+    normalized="$(normalize_boolean "$1")"
+    case "$normalized" in
+        1|true|yes|on)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 canonicalize_idn_host() {
     local value="$1"
     [[ -z "$PYTHON3_BIN" ]] && {
@@ -424,6 +435,11 @@ fi
 
 # Respect the same settings used for terminal link clicks.
 if [[ -n "$settings_domain" ]]; then
+    browser_disabled="$("$DEFAULTS_BIN" read "$settings_domain" browserDisabledOverride 2>/dev/null || true)"
+    if is_true_setting "$browser_disabled"; then
+        system_open "$@"
+    fi
+
     open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserInterceptTerminalOpenCommandInCmuxBrowser 2>/dev/null || true)"
     if [[ -z "$open_in_cmux" ]]; then
         # Backward compatibility for installs that predate the dedicated open-wrapper toggle.

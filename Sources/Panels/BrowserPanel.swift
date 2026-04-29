@@ -553,6 +553,7 @@ enum BrowserLinkOpenSettings {
     static let defaultBrowserExternalOpenPatterns: String = ""
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
@@ -560,6 +561,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func openSidebarPullRequestLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: openSidebarPullRequestLinksInCmuxBrowserKey) == nil {
             return defaultOpenSidebarPullRequestLinksInCmuxBrowser
         }
@@ -567,6 +569,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func openSidebarPortLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: openSidebarPortLinksInCmuxBrowserKey) == nil {
             return defaultOpenSidebarPortLinksInCmuxBrowser
         }
@@ -574,6 +577,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func interceptTerminalOpenCommandInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: interceptTerminalOpenCommandInCmuxBrowserKey) != nil {
             return defaults.bool(forKey: interceptTerminalOpenCommandInCmuxBrowserKey)
         }
@@ -611,6 +615,7 @@ enum BrowserLinkOpenSettings {
     }
 
     static func shouldOpenExternally(_ rawURL: String, defaults: UserDefaults = .standard) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
         let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return false }
 
@@ -680,6 +685,30 @@ enum BrowserLinkOpenSettings {
         }
 
         return (isRegex: false, value: trimmed)
+    }
+}
+
+enum BrowserAvailabilitySettings {
+    static let disabledKey = "browserDisabledOverride"
+    static let didChangeNotification = Notification.Name("cmux.browserAvailabilityDidChange")
+    static let defaultDisabled = false
+
+    static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.synchronize()
+        if defaults.object(forKey: disabledKey) == nil {
+            return defaultDisabled
+        }
+        return defaults.bool(forKey: disabledKey)
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        !isDisabled(defaults: defaults)
+    }
+
+    static func setDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(disabled, forKey: disabledKey)
+        defaults.synchronize()
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }
 
@@ -4283,6 +4312,13 @@ extension BrowserPanel {
             "bypass=\(seed.bypassInsecureHTTPHostOnce ?? "nil")"
         )
 #endif
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            _ = NSWorkspace.shared.open(seed.url)
+#if DEBUG
+            cmuxDebugLog("browser.newTab.open.external panel=\(id.uuidString.prefix(5)) reason=browser_disabled")
+#endif
+            return
+        }
         guard let app = AppDelegate.shared else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingAppDelegate")

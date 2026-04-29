@@ -5301,6 +5301,7 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserAvailabilitySettings.disabledKey) private var browserDisabled = BrowserAvailabilitySettings.defaultDisabled
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
@@ -5516,6 +5517,39 @@ struct SettingsView: View {
                 browserThemeMode = BrowserThemeSettings.mode(for: newValue).rawValue
             }
         )
+    }
+
+    private var browserEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { !browserDisabled },
+            set: { newValue in
+                BrowserAvailabilitySettings.setDisabled(!newValue)
+                browserDisabled = !newValue
+            }
+        )
+    }
+
+    private var browserEnabledSubtitle: String {
+        if browserDisabled {
+            return String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
+        }
+        return String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
+    }
+
+    @ViewBuilder
+    private var browserEnabledSettingsRows: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
+            subtitle: browserEnabledSubtitle
+        ) {
+            Toggle("", isOn: browserEnabledBinding)
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("BrowserEnabledToggle")
+        }
+
+        SettingsCardDivider()
     }
 
     private var browserImportHintVariant: BrowserImportHintVariant {
@@ -6893,6 +6927,8 @@ struct SettingsView: View {
                         .id(SettingsNavigationTarget.browser)
                         .accessibilityIdentifier("SettingsBrowserSection")
                     SettingsCard {
+                        browserEnabledSettingsRows
+
                         SettingsPickerRow(
                             configurationReview: .json("browser.defaultSearchEngine"),
                             String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"),
@@ -7463,6 +7499,8 @@ struct SettingsView: View {
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+        BrowserAvailabilitySettings.setDisabled(BrowserAvailabilitySettings.defaultDisabled)
+        browserDisabled = BrowserAvailabilitySettings.defaultDisabled
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed

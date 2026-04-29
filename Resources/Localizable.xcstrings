@@ -19681,6 +19681,40 @@
         }
       }
     },
+    "command.browserAvailability.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        }
+      }
+    },
+    "command.disableBrowser.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable cmux Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxブラウザを無効にする"
+          }
+        }
+      }
+    },
     "command.disableMinimalMode.title": {
       "extractionState": "manual",
       "localizations": {
@@ -19706,6 +19740,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "미니멀 모드 비활성화"
+          }
+        }
+      }
+    },
+    "command.enableBrowser.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable cmux Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxブラウザを有効にする"
           }
         }
       }
@@ -63020,6 +63071,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Зберегти"
+          }
+        }
+      }
+    },
+    "settings.browser.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable cmux Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxブラウザを有効にする"
+          }
+        }
+      }
+    },
+    "settings.browser.enabled.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser tabs and link interception are disabled. Links open in your default browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザタブとリンクのインターセプトは無効です。リンクはデフォルトブラウザで開きます。"
+          }
+        }
+      }
+    },
+    "settings.browser.enabled.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザタブ、ターミナルのリンククリック、インターセプトされたopenコマンドで内蔵ブラウザを使用できます。"
           }
         }
       }
