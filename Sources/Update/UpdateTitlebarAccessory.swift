@@ -774,8 +774,9 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(point) else { return nil }
+            guard NSEvent.pressedMouseButtons == 0 else { return nil }
             switch NSApp.currentEvent?.type {
-            case .mouseMoved, .mouseEntered, .mouseExited:
+            case .none, .mouseMoved, .mouseEntered, .mouseExited:
                 return self
             default:
                 return nil
