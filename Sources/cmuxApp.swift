@@ -4916,6 +4916,18 @@ enum GeminiIntegrationSettings {
     }
 }
 
+enum AmpIntegrationSettings {
+    static let hooksEnabledKey = "ampHooksEnabled"
+    static let defaultHooksEnabled = true
+
+    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hooksEnabledKey) == nil {
+            return defaultHooksEnabled
+        }
+        return defaults.bool(forKey: hooksEnabledKey)
+    }
+}
+
 enum WelcomeSettings {
     static let shownKey = "cmuxWelcomeShown"
 }
@@ -5193,6 +5205,8 @@ struct SettingsView: View {
     private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
     @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
     private var geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
+    @AppStorage(AmpIntegrationSettings.hooksEnabledKey)
+    private var ampHooksEnabled = AmpIntegrationSettings.defaultHooksEnabled
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
@@ -5806,6 +5820,28 @@ struct SettingsView: View {
         } catch {
             socketPasswordStatusMessage = String(localized: "settings.automation.socketPassword.clearFailed", defaultValue: "Failed to clear password (\(error.localizedDescription)).")
             socketPasswordStatusIsError = true
+        }
+    }
+
+    @ViewBuilder
+    private var ampIntegrationCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.automation.amp", defaultValue: "Amp Integration"),
+                subtitle: ampHooksEnabled
+                    ? String(localized: "settings.automation.amp.subtitleOn", defaultValue: "Sidebar shows Amp agent status and notifications.")
+                    : String(localized: "settings.automation.amp.subtitleOff", defaultValue: "Amp runs without cmux integration.")
+            ) {
+                Toggle("", isOn: $ampHooksEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAmpHooksToggle")
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardNote(String(localized: "settings.automation.amp.note", defaultValue: "When enabled, cmux wraps the amp command to install a status plugin and enable agent tracking. Disable if you prefer to manage Amp plugins yourself."))
         }
     }
 
@@ -6652,6 +6688,8 @@ struct SettingsView: View {
                         SettingsCardNote(String(localized: "settings.automation.gemini.note", defaultValue: "Hooks must be installed with `cmux gemini install-hooks`. They no-op outside cmux terminals."))
                     }
 
+                    ampIntegrationCard
+
                     SettingsCard {
                         SettingsCardRow(configurationReview: .json("automation.portBase"), String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
                             TextField("", value: $cmuxPortBase, format: .number)
@@ -7389,6 +7427,7 @@ struct SettingsView: View {
         customClaudePath = ""
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
+        ampHooksEnabled = AmpIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue

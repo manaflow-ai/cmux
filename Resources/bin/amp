@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# cmux amp wrapper - injects plugin and session tracking
+#
+# When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
+# intercepts `amp` invocations to auto-install the cmux-status plugin and
+# export env vars so the plugin can communicate back to cmux.
+# Outside cmux, it passes through to the real amp binary unchanged.
+
+# Find the real amp binary, skipping our own directory.
+find_real_amp() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        [[ -x "$d/amp" ]] && printf '%s' "$d/amp" && return 0
+    done
+    return 1
+}
+
+# Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local self_dir cmux_bin
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    cmux_bin="$self_dir/cmux"
+    [[ -x "$cmux_bin" ]] || cmux_bin="$(command -v cmux || true)"
+    [[ -n "$cmux_bin" ]] || return 1
+
+    # Keep stale/hung socket checks bounded so amp startup does not block
+    # behind the CLI default timeout (15s).
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+}
+
+# Pass through if not in a cmux terminal, hooks are disabled, or the cmux
+# socket is unavailable (stale env / app not running).
+IN_CMUX=0
+if [[ -n "$CMUX_SURFACE_ID" ]]; then
+    IN_CMUX=1
+fi
+
+if [[ "$IN_CMUX" == "0" || "$CMUX_AMP_HOOKS_DISABLED" == "1" ]] || ! cmux_socket_available; then
+    REAL_AMP="$(find_real_amp)" || { echo "Error: amp not found in PATH" >&2; exit 127; }
+    exec "$REAL_AMP" "$@"
+fi
+
+# Find real amp.
+REAL_AMP="$(find_real_amp)" || { echo "Error: amp not found in PATH" >&2; exit 127; }
+
+# Auto-install the bundled cmux-status plugin if the source is newer or
+# the destination doesn't exist.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_SRC="$SCRIPT_DIR/../amp-plugins/cmux-status.ts"
+PLUGIN_DST="$HOME/.config/amp/plugins/cmux-status.ts"
+
+if [[ -f "$PLUGIN_SRC" ]]; then
+    mkdir -p "$(dirname "$PLUGIN_DST")"
+    if [[ ! -f "$PLUGIN_DST" ]] || ! cmp -s "$PLUGIN_SRC" "$PLUGIN_DST"; then
+        cp "$PLUGIN_SRC" "$PLUGIN_DST"
+    fi
+fi
+
+# Export the wrapper's PID. Because we exec amp below, this PID becomes
+# the actual amp process PID, which the plugin uses for stale-session detection.
+export CMUX_AMP_PID=$$
+
+# Enable Amp's plugin system.
+export PLUGINS=all
+
+exec "$REAL_AMP" "$@"
