@@ -393,12 +393,15 @@ final class BonsplitTabDragUITests: XCTestCase {
                 y: window.frame.minY + 18
             )
         )
-        click(
-            atAccessibilityPoint: CGPoint(
-                x: window.frame.minX + 122,
-                y: window.frame.minY + 16
-            )
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
+                    notificationsButton.exists && notificationsButton.isHittable &&
+                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
+            },
+            "Expected minimal-mode sidebar controls to become hittable after hovering the sidebar chrome."
         )
+        notificationsButton.click()
         XCTAssertTrue(
             app.buttons["notificationsPopover.jumpToLatest"].waitForExistence(timeout: 6.0)
                 || app.staticTexts["No notifications yet"].waitForExistence(timeout: 6.0),
