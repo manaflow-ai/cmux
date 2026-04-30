@@ -401,14 +401,14 @@ enum FilePreviewKindResolver {
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: 4096)) ?? Data()
         guard !data.isEmpty else { return true }
-        if data.contains(0) {
-            return false
-        }
         if String(data: data, encoding: .utf8) != nil {
             return true
         }
         if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
             return true
+        }
+        if data.contains(0) {
+            return false
         }
         return false
     }
@@ -422,6 +422,8 @@ enum FilePreviewKindResolver {
 }
 
 enum FilePreviewTextLoader {
+    static let maximumLoadedTextBytes: UInt64 = 16 * 1024 * 1024
+
     enum Result: Sendable {
         case loaded(content: String, encoding: String.Encoding)
         case unavailable
@@ -435,6 +437,11 @@ enum FilePreviewTextLoader {
 
     static func loadSynchronously(url: URL) -> Result {
         guard FileManager.default.fileExists(atPath: url.path) else {
+            return .unavailable
+        }
+        guard let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              fileSize >= 0,
+              UInt64(fileSize) <= maximumLoadedTextBytes else {
             return .unavailable
         }
 
@@ -1000,6 +1007,7 @@ final class SavingTextView: NSTextView {
 
     weak var panel: FilePreviewPanel?
     private var previewFontSize: CGFloat = 13
+    private var pendingSaveShortcutChordPrefix: ShortcutStroke?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -1010,7 +1018,7 @@ final class SavingTextView: NSTextView {
         guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
-        if KeyboardShortcutSettings.shortcut(for: .saveFilePreview).matches(event: event) {
+        if matchesSaveShortcut(event) {
             panel?.saveTextContent()
             return true
         }
@@ -1050,6 +1058,29 @@ final class SavingTextView: NSTextView {
         let nextFont = NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
         font = nextFont
         typingAttributes[.font] = nextFont
+    }
+
+    private func matchesSaveShortcut(_ event: NSEvent) -> Bool {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
+        guard shortcut.hasChord else {
+            pendingSaveShortcutChordPrefix = nil
+            return shortcut.matches(event: event)
+        }
+
+        if let pendingPrefix = pendingSaveShortcutChordPrefix {
+            pendingSaveShortcutChordPrefix = nil
+            guard pendingPrefix == shortcut.firstStroke,
+                  let secondStroke = shortcut.secondStroke else {
+                return false
+            }
+            return secondStroke.matches(event: event)
+        }
+
+        if shortcut.firstStroke.matches(event: event) {
+            pendingSaveShortcutChordPrefix = shortcut.firstStroke
+            return true
+        }
+        return false
     }
 }
 

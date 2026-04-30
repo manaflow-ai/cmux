@@ -344,6 +344,15 @@ final class FileSearchControllerTests: XCTestCase {
             atomically: true,
             encoding: .utf8
         )
+        for generatedDirectoryName in ["node_modules", "dist", "build", "DerivedData"] {
+            let generatedURL = rootURL.appendingPathComponent(generatedDirectoryName, isDirectory: true)
+            try FileManager.default.createDirectory(at: generatedURL, withIntermediateDirectories: true)
+            try "generated needle\n".write(
+                to: generatedURL.appendingPathComponent("generated.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
 
         let controller = FileSearchController()
         var snapshots: [FileSearchSnapshot] = []
@@ -356,6 +365,10 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertTrue(finalSnapshot.results.contains { $0.relativePath == "visible.txt" })
         XCTAssertTrue(finalSnapshot.results.contains { $0.relativePath == ".env" })
         XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix(".git/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("node_modules/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("dist/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("build/") })
+        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("DerivedData/") })
     }
 
     func testSearchRefreshesWhenContentRevisionChanges() async throws {

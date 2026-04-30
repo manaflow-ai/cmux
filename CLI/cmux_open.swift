@@ -1,6 +1,16 @@
 import Foundation
 
 extension CMUXCLI {
+    private struct OpenArguments {
+        var workspace: String?
+        var window: String?
+        var surface: String?
+        var pane: String?
+        var focus: String?
+        var noFocus = false
+        var targets: [String] = []
+    }
+
     private enum OpenTarget {
         case directory(String)
         case file(String)
@@ -14,24 +24,16 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
-        let (windowOpt, rem1) = parseOption(rem0, name: "--window")
-        let (surfaceOpt, rem2) = parseOption(rem1, name: "--surface")
-        let (paneOpt, rem3) = parseOption(rem2, name: "--pane")
-        let (focusOpt, rem4) = parseOption(rem3, name: "--focus")
-        let remaining = rem4.filter { $0 != "--" && $0 != "--no-focus" }
+        let parsedArgs = try parseOpenArguments(commandArgs)
 
-        if let unknownFlag = remaining.first(where: { $0.hasPrefix("-") }) {
-            throw CLIError(message: "open: unknown flag '\(unknownFlag)'. Usage: cmux open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]")
-        }
-        guard !remaining.isEmpty else {
+        guard !parsedArgs.targets.isEmpty else {
             throw CLIError(message: "open requires at least one path or URL. Usage: cmux open <path-or-url>...")
         }
 
         let focus: Bool
-        if hasFlag(commandArgs, name: "--no-focus") {
+        if parsedArgs.noFocus {
             focus = false
-        } else if let focusOpt {
+        } else if let focusOpt = parsedArgs.focus {
             guard let parsed = parseBoolString(focusOpt) else {
                 throw CLIError(message: "--focus must be true|false")
             }
@@ -40,19 +42,10 @@ extension CMUXCLI {
             focus = true
         }
 
-        let targets = try remaining.map(resolveOpenTarget)
-        let directories = targets.compactMap { target -> String? in
-            guard case .directory(let path) = target else { return nil }
-            return path
-        }
-        let files = targets.compactMap { target -> String? in
-            guard case .file(let path) = target else { return nil }
-            return path
-        }
-        let urls = targets.compactMap { target -> String? in
-            guard case .url(let url) = target else { return nil }
-            return url
-        }
+        let targets = try parsedArgs.targets.map(resolveOpenTarget)
+        var fileCount = 0
+        var urlCount = 0
+        var directoryCount = 0
 
         let client = try connectClient(
             socketPath: socketPath,
@@ -61,22 +54,21 @@ extension CMUXCLI {
         )
         defer { client.close() }
 
-        let windowHandle = try normalizeWindowHandle(windowOpt, client: client)
-        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        let windowHandle = try normalizeWindowHandle(parsedArgs.window, client: client)
+        let workspaceRaw = parsedArgs.workspace ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
-        let surfaceRaw = surfaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+        let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
         let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
-        let paneHandle = try normalizePaneHandle(paneOpt, client: client, workspaceHandle: workspaceHandle)
+        let paneHandle = try normalizePaneHandle(parsedArgs.pane, client: client, workspaceHandle: workspaceHandle)
 
         var payloads: [[String: Any]] = []
-        for directory in directories {
-            var params: [String: Any] = ["cwd": directory]
-            if let windowHandle { params["window_id"] = windowHandle }
-            let payload = try client.sendV2(method: "workspace.create", params: params)
-            payloads.append(["kind": "workspace", "payload": payload, "path": directory])
-        }
 
-        if !files.isEmpty {
+        var pendingFiles: [String] = []
+        func flushPendingFiles() throws {
+            guard !pendingFiles.isEmpty else { return }
+            let files = pendingFiles
+            pendingFiles.removeAll()
+
             var params: [String: Any] = ["paths": files, "focus": focus]
             if let windowHandle { params["window_id"] = windowHandle }
             if let workspaceHandle { params["workspace_id"] = workspaceHandle }
@@ -84,16 +76,32 @@ extension CMUXCLI {
             if let paneHandle { params["pane_id"] = paneHandle }
             let payload = try client.sendV2(method: "file.open", params: params)
             payloads.append(["kind": "file", "payload": payload])
+            fileCount += files.count
         }
 
-        for url in urls {
-            var params: [String: Any] = ["url": url, "focus": focus]
-            if let windowHandle { params["window_id"] = windowHandle }
-            if let workspaceHandle { params["workspace_id"] = workspaceHandle }
-            if let surfaceHandle { params["surface_id"] = surfaceHandle }
-            let payload = try client.sendV2(method: "browser.open_split", params: params)
-            payloads.append(["kind": "url", "payload": payload, "url": url])
+        for target in targets {
+            switch target {
+            case .file(let path):
+                pendingFiles.append(path)
+            case .directory(let directory):
+                try flushPendingFiles()
+                var params: [String: Any] = ["cwd": directory]
+                if let windowHandle { params["window_id"] = windowHandle }
+                let payload = try client.sendV2(method: "workspace.create", params: params)
+                payloads.append(["kind": "workspace", "payload": payload, "path": directory])
+                directoryCount += 1
+            case .url(let url):
+                try flushPendingFiles()
+                var params: [String: Any] = ["url": url, "focus": focus]
+                if let windowHandle { params["window_id"] = windowHandle }
+                if let workspaceHandle { params["workspace_id"] = workspaceHandle }
+                if let surfaceHandle { params["surface_id"] = surfaceHandle }
+                let payload = try client.sendV2(method: "browser.open_split", params: params)
+                payloads.append(["kind": "url", "payload": payload, "url": url])
+                urlCount += 1
+            }
         }
+        try flushPendingFiles()
 
         if jsonOutput {
             print(jsonString(formatIDs(["opened": payloads], mode: idFormat)))
@@ -102,11 +110,90 @@ extension CMUXCLI {
 
         print(openCommandSummary(
             payloads: payloads,
-            fileCount: files.count,
-            urlCount: urls.count,
-            directoryCount: directories.count,
+            fileCount: fileCount,
+            urlCount: urlCount,
+            directoryCount: directoryCount,
             idFormat: idFormat
         ))
+    }
+
+    private func parseOpenArguments(_ commandArgs: [String]) throws -> OpenArguments {
+        var parsed = OpenArguments()
+        var index = 0
+        var isParsingOptions = true
+
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if isParsingOptions, arg == "--" {
+                isParsingOptions = false
+                index += 1
+                continue
+            }
+
+            if isParsingOptions {
+                switch arg {
+                case "--workspace":
+                    parsed.workspace = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--window":
+                    parsed.window = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--surface":
+                    parsed.surface = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--pane":
+                    parsed.pane = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--focus":
+                    parsed.focus = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--no-focus":
+                    parsed.noFocus = true
+                    index += 1
+                    continue
+                default:
+                    if arg.hasPrefix("-") {
+                        throw CLIError(message: "open: unknown flag '\(arg)'. Usage: cmux open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]")
+                    }
+                }
+            }
+
+            parsed.targets.append(arg)
+            index += 1
+        }
+
+        return parsed
+    }
+
+    private func openOptionValue(_ args: [String], index: Int, name: String) throws -> String {
+        guard index + 1 < args.count else {
+            throw CLIError(message: "\(name) requires a value")
+        }
+        return args[index + 1]
+    }
+
+    private func resolveOpenTarget(_ raw: String) throws -> OpenTarget {
+        if let url = URL(string: raw),
+           let scheme = url.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            return .url(url.absoluteString)
+        }
+
+        let resolved = resolvePath(raw)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir) else {
+            throw CLIError(message: "Path does not exist: \(resolved)")
+        }
+
+        if isDir.boolValue {
+            return .directory(resolved)
+        }
+        return .file(resolved)
     }
 
     func openSubcommandUsage() -> String {
@@ -131,25 +218,6 @@ extension CMUXCLI {
           cmux open ~/Downloads/movie.mov --pane pane:1
           cmux open https://example.com
         """
-    }
-
-    private func resolveOpenTarget(_ raw: String) throws -> OpenTarget {
-        if let url = URL(string: raw),
-           let scheme = url.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
-            return .url(url.absoluteString)
-        }
-
-        let resolved = resolvePath(raw)
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir) else {
-            throw CLIError(message: "Path does not exist: \(resolved)")
-        }
-
-        if isDir.boolValue {
-            return .directory(resolved)
-        }
-        return .file(resolved)
     }
 
     private func openCommandSummary(

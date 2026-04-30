@@ -83,6 +83,18 @@ final class FileSearchController {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
 
     private let maxResults = 500
+    private let excludedSearchGlobs = [
+        "!.git/**",
+        "!**/.git/**",
+        "!node_modules/**",
+        "!**/node_modules/**",
+        "!dist/**",
+        "!**/dist/**",
+        "!build/**",
+        "!**/build/**",
+        "!DerivedData/**",
+        "!**/DerivedData/**",
+    ]
     private var process: Process?
     private var stdoutBuffer = Data()
     private var stderrBuffer = Data()
@@ -144,8 +156,7 @@ final class FileSearchController {
             "--max-columns-preview",
             "--color", "never",
             "--hidden",
-            "--glob", "!.git",
-            "--glob", "!.git/**",
+        ] + excludedSearchGlobs.flatMap { ["--glob", $0] } + [
             "--",
             query,
             rootPath,
