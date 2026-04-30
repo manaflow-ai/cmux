@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "feed-tui": "bun Resources/feed-tui/index.ts"
+    "feed-tui": "bun Resources/feed-tui/index.ts",
+    "remote-web:build": "bash scripts/build-remote-web.sh"
   },
   "dependencies": {
     "@opentui/core": "^0.1.106",

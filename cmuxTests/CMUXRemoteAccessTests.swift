@@ -453,8 +453,8 @@ final class CMUXRemoteAccessTests: XCTestCase {
         let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: probe.handler)
 
         let routes: [(uri: String, contentType: String)] = [
-            ("/remote/app.js", "application/javascript"),
-            ("/remote/styles.css", "text/css"),
+            ("/remote/assets/app.js", "application/javascript"),
+            ("/remote/assets/style.css", "text/css"),
             ("/remote/manifest.webmanifest", "application/manifest+json"),
             ("/remote/icon.svg", "image/svg+xml"),
             ("/remote/icon-maskable.svg", "image/svg+xml"),

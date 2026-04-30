@@ -781,13 +781,21 @@ final class CMUXRemoteServer: ObservableObject {
             let stream = await eventHub.subscribe()
             return Self.eventStreamResponse(stream: stream)
         }
-        for path in ["/", "/remote", "/remote/app.js", "/remote/strings.json", "/remote/styles.css", "/remote/manifest.webmanifest", "/remote/icon.svg", "/remote/maskable-icon.svg", "/remote/icon-maskable.svg"] {
+        for path in ["/", "/remote", "/remote/strings.json", "/remote/manifest.webmanifest", "/remote/icon.svg", "/remote/maskable-icon.svg", "/remote/icon-maskable.svg"] {
             router.get(RouterPath(path)) { _, _ -> Response in
                 guard let asset = CMUXRemoteWebClient.asset(path: path) else {
                     return Self.response(statusCode: 404, body: #"{"ok":false,"error":{"code":"not_found","message":"Asset not found."}}"#)
                 }
                 return Self.staticResponse(asset: asset)
             }
+        }
+        router.get("remote/assets/**") { _, context -> Response in
+            let relativePath = context.parameters.getCatchAll().map(String.init).joined(separator: "/")
+            guard !relativePath.isEmpty,
+                  let asset = CMUXRemoteWebClient.asset(path: "/remote/assets/\(relativePath)") else {
+                return Self.response(statusCode: 404, body: #"{"ok":false,"error":{"code":"not_found","message":"Asset not found."}}"#)
+            }
+            return Self.staticResponse(asset: asset)
         }
         return Application(
             router: router,
@@ -836,7 +844,7 @@ final class CMUXRemoteServer: ObservableObject {
         headers[.contentType] = asset.contentType
         headers[.contentLength] = buffer.readableBytes.description
         headers[.cacheControl] = "no-store"
-        headers[.contentSecurityPolicy] = "default-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        headers[.contentSecurityPolicy] = "default-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         headers[.xContentTypeOptions] = "nosniff"
         return Response(
             status: .ok,

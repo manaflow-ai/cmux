@@ -104,6 +104,7 @@
 		A50012B2 /* CMUXRemoteWebClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012B3 /* CMUXRemoteWebClient.swift */; };
 		A50012C0 /* CMUXRemoteAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012C1 /* CMUXRemoteAccessTests.swift */; };
 		A50012D0 /* HummingbirdTesting in Frameworks */ = {isa = PBXBuildFile; productRef = A50012D1 /* HummingbirdTesting */; };
+		A50012E1 /* RemoteWeb in Resources */ = {isa = PBXBuildFile; fileRef = A50012E0 /* RemoteWeb */; };
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
 		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
@@ -505,6 +506,7 @@
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		A50012E0 /* RemoteWeb */ = {isa = PBXFileReference; lastKnownFileType = folder; path = RemoteWeb; sourceTree = "<group>"; };
 		E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
 		E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDescriptionUITests.swift; sourceTree = "<group>"; };
 		EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWidthPolicyTests.swift; sourceTree = "<group>"; };
@@ -589,6 +591,7 @@
 				B2E7294509CC42FE9191870E /* xterm-ghostty */,
 				A5002001 /* THIRD_PARTY_LICENSES.md */,
 				C1ADE00001A1B2C3D4E5F719 /* claude */,
+				A50012E0 /* RemoteWeb */,
 				DA7A10CA710E000000000001 /* Localizable.xcstrings */,
 				DA7A10CA710E000000000002 /* InfoPlist.xcstrings */,
 				FEED0000000000000000F006 /* opencode-plugin.js */,
@@ -1069,6 +1072,7 @@
 				A5001100 /* Assets.xcassets in Resources */,
 				84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */,
 				A5002000 /* THIRD_PARTY_LICENSES.md in Resources */,
+				A50012E1 /* RemoteWeb in Resources */,
 				DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */,
 				DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */,
 				FEED0000000000000000F007 /* opencode-plugin.js in Resources */,
