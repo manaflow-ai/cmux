@@ -5081,8 +5081,10 @@ extension BrowserPanel {
     }
 
     func hideFind() {
+        let shouldRestoreWebViewFocus = searchState != nil && preferredFocusIntent == .findField
         invalidateSearchFocusRequests(reason: "hideFind")
         searchState = nil
+        if shouldRestoreWebViewFocus { focus() }
     }
 
     private func restoreFindStateAfterNavigation(replaySearch: Bool) {

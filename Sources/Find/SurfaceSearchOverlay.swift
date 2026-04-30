@@ -31,7 +31,6 @@ struct SurfaceSearchOverlay: View {
     let surfaceId: UUID
     @ObservedObject var searchState: TerminalSurface.SearchState
     let canApplyFocusRequest: () -> Bool
-    let onMoveFocusToTerminal: () -> Void
     let onNavigateSearch: (_ action: String) -> Void
     let onFieldDidFocus: () -> Void
     let onClose: () -> Void
@@ -55,11 +54,7 @@ struct SurfaceSearchOverlay: View {
                         #if DEBUG
                         cmuxDebugLog("find.nativeField.escape surface=\(surfaceId.uuidString.prefix(5)) needleEmpty=\(searchState.needle.isEmpty)")
                         #endif
-                        if searchState.needle.isEmpty {
-                            onClose()
-                        } else {
-                            onMoveFocusToTerminal()
-                        }
+                        onClose()
                     },
                     onReturn: { isShift in
                         let action = isShift

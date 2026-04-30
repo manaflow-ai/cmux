@@ -10465,10 +10465,6 @@ final class GhosttySurfaceScrollView: NSView {
             canApplyFocusRequest: { [weak self] in
                 self?.canApplyMountedSearchFieldFocusRequest() ?? false
             },
-            onMoveFocusToTerminal: { [weak self] in
-                self?.searchFocusTarget = .terminal
-                self?.moveFocus()
-            },
             onNavigateSearch: { [weak terminalSurface] action in
                 _ = terminalSurface?.performBindingAction(action)
             },
