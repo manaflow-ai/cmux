@@ -18,27 +18,21 @@ struct CLIError: Error, CustomStringConvertible {
 }
 
 private enum CLISocketEnvironment {
-    private static let socketPathKey = "CMUX_SOCKET_PATH"
-    private static let legacySocketKey = "CMUX_SOCKET"
-
     static func socketPath(in environment: [String: String]) throws -> String? {
-        let socketPath = normalized(environment[socketPathKey])
-        let legacySocketPath = normalized(environment[legacySocketKey])
+        let socketPath = normalized(environment["CMUX_SOCKET_PATH"])
+        let legacySocketPath = normalized(environment["CMUX_SOCKET"])
         if let socketPath, let legacySocketPath, socketPath != legacySocketPath {
-            throw CLIError(
-                message: "Refusing to choose socket: CMUX_SOCKET_PATH and CMUX_SOCKET differ. Use CMUX_SOCKET_PATH or unset CMUX_SOCKET."
-            )
+            throw CLIError(message: "Refusing to choose socket: CMUX_SOCKET_PATH and CMUX_SOCKET differ. Use CMUX_SOCKET_PATH or unset CMUX_SOCKET.")
         }
         return socketPath ?? legacySocketPath
     }
 
     static func socketPathForTelemetry(in environment: [String: String]) -> String? {
-        normalized(environment[socketPathKey]) ?? normalized(environment[legacySocketKey])
+        normalized(environment["CMUX_SOCKET_PATH"]) ?? normalized(environment["CMUX_SOCKET"])
     }
 
     private static func normalized(_ raw: String?) -> String? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
 }
