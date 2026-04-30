@@ -263,8 +263,12 @@ class FindSelectionTrackingTextField: NSTextField {
                   let editor = self.currentEditor() as? NSTextView,
                   self.window?.firstResponder === editor else { return event }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock])
-            guard flags.isEmpty, event.keyCode == 53, !editor.hasMarkedText(), self.cmuxOnEscape?(editor) == true else { return event }
-            return nil
+            if flags.isEmpty, event.keyCode == 53, !editor.hasMarkedText(), self.cmuxOnEscape?(editor) == true { return nil }
+            DispatchQueue.main.async { [weak self, weak editor] in
+                guard let self, let editor else { return }
+                _ = self.cmuxRememberSelection(from: editor)
+            }
+            return event
         }
     }
 
@@ -276,12 +280,16 @@ class FindSelectionTrackingTextField: NSTextField {
     }
 
     private func cmuxRestoreRememberedSelection() {
-        guard let cmuxLastSelectedRange else { return }
+        guard let rememberedSelection = cmuxLastSelectedRange ?? cmuxStoredFindSelection(for: cmuxSelectionOwner) else { return }
+        if let editor = currentEditor() as? NSTextView, !editor.hasMarkedText() {
+            let selection = cmuxRememberSelection(rememberedSelection, in: editor.string)
+            editor.setSelectedRange(selection)
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   let editor = self.currentEditor() as? NSTextView,
                   !editor.hasMarkedText() else { return }
-            let selection = self.cmuxRememberSelection(cmuxLastSelectedRange, in: editor.string)
+            let selection = self.cmuxRememberSelection(rememberedSelection, in: editor.string)
             editor.setSelectedRange(selection)
         }
     }
