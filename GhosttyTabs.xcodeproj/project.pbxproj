@@ -245,6 +245,7 @@
 		FE001103 /* FileExplorerSearchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001003 /* FileExplorerSearchController.swift */; };
 		FE002101 /* FileExplorerRootResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002001 /* FileExplorerRootResolverTests.swift */; };
 		FE002102 /* FileExplorerStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002002 /* FileExplorerStoreTests.swift */; };
+		FE002103 /* FileSearchRipgrepParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002003 /* FileSearchRipgrepParserTests.swift */; };
 		D7AB0000000000000000000F /* AppDelegateMoveTabToNewWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000010 /* AppDelegateMoveTabToNewWorkspaceTests.swift */; };
 		FE003101 /* SessionIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003001 /* SessionIndexStore.swift */; };
 		FE003102 /* SessionIndexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003002 /* SessionIndexView.swift */; };
@@ -555,6 +556,7 @@
 		FE001003 /* FileExplorerSearchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSearchController.swift; sourceTree = "<group>"; };
 		FE002001 /* FileExplorerRootResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootResolverTests.swift; sourceTree = "<group>"; };
 		FE002002 /* FileExplorerStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStoreTests.swift; sourceTree = "<group>"; };
+		FE002003 /* FileSearchRipgrepParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchRipgrepParserTests.swift; sourceTree = "<group>"; };
 		FE003001 /* SessionIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStore.swift; sourceTree = "<group>"; };
 		FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
@@ -924,6 +926,7 @@
 				E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */,
 				FE002001 /* FileExplorerRootResolverTests.swift */,
 				FE002002 /* FileExplorerStoreTests.swift */,
+				FE002003 /* FileSearchRipgrepParserTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -1410,6 +1413,7 @@
 				E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */,
 				FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 				FE002102 /* FileExplorerStoreTests.swift in Sources */,
+				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

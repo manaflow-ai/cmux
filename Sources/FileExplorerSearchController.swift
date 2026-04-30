@@ -15,9 +15,9 @@ enum FileSearchRipgrepParser {
               object["type"] as? String == "match",
               let payload = object["data"] as? [String: Any],
               let pathObject = payload["path"] as? [String: Any],
-              let path = pathObject["text"] as? String,
+              let path = payloadString(from: pathObject),
               let linesObject = payload["lines"] as? [String: Any],
-              let lineText = linesObject["text"] as? String,
+              let lineText = payloadString(from: linesObject),
               let lineNumber = payload["line_number"] as? Int else {
             return nil
         }
@@ -32,6 +32,17 @@ enum FileSearchRipgrepParser {
             columnNumber: columnNumber,
             preview: lineText.trimmingCharacters(in: .whitespacesAndNewlines)
         )
+    }
+
+    private static func payloadString(from object: [String: Any]) -> String? {
+        if let text = object["text"] as? String {
+            return text
+        }
+        guard let encodedBytes = object["bytes"] as? String,
+              let data = Data(base64Encoded: encodedBytes) else {
+            return nil
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 
     private static func relativePath(for path: String, rootPath: String) -> String {

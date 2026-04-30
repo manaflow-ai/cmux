@@ -294,28 +294,6 @@ final class FileExplorerStoreTests: XCTestCase {
     }
 }
 
-final class FileSearchRipgrepParserTests: XCTestCase {
-    func testParseMatchLineBuildsRelativeSearchResult() {
-        let line = """
-        {"type":"match","data":{"path":{"text":"/tmp/project/Sources/App.swift"},"lines":{"text":"let title = \\"Search files\\"\\n"},"line_number":42,"submatches":[{"match":{"text":"Search"},"start":13,"end":19}]}}
-        """
-
-        let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project")
-
-        XCTAssertEqual(result?.path, "/tmp/project/Sources/App.swift")
-        XCTAssertEqual(result?.relativePath, "Sources/App.swift")
-        XCTAssertEqual(result?.lineNumber, 42)
-        XCTAssertEqual(result?.columnNumber, 14)
-        XCTAssertEqual(result?.preview, "let title = \"Search files\"")
-    }
-
-    func testParseMatchLineIgnoresNonMatchEvents() {
-        let line = #"{"type":"summary","data":{"elapsed_total":{"secs":0,"nanos":1}}}"#
-
-        XCTAssertNil(FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project"))
-    }
-}
-
 @MainActor
 final class FileSearchControllerTests: XCTestCase {
     private struct WaitTimeout: Error {}
