@@ -1,6 +1,6 @@
 // cmux-feed-plugin-marker v1
 // Bridges OpenCode's plugin event bus to the cmux socket's feed.* verbs.
-// Installed by `cmux setup-hooks` or `cmux opencode install-hooks`.
+// Installed by `cmux hooks setup` or `cmux hooks opencode install`.
 // DO NOT EDIT MANUALLY — cmux upgrades this file in place.
 
 const net = require("node:net");
