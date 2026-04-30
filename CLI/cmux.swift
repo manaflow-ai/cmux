@@ -19931,11 +19931,6 @@ export default CMUXSessionRestore;
           browser identify [--surface <id|ref|index>]
           help
 
-        Agent Help:
-          To change cmux-owned settings, run `cmux docs settings`, back up any existing settings file, edit ~/.config/cmux/settings.json, then run `cmux reload-config`.
-          Use `cmux settings path` for settings file paths and the published schema URL.
-          Terminal rendering options such as font, cursor style, theme, and scrollback belong in Ghostty config.
-
         Environment:
           CMUX_WORKSPACE_ID   Auto-set in cmux terminals. Used as default --workspace for
                               ALL commands (send, list-panels, new-split, notify, etc.).
