@@ -1023,11 +1023,13 @@ final class SavingTextView: NSTextView {
         guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
-        if matchesSaveShortcut(event) {
-            panel?.saveTextContent()
-            return true
+        guard let shouldSave = saveShortcutMatch(for: event) else {
+            return super.performKeyEquivalent(with: event)
         }
-        return super.performKeyEquivalent(with: event)
+        if shouldSave {
+            panel?.saveTextContent()
+        }
+        return true
     }
 
     override func magnify(with event: NSEvent) {
@@ -1065,27 +1067,27 @@ final class SavingTextView: NSTextView {
         typingAttributes[.font] = nextFont
     }
 
-    private func matchesSaveShortcut(_ event: NSEvent) -> Bool {
+    private func saveShortcutMatch(for event: NSEvent) -> Bool? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
         guard shortcut.hasChord else {
             pendingSaveShortcutChordPrefix = nil
-            return shortcut.matches(event: event)
+            return shortcut.matches(event: event) ? true : nil
         }
 
         if let pendingPrefix = pendingSaveShortcutChordPrefix {
             pendingSaveShortcutChordPrefix = nil
             guard pendingPrefix == shortcut.firstStroke,
                   let secondStroke = shortcut.secondStroke else {
-                return false
+                return nil
             }
-            return secondStroke.matches(event: event)
+            return secondStroke.matches(event: event) ? true : nil
         }
 
         if shortcut.firstStroke.matches(event: event) {
             pendingSaveShortcutChordPrefix = shortcut.firstStroke
-            return true
+            return false
         }
-        return false
+        return nil
     }
 }
 

@@ -71,6 +71,7 @@ class TerminalController {
     private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
+    private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
@@ -867,6 +868,52 @@ class TerminalController {
         }
     }
 
+    private nonisolated static func configureSocketSendTimeout(_ fd: Int32, timeout: TimeInterval) -> Int32? {
+        var socketTimeout = makeSocketTimeout(timeout)
+        let result = withUnsafePointer(to: &socketTimeout) { ptr in
+            setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_SNDTIMEO,
+                ptr,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        return result == 0 ? nil : errno
+    }
+
+    private nonisolated static func configureNoSigPipe(_ fd: Int32) -> Int32? {
+#if os(macOS)
+        var noSigPipe: Int32 = 1
+        let result = withUnsafePointer(to: &noSigPipe) { ptr in
+            setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                ptr,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
+        return result == 0 ? nil : errno
+#else
+        _ = fd
+        return nil
+#endif
+    }
+
+    private nonisolated static func configureAcceptedClientSocket(_ fd: Int32) -> (stage: String, errnoCode: Int32)? {
+        if let errnoCode = configureBlocking(fd) {
+            return ("accept_client_configure_blocking", errnoCode)
+        }
+        if let errnoCode = configureSocketSendTimeout(fd, timeout: socketClientWriteTimeout) {
+            return ("accept_client_configure_send_timeout", errnoCode)
+        }
+        if let errnoCode = configureNoSigPipe(fd) {
+            return ("accept_client_configure_no_sigpipe", errnoCode)
+        }
+        return nil
+    }
+
     private nonisolated static func bindListenerSocket(_ socket: Int32, path: String) -> SocketBindAttemptResult {
         if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
             return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
@@ -1148,18 +1195,7 @@ class TerminalController {
         defer { close(fd) }
         Self.configureSocketTimeouts(fd, timeout: timeout)
 
-#if os(macOS)
-        var noSigPipe: Int32 = 1
-        _ = withUnsafePointer(to: &noSigPipe) { ptr in
-            setsockopt(
-                fd,
-                SOL_SOCKET,
-                SO_NOSIGPIPE,
-                ptr,
-                socklen_t(MemoryLayout<Int32>.size)
-            )
-        }
-#endif
+        _ = Self.configureNoSigPipe(fd)
 
         var addr = sockaddr_un()
         memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
@@ -1299,11 +1335,34 @@ class TerminalController {
         }
     }
 
-    private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) {
-        let payload = response + "\n"
-        payload.withCString { ptr in
-            _ = write(socket, ptr, strlen(ptr))
+    nonisolated static func writeAllToSocket(_ data: Data, to socket: Int32) -> Bool {
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return true }
+            var offset = 0
+
+            while offset < rawBuffer.count {
+                let written = write(
+                    socket,
+                    baseAddress.advanced(by: offset),
+                    rawBuffer.count - offset
+                )
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written < 0, errno == EINTR {
+                    continue
+                }
+                return false
+            }
+
+            return true
         }
+    }
+
+    private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) -> Bool {
+        let payload = response + "\n"
+        return Self.writeAllToSocket(Data(payload.utf8), to: socket)
     }
 
     private nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
@@ -1573,13 +1632,13 @@ class TerminalController {
                 acceptSourceConsecutiveFailures = 0
             }
 
-            if let errnoCode = Self.configureBlocking(clientSocket) {
+            if let failure = Self.configureAcceptedClientSocket(clientSocket) {
                 sentryBreadcrumb(
                     "socket.listener.client_config.failed",
                     category: "socket",
                     data: socketListenerEventData(
-                        stage: "accept_client_configure_blocking",
-                        errnoCode: errnoCode,
+                        stage: failure.stage,
+                        errnoCode: failure.errnoCode,
                         extra: ["generation": generation]
                     )
                 )
@@ -1791,8 +1850,10 @@ class TerminalController {
             let pid = peerPid ?? getPeerPid(socket)
             if let pid {
                 guard isDescendant(pid) else {
-                    let msg = "ERROR: Access denied — only processes started inside cmux can connect\n"
-                    msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
+                    _ = writeSocketResponse(
+                        "ERROR: Access denied — only processes started inside cmux can connect",
+                        to: socket
+                    )
                     return
                 }
             }
@@ -1805,8 +1866,10 @@ class TerminalController {
             // with no data is harmless.
             if pid == nil {
                 guard peerHasSameUID(socket) else {
-                    let msg = "ERROR: Unable to verify client process\n"
-                    msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
+                    _ = writeSocketResponse(
+                        "ERROR: Unable to verify client process",
+                        to: socket
+                    )
                     return
                 }
             }
@@ -1831,7 +1894,9 @@ class TerminalController {
 
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
-                writeSocketResponse(result.response, to: socket)
+                guard writeSocketResponse(result.response, to: socket) else {
+                    return
+                }
             }
         }
     }

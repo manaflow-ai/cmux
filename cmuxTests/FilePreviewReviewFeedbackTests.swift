@@ -43,11 +43,13 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         textView.string = "saved by chord"
         textView.panel = panel
         panel.attachTextView(textView)
+        panel.updateTextContent(textView.string)
 
         let prefixEvent = try XCTUnwrap(keyEvent(key: "k", keyCode: UInt16(kVK_ANSI_K)))
         let suffixEvent = try XCTUnwrap(keyEvent(key: "s", keyCode: UInt16(kVK_ANSI_S)))
 
         XCTAssertTrue(textView.performKeyEquivalent(with: prefixEvent))
+        XCTAssertFalse(panel.isSaving)
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "original")
         XCTAssertTrue(textView.performKeyEquivalent(with: suffixEvent))
         await waitForPanelSave(panel)
