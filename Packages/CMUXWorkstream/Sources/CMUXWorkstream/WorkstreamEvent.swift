@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreFoundation)
+import CoreFoundation
+#endif
 
 /// Wire frame sent from hook subcommands and the OpenCode plugin to the
 /// cmux socket, then materialized into a `WorkstreamItem` by the store.

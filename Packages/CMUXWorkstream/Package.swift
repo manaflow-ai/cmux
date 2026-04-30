@@ -3,10 +3,6 @@ import PackageDescription
 
 let package = Package(
     name: "CMUXWorkstream",
-    platforms: [
-        .iOS(.v18),
-        .macOS(.v14),
-    ],
     products: [
         .library(
             name: "CMUXWorkstream",

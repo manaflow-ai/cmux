@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CMUXCore
 import CMUXWorkstream
 import Foundation
 import Bonsplit
@@ -135,25 +136,7 @@ class TerminalController {
         "debug_right_sidebar_focus",
     ]
 
-    private nonisolated static let focusIntentV2Methods: Set<String> = [
-        "window.focus",
-        "workspace.select",
-        "workspace.next",
-        "workspace.previous",
-        "workspace.last",
-        "surface.focus",
-        "pane.focus",
-        "pane.last",
-        "file.open",
-        "browser.focus_webview",
-        "browser.focus",
-        "browser.tab.switch",
-        "debug.command_palette.toggle",
-        "debug.notification.focus",
-        "debug.app.activate",
-        "debug.right_sidebar.focus",
-        "feed.jump"
-    ]
+    private nonisolated static let focusIntentV2Methods = SocketMethodRegistry.focusIntentMethodNames
 
     enum V2HandleKind: String, CaseIterable {
         case window
@@ -1379,8 +1362,9 @@ class TerminalController {
 
     private nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
         let message = "Authentication required. Send auth <password> first."
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
+        guard let commandLine = SocketCommandLine(command),
+              commandLine.protocolVersion == .v2,
+              let data = commandLine.trimmedValue.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
             return "ERROR: Authentication required — send auth <password> first"
         }
@@ -1414,8 +1398,9 @@ class TerminalController {
     }
 
     private nonisolated func passwordLoginV2ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
+        guard let commandLine = SocketCommandLine(command),
+              commandLine.protocolVersion == .v2,
+              let data = commandLine.trimmedValue.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
             return nil
         }
@@ -1963,18 +1948,14 @@ class TerminalController {
     }
 
     private func processCommand(_ command: String) -> String {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "ERROR: Empty command" }
+        guard let commandLine = SocketCommandLine(command) else { return "ERROR: Empty command" }
 
-        // v2 protocol: newline-delimited JSON.
-        if trimmed.hasPrefix("{") {
-            return processV2Command(trimmed)
+        if commandLine.protocolVersion == .v2 {
+            return processV2Command(commandLine.trimmedValue)
         }
 
-        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
-        guard !parts.isEmpty else { return "ERROR: Empty command" }
-
-        let cmd = parts[0].lowercased()
+        let parts = commandLine.trimmedValue.split(separator: " ", maxSplits: 1).map(String.init)
+        guard let cmd = commandLine.v1CommandName else { return "ERROR: Empty command" }
         let args = parts.count > 1 ? parts[1] : ""
 
         return withSocketCommandPolicy(commandKey: cmd, isV2: false) {
@@ -2367,9 +2348,9 @@ class TerminalController {
 
         return withSocketCommandPolicy(commandKey: method, isV2: true) {
             switch method {
-        case "system.ping":
+        case SocketMethod.systemPing.rawValue:
             return v2Ok(id: id, result: ["pong": true])
-        case "system.capabilities":
+        case SocketMethod.systemCapabilities.rawValue:
             return v2Ok(id: id, result: v2Capabilities())
 
         case "system.identify":
@@ -2793,217 +2774,9 @@ class TerminalController {
     }
 
     private func v2Capabilities() -> [String: Any] {
-        var methods: [String] = [
-            "system.ping",
-            "system.capabilities",
-            "system.identify",
-            "system.tree",
-            "system.top",
-            "auth.login",
-            "auth.status",
-            "auth.begin_sign_in",
-            "auth.sign_out",
-            "vm.list",
-            "vm.create",
-            "vm.destroy",
-            "vm.exec",
-            "vm.attach_info",
-            "vm.ssh_info",
-            "window.list",
-            "window.current",
-            "window.focus",
-            "window.create",
-            "window.close",
-            "workspace.list",
-            "workspace.create",
-            "workspace.select",
-            "workspace.current",
-            "workspace.close",
-            "workspace.move_to_window",
-            "workspace.reorder",
-            "workspace.prompt_submit",
-            "workspace.rename",
-            "workspace.action",
-            "workspace.next",
-            "workspace.previous",
-            "workspace.last",
-            "workspace.equalize_splits",
-            "workspace.remote.configure",
-            "workspace.remote.foreground_auth_ready",
-            "workspace.remote.reconnect",
-            "workspace.remote.disconnect",
-            "workspace.remote.status",
-            "workspace.remote.terminal_session_end",
-            "session.restore_previous",
-            "settings.open",
-            "feedback.open",
-            "feedback.submit",
-            "feed.push",
-            "feed.permission.reply",
-            "feed.question.reply",
-            "feed.exit_plan.reply",
-            "feed.jump",
-            "feed.list",
-            "surface.list",
-            "surface.current",
-            "surface.focus",
-            "surface.split",
-            "surface.create",
-            "surface.close",
-            "surface.drag_to_split",
-            "surface.move",
-            "surface.reorder",
-            "surface.action",
-            "tab.action",
-            "surface.refresh",
-            "surface.health",
-            "debug.terminals",
-            "surface.send_text",
-            "surface.send_key",
-            "surface.report_tty",
-            "surface.ports_kick",
-            "surface.read_text",
-            "surface.clear_history",
-            "surface.trigger_flash",
-            "pane.list",
-            "pane.focus",
-            "pane.surfaces",
-            "pane.create",
-            "pane.resize",
-            "pane.swap",
-            "pane.break",
-            "pane.join",
-            "pane.last",
-            "notification.create",
-            "notification.create_for_caller",
-            "notification.create_for_surface",
-            "notification.create_for_target",
-            "notification.list",
-            "notification.clear",
-            "app.focus_override.set",
-            "app.simulate_active",
-            "file.open",
-            "markdown.open",
-            "browser.open_split",
-            "browser.navigate",
-            "browser.back",
-            "browser.forward",
-            "browser.reload",
-            "browser.url.get",
-            "browser.snapshot",
-            "browser.eval",
-            "browser.wait",
-            "browser.click",
-            "browser.dblclick",
-            "browser.hover",
-            "browser.focus",
-            "browser.type",
-            "browser.fill",
-            "browser.press",
-            "browser.keydown",
-            "browser.keyup",
-            "browser.check",
-            "browser.uncheck",
-            "browser.select",
-            "browser.scroll",
-            "browser.scroll_into_view",
-            "browser.screenshot",
-            "browser.get.text",
-            "browser.get.html",
-            "browser.get.value",
-            "browser.get.attr",
-            "browser.get.title",
-            "browser.get.count",
-            "browser.get.box",
-            "browser.get.styles",
-            "browser.is.visible",
-            "browser.is.enabled",
-            "browser.is.checked",
-            "browser.focus_webview",
-            "browser.is_webview_focused",
-            "browser.find.role",
-            "browser.find.text",
-            "browser.find.label",
-            "browser.find.placeholder",
-            "browser.find.alt",
-            "browser.find.title",
-            "browser.find.testid",
-            "browser.find.first",
-            "browser.find.last",
-            "browser.find.nth",
-            "browser.frame.select",
-            "browser.frame.main",
-            "browser.dialog.accept",
-            "browser.dialog.dismiss",
-            "browser.download.wait",
-            "browser.cookies.get",
-            "browser.cookies.set",
-            "browser.cookies.clear",
-            "browser.storage.get",
-            "browser.storage.set",
-            "browser.storage.clear",
-            "browser.tab.new",
-            "browser.tab.list",
-            "browser.tab.switch",
-            "browser.tab.close",
-            "browser.console.list",
-            "browser.console.clear",
-            "browser.errors.list",
-            "browser.highlight",
-            "browser.state.save",
-            "browser.state.load",
-            "browser.addinitscript",
-            "browser.addscript",
-            "browser.addstyle",
-            "browser.viewport.set",
-            "browser.geolocation.set",
-            "browser.offline.set",
-            "browser.trace.start",
-            "browser.trace.stop",
-            "browser.network.route",
-            "browser.network.unroute",
-            "browser.network.requests",
-            "browser.screencast.start",
-            "browser.screencast.stop",
-            "browser.input_mouse",
-            "browser.input_keyboard",
-            "browser.input_touch",
-        ]
+        var methods = SocketMethodRegistry.productionMethodNames
 #if DEBUG
-        methods.append(contentsOf: [
-            "debug.shortcut.set",
-            "debug.shortcut.simulate",
-            "debug.type",
-            "debug.app.activate",
-            "debug.command_palette.toggle",
-            "debug.command_palette.rename_tab.open",
-            "debug.command_palette.visible",
-            "debug.command_palette.selection",
-            "debug.command_palette.results",
-            "debug.command_palette.rename_input.interact",
-            "debug.command_palette.rename_input.delete_backward",
-            "debug.command_palette.rename_input.selection",
-            "debug.command_palette.rename_input.select_all",
-            "debug.browser.address_bar_focused",
-            "debug.browser.favicon",
-            "debug.right_sidebar.focus",
-            "debug.sidebar.visible",
-            "debug.terminal.is_focused",
-            "debug.terminal.read_text",
-            "debug.terminal.render_stats",
-            "debug.layout",
-            "debug.portal.stats",
-            "debug.bonsplit_underflow.count",
-            "debug.bonsplit_underflow.reset",
-            "debug.empty_panel.count",
-            "debug.empty_panel.reset",
-            "debug.notification.focus",
-            "debug.flash.count",
-            "debug.flash.reset",
-            "debug.panel_snapshot",
-            "debug.panel_snapshot.reset",
-            "debug.window.screenshot",
-        ])
+        methods.append(contentsOf: SocketMethodRegistry.debugMethodNames)
 #endif
 
         return [

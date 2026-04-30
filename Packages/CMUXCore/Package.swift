@@ -2,20 +2,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "CMUXAuthCore",
+    name: "CMUXCore",
     products: [
         .library(
-            name: "CMUXAuthCore",
-            targets: ["CMUXAuthCore"]
+            name: "CMUXCore",
+            targets: ["CMUXCore"]
         ),
     ],
     targets: [
         .target(
-            name: "CMUXAuthCore"
+            name: "CMUXCore"
         ),
         .testTarget(
-            name: "CMUXAuthCoreTests",
-            dependencies: ["CMUXAuthCore"]
+            name: "CMUXCoreTests",
+            dependencies: ["CMUXCore"]
         ),
     ]
 )

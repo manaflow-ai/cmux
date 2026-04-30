@@ -24,6 +24,7 @@ GhosttyKit.xcframework.bak-*/
 GhosttyTabs-*.zip
 cmux-macos.dmg
 appcast.xml
+dist/
 
 # Python
 __pycache__/

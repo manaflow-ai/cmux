@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -137,6 +138,322 @@ jobs:
           bun test tests/db-schema.test.ts
           bun test tests/drizzle-effect.test.ts
           bun test tests/vm-db-read-model.test.ts
+
+  swiftpm-linux-packages:
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.0-jammy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Build cmux CLI
+        run: swift build --package-path CLI
+
+      - name: Test CMUXCore
+        run: swift test --package-path Packages/CMUXCore
+
+      - name: Test CMUXAuthCore
+        run: swift test --package-path Packages/CMUXAuthCore
+
+      - name: Test CMUXWorkstream
+        run: swift test --package-path Packages/CMUXWorkstream
+
+  linux-distribution-artifact:
+    runs-on: ubuntu-latest
+    needs: swiftpm-linux-packages
+    timeout-minutes: 35
+    container:
+      image: swift:6.0-jammy
+    env:
+      PYTHONPYCACHEPREFIX: /tmp/cmux-linux-ci-pycache
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: daemon/remote/go.mod
+
+      - name: Install packaging tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates \
+            cpio \
+            curl \
+            dbus-x11 \
+            flatpak \
+            flatpak-builder \
+            gir1.2-gtk-3.0 \
+            gir1.2-vte-2.91 \
+            gir1.2-webkit2-4.0 \
+            openssh-client \
+            openssh-server \
+            ostree \
+            python3 \
+            python3-gi \
+            rpm \
+            squashfs-tools \
+            xauth \
+            xvfb
+          curl -fsSL \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -o /usr/local/bin/appimagetool
+          chmod 0755 /usr/local/bin/appimagetool
+          {
+            echo "APPIMAGETOOL=/usr/local/bin/appimagetool"
+            echo "APPIMAGE_EXTRACT_AND_RUN=1"
+          } >> "$GITHUB_ENV"
+
+      - name: Install Flatpak runtime
+        run: |
+          set -euo pipefail
+          flatpak remote-add --if-not-exists --system flathub \
+            https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install -y --system flathub \
+            org.gnome.Platform//46 \
+            org.gnome.Sdk//46
+
+      - name: Configure localhost SSH smoke
+        run: |
+          set -euo pipefail
+          SSH_USER="$(id -un)"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          rm -f "$HOME/.ssh/cmux_linux_smoke" "$HOME/.ssh/cmux_linux_smoke.pub"
+          ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/cmux_linux_smoke"
+          cat "$HOME/.ssh/cmux_linux_smoke.pub" >> "$HOME/.ssh/authorized_keys"
+          chmod 600 "$HOME/.ssh/authorized_keys"
+          ssh-keygen -A
+          mkdir -p /run/sshd
+          /usr/sbin/sshd \
+            -p 2222 \
+            -o ListenAddress=127.0.0.1 \
+            -o PasswordAuthentication=no \
+            -o PubkeyAuthentication=yes \
+            -o PermitRootLogin=yes \
+            -o AuthorizedKeysFile=.ssh/authorized_keys \
+            -E /tmp/cmux-sshd.log
+          ssh -p 2222 \
+            -i "$HOME/.ssh/cmux_linux_smoke" \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/tmp/cmux-known-hosts \
+            "$SSH_USER@127.0.0.1" true
+          {
+            echo "CMUX_REMOTE_SSH_SMOKE=1"
+            echo "CMUX_REMOTE_SSH_DESTINATION=$SSH_USER@127.0.0.1"
+            echo "CMUX_REMOTE_SSH_PORT=2222"
+            echo "CMUX_REMOTE_SSH_IDENTITY_FILE=$HOME/.ssh/cmux_linux_smoke"
+            echo "CMUX_REMOTE_SSH_OPTIONS=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/tmp/cmux-known-hosts"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate Linux packaging sources
+        run: |
+          set -euo pipefail
+          bash -n scripts/reload.sh
+          bash -n scripts/reload-linux.sh
+          bash -n linux/bin/cmux-linux
+          bash -n linux/bin/cmux
+          bash -n linux/package.sh
+          bash -n linux/package-deb.sh
+          bash -n linux/package-appimage.sh
+          bash -n linux/package-rpm.sh
+          bash -n linux/package-flatpak.sh
+          python3 -m py_compile \
+            linux/lib/cmux_linux/*.py \
+            linux/tools/mock_feedback_server.py \
+            linux/tools/package_manifest.py \
+            linux/tools/socket_method_parity.py \
+            linux/tools/socket_smoke.py \
+            linux/tools/validate_linux_contract.py \
+            linux/tools/validate_package.py \
+            linux/tools/write_package_manifest.py
+          python3 linux/tools/validate_linux_contract.py
+          python3 linux/tools/socket_method_parity.py --strict --json
+
+      - name: Build Linux CLI release
+        run: swift build -c release --package-path CLI
+
+      - name: Validate Linux auth bridge CLI
+        run: |
+          set -euo pipefail
+          printf '{"method":"auth.status","params":{}}\n' \
+            | CLI/.build/release/cmux auth-bridge \
+            > /tmp/cmux-auth-bridge.json
+          python3 - <<'PY'
+          import json
+
+          with open("/tmp/cmux-auth-bridge.json", encoding="utf-8") as handle:
+              payload = json.load(handle)
+          assert payload["backend"] == "cmux_auth_core_bridge"
+          assert payload["mode"] == "bridge"
+          assert payload["platform"] == "linux"
+          assert "signed_in" in payload
+          PY
+
+      - name: Build remote daemon
+        run: |
+          set -euo pipefail
+          cd daemon/remote
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+            -o "$GITHUB_WORKSPACE/daemon/remote/cmuxd-remote" \
+            ./cmd/cmuxd-remote
+
+      - name: Build Linux tarball
+        run: |
+          set -euo pipefail
+          CMUX_LINUX_CLI_BINARY="$GITHUB_WORKSPACE/CLI/.build/release/cmux" \
+          CMUX_LINUX_REMOTE_DAEMON_BINARY="$GITHUB_WORKSPACE/daemon/remote/cmuxd-remote" \
+            bash linux/package.sh
+          python3 linux/tools/validate_package.py \
+            dist/cmux-linux-x86_64.tar.gz \
+            --require-remote-daemon \
+            --require-swift-cli \
+            --probe-remote-daemon
+          rm -rf /tmp/cmux-linux-package
+          mkdir -p /tmp/cmux-linux-package
+          tar -C /tmp/cmux-linux-package -xzf dist/cmux-linux-x86_64.tar.gz
+          printf '{"method":"auth.status","params":{}}\n' \
+            | /tmp/cmux-linux-package/cmux-linux-x86_64/bin/cmux auth-bridge \
+            > /tmp/cmux-packaged-auth-bridge.json
+          python3 - <<'PY'
+          import json
+
+          with open("/tmp/cmux-packaged-auth-bridge.json", encoding="utf-8") as handle:
+              payload = json.load(handle)
+          assert payload["backend"] == "cmux_auth_core_bridge"
+          assert payload["mode"] == "bridge"
+          assert payload["platform"] == "linux"
+          PY
+
+      - name: Build Linux deb
+        run: |
+          set -euo pipefail
+          CMUX_LINUX_SKIP_TARBALL=1 bash linux/package-deb.sh
+          python3 linux/tools/validate_package.py \
+            dist/cmux-linux_*.deb \
+            --require-remote-daemon \
+            --require-swift-cli \
+            --probe-remote-daemon
+
+      - name: Build Linux AppImage
+        run: |
+          set -euo pipefail
+          CMUX_LINUX_SKIP_TARBALL=1 bash linux/package-appimage.sh
+          python3 linux/tools/validate_package.py \
+            dist/cmux-linux-x86_64.AppImage \
+            --require-remote-daemon \
+            --require-swift-cli \
+            --probe-remote-daemon
+
+      - name: Build Linux rpm
+        run: |
+          set -euo pipefail
+          CMUX_LINUX_SKIP_TARBALL=1 bash linux/package-rpm.sh
+          python3 linux/tools/validate_package.py \
+            dist/cmux-linux-*.x86_64.rpm \
+            --require-remote-daemon \
+            --require-swift-cli \
+            --probe-remote-daemon
+
+      - name: Build Linux Flatpak
+        run: |
+          set -euo pipefail
+          CMUX_LINUX_SKIP_TARBALL=1 bash linux/package-flatpak.sh
+          python3 linux/tools/validate_package.py \
+            dist/cmux-linux-x86_64.flatpak \
+            --require-remote-daemon \
+            --require-swift-cli \
+            --probe-remote-daemon
+
+      - name: Smoke Linux runtime
+        run: |
+          xvfb-run -a bash -lc '
+            set -euo pipefail
+            TAG=ci-linux-smoke
+            SOCKET=/tmp/cmux-linux-${TAG}.sock
+            PID_FILE=/tmp/cmux-linux-${TAG}.pid
+            FEEDBACK_URL_FILE="$(mktemp)"
+            FEEDBACK_REQUESTS_FILE="$(mktemp)"
+            FEEDBACK_PID=""
+            cleanup() {
+              if [ -n "${FEEDBACK_PID:-}" ]; then
+                kill "$FEEDBACK_PID" >/dev/null 2>&1 || true
+              fi
+              if [ -f "$PID_FILE" ]; then
+                pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+                if [ -n "$pid" ]; then
+                  kill "$pid" >/dev/null 2>&1 || true
+                fi
+              fi
+            }
+            trap cleanup EXIT
+            python3 linux/tools/mock_feedback_server.py \
+              --url-file "$FEEDBACK_URL_FILE" \
+              --requests-file "$FEEDBACK_REQUESTS_FILE" &
+            FEEDBACK_PID="$!"
+            for _ in $(seq 1 50); do
+              if [ -s "$FEEDBACK_URL_FILE" ]; then
+                break
+              fi
+              sleep 0.1
+            done
+            if [ ! -s "$FEEDBACK_URL_FILE" ]; then
+              echo "feedback mock server did not start" >&2
+              exit 1
+            fi
+            export CMUX_LINUX_FEEDBACK_ENDPOINT
+            CMUX_LINUX_FEEDBACK_ENDPOINT="$(cat "$FEEDBACK_URL_FILE")"
+            REMOTE_SSH_FLAGS=()
+            if [ "${CMUX_REMOTE_SSH_SMOKE:-}" = "1" ]; then
+              REMOTE_SSH_FLAGS+=(--remote-ssh)
+            fi
+            ./scripts/reload.sh --tag "$TAG" --socket "$SOCKET" --launch --no-package
+            CMUX_SOCKET_PATH="$SOCKET" \
+            CMUX_EXPECT_FEEDBACK_UPLOAD=1 \
+            CMUX_FEEDBACK_REQUESTS_FILE="$FEEDBACK_REQUESTS_FILE" \
+            python3 linux/tools/socket_smoke.py \
+              --browser \
+              --state \
+              --require-remote-daemon \
+              "${REMOTE_SSH_FLAGS[@]}" \
+              --json
+          '
+
+      - name: Upload Linux tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-linux-x86_64
+          path: dist/cmux-linux-x86_64.tar.gz
+
+      - name: Upload Linux deb
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-linux-amd64-deb
+          path: dist/cmux-linux_*.deb
+
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-linux-x86_64-appimage
+          path: dist/cmux-linux-x86_64.AppImage
+
+      - name: Upload Linux rpm
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-linux-x86_64-rpm
+          path: dist/cmux-linux-*.x86_64.rpm
+
+      - name: Upload Linux Flatpak
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-linux-x86_64-flatpak
+          path: dist/cmux-linux-x86_64.flatpak
 
   tests:
     runs-on: warp-macos-15-arm64-6x
