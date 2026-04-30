@@ -1390,88 +1390,113 @@ class TerminalController {
         return nil
     }
 
-    private nonisolated func socketWorkerAuthResponseIfNeeded(for command: String) -> String? {
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
+    private enum SocketCommandExecutionPolicy: Equatable {
+        case mainActor
+        case socketWorker
+    }
+
+    private struct V2SocketRequest {
+        let id: Any?
+        let method: String
+        let params: [String: Any]
+    }
+
+    private nonisolated static let socketWorkerV2Methods: Set<String> = [
+        "auth.status",
+        "auth.begin_sign_in",
+        "auth.sign_out",
+        "feedback.submit",
+        "feed.push",
+        "feed.permission.reply",
+        "feed.question.reply",
+        "feed.exit_plan.reply",
+        "system.top",
+    ]
+
+    private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
+        if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
+            return .socketWorker
+        }
+        return .mainActor
+    }
+
+    private nonisolated func parseV2SocketRequest(_ command: String) -> V2SocketRequest? {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedCommand.hasPrefix("{"),
+              let data = trimmedCommand.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
             return nil
         }
 
         let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard method == "auth.status" || method == "auth.begin_sign_in" || method == "auth.sign_out" else {
+        guard !method.isEmpty else {
             return nil
         }
 
-        let id: Any? = dict["id"]
-        let params = dict["params"] as? [String: Any] ?? [:]
+        return V2SocketRequest(
+            id: dict["id"],
+            method: method,
+            params: dict["params"] as? [String: Any] ?? [:]
+        )
+    }
 
-        return withSocketCommandPolicy(commandKey: method, isV2: true) {
-            switch method {
-            case "auth.status":
-                let semaphore = DispatchSemaphore(value: 0)
-                Task { @MainActor in
-                    await AuthManager.shared.awaitBootstrapped()
-                    semaphore.signal()
-                }
-                semaphore.wait()
-                return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: false))
-            case "auth.begin_sign_in":
-                let timeoutSeconds = (params["timeout_seconds"] as? Double) ?? 300
-                let semaphore = DispatchSemaphore(value: 0)
-                nonisolated(unsafe) var signedIn = false
-                Task { @MainActor in
-                    signedIn = await AuthManager.shared.beginSignInAndAwait(
-                        timeout: timeoutSeconds
-                    )
-                    semaphore.signal()
-                }
-                semaphore.wait()
-                return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: !signedIn))
-            case "auth.sign_out":
-                let semaphore = DispatchSemaphore(value: 0)
-                Task { @MainActor in
-                    _ = await AuthManager.shared.signOutAndAwait(timeout: 5)
-                    semaphore.signal()
-                }
-                semaphore.wait()
-                return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: false))
-            default:
-                return nil
+    private nonisolated func socketWorkerV2ResponseIfNeeded(for command: String) -> String? {
+        guard let request = parseV2SocketRequest(command),
+              Self.executionPolicy(forV2Method: request.method) == .socketWorker else {
+            return nil
+        }
+
+        return withSocketCommandPolicy(commandKey: request.method, isV2: true) {
+            socketWorkerV2Response(request)
+        }
+    }
+
+    private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
+        switch request.method {
+        case "auth.status":
+            let semaphore = DispatchSemaphore(value: 0)
+            Task { @MainActor in
+                await AuthManager.shared.awaitBootstrapped()
+                semaphore.signal()
             }
-        }
-    }
-
-    private nonisolated func socketWorkerFeedbackResponseIfNeeded(for command: String) -> String? {
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return nil
-        }
-
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard method == "feedback.submit" else { return nil }
-
-        let id: Any? = dict["id"]
-        let params = dict["params"] as? [String: Any] ?? [:]
-        return withSocketCommandPolicy(commandKey: method, isV2: true) {
-            v2Result(id: id, v2FeedbackSubmit(params: params))
-        }
-    }
-
-    private nonisolated func socketWorkerSystemTopResponseIfNeeded(for command: String) -> String? {
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return nil
-        }
-
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard method == "system.top" else { return nil }
-
-        let id: Any? = dict["id"]
-        let params = dict["params"] as? [String: Any] ?? [:]
-        return withSocketCommandPolicy(commandKey: method, isV2: true) {
-            v2Result(id: id, v2SystemTop(params: params))
+            semaphore.wait()
+            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.begin_sign_in":
+            let timeoutSeconds = (request.params["timeout_seconds"] as? Double) ?? 300
+            let semaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var signedIn = false
+            Task { @MainActor in
+                signedIn = await AuthManager.shared.beginSignInAndAwait(
+                    timeout: timeoutSeconds
+                )
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: !signedIn))
+        case "auth.sign_out":
+            let semaphore = DispatchSemaphore(value: 0)
+            Task { @MainActor in
+                _ = await AuthManager.shared.signOutAndAwait(timeout: 5)
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "feedback.submit":
+            return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
+        case "feed.push":
+            return v2Result(id: request.id, v2FeedPush(params: request.params))
+        case "feed.permission.reply":
+            return v2Result(id: request.id, v2FeedPermissionReply(params: request.params))
+        case "feed.question.reply":
+            return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
+        case "feed.exit_plan.reply":
+            return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "system.top":
+            return v2Result(id: request.id, v2SystemTop(params: request.params))
+        case let method where method.hasPrefix("vm."):
+            return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
+        default:
+            return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
         }
     }
 
@@ -1819,38 +1844,43 @@ class TerminalController {
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
-        if let response = socketWorkerAuthResponseIfNeeded(for: command) {
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+
+        let response = processCommandUsingSocketExecutionPolicy(command)
+        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+    }
+
+    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
+        if Thread.isMainThread,
+           let request = parseV2SocketRequest(command),
+           Self.executionPolicy(forV2Method: request.method) == .socketWorker {
+            return v2Error(
+                id: request.id,
+                code: "invalid_dispatch",
+                message: "\(request.method) must run off the main thread"
+            )
         }
-        if let response = socketWorkerFeedbackResponseIfNeeded(for: command) {
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
-        }
-        if let response = socketWorkerCloudVMResponseIfNeeded(for: command) {
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
-        }
-        if let response = socketWorkerSystemTopResponseIfNeeded(for: command) {
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+
+        if let response = socketWorkerV2ResponseIfNeeded(for: command) {
+            return response
         }
 
         if command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ping" {
-            let response = withSocketCommandPolicy(commandKey: "ping", isV2: false) {
+            return withSocketCommandPolicy(commandKey: "ping", isV2: false) {
                 "PONG"
             }
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
 
-        let response = v2MainSync {
+        return v2MainSync {
             self.processCommand(command)
         }
-        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
 
     /// Public entry point mirroring the socket's `processCommand` path so
     /// in-process callers (e.g. the Feed coordinator's `feed.jump` focus
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
-    func handleSocketLine(_ line: String) -> String {
-        return processCommand(line)
+    nonisolated func handleSocketLine(_ line: String) -> String {
+        return processCommandUsingSocketExecutionPolicy(line)
     }
 
     private func processCommand(_ command: String) -> String {
@@ -2245,6 +2275,14 @@ class TerminalController {
             return v2Error(id: id, code: "invalid_request", message: "Missing method")
         }
 
+        guard Self.executionPolicy(forV2Method: method) == .mainActor else {
+            return v2Error(
+                id: id,
+                code: "invalid_dispatch",
+                message: "\(method) must run on the socket worker"
+            )
+        }
+
         v2MainSync { self.v2RefreshKnownRefs() }
 
 
@@ -2259,8 +2297,6 @@ class TerminalController {
             return v2Ok(id: id, result: v2Identify(params: params))
         case "system.tree":
             return v2Result(id: id, self.v2SystemTree(params: params))
-        case "system.top":
-            return v2Result(id: id, self.v2SystemTop(params: params))
         case "auth.login":
             return v2Ok(
                 id: id,
@@ -2269,149 +2305,6 @@ class TerminalController {
                     "required": accessMode.requiresPasswordAuth
                 ]
             )
-        case "auth.status":
-            // Await the AuthManager bootstrap so the socket never reports a transient
-            // signed_in=false during on-launch session restoration (tokens exist on
-            // disk but refreshSession() hasn't populated Published state yet).
-            let semaphore = DispatchSemaphore(value: 0)
-            Task { @MainActor in
-                await AuthManager.shared.awaitBootstrapped()
-                semaphore.signal()
-            }
-            semaphore.wait()
-            return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: false))
-        case "auth.begin_sign_in":
-            // Fire the popup on main, then block the socket worker thread
-            // until AuthManager.$isAuthenticated flips to true (or the
-            // timeout elapses). The RPC reply is the callback — no client
-            // polling required.
-            let timeoutSeconds = (params["timeout_seconds"] as? Double) ?? 300
-            let semaphore = DispatchSemaphore(value: 0)
-            nonisolated(unsafe) var signedIn = false
-            Task { @MainActor in
-                signedIn = await AuthManager.shared.beginSignInAndAwait(
-                    timeout: timeoutSeconds
-                )
-                semaphore.signal()
-            }
-            semaphore.wait()
-            return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: !signedIn))
-        case "auth.sign_out":
-            let semaphore = DispatchSemaphore(value: 0)
-            Task { @MainActor in
-                _ = await AuthManager.shared.signOutAndAwait(timeout: 5)
-                semaphore.signal()
-            }
-            semaphore.wait()
-            return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: false))
-
-        // Cloud VMs. Socket → Mac app → VMClient HTTP → cmux web backend. The CLI never touches
-        // Stack Auth tokens directly; AuthManager.shared inside the mac app does.
-        case "vm.list":
-            return v2VmCall(id: id) {
-                let items = try await VMClient.shared.list()
-                return [
-                    "vms": items.map { ["id": $0.id, "provider": $0.provider, "image": $0.image, "createdAt": $0.createdAt] as [String: Any] },
-                ]
-            }
-        case "vm.create":
-            let image = params["image"] as? String
-            let provider = params["provider"] as? String
-            let idempotencyKey = (params["idempotency_key"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let idempotencyKey, !idempotencyKey.isEmpty else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.create requires `idempotency_key`")
-            }
-            return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
-                return ["id": vm.id, "provider": vm.provider, "image": vm.image, "createdAt": vm.createdAt]
-            }
-        case "vm.destroy":
-            guard let vmId = params["id"] as? String else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.destroy requires `id`")
-            }
-            return v2VmCall(id: id) {
-                try await VMClient.shared.destroy(id: vmId)
-                return ["ok": true]
-            }
-        case "vm.exec":
-            guard let vmId = params["id"] as? String else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.exec requires `id`")
-            }
-            guard let command = params["command"] as? String else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.exec requires `command`")
-            }
-            let timeoutMs = max(1, v2Int(params, "timeout_ms") ?? 30_000)
-            return v2VmCall(id: id) {
-                let r = try await VMClient.shared.exec(id: vmId, command: command, timeoutMs: timeoutMs)
-                return ["exit_code": r.exitCode, "stdout": r.stdout, "stderr": r.stderr]
-            }
-        case "vm.ssh_info":
-            guard let vmId = params["id"] as? String else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`")
-            }
-            return v2VmCall(id: id) {
-                let ep = try await VMClient.shared.openSSH(id: vmId)
-                var credPayload: [String: Any] = [:]
-                switch ep.credential {
-                case .password(let value):
-                    credPayload = ["kind": "password", "value": value]
-                case .authorizedKey(let pem):
-                    credPayload = ["kind": "authorizedKey", "private_key_pem": pem]
-                }
-                return [
-                    "host": ep.host,
-                    "port": ep.port,
-                    "username": ep.username,
-                    "credential": credPayload,
-                    "public_key_fingerprint": ep.publicKeyFingerprint ?? NSNull(),
-                ]
-            }
-        case "vm.attach_info":
-            guard let vmId = params["id"] as? String else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.attach_info requires `id`")
-            }
-            let requireDaemon = v2Bool(params, "require_daemon") ?? v2Bool(params, "requireDaemon") ?? false
-            return v2VmCall(id: id) {
-                let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
-                switch endpoint {
-                case .ssh(let ep):
-                    var credPayload: [String: Any] = [:]
-                    switch ep.credential {
-                    case .password(let value):
-                        credPayload = ["kind": "password", "value": value]
-                    case .authorizedKey(let pem):
-                        credPayload = ["kind": "authorizedKey", "private_key_pem": pem]
-                    }
-                    return [
-                        "transport": "ssh",
-                        "host": ep.host,
-                        "port": ep.port,
-                        "username": ep.username,
-                        "credential": credPayload,
-                        "public_key_fingerprint": ep.publicKeyFingerprint ?? NSNull(),
-                    ]
-                case .websocket(let ep):
-                    var payload: [String: Any] = [
-                        "transport": "websocket",
-                        "url": ep.url,
-                        "headers": ep.headers,
-                        "token": ep.token,
-                        "session_id": ep.sessionId,
-                        "expires_at_unix": ep.expiresAtUnix,
-                    ]
-                    if let daemon = ep.daemon {
-                        payload["daemon"] = [
-                            "url": daemon.url,
-                            "headers": daemon.headers,
-                            "token": daemon.token,
-                            "session_id": daemon.sessionId,
-                            "expires_at_unix": daemon.expiresAtUnix,
-                        ]
-                    }
-                    return payload
-                }
-            }
 
         // Windows
         case "window.list":
@@ -2476,18 +2369,8 @@ class TerminalController {
         // Feedback
         case "feedback.open":
             return v2Result(id: id, self.v2FeedbackOpen(params: params))
-        case "feedback.submit":
-            return v2Result(id: id, self.v2FeedbackSubmit(params: params))
 
         // Feed (workstream)
-        case "feed.push":
-            return v2Result(id: id, self.v2FeedPush(params: params))
-        case "feed.permission.reply":
-            return v2Result(id: id, self.v2FeedPermissionReply(params: params))
-        case "feed.question.reply":
-            return v2Result(id: id, self.v2FeedQuestionReply(params: params))
-        case "feed.exit_plan.reply":
-            return v2Result(id: id, self.v2FeedExitPlanReply(params: params))
         case "feed.jump":
             return v2Result(id: id, self.v2FeedJump(params: params))
         case "feed.list":
@@ -8079,7 +7962,7 @@ class TerminalController {
 
     // MARK: - V2 Feed (workstream) handlers
 
-    private func v2FeedPush(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedPush(params: [String: Any]) -> V2CallResult {
         let waitTimeout: TimeInterval
         if let rawTimeout = params["wait_timeout_seconds"] {
             let seconds: Double?
@@ -8146,15 +8029,16 @@ class TerminalController {
         return .ok(FeedSocketEncoding.payload(for: result))
     }
 
-    private func v2ApplyPromptSubmitSideEffects(for event: WorkstreamEvent) {
+    private nonisolated func v2ApplyPromptSubmitSideEffects(for event: WorkstreamEvent) {
         guard event.hookEventName == .userPromptSubmit,
-              let rawWorkspaceId = event.workspaceId,
-              let workspaceId = v2UUID(["workspace_id": rawWorkspaceId], "workspace_id"),
-              let tabManager = v2ResolveWorkspaceOwner(workspaceId)
+              let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawWorkspaceId.isEmpty
         else { return }
 
         let iMessageModeEnabled = IMessageModeSettings.isEnabled()
         v2MainSync {
+            guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
             _ = tabManager.handlePromptSubmit(
                 workspaceId: workspaceId,
                 message: event.submittedPromptMessage,
@@ -8163,7 +8047,7 @@ class TerminalController {
         }
     }
 
-    private func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
                 code: "invalid_params",
@@ -8187,7 +8071,7 @@ class TerminalController {
         return .ok(["delivered": true])
     }
 
-    private func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
                 code: "invalid_params",
@@ -8209,7 +8093,7 @@ class TerminalController {
         return .ok(["delivered": true])
     }
 
-    private func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
                 code: "invalid_params",
