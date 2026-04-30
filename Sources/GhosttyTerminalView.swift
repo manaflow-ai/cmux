@@ -6503,9 +6503,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func applySurfaceColorScheme(force: Bool = false) {
         guard let surface else { return }
         let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
-        let scheme: ghostty_color_scheme_e = bestMatch == .darkAqua
-            ? GHOSTTY_COLOR_SCHEME_DARK
-            : GHOSTTY_COLOR_SCHEME_LIGHT
+        let scheme = GhosttyApp.appColorScheme(for: effectiveAppearance)
         if !force, appliedColorScheme == scheme {
             if GhosttyApp.shared.backgroundLogEnabled {
                 let schemeLabel = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
