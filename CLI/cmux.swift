@@ -2597,10 +2597,10 @@ struct CMUXCLI {
 
         case "workspace-action":
             try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
-
         case "tab-action":
             try runTabAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
-
+        case "move-tab-to-new-workspace", "detach-tab":
+            try runMoveTabToNewWorkspace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "rename-tab":
             try runRenameTab(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
@@ -3812,7 +3812,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func parseBoolString(_ raw: String) -> Bool? {
+    func parseBoolString(_ raw: String) -> Bool? {
         switch raw.lowercased() {
         case "1", "true", "yes", "on":
             return true
@@ -4011,7 +4011,7 @@ struct CMUXCLI {
         return "tab:\(ordinal)"
     }
 
-    private func formatHandle(_ payload: [String: Any], kind: String, idFormat: CLIIDFormat) -> String? {
+    func formatHandle(_ payload: [String: Any], kind: String, idFormat: CLIIDFormat) -> String? {
         let id = payload["\(kind)_id"] as? String
         let ref = payload["\(kind)_ref"] as? String
         switch idFormat {
@@ -4441,7 +4441,7 @@ struct CMUXCLI {
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
 
-    private func runTabAction(
+    func runTabAction(
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
@@ -4454,8 +4454,9 @@ struct CMUXCLI {
         let (actionOpt, rem3) = parseOption(rem2, name: "--action")
         let (titleOpt, rem4) = parseOption(rem3, name: "--title")
         let (urlOpt, rem5) = parseOption(rem4, name: "--url")
+        let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
 
-        var positional = rem5
+        var positional = rem6
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -4509,24 +4510,16 @@ struct CMUXCLI {
         if let urlOpt, !urlOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["url"] = urlOpt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
+        try applyTabActionFocusOption(focusOpt, to: &params)
         let payload = try client.sendV2(method: "tab.action", params: params)
         var summaryParts = ["OK", "action=\(action)"]
-        if let tabHandle = formatTabHandle(payload, idFormat: idFormat) {
-            summaryParts.append("tab=\(tabHandle)")
-        }
-        if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
-            summaryParts.append("workspace=\(workspaceHandle)")
-        }
-        if let closed = payload["closed"] {
-            summaryParts.append("closed=\(closed)")
-        }
-        if let created = formatCreatedTabHandle(payload, idFormat: idFormat) {
-            summaryParts.append("created=\(created)")
-        }
+        if let tabHandle = formatTabHandle(payload, idFormat: idFormat) { summaryParts.append("tab=\(tabHandle)") }
+        if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) { summaryParts.append("workspace=\(workspaceHandle)") }
+        if let closed = payload["closed"] { summaryParts.append("closed=\(closed)") }
+        if let created = formatCreatedTabHandle(payload, idFormat: idFormat) { summaryParts.append("created=\(created)") }
+        appendCreatedWorkspaceSummaryParts(from: payload, idFormat: idFormat, to: &summaryParts)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
-
     private func runRenameTab(
         commandArgs: [String],
         client: SocketClient,
@@ -8741,6 +8734,7 @@ struct CMUXCLI {
               rename | clear-name
               close-left | close-right | close-others
               new-terminal-right | new-browser-right
+              move-to-new-workspace
               reload | duplicate
               pin | unpin
               mark-unread
@@ -8752,12 +8746,16 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename (or pass trailing title text)
               --url <url>                  Optional URL for new-browser-right
+              --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)
 
             Example:
               cmux tab-action --tab tab:3 --action pin
               cmux tab-action --action close-right
+              cmux tab-action --tab tab:2 --action move-to-new-workspace
               cmux tab-action --tab tab:2 --action rename --title "build logs"
             """
+        case "move-tab-to-new-workspace", "detach-tab":
+            return Self.moveTabToNewWorkspaceCommandHelp
         case "rename-tab":
             return """
             Usage: cmux rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] [--] <title>
@@ -20261,6 +20259,7 @@ export default CMUXSessionRestore;
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
@@ -20276,7 +20275,7 @@ export default CMUXSessionRestore;
           close-surface [--surface <id|ref>] [--workspace <id|ref>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>)
-          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>]
+          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
           rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
           drag-surface-to-split --surface <id|ref> <left|right|up|down>
           refresh-surfaces

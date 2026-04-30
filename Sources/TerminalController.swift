@@ -153,7 +153,7 @@ class TerminalController {
         "feed.jump"
     ]
 
-    private enum V2HandleKind: String, CaseIterable {
+    enum V2HandleKind: String, CaseIterable {
         case window
         case workspace
         case pane
@@ -276,7 +276,7 @@ class TerminalController {
         Self.allowsInAppFocusMutationsForActiveSocketCommand()
     }
 
-    private func v2FocusAllowed(requested: Bool = true) -> Bool {
+    func v2FocusAllowed(requested: Bool = true) -> Bool {
         requested && socketCommandAllowsInAppFocusMutations()
     }
 
@@ -3710,7 +3710,7 @@ class TerminalController {
         return result
     }
 
-    private nonisolated func v2OrNull(_ value: Any?) -> Any {
+    nonisolated func v2OrNull(_ value: Any?) -> Any {
         // Avoid relying on `?? NSNull()` inference (Swift toolchains can disagree).
         if let value { return value }
         return NSNull()
@@ -3856,7 +3856,7 @@ class TerminalController {
         return nil
     }
 
-    private func v2Ref(kind: V2HandleKind, uuid: UUID?) -> Any {
+    func v2Ref(kind: V2HandleKind, uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         return v2EnsureHandleRef(kind: kind, uuid: uuid)
     }
@@ -3882,7 +3882,7 @@ class TerminalController {
         )
     }
 
-    private func v2TabRef(uuid: UUID?) -> Any {
+    func v2TabRef(uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         let surfaceRef = v2EnsureHandleRef(kind: .surface, uuid: uuid)
         return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
@@ -3953,7 +3953,7 @@ class TerminalController {
 
     // MARK: - V2 Param Parsing
 
-    private func v2String(_ params: [String: Any], _ key: String) -> String? {
+    func v2String(_ params: [String: Any], _ key: String) -> String? {
         guard let raw = params[key] as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -4021,7 +4021,7 @@ class TerminalController {
         }
         return v2ResolveHandleRef(trimmed)
     }
-    private func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
+    func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
         if let b = params[key] as? Bool { return b }
         if let n = params[key] as? NSNumber { return n.boolValue }
         if let s = params[key] as? String {
@@ -5258,7 +5258,6 @@ class TerminalController {
         guard let action = v2ActionKey(params) else {
             return .err(code: "invalid_params", message: "Missing action", data: nil)
         }
-
         let supportedActions = [
             "pin", "unpin", "rename", "clear_name",
             "set_description", "clear_description",
@@ -5457,10 +5456,9 @@ class TerminalController {
             "rename", "clear_name",
             "close_left", "close_right", "close_others",
             "new_terminal_right", "new_browser_right",
-            "reload", "duplicate",
+            "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
             "pin", "unpin", "mark_read", "mark_unread"
         ]
-
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown tab action", data: [
             "action": action,
             "supported_actions": supportedActions
@@ -5580,6 +5578,8 @@ class TerminalController {
                 workspace.markPanelUnread(surfaceId)
                 finish()
 
+            case "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace":
+                result = v2MoveTabToNewWorkspaceActionResult(action: action, params: params, tabManager: tabManager, workspace: workspace, surfaceId: surfaceId)
             case "reload", "reload_tab":
                 guard let browserPanel = workspace.browserPanel(for: surfaceId) else {
                     result = .err(code: "invalid_state", message: "Reload is only available for browser tabs", data: nil)
