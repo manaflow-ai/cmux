@@ -223,6 +223,8 @@ struct SurfaceSearchOverlay: View {
 /// NSTextField subclass for the terminal find bar.
 /// Strips visual chrome so SwiftUI handles the background/border appearance.
 private final class SearchNativeTextField: NSTextField {
+    var cmuxLastSelectedRange: NSRange?
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isBordered = false
@@ -234,6 +236,16 @@ private final class SearchNativeTextField: NSTextField {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        guard let cmuxLastSelectedRange else { return true }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let editor = self.currentEditor() as? NSTextView, !editor.hasMarkedText() else { return }
+            editor.setSelectedRange(cmuxClampedFindSelection(cmuxLastSelectedRange, in: editor.string))
+        }
+        return true
     }
 }
 
@@ -279,8 +291,11 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                     let selection = NSRange(location: 0, length: editor.string.utf16.count)
                     editor.setSelectedRange(selection)
                     self.lastSelectedRange = selection
+                    field.cmuxLastSelectedRange = selection
                 } else if !alreadyFocused, let lastSelectedRange = self.lastSelectedRange {
-                    editor.setSelectedRange(cmuxClampedFindSelection(lastSelectedRange, in: editor.string))
+                    let selection = cmuxClampedFindSelection(lastSelectedRange, in: editor.string)
+                    editor.setSelectedRange(selection)
+                    field.cmuxLastSelectedRange = selection
                 }
             }
         }
@@ -341,6 +356,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         private func rememberSelection(from field: NSTextField) {
             guard let editor = field.currentEditor() as? NSTextView else { return }
             rememberSelection(from: editor)
+            (field as? SearchNativeTextField)?.cmuxLastSelectedRange = lastSelectedRange
         }
 
         private func rememberSelection(from textView: NSTextView) {
@@ -410,6 +426,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                 nsView.stringValue = text
                 editor.setSelectedRange(selectedRange)
                 context.coordinator.lastSelectedRange = selectedRange
+                nsView.cmuxLastSelectedRange = selectedRange
                 context.coordinator.isProgrammaticMutation = false
             }
         } else if nsView.stringValue != text {
