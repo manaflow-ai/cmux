@@ -16,9 +16,9 @@ func cmuxClampedFindSelection(_ range: NSRange, in text: String) -> NSRange {
 
 func cmuxTextFieldIsFirstResponder(_ field: NSTextField, in window: NSWindow) -> Bool {
     let firstResponder = window.firstResponder
-    return firstResponder === field ||
-        field.currentEditor() != nil ||
-        (firstResponder as? NSTextView).flatMap { cmuxFieldEditorOwnerView($0) } === field
+    if firstResponder === field { return true }
+    if let editor = field.currentEditor() as? NSTextView, firstResponder === editor { return true }
+    return (firstResponder as? NSTextView).flatMap { cmuxFieldEditorOwnerView($0) } === field
 }
 
 private let cmuxFindSelectionChangingCommands: Set<String> = [
