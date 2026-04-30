@@ -61371,6 +61371,279 @@
         "ja": { "stringUnit": { "state": "translated", "value": "このビルドではリモートアクセスサーバーを利用できません。" } }
       }
     },
+    "remoteAccess.web.appName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux" } }
+      }
+    },
+    "remoteAccess.web.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux remote" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxリモート" } }
+      }
+    },
+    "remoteAccess.web.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connect to the running cmux app on this Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacで実行中のcmuxに接続します。" } }
+      }
+    },
+    "remoteAccess.web.token.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote access token" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセストークン" } }
+      }
+    },
+    "remoteAccess.web.token.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Paste token" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トークンを貼り付け" } }
+      }
+    },
+    "remoteAccess.web.token.connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connect" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続" } }
+      }
+    },
+    "remoteAccess.web.token.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The token stays in this browser. Use Forget to remove it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トークンはこのブラウザに保存されます。削除するには「忘れる」を使います。" } }
+      }
+    },
+    "remoteAccess.web.status.disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Disconnected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未接続" } }
+      }
+    },
+    "remoteAccess.web.status.refreshing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refreshing..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新中..." } }
+      }
+    },
+    "remoteAccess.web.status.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続済み" } }
+      }
+    },
+    "remoteAccess.web.action.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "remoteAccess.web.action.forget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Forget" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "忘れる" } }
+      }
+    },
+    "remoteAccess.web.action.read": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Read" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "読み取り" } }
+      }
+    },
+    "remoteAccess.web.action.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Send" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
+      }
+    },
+    "remoteAccess.web.sessions.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション" } }
+      }
+    },
+    "remoteAccess.web.sessions.noWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No windows found." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウがありません。" } }
+      }
+    },
+    "remoteAccess.web.workspace.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
+      }
+    },
+    "remoteAccess.web.workspace.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "selected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中" } }
+      }
+    },
+    "remoteAccess.web.workspace.meta": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "window %lld - %lld panes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウ%lld - %lldペイン" } }
+      }
+    },
+    "remoteAccess.web.surface.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サーフェス" } }
+      }
+    },
+    "remoteAccess.web.surface.typeFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サーフェス" } }
+      }
+    },
+    "remoteAccess.web.surface.focused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "focused" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーカス中" } }
+      }
+    },
+    "remoteAccess.web.terminal.noSelectionTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No terminal selected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル未選択" } }
+      }
+    },
+    "remoteAccess.web.terminal.noSelectionMeta": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Select a terminal surface." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルサーフェスを選択してください。" } }
+      }
+    },
+    "remoteAccess.web.terminal.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル" } }
+      }
+    },
+    "remoteAccess.web.terminal.inputPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Type input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力を入力" } }
+      }
+    },
+    "remoteAccess.web.terminal.keysLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal keys" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルキー" } }
+      }
+    },
+    "remoteAccess.web.key.enter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enter" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Enter" } }
+      }
+    },
+    "remoteAccess.web.key.escape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Esc" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Esc" } }
+      }
+    },
+    "remoteAccess.web.key.ctrlC": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ctrl-C" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ctrl-C" } }
+      }
+    },
+    "remoteAccess.web.key.tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tab" } }
+      }
+    },
+    "remoteAccess.web.key.up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Up" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上" } }
+      }
+    },
+    "remoteAccess.web.key.down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Down" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "下" } }
+      }
+    },
+    "remoteAccess.web.key.left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Left" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "左" } }
+      }
+    },
+    "remoteAccess.web.key.right": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Right" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "右" } }
+      }
+    },
+    "remoteAccess.web.key.backspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Backspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Backspace" } }
+      }
+    },
+    "remoteAccess.web.error.requestFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request failed (%lld)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リクエストに失敗しました（%lld）" } }
+      }
+    },
+    "remoteAccess.web.error.snapshotFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Snapshot failed (%lld)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スナップショットに失敗しました（%lld）" } }
+      }
+    },
+    "remoteAccess.web.error.tokenRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Token was rejected." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トークンが拒否されました。" } }
+      }
+    },
     "settings.blendMode.behindWindow": {
       "extractionState": "manual",
       "localizations": {

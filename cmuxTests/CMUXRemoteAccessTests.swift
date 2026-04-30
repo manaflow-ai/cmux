@@ -351,6 +351,79 @@ final class CMUXRemoteAccessTests: XCTestCase {
     }
 
     #if canImport(HummingbirdTesting)
+    func testRemoteStaticHTMLRoutesAreServedWithoutAuthOrDispatch() async throws {
+        let probe = RemoteStaticRouteProbe()
+        let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: probe.handler)
+
+        try await app.test(.router) { client in
+            for uri in ["/", "/remote"] {
+                try await client.execute(uri: uri, method: .get) { response in
+                    XCTAssertEqual(response.status, .ok)
+                    assertContentType(response.headers[.contentType], is: "text/html")
+                }
+            }
+        }
+
+        XCTAssertEqual(probe.dispatchCount, 0)
+    }
+
+    func testRemoteStaticAssetRoutesAreServedWithExpectedContentTypesWithoutDispatch() async throws {
+        let probe = RemoteStaticRouteProbe()
+        let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: probe.handler)
+
+        let routes: [(uri: String, contentType: String)] = [
+            ("/remote/app.js", "application/javascript"),
+            ("/remote/styles.css", "text/css"),
+            ("/remote/manifest.webmanifest", "application/manifest+json"),
+            ("/remote/icon.svg", "image/svg+xml"),
+            ("/remote/icon-maskable.svg", "image/svg+xml"),
+        ]
+
+        try await app.test(.router) { client in
+            for route in routes {
+                try await client.execute(uri: route.uri, method: .get) { response in
+                    XCTAssertEqual(response.status, .ok)
+                    assertContentType(response.headers[.contentType], is: route.contentType)
+                }
+            }
+        }
+
+        XCTAssertEqual(probe.dispatchCount, 0)
+    }
+
+    func testRemoteStringsJSONRouteIsServedWithoutAuthAndContainsCoreLabels() async throws {
+        let probe = RemoteStaticRouteProbe()
+        let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: probe.handler)
+
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/remote/strings.json", method: .get) { response in
+                XCTAssertEqual(response.status, .ok)
+                assertContentType(response.headers[.contentType], is: "application/json")
+
+                let body = String(buffer: response.body)
+                let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])
+
+                assertStringDictionary(
+                    object,
+                    containsAnyKey: ["appTitle", "app.title", "app_title"],
+                    named: "app title"
+                )
+                assertStringDictionary(
+                    object,
+                    containsAnyKey: ["connectButton", "connect.button", "connect_button"],
+                    named: "connect button"
+                )
+                assertStringDictionary(
+                    object,
+                    containsAnyKey: ["noTerminalSelected", "terminal.noTerminalSelected", "no_terminal_selected"],
+                    named: "no terminal selected"
+                )
+            }
+        }
+
+        XCTAssertEqual(probe.dispatchCount, 0)
+    }
+
     func testRPCPreflightReturnsCORSHeadersForBrowserClients() async throws {
         let handler = makeHandler(expectedToken: "abcdefghijklmnopqrstuvwxyzABCDEF1234567890")
         let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: handler)
@@ -526,6 +599,36 @@ final class CMUXRemoteAccessTests: XCTestCase {
         for header in expectedHeaders {
             XCTAssertTrue(lowercased?.contains(header.lowercased()) == true, "Missing \(header) in Access-Control-Allow-Headers", file: file, line: line)
         }
+    }
+
+    private func assertContentType(
+        _ value: String?,
+        is expectedMediaType: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let mediaType = value?
+            .split(separator: ";", maxSplits: 1)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        XCTAssertEqual(mediaType, expectedMediaType, file: file, line: line)
+    }
+
+    private func assertStringDictionary(
+        _ object: [String: Any],
+        containsAnyKey expectedKeys: [String],
+        named label: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let matchingValue = expectedKeys.compactMap { object[$0] as? String }.first
+        XCTAssertTrue(
+            matchingValue?.isEmpty == false,
+            "Expected \(label) string under one of keys: \(expectedKeys.joined(separator: ", "))",
+            file: file,
+            line: line
+        )
     }
 
     #if canImport(Hummingbird)
@@ -735,5 +838,19 @@ private actor RemoteServerLifecycleProbe {
         }
         cancellationWaiters = remaining
     }
+}
+#endif
+
+#if canImport(HummingbirdTesting)
+private final class RemoteStaticRouteProbe: @unchecked Sendable {
+    nonisolated(unsafe) private(set) var dispatchCount = 0
+
+    lazy var handler = CMUXRemoteRPCHandler(
+        loadToken: { "abcdefghijklmnopqrstuvwxyzABCDEF1234567890" },
+        dispatch: { [self] _ in
+            dispatchCount += 1
+            return #"{"ok":false}"#
+        }
+    )
 }
 #endif

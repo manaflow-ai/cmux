@@ -101,6 +101,7 @@
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		A50012A0 /* Hummingbird in Frameworks */ = {isa = PBXBuildFile; productRef = A50012A1 /* Hummingbird */; };
 		A50012B0 /* CMUXRemoteServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012B1 /* CMUXRemoteServer.swift */; };
+		A50012B2 /* CMUXRemoteWebClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012B3 /* CMUXRemoteWebClient.swift */; };
 		A50012C0 /* CMUXRemoteAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012C1 /* CMUXRemoteAccessTests.swift */; };
 		A50012D0 /* HummingbirdTesting in Frameworks */ = {isa = PBXBuildFile; productRef = A50012D1 /* HummingbirdTesting */; };
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
@@ -411,6 +412,7 @@
 		A5001224 /* UpdateTestURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTestURLProtocol.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlSettings.swift; sourceTree = "<group>"; };
 		A50012B1 /* CMUXRemoteServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXRemoteServer.swift; sourceTree = "<group>"; };
+		A50012B3 /* CMUXRemoteWebClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXRemoteWebClient.swift; sourceTree = "<group>"; };
 		A50012C1 /* CMUXRemoteAccessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXRemoteAccessTests.swift; sourceTree = "<group>"; };
 		A5001241 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDecorationsController.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
@@ -740,6 +742,7 @@
 				A5001545 /* TerminalSSHSessionDetector.swift */,
 				A5001225 /* SocketControlSettings.swift */,
 				A50012B1 /* CMUXRemoteServer.swift */,
+				A50012B3 /* CMUXRemoteWebClient.swift */,
 				A5001600 /* SentryHelper.swift */,
 				A5001620 /* AppleScriptSupport.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
@@ -1181,6 +1184,7 @@
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				A5001226 /* SocketControlSettings.swift in Sources */,
 				A50012B0 /* CMUXRemoteServer.swift in Sources */,
+				A50012B2 /* CMUXRemoteWebClient.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,

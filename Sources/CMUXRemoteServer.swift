@@ -547,6 +547,14 @@ final class CMUXRemoteServer: ObservableObject {
             let result = await handler.handleSnapshot(authorizationHeader: request.headers[.authorization])
             return Self.response(statusCode: result.statusCode, body: result.body)
         }
+        for path in ["/", "/remote", "/remote/app.js", "/remote/strings.json", "/remote/styles.css", "/remote/manifest.webmanifest", "/remote/icon.svg", "/remote/maskable-icon.svg", "/remote/icon-maskable.svg"] {
+            router.get(RouterPath(path)) { _, _ -> Response in
+                guard let asset = CMUXRemoteWebClient.asset(path: path) else {
+                    return Self.response(statusCode: 404, body: #"{"ok":false,"error":{"code":"not_found","message":"Asset not found."}}"#)
+                }
+                return Self.staticResponse(asset: asset)
+            }
+        }
         return Application(
             router: router,
             configuration: .init(
@@ -567,6 +575,21 @@ final class CMUXRemoteServer: ObservableObject {
         headers[.contentLength] = buffer.readableBytes.description
         return Response(
             status: status,
+            headers: headers,
+            body: .init(byteBuffer: buffer)
+        )
+    }
+
+    nonisolated private static func staticResponse(asset: CMUXRemoteWebClient.Asset) -> Response {
+        let buffer = ByteBuffer(string: asset.body)
+        var headers = HTTPFields()
+        headers[.contentType] = asset.contentType
+        headers[.contentLength] = buffer.readableBytes.description
+        headers[.cacheControl] = "no-store"
+        headers[.contentSecurityPolicy] = "default-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        headers[.xContentTypeOptions] = "nosniff"
+        return Response(
+            status: .ok,
             headers: headers,
             body: .init(byteBuffer: buffer)
         )
