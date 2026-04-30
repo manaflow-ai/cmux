@@ -381,7 +381,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                 "alreadyFocused=\(alreadyFocused) firstResponder=\(String(describing: window.firstResponder))"
             )
             #endif
-            guard !alreadyFocused || selectAll else { return }
+            guard !alreadyFocused else { return }
             coordinator.focusField(field, in: window, selectAll: selectAll)
 #if DEBUG
             cmuxDebugLog(

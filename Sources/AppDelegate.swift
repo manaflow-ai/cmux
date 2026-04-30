@@ -10637,11 +10637,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
-        if matchConfiguredShortcut(event: event, action: .find) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
-        }
-
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
@@ -10649,6 +10644,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
 #endif
             return false
+        }
+        if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
+        if matchConfiguredShortcut(event: event, action: .find) {
+            let shortcutWindow = resolvedShortcutEventWindow(event)
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
         }
 
         // Keep keyboard routing deterministic after split close/reparent transitions:
@@ -11983,7 +11983,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func handleBrowserSurfaceKeyEquivalentBeforeMainMenu(_ event: NSEvent) -> Bool {
         if matchConfiguredShortcut(event: event, action: .find) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
+            let shortcutWindow = resolvedShortcutEventWindow(event)
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
         }
         return false
     }

@@ -341,7 +341,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             guard let window = field.window else { return }
             let selectAll = notification.userInfo?[FindFocusNotificationKey.selectAll] as? Bool == true
             let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
-            guard !alreadyFocused || selectAll else { return }
+            guard !alreadyFocused else { return }
             coordinator.focusField(field, in: window, selectAll: selectAll)
         }
         return field

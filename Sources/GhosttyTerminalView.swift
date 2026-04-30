@@ -7274,10 +7274,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             dismissNotificationMs = (ProcessInfo.processInfo.systemUptime - dismissNotificationStart) * 1000.0
 #endif
         }
-        if event.keyCode != 53 { endFindEscapeSuppression() }
+        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        if !cmuxFindEventIsPlainEscape(event) { endFindEscapeSuppression() }
         if shouldConsumeSuppressedFindEscape(event) { return }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.keyCode == 53, flags.isEmpty, !hasMarkedText(), let terminalSurface, terminalSurface.searchState != nil {
+        if cmuxFindEventIsPlainEscape(event), !hasMarkedText(), let terminalSurface, terminalSurface.searchState != nil {
             terminalSurface.searchState = nil
             beginFindEscapeSuppression(); return
         }
@@ -7839,10 +7839,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func shouldConsumeSuppressedFindEscape(_ event: NSEvent) -> Bool {
-        guard event.keyCode == 53 else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.isEmpty else { return false }
-        return isFindEscapeSuppressionArmed
+        isFindEscapeSuppressionArmed && cmuxFindEventIsPlainEscape(event)
     }
 
     /// Get the characters for a key event with control character handling.

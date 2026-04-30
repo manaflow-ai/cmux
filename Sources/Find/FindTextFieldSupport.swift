@@ -57,6 +57,10 @@ func cmuxFindCommandMayChangeSelection(_ selector: Selector) -> Bool {
     cmuxFindSelectionChangingCommands.contains(NSStringFromSelector(selector))
 }
 
+func cmuxFindEventIsPlainEscape(_ event: NSEvent) -> Bool {
+    ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags).isEmpty && ShortcutStroke.isEscapeCancelEvent(event)
+}
+
 private let cmuxFindSelectionStore = NSMapTable<AnyObject, NSValue>.weakToStrongObjects()
 private let cmuxFindFieldEditorOwners = NSMapTable<NSTextView, FindSelectionTrackingTextField>.weakToWeakObjects()
 
@@ -177,7 +181,9 @@ class FindSelectionTrackingTextField: NSTextField {
         super.textDidBeginEditing(notification)
         cmuxAttachSelectionObserverIfNeeded()
         cmuxInstallKeyMonitorIfNeeded()
-        _ = cmuxRememberSelectionFromCurrentEditor()
+        if cmuxLastSelectedRange == nil, cmuxStoredFindSelection(for: cmuxSelectionOwner) == nil {
+            _ = cmuxRememberSelectionFromCurrentEditor()
+        }
     }
 
     override func textDidChange(_ notification: Notification) {
@@ -238,8 +244,13 @@ class FindSelectionTrackingTextField: NSTextField {
             NotificationCenter.default.removeObserver(cmuxSelectionObserver)
             self.cmuxSelectionObserver = nil
         }
-        if let editor = cmuxObservedEditor, editor.nextResponder === self {
-            editor.nextResponder = cmuxPreviousEditorNextResponder
+        if let editor = cmuxObservedEditor {
+            if editor.nextResponder === self {
+                editor.nextResponder = cmuxPreviousEditorNextResponder
+            }
+            if cmuxTrackedFindFieldEditorOwner(editor) === self {
+                cmuxFindFieldEditorOwners.removeObject(forKey: editor)
+            }
         }
         cmuxPreviousEditorNextResponder = nil
         cmuxObservedEditor = nil
@@ -258,12 +269,12 @@ class FindSelectionTrackingTextField: NSTextField {
     private func cmuxInstallKeyMonitorIfNeeded() {
         guard cmuxKeyMonitor == nil else { return }
         cmuxKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let eventWindow = event.window ?? (event.windowNumber > 0 ? NSApp.window(withWindowNumber: event.windowNumber) : nil)
             guard let self,
-                  event.window === self.window,
+                  eventWindow == nil || eventWindow === self.window,
                   let editor = self.currentEditor() as? NSTextView,
                   self.window?.firstResponder === editor else { return event }
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock])
-            if flags.isEmpty, event.keyCode == 53, !editor.hasMarkedText(), self.cmuxOnEscape?(editor) == true { return nil }
+            if cmuxFindEventIsPlainEscape(event), !editor.hasMarkedText(), self.cmuxOnEscape?(editor) == true { return nil }
             DispatchQueue.main.async { [weak self, weak editor] in
                 guard let self, let editor else { return }
                 _ = self.cmuxRememberSelection(from: editor)
@@ -280,7 +291,7 @@ class FindSelectionTrackingTextField: NSTextField {
     }
 
     private func cmuxRestoreRememberedSelection() {
-        guard let rememberedSelection = cmuxLastSelectedRange ?? cmuxStoredFindSelection(for: cmuxSelectionOwner) else { return }
+        guard let rememberedSelection = cmuxStoredFindSelection(for: cmuxSelectionOwner) ?? cmuxLastSelectedRange else { return }
         if let editor = currentEditor() as? NSTextView, !editor.hasMarkedText() {
             let selection = cmuxRememberSelection(rememberedSelection, in: editor.string)
             editor.setSelectedRange(selection)

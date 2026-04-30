@@ -2,10 +2,7 @@ import AppKit
 
 @MainActor
 func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDelegate) -> Bool {
-    let flags = event.modifierFlags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-    guard flags.isEmpty, event.keyCode == 53 else { return false }
+    guard cmuxFindEventIsPlainEscape(event) else { return false }
 
     let shortcutWindow = event.window
         ?? (event.windowNumber > 0 ? NSApp.window(withWindowNumber: event.windowNumber) : nil)
@@ -13,8 +10,9 @@ func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDeleg
         ?? NSApp.mainWindow
     let terminalFindFieldOwnsResponder = cmuxFindTextFieldOwner(for: shortcutWindow?.firstResponder)?
         .identifier?.rawValue == "TerminalFindSearchTextField"
+    let targetTabManager = appDelegate.synchronizeActiveMainWindowContext(preferredWindow: shortcutWindow)
 
-    guard let panel = appDelegate.tabManager?.selectedTerminalPanel,
+    guard let panel = (targetTabManager ?? appDelegate.tabManager)?.selectedTerminalPanel,
           panel.searchState != nil,
           !browserResponderHasMarkedText(shortcutWindow?.firstResponder),
           terminalFindFieldOwnsResponder || appDelegate.allowsTerminalKeyboardFocus(
