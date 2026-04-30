@@ -927,6 +927,7 @@ class TabManager: ObservableObject {
         }
         return min(max(value.doubleValue, workspacePullRequestPollIntervalMinSeconds), workspacePullRequestPollIntervalMaxSeconds)
     }
+
     @Published var selectedTabId: UUID? {
         willSet {
 #if DEBUG
@@ -1700,13 +1701,21 @@ class TabManager: ObservableObject {
     }
 
     private var lastObservedSidebarShowPullRequestEnabled = TabManager.sidebarShowPullRequestEnabled()
+    private var lastObservedWorkspacePullRequestPollInterval = TabManager.workspacePullRequestBackgroundPollInterval()
 
     private func handlePullRequestPollSettingsChange() {
         let enabled = Self.sidebarShowPullRequestEnabled()
-        if enabled == lastObservedSidebarShowPullRequestEnabled { return }
+        let interval = Self.workspacePullRequestBackgroundPollInterval()
+        let enabledChanged = enabled != lastObservedSidebarShowPullRequestEnabled
+        let intervalChanged = interval != lastObservedWorkspacePullRequestPollInterval
+        guard enabledChanged || (enabled && intervalChanged) else { return }
         lastObservedSidebarShowPullRequestEnabled = enabled
+        lastObservedWorkspacePullRequestPollInterval = interval
         if enabled {
-            refreshTrackedWorkspacePullRequestsIfNeeded(reason: "sidebarShowPullRequestEnabled")
+            if intervalChanged {
+                workspacePullRequestNextPollAtByKey = workspacePullRequestNextPollAtByKey.mapValues { _ in .distantPast }
+            }
+            refreshTrackedWorkspacePullRequestsIfNeeded(reason: "sidebarPullRequestPollSettingsChanged")
         } else {
             resetWorkspacePullRequestRefreshState()
         }
