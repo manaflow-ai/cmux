@@ -2010,6 +2010,8 @@ class GhosttyApp {
         // app's conditional state stays at its default and surfaces render the
         // wrong theme regardless of OS appearance. Mirrors standalone Ghostty
         // (see ghostty/macos/Sources/App/macOS/AppDelegate.swift).
+        // AppKit delivers effectiveAppearance KVO callbacks on the main thread,
+        // so applyAppColorScheme runs on main without an explicit dispatch.
         appAppearanceObserver = NSApplication.shared.observe(
             \.effectiveAppearance,
             options: [.new, .initial]
