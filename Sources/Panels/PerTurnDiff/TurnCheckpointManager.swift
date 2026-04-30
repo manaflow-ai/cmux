@@ -35,6 +35,11 @@ final class TurnCheckpointManager {
     /// Set by TurnDiffPanelHost; called on running/idle state changes.
     var onStatusChanged: ((String) -> Void)?
 
+    /// Set by TurnDiffPanelHost; called when files change mid-turn (debounced via WorktreeWatcher).
+    var onLiveDiffChanged: ((String) -> Void)?
+
+    private var watcher: WorktreeWatcher?
+
     /// Convenience accessor for code that needs the workspace's worktree path.
     var workspaceCwd: String? { workspace?.currentDirectory }
 
@@ -55,6 +60,7 @@ final class TurnCheckpointManager {
     }
 
     func stop() {
+        stopLiveWatcher()
         cancellables.removeAll()
         if let worktree = workspace?.currentDirectory, !worktree.isEmpty {
             try? TurnCheckpointStore.cleanup(session: session, in: worktree)
@@ -71,7 +77,9 @@ final class TurnCheckpointManager {
         switch (prev, value) {
         case (_, "Running"):
             captureStart()
+            startLiveWatcher()
         case ("Running", "Idle"):
+            stopLiveWatcher()
             captureEnd()
         default:
             break
@@ -111,6 +119,26 @@ final class TurnCheckpointManager {
         } catch {
             // Snapshot or diff failed; surface via status only, don't crash.
         }
+    }
+
+    private func startLiveWatcher() {
+        guard let cwd = workspace?.currentDirectory, !cwd.isEmpty else { return }
+        let sessionId = self.session
+        watcher = WorktreeWatcher(path: cwd) { [weak self] in
+            guard let self else { return }
+            // Live diff requires a current last-turn-base ref; if missing (very first turn
+            // ever with no completed code-change yet), this returns "" — UI shows empty state.
+            let diff = (try? TurnCheckpointStore.diffAgainstWorkingTree(
+                session: sessionId, in: cwd
+            )) ?? ""
+            self.onLiveDiffChanged?(diff)
+        }
+        watcher?.start()
+    }
+
+    private func stopLiveWatcher() {
+        watcher?.stop()
+        watcher = nil
     }
 
     private func gitHead(in worktree: String) throws -> String {
