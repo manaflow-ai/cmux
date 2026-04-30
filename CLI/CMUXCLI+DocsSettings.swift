@@ -303,6 +303,13 @@ extension CMUXCLI {
         }
     }
 
+    func settingsCommandDoesNotNeedSocket(_ commandArgs: [String]) -> Bool {
+        let parsedArgs = docsSettingsArguments(commandArgs)
+        let subcommand = parsedArgs.head.filter { $0 != "--json" }.first?.lowercased() ?? "open"
+        return hasHelpRequest(beforeSeparator: parsedArgs.head) ||
+            ["path", "paths", "docs", "documentation"].contains(subcommand)
+    }
+
     func settingsUsage() -> String {
         return """
         Usage: cmux settings [open|path|docs|target]

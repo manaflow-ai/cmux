@@ -1978,29 +1978,9 @@ struct CMUXCLI {
             return
         }
 
-        if command == "help" {
-            print(usage())
-            return
-        }
-
-        if command == "remote-daemon-status" {
-            try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput)
-            return
-        }
-
-        if command == "vm-pty-connect" {
-            try runVMPtyConnect(commandArgs: commandArgs)
-            return
-        }
-
         // Check for --help/-h on subcommands before resolving sockets,
         // so help text is available even when cmux is not running.
-        let preSeparatorArgs: ArraySlice<String>
-        if let separatorIndex = commandArgs.firstIndex(of: "--") {
-            preSeparatorArgs = commandArgs[..<separatorIndex]
-        } else {
-            preSeparatorArgs = commandArgs[...]
-        }
+        let preSeparatorArgs = commandArgs.firstIndex(of: "--").map { commandArgs[..<$0] } ?? commandArgs[...]
         if command != "__tmux-compat",
            command != "claude-teams",
            preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
@@ -2008,6 +1988,22 @@ struct CMUXCLI {
                 return
             }
             print("Unknown command '\(command)'. Run 'cmux help' to see available commands.")
+            return
+        }
+
+        if command == "help" { print(usage()); return }
+        if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
+        if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+
+        if command == "settings",
+           settingsCommandDoesNotNeedSocket(commandArgs) {
+            try runSettings(
+                commandArgs: commandArgs,
+                socketPath: CLISocketPathResolver.defaultSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
             return
         }
 
@@ -2038,11 +2034,6 @@ struct CMUXCLI {
         // If the argument looks like a path (not a known command), open a workspace there.
         if looksLikePath(command) {
             try openPath(command, socketPath: resolvedSocketPath)
-            return
-        }
-
-        if command == "docs" {
-            try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput)
             return
         }
 

@@ -73,10 +73,24 @@ def main() -> int:
     conflict_help_command_out = _merged_output(conflict_help_command).lower()
     _must(conflict_help_command.returncode == 0, f"help command should ignore socket env conflicts: {conflict_help_command_out!r}")
     _must("usage" in conflict_help_command_out, f"help command with socket env conflict should show usage: {conflict_help_command_out!r}")
+    conflict_help_command_help = _run([cli, "help", "--help"], env=conflict_env)
+    conflict_help_command_help_out = _merged_output(conflict_help_command_help).lower()
+    _must(conflict_help_command_help.returncode == 0, f"help --help should ignore socket env conflicts: {conflict_help_command_help_out!r}")
+    _must("usage: cmux help" in conflict_help_command_help_out, f"help --help should show help command usage: {conflict_help_command_help_out!r}")
     conflict_subcommand_help = _run([cli, "ping", "--help"], env=conflict_env)
     conflict_subcommand_help_out = _merged_output(conflict_subcommand_help).lower()
     _must(conflict_subcommand_help.returncode == 0, f"subcommand --help should ignore socket env conflicts: {conflict_subcommand_help_out!r}")
     _must("usage: cmux ping" in conflict_subcommand_help_out, f"subcommand --help should show command usage: {conflict_subcommand_help_out!r}")
+    for docs_cmd, expected in [
+        ([cli, "docs"], "topics:"),
+        ([cli, "docs", "settings"], "settings files:"),
+        ([cli, "settings", "path"], "settings files:"),
+        ([cli, "settings", "docs"], "settings files:"),
+    ]:
+        docs_proc = _run(docs_cmd, env=conflict_env)
+        docs_out = _merged_output(docs_proc).lower()
+        _must(docs_proc.returncode == 0, f"{docs_cmd[1:]} should ignore socket env conflicts: {docs_out!r}")
+        _must(expected in docs_out, f"{docs_cmd[1:]} should show no-socket output: {docs_out!r}")
     override_ping = _run([cli, "--socket", SOCKET_PATH, "ping"], env=conflict_env)
     override_ping_out = _merged_output(override_ping).lower()
     _must(override_ping.returncode == 0, f"--socket should override conflicting socket env: {override_ping_out!r}")

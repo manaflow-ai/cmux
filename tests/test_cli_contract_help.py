@@ -112,6 +112,7 @@ def run_probe(cli_path: str, probe: HelpProbe) -> ProbeResult:
     env = dict(os.environ)
     for key in [
         "CMUX_SOCKET_PASSWORD",
+        "CMUX_SOCKET",
         "CMUX_WORKSPACE_ID",
         "CMUX_SURFACE_ID",
         "CMUX_TAB_ID",
