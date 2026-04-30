@@ -1205,7 +1205,7 @@ final class FileExplorerContainerView: NSView {
         let effectiveIsLoading = isLoading ?? false
         let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
         searchBarView.isHidden = !showSearch
-        searchBarHeightConstraint.constant = showSearch ? 36 : 0
+        searchBarHeightConstraint.constant = showSearch ? RightSidebarChromeMetrics.secondaryBarHeight : 0
         searchScrollView.isHidden = !showSearch
         scrollView.isHidden = showSearch || !effectiveHasContent || effectiveIsLoading
         needsLayout = true
@@ -1535,7 +1535,7 @@ final class FileExplorerHeaderView: NSView {
         addSubview(pathLabel)
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 28),
+            heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),

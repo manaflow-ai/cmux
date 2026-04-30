@@ -93,6 +93,7 @@ final class WindowTerminalHostView: NSView {
             )
             let clipped = rectInHost.intersection(bounds)
             guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
+            guard !cursorRectIntersectsChromePassThrough(clipped) else { continue }
             addCursorRect(clipped, cursor: region.isVertical ? .resizeLeftRight : .resizeUpDown)
         }
     }
@@ -132,7 +133,13 @@ final class WindowTerminalHostView: NSView {
     // PERF: hitTest is called on EVERY event including keyboard. Keep non-pointer
     // path minimal. Do not add work outside the isPointerEvent guard.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let currentEvent = NSApp.currentEvent
+        performHitTest(at: point, currentEvent: NSApp.currentEvent)
+    }
+
+    // Test seam: production calls go through `hitTest(_:)` which reads
+    // `NSApp.currentEvent`; tests can call this directly with a synthetic
+    // pointer event so the typing-latency guard doesn't gate them out.
+    func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
         let isPointerEvent: Bool
         switch currentEvent?.type {
         case .mouseMoved, .mouseEntered, .mouseExited,
@@ -146,6 +153,16 @@ final class WindowTerminalHostView: NSView {
         }
 
         if isPointerEvent {
+            if shouldPassThroughToTitlebar(at: point) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return nil
+            }
+
+            if shouldPassThroughToPaneTabBar(at: point, eventType: currentEvent?.type) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return nil
+            }
+
             if shouldPassThroughToSidebarResizer(at: point) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
@@ -197,6 +214,40 @@ final class WindowTerminalHostView: NSView {
         // Non-pointer event: skip divider/drag routing, just do standard hit testing.
         let hitView = super.hitTest(point)
         return hitView === self ? nil : hitView
+    }
+
+    private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
+        guard let window else { return false }
+        let windowPoint = convert(point, to: nil)
+        return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+    }
+
+    private func shouldPassThroughToPaneTabBar(
+        at point: NSPoint,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard let decision = BonsplitTabBarPassThrough.passThroughDecision(
+            at: point,
+            in: self,
+            eventType: eventType
+        ) else { return false }
+        return decision.result
+    }
+
+    private func shouldPassThroughToChrome(at point: NSPoint, eventType: NSEvent.EventType?) -> Bool {
+        shouldPassThroughToTitlebar(at: point)
+            || shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
+    }
+
+    private func cursorRectIntersectsChromePassThrough(_ rect: NSRect) -> Bool {
+        let samples = [
+            NSPoint(x: rect.midX, y: rect.midY),
+            NSPoint(x: rect.midX, y: rect.maxY - 0.5),
+            NSPoint(x: rect.midX, y: rect.minY + 0.5),
+            NSPoint(x: rect.minX + 0.5, y: rect.midY),
+            NSPoint(x: rect.maxX - 0.5, y: rect.midY),
+        ]
+        return samples.contains { shouldPassThroughToChrome(at: $0, eventType: .cursorUpdate) }
     }
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
@@ -258,13 +309,19 @@ final class WindowTerminalHostView: NSView {
         at point: NSPoint,
         visibleHostedViews: [GhosttySurfaceScrollView]
     ) -> Bool {
-        guard let rightMostEdge = visibleHostedViews.map(\.frame.maxX).max() else { return false }
+        let contentHostedViews = visibleHostedViews.filter { !$0.isRightSidebarDockSurface }
+        guard let rightMostEdge = contentHostedViews.map(\.frame.maxX).max() else { return false }
         let trailingGap = bounds.maxX - rightMostEdge
         guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightMostEdge).contains(point.x)
     }
 
     private func updateDividerCursor(at point: NSPoint) {
+        if shouldPassThroughToChrome(at: point, eventType: NSApp.currentEvent?.type) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+
         if shouldPassThroughToSidebarResizer(at: point) {
             clearActiveDividerCursor(restoreArrow: false)
             return
@@ -1619,6 +1676,7 @@ final class WindowTerminalPortal: NSObject {
         let orphanTerminalSubviewCount: Int
         let visibleOrphanTerminalSubviewCount: Int
         let staleEntryCount: Int
+        let visibleInvalidAnchorEntryCount: Int
     }
 
     func debugStats() -> DebugStats {
@@ -1626,6 +1684,7 @@ final class WindowTerminalPortal: NSObject {
         var mappedTerminalSubviewCount = 0
         var orphanTerminalSubviewCount = 0
         var visibleOrphanTerminalSubviewCount = 0
+        var visibleInvalidAnchorEntryCount = 0
 
         for hostedView in terminalSubviews {
             let hostedId = ObjectIdentifier(hostedView)
@@ -1642,6 +1701,20 @@ final class WindowTerminalPortal: NSObject {
             }
         }
 
+        for entry in entriesByHostedId.values where entry.visibleInUI {
+            guard let anchor = entry.anchorView else {
+                visibleInvalidAnchorEntryCount += 1
+                continue
+            }
+            let anchorInvalidForCurrentHost =
+                anchor.window !== window ||
+                anchor.superview == nil ||
+                (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
+            if anchorInvalidForCurrentHost {
+                visibleInvalidAnchorEntryCount += 1
+            }
+        }
+
         let staleEntryCount = entriesByHostedId.values.reduce(0) { partialResult, entry in
             guard let hostedView = entry.hostedView else { return partialResult + 1 }
             return hostedView.superview === hostView ? partialResult : partialResult + 1
@@ -1655,7 +1728,8 @@ final class WindowTerminalPortal: NSObject {
             mappedTerminalSubviewCount: mappedTerminalSubviewCount,
             orphanTerminalSubviewCount: orphanTerminalSubviewCount,
             visibleOrphanTerminalSubviewCount: visibleOrphanTerminalSubviewCount,
-            staleEntryCount: staleEntryCount
+            staleEntryCount: staleEntryCount,
+            visibleInvalidAnchorEntryCount: visibleInvalidAnchorEntryCount
         )
     }
 
@@ -2054,6 +2128,7 @@ enum TerminalWindowPortalRegistry {
             "orphan_terminal_subview_count": 0,
             "visible_orphan_terminal_subview_count": 0,
             "stale_entry_count": 0,
+            "visible_invalid_anchor_entry_count": 0,
             "mapped_hosted_count": 0,
         ]
 
@@ -2066,6 +2141,7 @@ enum TerminalWindowPortalRegistry {
                 stats.orphanTerminalSubviewCount == 0 &&
                 stats.visibleOrphanTerminalSubviewCount == 0 &&
                 stats.staleEntryCount == 0 &&
+                stats.visibleInvalidAnchorEntryCount == 0 &&
                 mappedHostedCount == stats.entryCount
 
             portals.append([
@@ -2078,6 +2154,7 @@ enum TerminalWindowPortalRegistry {
                 "orphan_terminal_subview_count": stats.orphanTerminalSubviewCount,
                 "visible_orphan_terminal_subview_count": stats.visibleOrphanTerminalSubviewCount,
                 "stale_entry_count": stats.staleEntryCount,
+                "visible_invalid_anchor_entry_count": stats.visibleInvalidAnchorEntryCount,
                 "integrity_ok": integrityOK,
             ])
 
@@ -2088,6 +2165,7 @@ enum TerminalWindowPortalRegistry {
             totals["orphan_terminal_subview_count", default: 0] += stats.orphanTerminalSubviewCount
             totals["visible_orphan_terminal_subview_count", default: 0] += stats.visibleOrphanTerminalSubviewCount
             totals["stale_entry_count", default: 0] += stats.staleEntryCount
+            totals["visible_invalid_anchor_entry_count", default: 0] += stats.visibleInvalidAnchorEntryCount
             totals["mapped_hosted_count", default: 0] += mappedHostedCount
         }
 

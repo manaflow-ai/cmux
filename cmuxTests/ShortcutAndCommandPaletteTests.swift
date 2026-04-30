@@ -1081,6 +1081,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToFind,
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
+        .switchRightSidebarToDock,
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
@@ -1131,6 +1132,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
+        XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
     }
 
     func testModeShortcutUsesConfiguredBindings() {
@@ -1277,6 +1279,59 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingSessionsFocusSurvivesStaleFeedResponderDuringModeSwitch() {
+        let fileExplorerState = FileExplorerState()
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+        let staleFeedResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+
+        XCTAssertTrue(controller.selectFeedItem(UUID(), focusFeed: false))
+        XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
+        XCTAssertEqual(fileExplorerState.mode, .sessions)
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+
+        controller.debugSyncAfterResponderChange(responder: staleFeedResponder)
+
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+    }
+
+    @MainActor
+    func testPendingSessionsFocusCompletesWhenRightSidebarHostRegisters() {
+        let fileExplorerState = FileExplorerState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = contentView
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: window,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+
+        XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+
+        let host = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(host)
+        controller.registerRightSidebarHost(host)
+
+        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
+        XCTAssertTrue(window.firstResponder === host)
+    }
+
+    @MainActor
     func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
         let controller = MainWindowFocusController(
             windowId: UUID(),
@@ -1292,6 +1347,58 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
 
         XCTAssertFalse(controller.toggleRightSidebarOrTerminalFocus())
         XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+}
+
+final class FileExplorerStateModePersistenceTests: XCTestCase {
+    private let modeKey = "rightSidebar.mode"
+    private let migrationKey = "rightSidebar.feedDockMigrationApplied"
+
+    func testLegacyFeedStoredModeMigratesToDock() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.feed.rawValue, forKey: modeKey)
+            defaults.removeObject(forKey: migrationKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .dock)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.dock.rawValue)
+            XCTAssertTrue(defaults.bool(forKey: migrationKey))
+        }
+    }
+
+    func testFeedStoredModeSurvivesAfterDockMigration() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.feed.rawValue, forKey: modeKey)
+            defaults.set(true, forKey: migrationKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .feed)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.feed.rawValue)
+        }
+    }
+
+    private func withSavedRightSidebarModeDefaults(_ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: modeKey)
+        let previousMigration = defaults.object(forKey: migrationKey)
+        defer {
+            restore(previousMode, forKey: modeKey)
+            restore(previousMigration, forKey: migrationKey)
+        }
+        body()
+    }
+
+    private func restore(_ value: Any?, forKey key: String) {
+        let defaults = UserDefaults.standard
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 }
 
