@@ -1,10 +1,10 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-20424	CLI/cmux.swift
-17203	Sources/TerminalController.swift
+20474	CLI/cmux.swift
+17257	Sources/TerminalController.swift
 16009	Sources/ContentView.swift
-14256	Sources/AppDelegate.swift
+14268	Sources/AppDelegate.swift
 13972	Sources/Workspace.swift
 13403	Sources/GhosttyTerminalView.swift
 10603	Sources/Panels/BrowserPanel.swift
@@ -38,11 +38,11 @@
 1692	cmuxTests/CmuxConfigTests.swift
 1681	Sources/KeyboardShortcutSettingsFileStore.swift
 1517	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
-1423	Sources/TerminalNotificationStore.swift
+1454	Sources/TerminalNotificationStore.swift
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1342	Sources/WindowDragHandleView.swift
 1292	cmuxUITests/SidebarHelpMenuUITests.swift
-1255	cmuxTests/NotificationAndMenuBarTests.swift
+1265	cmuxTests/NotificationAndMenuBarTests.swift
 1215	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1187	cmuxUITests/MultiWindowNotificationsUITests.swift
 1165	Sources/Auth/AuthManager.swift
@@ -72,6 +72,7 @@
 586	Sources/Update/UpdateViewModel.swift
 582	cmuxTests/TerminalControllerSocketSecurityTests.swift
 573	Sources/Feed/FeedTextEditorDebugWindowController.swift
+568	cmuxTests/TerminalNotificationQueueTests.swift
 546	Sources/Windowing/WindowGlassEffect.swift
 541	Sources/SessionPersistence.swift
 510	Sources/Update/UpdatePopoverView.swift

@@ -18,6 +18,11 @@ struct CLIError: Error, CustomStringConvertible {
 }
 
 private final class CLISocketSentryTelemetry {
+    private struct PendingBreadcrumb {
+        let message: String
+        let data: [String: Any]
+    }
+
     private let command: String
     private let subcommand: String
     private let socketPath: String
@@ -25,6 +30,7 @@ private final class CLISocketSentryTelemetry {
     private let workspaceId: String?
     private let surfaceId: String?
     private let disabledByEnv: Bool
+    private var pendingBreadcrumbs: [PendingBreadcrumb] = []
 
 #if canImport(Sentry)
     private static let startupLock = NSLock()
@@ -143,15 +149,7 @@ private final class CLISocketSentryTelemetry {
     func breadcrumb(_ message: String, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
 #if canImport(Sentry)
-        Self.ensureStarted()
-        var payload = baseContext()
-        for (key, value) in data {
-            payload[key] = value
-        }
-        let crumb = Breadcrumb(level: .info, category: "cmux.cli")
-        crumb.message = message
-        crumb.data = payload
-        SentrySDK.addBreadcrumb(crumb)
+        pendingBreadcrumbs.append(PendingBreadcrumb(message: message, data: data))
 #endif
     }
 
@@ -159,6 +157,7 @@ private final class CLISocketSentryTelemetry {
         guard shouldEmit else { return }
 #if canImport(Sentry)
         Self.ensureStarted()
+        flushPendingBreadcrumbs()
         var context = baseContext()
         context["stage"] = stage
         context["error"] = String(describing: error)
@@ -181,6 +180,26 @@ private final class CLISocketSentryTelemetry {
     private var shouldEmit: Bool {
         !disabledByEnv
     }
+
+#if canImport(Sentry)
+    private func flushPendingBreadcrumbs() {
+        for pending in pendingBreadcrumbs {
+            addBreadcrumb(message: pending.message, data: pending.data)
+        }
+        pendingBreadcrumbs.removeAll()
+    }
+
+    private func addBreadcrumb(message: String, data: [String: Any]) {
+        var payload = baseContext()
+        for (key, value) in data {
+            payload[key] = value
+        }
+        let crumb = Breadcrumb(level: .info, category: "cmux.cli")
+        crumb.message = message
+        crumb.data = payload
+        SentrySDK.addBreadcrumb(crumb)
+    }
+#endif
 
     private func baseContext() -> [String: Any] {
         var context: [String: Any] = [
@@ -895,6 +914,30 @@ final class SocketClient {
         return defaultResponseTimeoutSeconds
     }()
 
+    private static func isCompleteSingleLineResponse(_ data: Data) -> Bool {
+        guard data.contains(UInt8(0x0A)),
+              let response = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        let normalized = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !normalized.contains("\n") else {
+            return false
+        }
+
+        if normalized == "OK" ||
+            normalized == "PONG" ||
+            normalized.hasPrefix("OK ") ||
+            normalized.hasPrefix("ERROR:") {
+            return true
+        }
+
+        if let jsonData = normalized.data(using: .utf8), (try? JSONSerialization.jsonObject(with: jsonData, options: [.fragmentsAllowed])) != nil {
+            return true
+        }
+
+        return false
+    }
+
     init(path: String) {
         self.path = path
     }
@@ -989,6 +1032,9 @@ final class SocketClient {
             data.append(buffer, count: count)
             if data.contains(UInt8(0x0A)) {
                 sawNewline = true
+                if Self.isCompleteSingleLineResponse(data) {
+                    break
+                }
             }
         }
 
@@ -3063,40 +3109,39 @@ struct CMUXCLI {
             let title = optionValue(commandArgs, name: "--title") ?? "Notification"
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
-
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let preferTTYFallback = windowId == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
-            let callerWorkspaceArg = preferTTYFallback
-                ? nil
-                : (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let workspaceArg = explicitWorkspaceArg ?? callerWorkspaceArg
-            let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
-            let callerSurfaceArg = explicitSurfaceArg == nil && preferTTYFallback == false && windowId == nil
-                ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
-                : nil
-            let surfaceArg = explicitSurfaceArg ?? callerSurfaceArg
-
-            let targetWorkspace = try {
-                if explicitWorkspaceArg != nil {
-                    return try resolveWorkspaceId(workspaceArg, client: client)
-                }
-                return try resolveWorkspaceIdAllowingFallback(workspaceArg, client: client)
-            }()
-            let targetSurface = try {
-                if explicitSurfaceArg != nil {
-                    return try resolveSurfaceId(surfaceArg, workspaceId: targetWorkspace, client: client)
-                }
-                return try resolveSurfaceIdAllowingFallback(
-                    surfaceArg,
-                    workspaceId: targetWorkspace,
-                    client: client
-                )
-            }()
-
-            let payload = "\(title)|\(subtitle)|\(body)"
-            let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
-            print(response)
-
+            let explicitSurfaceArg = optionValue(commandArgs, name: "--surface"), env = ProcessInfo.processInfo.environment
+            let hasExplicitHandle = [explicitWorkspaceArg, explicitSurfaceArg].compactMap { $0 }.contains { !isUUID($0) }
+            if hasExplicitHandle && explicitSurfaceArg != nil {
+                let workspaceRaw = explicitWorkspaceArg ?? (windowId == nil ? env["CMUX_WORKSPACE_ID"] : nil)
+                let targetWorkspace = try (explicitWorkspaceArg == nil
+                    ? resolveWorkspaceIdAllowingFallback(workspaceRaw, client: client)
+                    : resolveWorkspaceId(workspaceRaw, client: client))
+                let targetSurface = try explicitSurfaceArg.map { try resolveSurfaceId($0, workspaceId: targetWorkspace, client: client) }
+                    ?? resolveSurfaceId(nil, workspaceId: targetWorkspace, client: client)
+                let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
+                let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
+                print(response)
+                return
+            }
+            var params: [String: Any] = ["title": title, "subtitle": subtitle, "body": body]
+            let method: String
+            if explicitSurfaceArg != nil {
+                method = "notification.create"
+                if let explicitWorkspaceArg { params["workspace_id"] = explicitWorkspaceArg }
+                else if windowId == nil, let workspaceArg = env["CMUX_WORKSPACE_ID"], isUUID(workspaceArg) { params["workspace_id"] = workspaceArg }
+                if let explicitSurfaceArg { params["surface_id"] = explicitSurfaceArg }
+            } else {
+                method = "notification.create_for_caller"
+                params["prefer_tty"] = preferTTYFallback && explicitWorkspaceArg == nil
+                let workspaceArg = explicitWorkspaceArg ?? (windowId == nil ? env["CMUX_WORKSPACE_ID"] : nil)
+                if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil { params["preferred_workspace_id"] = isUUID(workspaceArg) ? workspaceArg : try resolveWorkspaceId(workspaceArg, client: client) }
+                if windowId == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) { params["preferred_surface_id"] = surfaceId }
+                if let callerTTY = resolveCallerTTYName() { params["caller_tty"] = callerTTY }
+            }
+            let payload = try client.sendV2(method: method, params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
         case "list-notifications":
             let response = try sendV1Command("list_notifications", client: client)
             if jsonOutput {
@@ -13784,14 +13829,6 @@ struct CMUXCLI {
                     )
                 }
 
-                if let completion {
-                    let title = "Claude Code"
-                    let subtitle = sanitizeNotificationField(completion.subtitle)
-                    let body = sanitizeNotificationField(completion.body)
-                    let payload = "\(title)|\(subtitle)|\(body)"
-                    _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-                }
-
                 try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
@@ -13799,6 +13836,14 @@ struct CMUXCLI {
                     icon: "pause.circle.fill",
                     color: "#8E8E93"
                 )
+                if let completion {
+                    let title = String(
+                        localized: "cli.claude-hook.notification.title",
+                        defaultValue: "Claude Code"
+                    )
+                    let payload = notificationPayload(title: title, subtitle: completion.subtitle, body: completion.body)
+                    _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                }
                 print("OK")
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
@@ -13852,10 +13897,11 @@ struct CMUXCLI {
                 client: client
             )
 
-            let title = "Claude Code"
-            let subtitle = sanitizeNotificationField(summary.subtitle)
-            let body = sanitizeNotificationField(summary.body)
-            let payload = "\(title)|\(subtitle)|\(body)"
+            let title = String(
+                localized: "cli.claude-hook.notification.title",
+                defaultValue: "Claude Code"
+            )
+            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -13868,7 +13914,6 @@ struct CMUXCLI {
                 )
             }
 
-            let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -13876,6 +13921,7 @@ struct CMUXCLI {
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
+            let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
 
         case "session-end":
@@ -15282,6 +15328,10 @@ struct CMUXCLI {
     private func sanitizeNotificationField(_ value: String) -> String {
         return normalizedSingleLine(value)
             .replacingOccurrences(of: "|", with: "¦")
+    }
+
+    private func notificationPayload(title: String, subtitle: String, body: String) -> String {
+        "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
     }
 
     private func redactClaudeSensitiveSpans(_ value: String) -> String {
@@ -17059,8 +17109,8 @@ export default CMUXSessionRestore;
                     _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)", client: client)
                 }
 
-                let payload = "\(def.displayName)|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
-                _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
+                _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 if let codexFailure {
                     _ = try? sendV1Command("set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)", client: client)
                 } else {
@@ -17293,10 +17343,10 @@ export default CMUXSessionRestore;
 
     // MARK: - Feed telemetry helper
 
-    /// Non-blocking `feed.push` call used by the per-agent hook handlers
+    /// Best-effort `feed.push` call used by the per-agent hook handlers
     /// so session-start / prompt-submit / stop events show up in Feed's
     /// "All" view even when no permission/plan/question event fires.
-    /// Failures are swallowed — telemetry is best-effort.
+    /// Failures are swallowed.
     private func sendFeedTelemetry(
         client: SocketClient,
         source: String,

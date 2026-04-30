@@ -3678,6 +3678,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+#if DEBUG
+    @discardableResult
+    func registerMainWindowContextForTesting(
+        windowId: UUID = UUID(),
+        tabManager: TabManager
+    ) -> UUID {
+        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: nil,
+            cmuxConfigStore: nil,
+            window: nil
+        )
+        notifyMainWindowContextsDidChange()
+        return windowId
+    }
+
+#endif
+
     struct MainWindowSummary {
         let windowId: UUID
         let isKeyWindow: Bool
@@ -5002,19 +5023,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteSnapshotByWindowId.removeValue(forKey: context.windowId)
 
         if tabManager === context.tabManager {
-            if let nextContext = mainWindowContexts.values.first(where: { resolvedWindow(for: $0) != nil }) {
-                tabManager = nextContext.tabManager
-                sidebarState = nextContext.sidebarState
-                sidebarSelectionState = nextContext.sidebarSelectionState
-                fileExplorerState = nextContext.fileExplorerState
-                TerminalController.shared.setActiveTabManager(nextContext.tabManager)
-            } else {
-                tabManager = nil
-                sidebarState = nil
-                sidebarSelectionState = nil
-                fileExplorerState = nil
-                TerminalController.shared.setActiveTabManager(nil)
-            }
+            activateMainWindowContext(Array(mainWindowContexts.values).first { resolvedWindow(for: $0) != nil })
         }
 
         if let store = notificationStore {
@@ -10003,9 +10012,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func installShortcutMonitor() {
         // Local monitor only receives events when app is active (not global)
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.keyDown, .keyUp, .flagsChanged]
+            matching: [.keyDown, .keyUp, .flagsChanged, .systemDefined]
         ) { [weak self] event in
             guard let self else { return event }
+            if event.type == .systemDefined {
+                return event
+            }
             if event.type == .keyDown {
 #if DEBUG
                 let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -10321,7 +10333,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             clearConfiguredShortcutChordState()
             return false
         }
-
         guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
             clearConfiguredShortcutChordState()
             return false
@@ -11822,11 +11833,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func isLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
         cmuxIsLikelyWebInspectorResponder(responder)
     }
-
 #if DEBUG
     private func developerToolsShortcutProbeKind(event: NSEvent) -> String? {
         guard event.type == .keyDown else { return nil }
-
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
             return "toggle.configured"
         }
@@ -12084,6 +12093,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
+        if event.type == .systemDefined {
+            return false
+        }
         if event.type == .keyDown {
             return handleCustomShortcut(event: event)
         }
@@ -12947,16 +12959,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func setActiveMainWindow(_ window: NSWindow) {
-        guard let context = contextForMainTerminalWindow(window) else { return }
-#if DEBUG
-        let beforeManagerToken = debugManagerToken(tabManager)
-#endif
+    private func activateMainWindowContext(_ context: MainWindowContext?) {
+        guard let context else {
+            tabManager = nil
+            sidebarState = nil
+            sidebarSelectionState = nil
+            fileExplorerState = nil
+            TerminalController.shared.setActiveTabManager(nil)
+            return
+        }
         tabManager = context.tabManager
         sidebarState = context.sidebarState
         sidebarSelectionState = context.sidebarSelectionState
         fileExplorerState = context.fileExplorerState
         TerminalController.shared.setActiveTabManager(context.tabManager)
+    }
+
+    private func setActiveMainWindow(_ window: NSWindow) {
+        guard let context = contextForMainTerminalWindow(window) else { return }
+#if DEBUG
+        let beforeManagerToken = debugManagerToken(tabManager)
+#endif
+        activateMainWindowContext(context)
 #if DEBUG
         cmuxDebugLog(
             "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) \(debugShortcutRouteSnapshot())"
@@ -12999,19 +13023,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return mainWindowContexts.values.first
             }()
 
-            if let nextContext {
-                tabManager = nextContext.tabManager
-                sidebarState = nextContext.sidebarState
-                sidebarSelectionState = nextContext.sidebarSelectionState
-                fileExplorerState = nextContext.fileExplorerState
-                TerminalController.shared.setActiveTabManager(nextContext.tabManager)
-            } else {
-                tabManager = nil
-                sidebarState = nil
-                sidebarSelectionState = nil
-                fileExplorerState = nil
-                TerminalController.shared.setActiveTabManager(nil)
-            }
+            activateMainWindowContext(nextContext)
         }
 
         // During app termination we already persisted a full snapshot (with scrollback)
