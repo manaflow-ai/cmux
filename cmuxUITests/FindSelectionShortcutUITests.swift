@@ -37,6 +37,29 @@ final class FindSelectionShortcutUITests: XCTestCase {
         assertFindReplacement(app, pane: .browser, initial: "browser", replacement: "y")
     }
 
+    func testEscapeClosesTerminalAndBrowserFindAfterQuery() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10.0), "Expected main window")
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2
+            },
+            "Expected Cmd+D split before opening browser. data=\(String(describing: loadData()))"
+        )
+        openBrowserInRightPane(app)
+        assertFindClosesOnEscape(app, pane: .terminal, query: "terminal")
+        assertFindClosesOnEscape(app, pane: .browser, query: "browser")
+    }
+
     private enum Pane {
         case terminal
         case browser
@@ -44,6 +67,7 @@ final class FindSelectionShortcutUITests: XCTestCase {
         var opposite: Pane { self == .terminal ? .browser : .terminal }
         var focusKey: String { self == .terminal ? "terminal" : "browser" }
         var needleKey: String { self == .terminal ? "terminalFindNeedle" : "browserFindNeedle" }
+        var visibleKey: String { self == .terminal ? "terminalFindVisible" : "browserFindVisible" }
         var replacementMessage: String { self == .terminal ? "terminal find text" : "browser find text" }
         var arrowKey: String {
             self == .terminal ? XCUIKeyboardKey.leftArrow.rawValue : XCUIKeyboardKey.rightArrow.rawValue
@@ -90,6 +114,33 @@ final class FindSelectionShortcutUITests: XCTestCase {
                 data["focusedPanelKind"] == pane.opposite.focusKey && data[pane.needleKey] == replacement
             },
             "Expected repeated Cmd+F to replace \(pane.replacementMessage). data=\(String(describing: loadData()))"
+        )
+    }
+
+    private func assertFindClosesOnEscape(_ app: XCUIApplication, pane: Pane, query: String) {
+        focusPane(pane, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { $0["focusedPanelKind"] == pane.focusKey },
+            "Expected \(pane.focusKey) focus before opening find. data=\(String(describing: loadData()))"
+        )
+        app.typeKey("f", modifierFlags: [.command])
+        app.typeText(query)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.focusKey &&
+                    data[pane.visibleKey] == "true" &&
+                    data[pane.needleKey] == query
+            },
+            "Expected \(pane.replacementMessage) before Escape. data=\(String(describing: loadData()))"
+        )
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.focusKey &&
+                    data[pane.visibleKey] == "false" &&
+                    data[pane.needleKey] == ""
+            },
+            "Expected Escape to close \(pane.replacementMessage). data=\(String(describing: loadData()))"
         )
     }
 
