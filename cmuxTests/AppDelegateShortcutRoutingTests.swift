@@ -3710,6 +3710,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             fieldEditor.removeFromSuperview()
         }
 
+        let hadPersistedShortcut = UserDefaults.standard.object(
+            forKey: KeyboardShortcutSettings.Action.commandPalettePrevious.defaultsKey
+        ) != nil
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: .commandPalettePrevious)
+        defer {
+            if hadPersistedShortcut {
+                KeyboardShortcutSettings.setShortcut(originalShortcut, for: .commandPalettePrevious)
+            } else {
+                KeyboardShortcutSettings.resetShortcut(for: .commandPalettePrevious)
+            }
+        }
+
         let remappedPrevious = StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
         KeyboardShortcutSettings.setShortcut(remappedPrevious, for: .commandPalettePrevious)
         XCTAssertEqual(KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious), remappedPrevious)
@@ -3811,6 +3823,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer {
             overlayContainer.removeFromSuperview()
             fieldEditor.removeFromSuperview()
+        }
+
+        let hadPersistedShortcut = UserDefaults.standard.object(
+            forKey: KeyboardShortcutSettings.Action.commandPalettePrevious.defaultsKey
+        ) != nil
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: .commandPalettePrevious)
+        defer {
+            if hadPersistedShortcut {
+                KeyboardShortcutSettings.setShortcut(originalShortcut, for: .commandPalettePrevious)
+            } else {
+                KeyboardShortcutSettings.resetShortcut(for: .commandPalettePrevious)
+            }
         }
 
         KeyboardShortcutSettings.unbindShortcut(for: .commandPalettePrevious)

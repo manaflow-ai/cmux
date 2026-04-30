@@ -8129,7 +8129,9 @@ private struct GlobalHotkeySection: View {
 
             ShortcutRecorderSettingsControl(
                 action: SystemWideHotkeySettings.action,
-                shortcut: $shortcut
+                shortcut: $shortcut,
+                subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action),
+                isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(SystemWideHotkeySettings.action)
             )
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)

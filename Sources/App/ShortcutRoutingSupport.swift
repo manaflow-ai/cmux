@@ -125,12 +125,14 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
 func commandPaletteSelectionDeltaForKeyboardNavigation(
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    nextShortcut: StoredShortcut? = KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
+    previousShortcut: StoredShortcut? = KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious),
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Int? {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
-    let normalizedChars = chars.lowercased()
 
     if normalizedFlags == [] {
         switch keyCode {
@@ -140,12 +142,22 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
         }
     }
 
-    if normalizedFlags == [.control] {
-        // Control modifiers can surface as either printable chars or ASCII control chars.
-        // Keep Emacs-style next/previous navigation, but leave other control bindings
-        // (for example Ctrl+K text editing in the palette search field) to AppKit.
-        if keyCode == 45 || normalizedChars == "n" || normalizedChars == "\u{0e}" { return 1 }    // Ctrl+N
-        if keyCode == 35 || normalizedChars == "p" || normalizedChars == "\u{10}" { return -1 }   // Ctrl+P
+    if nextShortcut?.matches(
+        keyCode: keyCode,
+        modifierFlags: flags,
+        eventCharacter: chars,
+        layoutCharacterProvider: layoutCharacterProvider
+    ) == true {
+        return 1
+    }
+
+    if previousShortcut?.matches(
+        keyCode: keyCode,
+        modifierFlags: flags,
+        eventCharacter: chars,
+        layoutCharacterProvider: layoutCharacterProvider
+    ) == true {
+        return -1
     }
 
     return nil

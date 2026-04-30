@@ -45,6 +45,8 @@ enum KeyboardShortcutSettings {
         case reopenPreviousSession
         case goToWorkspace
         case commandPalette
+        case commandPaletteNext
+        case commandPalettePrevious
         case sendFeedback
         case showNotifications
         case jumpToUnread
@@ -124,6 +126,8 @@ enum KeyboardShortcutSettings {
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Reopen Previous Session")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
+            case .commandPaletteNext: return String(localized: "shortcut.commandPaletteNext.label", defaultValue: "Command Palette Next Result")
+            case .commandPalettePrevious: return String(localized: "shortcut.commandPalettePrevious.label", defaultValue: "Command Palette Previous Result")
             case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
             case .showNotifications: return String(localized: "shortcut.showNotifications.label", defaultValue: "Show Notifications")
             case .jumpToUnread: return String(localized: "shortcut.jumpToUnread.label", defaultValue: "Jump to Latest Unread")
@@ -215,6 +219,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "p", command: true, shift: false, option: false, control: false)
             case .commandPalette:
                 return StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
+            case .commandPaletteNext:
+                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
+            case .commandPalettePrevious:
+                return StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)
             case .sendFeedback:
                 return StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
             case .showNotifications:
@@ -339,6 +347,9 @@ enum KeyboardShortcutSettings {
         }
 
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {
+            if shortcut.isUnbound {
+                return shortcut.displayString
+            }
             if usesNumberedDigitMatching {
                 return shortcut.numberedDisplayString
             }
@@ -541,7 +552,9 @@ enum KeyboardShortcutSettings {
         _ configuredShortcut: StoredShortcut,
         configuredUsesNumberedDigitMatching: Bool
     ) -> Bool {
-        guard !proposedShortcut.isUnbound, !configuredShortcut.isUnbound else { return false }
+        guard !proposedShortcut.isUnbound, !configuredShortcut.isUnbound else {
+            return false
+        }
 
         switch (proposedShortcut.hasChord, configuredShortcut.hasChord) {
         case (false, false):
@@ -636,6 +649,10 @@ enum KeyboardShortcutSettings {
         _ shortcut: StoredShortcut,
         action: Action
     ) -> StoredShortcut? {
+        if shortcut.isUnbound {
+            return shortcut
+        }
+
         switch action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
         case let .accepted(normalizedShortcut):
             return normalizedShortcut
@@ -668,15 +685,25 @@ enum KeyboardShortcutSettings {
         defaults.set(data, forKey: action.defaultsKey)
     }
 
-    static func shortcut(for action: Action) -> StoredShortcut {
+    static func shortcutIfBound(for action: Action) -> StoredShortcut? {
         #if DEBUG
         shortcutLookupObserver?(action)
         #endif
+
+        if let managedShortcut = settingsFileStore.override(for: action) {
+            return managedShortcut.isUnbound ? nil : managedShortcut
+        }
+
         guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return settingsFileStore.override(for: action) ?? action.defaultShortcut
+            let defaultShortcut = action.defaultShortcut
+            return defaultShortcut.isUnbound ? nil : defaultShortcut
         }
-        return shortcut
+        return shortcut.isUnbound ? nil : shortcut
+    }
+
+    static func shortcut(for action: Action) -> StoredShortcut {
+        shortcutIfBound(for: action) ?? .unbound
     }
 
     static func menuShortcut(for action: Action) -> StoredShortcut {
@@ -691,6 +718,8 @@ enum KeyboardShortcutSettings {
     }
 
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
+        guard !isManagedBySettingsFile(action) else { return }
+
         guard let storedShortcut = storedShortcutForPersistence(shortcut, action: action) else {
             return
         }
@@ -699,14 +728,19 @@ enum KeyboardShortcutSettings {
         postDidChangeNotification(action: action)
     }
 
+    static func unbindShortcut(for action: Action) {
+        setShortcut(.unbound, for: action)
+    }
+
     static func swapShortcutConflict(
         proposedShortcut: StoredShortcut,
         currentAction: Action,
         conflictingAction: Action,
         previousShortcut: StoredShortcut
     ) {
-        guard
-            let resolvedCurrentShortcut = storedShortcutForReplacement(
+        guard !isManagedBySettingsFile(currentAction),
+              !isManagedBySettingsFile(conflictingAction),
+              let resolvedCurrentShortcut = storedShortcutForReplacement(
                 proposedShortcut,
                 action: currentAction
             ),
@@ -722,6 +756,11 @@ enum KeyboardShortcutSettings {
         persistShortcut(resolvedConflictingShortcut, for: conflictingAction)
         postDidChangeNotification(action: currentAction)
         postDidChangeNotification(action: conflictingAction)
+    }
+
+    static func settingsFileManagedSubtitle(for action: Action) -> String? {
+        guard isManagedBySettingsFile(action) else { return nil }
+        return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in cmux.json")
     }
 
     static func notifySettingsFileDidChange(center: NotificationCenter = .default) { postDidChangeNotification(center: center) }
@@ -1803,6 +1842,10 @@ struct ShortcutStroke: Equatable, Hashable {
 
 /// A keyboard shortcut that can be stored in UserDefaults
 struct StoredShortcut: Codable, Equatable, Hashable {
+    static var unbound: StoredShortcut {
+        StoredShortcut(key: "", command: false, shift: false, option: false, control: false)
+    }
+
     var key: String
     var command: Bool
     var shift: Bool
@@ -2181,7 +2224,11 @@ extension StoredShortcut {
 
     private static func isUnboundConfigToken(_ rawValue: String) -> Bool {
         let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.isEmpty || normalized == "none" || normalized == "clear" || normalized == "unbound"
+        return normalized.isEmpty ||
+            normalized == "none" ||
+            normalized == "clear" ||
+            normalized == "unbound" ||
+            normalized == "disabled"
     }
 }
 

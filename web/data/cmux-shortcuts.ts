@@ -32,6 +32,18 @@ export const shortcutCategories: ShortcutCategory[] = [
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
+      {
+        id: "commandPaletteNext",
+        combos: [["⌃", "N"]],
+        description: { en: "Command palette next result", ja: "コマンドパレットの次の結果" },
+        note: { en: "when the command palette is open", ja: "コマンドパレットを開いている間" },
+      },
+      {
+        id: "commandPalettePrevious",
+        combos: [["⌃", "P"]],
+        description: { en: "Command palette previous result", ja: "コマンドパレットの前の結果" },
+        note: { en: "when the command palette is open", ja: "コマンドパレットを開いている間" },
+      },
       { id: "newWindow", combos: [["⌘", "⇧", "N"]], description: { en: "New window", ja: "新規ウインドウ" } },
       { id: "closeWindow", combos: [["⌃", "⌘", "W"]], description: { en: "Close window", ja: "ウインドウを閉じる" } },
       { id: "toggleFullScreen", combos: [["⌃", "⌘", "F"]], description: { en: "Toggle full screen", ja: "フルスクリーンを切り替え" } },

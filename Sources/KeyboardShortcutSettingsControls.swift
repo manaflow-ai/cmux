@@ -13,7 +13,9 @@ struct ShortcutSettingRow: View {
         ShortcutRecorderSettingsControl(
             action: action,
             shortcut: $shortcut,
-            displayString: { action.displayedShortcutString(for: $0) }
+            subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: action),
+            displayString: { action.displayedShortcutString(for: $0) },
+            isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(action)
         )
         .onChange(of: shortcut) { _, newValue in
             KeyboardShortcutSettings.setShortcut(newValue, for: action)

@@ -559,7 +559,7 @@
         "bindings": {
           "type": "object",
           "default": {},
-          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, or an empty string to unbind.",
+          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, null, or an empty string to unbind.",
           "propertyNames": {
             "enum": [
               "openSettings",
@@ -575,6 +575,8 @@
               "reopenPreviousSession",
               "goToWorkspace",
               "commandPalette",
+              "commandPaletteNext",
+              "commandPalettePrevious",
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
@@ -657,7 +659,7 @@
       "oneOf": [
         {
           "type": "string",
-          "description": "Single-stroke shortcut, for example cmd+n. Use an empty string, none, clear, or unbound to unbind."
+          "description": "Single-stroke shortcut, for example cmd+n. Use an empty string, none, clear, unbound, or disabled to unbind."
         },
         {
           "type": "array",
@@ -667,6 +669,10 @@
             "type": "string"
           },
           "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
         }
       ]
     }
