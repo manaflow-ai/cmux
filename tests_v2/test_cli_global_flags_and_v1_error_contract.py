@@ -87,7 +87,10 @@ def main() -> int:
         ([cli, "docs"], "topics:"),
         ([cli, "docs", "settings"], "settings files:"),
         ([cli, "settings", "path"], "settings files:"),
+        ([cli, "settings", "--", "path"], "settings files:"),
         ([cli, "settings", "docs"], "settings files:"),
+        ([cli, "settings", "--", "docs"], "settings files:"),
+        ([cli, "welcome"], "built for coding agents"),
     ]:
         docs_proc = _run(docs_cmd, env=conflict_env)
         docs_out = _merged_output(docs_proc).lower()
