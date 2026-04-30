@@ -910,6 +910,23 @@ class TabManager: ObservableObject {
     private nonisolated static let workspacePullRequestPollJitterFraction = 0.10
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
     private nonisolated static let mergedPullRequestBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
+
+    nonisolated static let sidebarShowPullRequestDefaultsKey = "sidebarShowPullRequest"
+    nonisolated static let workspacePullRequestPollIntervalDefaultsKey = "workspacePullRequestPollIntervalSeconds"
+    nonisolated static let workspacePullRequestPollIntervalMinSeconds: TimeInterval = 30
+    nonisolated static let workspacePullRequestPollIntervalMaxSeconds: TimeInterval = 3600
+
+    nonisolated static func sidebarShowPullRequestEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: sidebarShowPullRequestDefaultsKey) != nil else { return true }
+        return defaults.bool(forKey: sidebarShowPullRequestDefaultsKey)
+    }
+
+    nonisolated static func workspacePullRequestBackgroundPollInterval(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard let value = defaults.object(forKey: workspacePullRequestPollIntervalDefaultsKey) as? NSNumber else {
+            return backgroundPollInterval
+        }
+        return min(max(value.doubleValue, workspacePullRequestPollIntervalMinSeconds), workspacePullRequestPollIntervalMaxSeconds)
+    }
     @Published var selectedTabId: UUID? {
         willSet {
 #if DEBUG
@@ -1087,6 +1104,16 @@ class TabManager: ObservableObject {
             }
         })
 
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { [weak self] in
+                self?.handlePullRequestPollSettingsChange()
+            }
+        })
+
         startAgentPIDSweepTimer()
         startWorkspaceGitMetadataPollTimer()
         startSelectedWorkspaceGitMetadataPollTimer()
@@ -1164,6 +1191,12 @@ class TabManager: ObservableObject {
     }
 
     private func updateWorkspacePullRequestPollTimer() {
+        guard Self.sidebarShowPullRequestEnabled() else {
+            workspacePullRequestPollTimer?.cancel()
+            workspacePullRequestPollTimer = nil
+            return
+        }
+
         guard workspacePullRequestRefreshTask == nil else {
             workspacePullRequestPollTimer?.cancel()
             workspacePullRequestPollTimer = nil
@@ -1238,6 +1271,11 @@ class TabManager: ObservableObject {
         reason: String,
         allowCachedResultsOverride: Bool? = nil
     ) {
+        guard Self.sidebarShowPullRequestEnabled() else {
+            resetWorkspacePullRequestRefreshState()
+            return
+        }
+
         let now = Date()
         var candidateSeeds: [WorkspacePullRequestCandidateSeed] = []
         var requestedKeys: [WorkspaceGitProbeKey] = []
@@ -1606,16 +1644,18 @@ class TabManager: ObservableObject {
             return
         }
 
+        let configuredBackgroundInterval = Self.workspacePullRequestBackgroundPollInterval()
+
         if case .unsupportedRepository = resolution {
             workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
-            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: Self.backgroundPollInterval))
+            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: configuredBackgroundInterval))
             return
         }
 
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
         let baseInterval = isSelectedFocusedPanel(workspace: workspace, panelId: panelId)
             ? Self.selectedPollInterval
-            : Self.backgroundPollInterval
+            : configuredBackgroundInterval
         workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: baseInterval))
     }
 
@@ -1657,6 +1697,19 @@ class TabManager: ObservableObject {
         workspacePullRequestRepoCacheBySlug.removeAll()
         workspacePullRequestFollowUpShouldBypassRepoCache = false
         updateWorkspacePullRequestPollTimer()
+    }
+
+    private var lastObservedSidebarShowPullRequestEnabled = TabManager.sidebarShowPullRequestEnabled()
+
+    private func handlePullRequestPollSettingsChange() {
+        let enabled = Self.sidebarShowPullRequestEnabled()
+        if enabled == lastObservedSidebarShowPullRequestEnabled { return }
+        lastObservedSidebarShowPullRequestEnabled = enabled
+        if enabled {
+            refreshTrackedWorkspacePullRequestsIfNeeded(reason: "sidebarShowPullRequestEnabled")
+        } else {
+            resetWorkspacePullRequestRefreshState()
+        }
     }
 
     private var activeWorkspaceGitProbeKeys: Set<WorkspaceGitProbeKey> {

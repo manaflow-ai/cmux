@@ -179,4 +179,51 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "Pull request refresh blocked the main run loop for \(maxTickGap) seconds"
         )
     }
+
+    private func makeIsolatedDefaults() throws -> UserDefaults {
+        let suiteName = "cmux-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    func testSidebarShowPullRequestEnabledDefaultsToTrue() throws {
+        let defaults = try makeIsolatedDefaults()
+        XCTAssertTrue(TabManager.sidebarShowPullRequestEnabled(defaults: defaults))
+    }
+
+    func testSidebarShowPullRequestEnabledHonorsExplicitFalse() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set(false, forKey: TabManager.sidebarShowPullRequestDefaultsKey)
+        XCTAssertFalse(TabManager.sidebarShowPullRequestEnabled(defaults: defaults))
+    }
+
+    func testWorkspacePullRequestBackgroundPollIntervalDefaultsTo60() throws {
+        let defaults = try makeIsolatedDefaults()
+        XCTAssertEqual(TabManager.workspacePullRequestBackgroundPollInterval(defaults: defaults), 60)
+    }
+
+    func testWorkspacePullRequestBackgroundPollIntervalClampsBelowMinimum() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set(5, forKey: TabManager.workspacePullRequestPollIntervalDefaultsKey)
+        XCTAssertEqual(
+            TabManager.workspacePullRequestBackgroundPollInterval(defaults: defaults),
+            TabManager.workspacePullRequestPollIntervalMinSeconds
+        )
+    }
+
+    func testWorkspacePullRequestBackgroundPollIntervalClampsAboveMaximum() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set(99_999, forKey: TabManager.workspacePullRequestPollIntervalDefaultsKey)
+        XCTAssertEqual(
+            TabManager.workspacePullRequestBackgroundPollInterval(defaults: defaults),
+            TabManager.workspacePullRequestPollIntervalMaxSeconds
+        )
+    }
+
+    func testWorkspacePullRequestBackgroundPollIntervalAcceptsCustomValueInRange() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set(180, forKey: TabManager.workspacePullRequestPollIntervalDefaultsKey)
+        XCTAssertEqual(TabManager.workspacePullRequestBackgroundPollInterval(defaults: defaults), 180)
+    }
 }
