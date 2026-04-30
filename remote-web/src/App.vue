@@ -192,6 +192,7 @@ type Selection = {
 type EventState = "live" | "reconnecting" | "offline";
 
 const storageKey = "cmux.remote.token";
+const eventSessionRefreshMs = 24 * 60 * 60 * 1000;
 const strings = ref<RemoteStrings>({});
 const token = ref("");
 const tokenInput = ref("");
@@ -211,6 +212,8 @@ let fitAddon: FitAddon | null = null;
 let pollingTimer: number | null = null;
 let eventSource: EventSource | null = null;
 let eventRefreshTimer: number | null = null;
+let eventSessionRefreshTimer: number | null = null;
+let eventStartGeneration = 0;
 let lastTerminalText = "";
 const terminalInputQueue = new TerminalInputQueue({
   targetEquals,
@@ -324,6 +327,45 @@ function authHeaders() {
   return { Authorization: `Bearer ${token.value}` };
 }
 
+async function createEventSession() {
+  if (!token.value) return;
+  const response = await fetch("/events/session", {
+    method: "POST",
+    headers: authHeaders(),
+    credentials: "same-origin",
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.ok === false) {
+    if (response.status === 401) throw tokenRejectedError();
+    throw new Error(format("error.requestFailed", { status: payload.error?.code || response.status }));
+  }
+  scheduleEventSessionRefresh();
+}
+
+function deleteEventSession() {
+  clearEventSessionRefresh();
+  fetch("/events/session", {
+    method: "DELETE",
+    credentials: "same-origin",
+  }).catch(() => {
+    // The cookie is server-owned; failures are harmless when disconnecting.
+  });
+}
+
+function clearEventSessionRefresh() {
+  if (eventSessionRefreshTimer) window.clearTimeout(eventSessionRefreshTimer);
+  eventSessionRefreshTimer = null;
+}
+
+function scheduleEventSessionRefresh() {
+  clearEventSessionRefresh();
+  if (!token.value) return;
+  eventSessionRefreshTimer = window.setTimeout(() => {
+    eventSessionRefreshTimer = null;
+    createEventSession().catch(handleRemoteError);
+  }, eventSessionRefreshMs);
+}
+
 function setStatus(message: string, isError = false) {
   statusMessage.value = message;
   statusIsError.value = isError;
@@ -345,6 +387,7 @@ function handleRemoteError(error: unknown) {
   if (remoteError.authFailed) {
     stopEvents();
     stopPolling();
+    deleteEventSession();
   }
   setStatus(remoteError.message || String(error), true);
 }
@@ -388,9 +431,7 @@ async function fetchSnapshot(options: { showRefreshing?: boolean; updateSelectio
 }
 
 function eventURL() {
-  const url = new URL("/events", window.location.origin);
-  url.searchParams.set("token", token.value);
-  return url.toString();
+  return new URL("/events", window.location.origin).toString();
 }
 
 function scheduleEventRefresh() {
@@ -401,13 +442,17 @@ function scheduleEventRefresh() {
   }, 200);
 }
 
-function startEvents() {
-  stopEvents();
+async function startEvents() {
+  eventStartGeneration += 1;
+  const generation = eventStartGeneration;
+  closeEventSource();
   if (!token.value || !("EventSource" in window)) {
     eventState.value = "offline";
     return;
   }
-  const source = new EventSource(eventURL());
+  await createEventSession();
+  if (generation !== eventStartGeneration || !token.value) return;
+  const source = new EventSource(eventURL(), { withCredentials: true });
   eventSource = source;
   source.onopen = () => {
     if (eventSource === source) {
@@ -434,12 +479,17 @@ function startEvents() {
   };
 }
 
-function stopEvents() {
+function closeEventSource() {
   eventSource?.close();
   eventSource = null;
   if (eventRefreshTimer) window.clearTimeout(eventRefreshTimer);
   eventRefreshTimer = null;
   eventState.value = "offline";
+}
+
+function stopEvents() {
+  eventStartGeneration += 1;
+  closeEventSource();
 }
 
 function ensureSelection() {
@@ -714,7 +764,7 @@ async function connect() {
   try {
     await ensureTerminalInitialized();
     await fetchSnapshot();
-    startEvents();
+    await startEvents();
     startPolling();
   } catch (error) {
     handleRemoteError(error);
@@ -725,6 +775,7 @@ function forget() {
   localStorage.removeItem(storageKey);
   stopEvents();
   stopPolling();
+  deleteEventSession();
   snapshot.value = null;
   selectedSurface.value = null;
   navOpen.value = false;
@@ -844,7 +895,10 @@ function handleVisibilityChange() {
   if (!document.hidden && token.value) {
     fetchSnapshot()
       .then(() => {
-        if (!eventSource) startEvents();
+        if (eventSource) {
+          return createEventSession();
+        }
+        return startEvents();
       })
       .catch(handleRemoteError);
   }
@@ -863,7 +917,7 @@ onMounted(async () => {
     await ensureTerminalInitialized();
     fetchSnapshot()
       .then(() => {
-        startEvents();
+        startEvents().catch(handleRemoteError);
         startPolling();
       })
       .catch(handleRemoteError);
@@ -873,6 +927,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   stopEvents();
   stopPolling();
+  clearEventSessionRefresh();
   window.removeEventListener("resize", handleResize);
   window.removeEventListener("orientationchange", handleResize);
   document.removeEventListener("visibilitychange", handleVisibilityChange);

@@ -1,24 +1,170 @@
 import Foundation
 import Combine
 import Security
+import Darwin
 #if canImport(Hummingbird)
 import Hummingbird
+import HTTPTypes
 #endif
+
+enum RemoteAccessBindMode: String, CaseIterable, Identifiable {
+    case localhost
+    case lan
+
+    var id: String { rawValue }
+}
 
 struct RemoteAccessSettings {
     static let enabledKey = "remoteAccessEnabled"
     static let portKey = "remoteAccessPort"
+    static let bindModeKey = "remoteAccessBindMode"
+    static let lanPairingHostKey = "remoteAccessLANPairingHost"
     static let defaultEnabled = false
     static let defaultPort = 8765
+    static let defaultBindMode = RemoteAccessBindMode.localhost
     static let minPort = 1024
     static let maxPort = 65535
+
+    struct LANNetworkInterface: Equatable {
+        let name: String
+        let address: String
+        let isUp: Bool
+        let isLoopback: Bool
+    }
 
     static func normalizedPort(_ raw: Int) -> Int {
         min(max(raw, minPort), maxPort)
     }
 
+    static func normalizedBindMode(_ raw: String) -> RemoteAccessBindMode {
+        RemoteAccessBindMode(rawValue: raw) ?? defaultBindMode
+    }
+
+    static func bindHost(for mode: RemoteAccessBindMode) -> String {
+        switch mode {
+        case .localhost:
+            return "127.0.0.1"
+        case .lan:
+            return "0.0.0.0"
+        }
+    }
+
     static func urlString(port: Int) -> String {
+        localhostURLString(port: port)
+    }
+
+    static func localhostURLString(port: Int) -> String {
         "http://127.0.0.1:\(normalizedPort(port))"
+    }
+
+    static func urlString(host: String, port: Int) -> String {
+        "http://\(host):\(normalizedPort(port))"
+    }
+
+    static func lanURLStrings(port: Int, interfaces: [LANNetworkInterface]? = nil) -> [String] {
+        lanIPv4Addresses(interfaces: interfaces).map { urlString(host: $0, port: port) }
+    }
+
+    static func pairingURLString(host: String, port: Int, token: String) -> String {
+        "\(urlString(host: host, port: port))/remote#token=\(token)"
+    }
+
+    static func lanIPv4Addresses(interfaces explicitInterfaces: [LANNetworkInterface]? = nil) -> [String] {
+        let interfaces = explicitInterfaces ?? currentIPv4Interfaces()
+        var seen = Set<String>()
+        return interfaces
+            .filter { $0.isUp && !$0.isLoopback && !isLinkLocalIPv4($0.address) }
+            .sorted { lhs, rhs in
+                let lhsRank = lanAddressRank(lhs)
+                let rhsRank = lanAddressRank(rhs)
+                if lhsRank != rhsRank {
+                    return lhsRank < rhsRank
+                }
+                if lhs.name != rhs.name {
+                    return lhs.name < rhs.name
+                }
+                return lhs.address < rhs.address
+            }
+            .compactMap { item in
+                guard seen.insert(item.address).inserted else { return nil }
+                return item.address
+            }
+    }
+
+    private static func lanAddressRank(_ interface: LANNetworkInterface) -> Int {
+        let privateAddress = isPrivateIPv4(interface.address)
+        let physicalInterface = isPhysicalLANInterfaceName(interface.name)
+        let virtualInterface = isVirtualOrPeerInterfaceName(interface.name)
+        switch (privateAddress, physicalInterface, virtualInterface) {
+        case (true, true, _):
+            return 0
+        case (true, _, false):
+            return 1
+        case (true, _, true):
+            return 2
+        case (false, true, _):
+            return 3
+        case (false, _, false):
+            return 4
+        case (false, _, true):
+            return 5
+        }
+    }
+
+    private static func isPhysicalLANInterfaceName(_ name: String) -> Bool {
+        name.hasPrefix("en")
+    }
+
+    private static func isVirtualOrPeerInterfaceName(_ name: String) -> Bool {
+        let virtualPrefixes = [
+            "awdl", "bridge", "docker", "ipsec", "llw", "ppp", "tap", "tun", "utun", "vboxnet", "vmnet",
+        ]
+        return virtualPrefixes.contains { name.hasPrefix($0) }
+    }
+
+    private static func currentIPv4Interfaces() -> [LANNetworkInterface] {
+        var pointer: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&pointer) == 0, let first = pointer else { return [] }
+        defer { freeifaddrs(pointer) }
+
+        var result: [LANNetworkInterface] = []
+        var cursor: UnsafeMutablePointer<ifaddrs>? = first
+        while let interface = cursor?.pointee {
+            defer { cursor = interface.ifa_next }
+            guard let address = interface.ifa_addr, address.pointee.sa_family == UInt8(AF_INET) else { continue }
+
+            var socketAddress = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee }
+            var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+            guard inet_ntop(AF_INET, &socketAddress.sin_addr, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil else { continue }
+            let flags = Int32(interface.ifa_flags)
+            result.append(
+                LANNetworkInterface(
+                    name: String(cString: interface.ifa_name),
+                    address: String(cString: buffer),
+                    isUp: (flags & IFF_UP) != 0,
+                    isLoopback: (flags & IFF_LOOPBACK) != 0
+                )
+            )
+        }
+        return result
+    }
+
+    private static func isPrivateIPv4(_ address: String) -> Bool {
+        let octets = ipv4Octets(address)
+        guard octets.count == 4 else { return false }
+        if octets[0] == 10 { return true }
+        if octets[0] == 172 && (16...31).contains(octets[1]) { return true }
+        if octets[0] == 192 && octets[1] == 168 { return true }
+        return false
+    }
+
+    private static func isLinkLocalIPv4(_ address: String) -> Bool {
+        let octets = ipv4Octets(address)
+        return octets.count == 4 && octets[0] == 169 && octets[1] == 254
+    }
+
+    private static func ipv4Octets(_ address: String) -> [Int] {
+        address.split(separator: ".").compactMap { Int($0) }
     }
 }
 
@@ -145,11 +291,13 @@ struct CMUXRemoteHTTPResponse: Equatable {
     let statusCode: Int
     let body: String
     let eventReason: CMUXRemoteEventReason?
+    let headers: [String: String]
 
-    init(statusCode: Int, body: String, eventReason: CMUXRemoteEventReason? = nil) {
+    init(statusCode: Int, body: String, eventReason: CMUXRemoteEventReason? = nil, headers: [String: String] = [:]) {
         self.statusCode = statusCode
         self.body = body
         self.eventReason = eventReason
+        self.headers = headers
     }
 }
 
@@ -329,6 +477,8 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
     typealias Dispatcher = @Sendable (String) async -> String
 
     static let maxBodyBytes = 1_048_576
+    static let eventCookieName = "cmux_remote_event_token"
+    static let eventCookieMaxAgeSeconds = 7 * 24 * 60 * 60
 
     static let remoteAllowedMethods: [String] = [
         "system.ping",
@@ -458,11 +608,51 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
         return CMUXRemoteHTTPResponse(statusCode: 200, body: response)
     }
 
-    func handleEventAuthentication(authorizationHeader: String?, queryToken: String?) -> CMUXRemoteHTTPResponse? {
-        authenticationError(id: nil, authorizationHeader: authorizationHeader, queryToken: queryToken)
+    func handleEventSessionCreate(authorizationHeader: String?) -> CMUXRemoteHTTPResponse {
+        if let authError = authenticationError(id: nil, authorizationHeader: authorizationHeader) {
+            return authError
+        }
+        guard let token = Self.bearerToken(from: authorizationHeader) else {
+            return Self.jsonError(statusCode: 401, id: nil, code: "unauthorized", message: "Missing or invalid remote access token.")
+        }
+        return Self.jsonResponse(
+            statusCode: 200,
+            payload: ["ok": true],
+            headers: ["Set-Cookie": Self.eventCookieHeader(token: token)]
+        )
     }
 
-    private func authenticationError(id: Any?, authorizationHeader: String?, queryToken: String? = nil) -> CMUXRemoteHTTPResponse? {
+    func handleEventSessionDelete() -> CMUXRemoteHTTPResponse {
+        Self.jsonResponse(
+            statusCode: 200,
+            payload: ["ok": true],
+            headers: ["Set-Cookie": Self.expiredEventCookieHeader()]
+        )
+    }
+
+    func handleEventAuthentication(
+        authorizationHeader: String?,
+        cookieHeader: String?,
+        queryToken: String?,
+        allowQueryToken: Bool
+    ) -> CMUXRemoteHTTPResponse? {
+        if queryToken != nil, !allowQueryToken {
+            return Self.jsonError(statusCode: 401, id: nil, code: "unauthorized", message: "Query-token event authentication is not available in LAN mode.")
+        }
+        return authenticationError(
+            id: nil,
+            authorizationHeader: authorizationHeader,
+            queryToken: allowQueryToken ? queryToken : nil,
+            cookieToken: Self.eventCookieToken(from: cookieHeader)
+        )
+    }
+
+    private func authenticationError(
+        id: Any?,
+        authorizationHeader: String?,
+        queryToken: String? = nil,
+        cookieToken: String? = nil
+    ) -> CMUXRemoteHTTPResponse? {
         let expectedToken: String
         do {
             guard let loadedToken = try loadToken() else {
@@ -473,7 +663,7 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
             return Self.jsonError(statusCode: 500, id: id, code: "auth_unavailable", message: "Remote access token could not be loaded.")
         }
 
-        guard let providedToken = Self.bearerToken(from: authorizationHeader) ?? Self.queryToken(queryToken),
+        guard let providedToken = Self.bearerToken(from: authorizationHeader) ?? Self.queryToken(queryToken) ?? cookieToken,
               RemoteAccessTokenStore.verify(candidate: providedToken, expected: expectedToken) else {
             return Self.jsonError(statusCode: 401, id: id, code: "unauthorized", message: "Missing or invalid remote access token.")
         }
@@ -494,6 +684,27 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
         guard let token else { return nil }
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func eventCookieToken(from cookieHeader: String?) -> String? {
+        guard let cookieHeader else { return nil }
+        for rawPart in cookieHeader.split(separator: ";") {
+            let part = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let separator = part.firstIndex(of: "=") else { continue }
+            let name = part[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard name == eventCookieName else { continue }
+            let value = part[part.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : String(value)
+        }
+        return nil
+    }
+
+    private static func eventCookieHeader(token: String) -> String {
+        "\(eventCookieName)=\(token); Path=/events; SameSite=Strict; HttpOnly; Max-Age=\(eventCookieMaxAgeSeconds)"
+    }
+
+    private static func expiredEventCookieHeader() -> String {
+        "\(eventCookieName)=; Path=/events; SameSite=Strict; HttpOnly; Max-Age=0"
     }
 
     private static func extractIdIfPossible(from body: Data) -> Any? {
@@ -526,10 +737,10 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
         return jsonResponse(statusCode: statusCode, payload: payload)
     }
 
-    private static func jsonResponse(statusCode: Int, payload: [String: Any]) -> CMUXRemoteHTTPResponse {
+    private static func jsonResponse(statusCode: Int, payload: [String: Any], headers: [String: String] = [:]) -> CMUXRemoteHTTPResponse {
         let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])) ?? Data()
         let body = String(data: data, encoding: .utf8) ?? #"{"ok":false,"error":{"code":"internal_error","message":"Failed to encode error response."}}"#
-        return CMUXRemoteHTTPResponse(statusCode: statusCode, body: body)
+        return CMUXRemoteHTTPResponse(statusCode: statusCode, body: body, headers: headers)
     }
 }
 
@@ -538,6 +749,7 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
 final class CMUXRemoteServer: ObservableObject {
     typealias TokenBootstrap = @MainActor @Sendable () throws -> Void
     typealias ApplicationRunner = @Sendable (
+        _ host: String,
         _ port: Int,
         _ handler: CMUXRemoteRPCHandler,
         _ onRunning: @escaping @Sendable () async -> Void
@@ -549,7 +761,9 @@ final class CMUXRemoteServer: ObservableObject {
 
     private var task: Task<Void, Never>?
     private var activePort: Int?
+    private var activeBindMode: RemoteAccessBindMode?
     private var pendingStartPort: Int?
+    private var pendingStartBindMode: RemoteAccessBindMode?
     private var startGeneration = 0
     private var eventObservers: [NSObjectProtocol] = []
     private let tokenBootstrap: TokenBootstrap
@@ -587,14 +801,20 @@ final class CMUXRemoteServer: ObservableObject {
         }
     }
 
-    func start(port rawPort: Int) {
+    func start(port rawPort: Int, bindMode: RemoteAccessBindMode = RemoteAccessSettings.defaultBindMode) {
         let port = RemoteAccessSettings.normalizedPort(rawPort)
-        if task != nil, activePort == port, pendingStartPort == nil, isStartingOrRunning(on: port) {
+        if task != nil,
+           activePort == port,
+           activeBindMode == bindMode,
+           pendingStartPort == nil,
+           pendingStartBindMode == nil,
+           isStartingOrRunning(on: port) {
             return
         }
 
         if task != nil {
             pendingStartPort = port
+            pendingStartBindMode = bindMode
             if let activePort {
                 state = .restarting(fromPort: activePort, toPort: port)
             }
@@ -602,13 +822,14 @@ final class CMUXRemoteServer: ObservableObject {
             return
         }
 
-        startFresh(port: port)
+        startFresh(port: port, bindMode: bindMode)
     }
 
     func stop() {
         pendingStartPort = nil
         guard let task else {
             activePort = nil
+            activeBindMode = nil
             state = .stopped
             return
         }
@@ -619,7 +840,7 @@ final class CMUXRemoteServer: ObservableObject {
         task.cancel()
     }
 
-    private func startFresh(port: Int) {
+    private func startFresh(port: Int, bindMode: RemoteAccessBindMode) {
         startGeneration += 1
         let generation = startGeneration
 
@@ -641,7 +862,9 @@ final class CMUXRemoteServer: ObservableObject {
             }
         )
         activePort = port
+        activeBindMode = bindMode
         state = .starting(port: port)
+        let bindHost = RemoteAccessSettings.bindHost(for: bindMode)
 
         let runApplication = self.runApplication
         let onRunning: @Sendable () async -> Void = { [weak self] in
@@ -649,7 +872,9 @@ final class CMUXRemoteServer: ObservableObject {
                 guard let self,
                       self.startGeneration == generation,
                       self.activePort == port,
+                      self.activeBindMode == bindMode,
                       self.pendingStartPort == nil,
+                      self.pendingStartBindMode == nil,
                       self.isStarting(on: port) else {
                     return
                 }
@@ -659,7 +884,7 @@ final class CMUXRemoteServer: ObservableObject {
 
         task = Task.detached(priority: .background) { [weak self, handler, onRunning, runApplication] in
             do {
-                try await runApplication(port, handler, onRunning)
+                try await runApplication(bindHost, port, handler, onRunning)
                 await MainActor.run {
                     self?.finishListener(generation: generation, port: port, completion: .stopped)
                 }
@@ -681,11 +906,15 @@ final class CMUXRemoteServer: ObservableObject {
         let wasStopping = isStopping(on: port)
         task = nil
         activePort = nil
+        activeBindMode = nil
         if let pendingStartPort {
+            let pendingStartBindMode = self.pendingStartBindMode ?? RemoteAccessSettings.defaultBindMode
             self.pendingStartPort = nil
-            startFresh(port: pendingStartPort)
+            self.pendingStartBindMode = nil
+            startFresh(port: pendingStartPort, bindMode: pendingStartBindMode)
             return
         }
+        pendingStartBindMode = nil
 
         switch completion {
         case .stopped:
@@ -736,16 +965,20 @@ final class CMUXRemoteServer: ObservableObject {
     }
 
     nonisolated private static func defaultRunApplication(
+        host: String,
         port: Int,
         handler: CMUXRemoteRPCHandler,
         onRunning: @escaping @Sendable () async -> Void
     ) async throws {
-        let app = makeApplication(port: port, handler: handler, onRunning: onRunning)
+        let bindMode = host == RemoteAccessSettings.bindHost(for: .lan) ? RemoteAccessBindMode.lan : .localhost
+        let app = makeApplication(host: host, port: port, bindMode: bindMode, handler: handler, onRunning: onRunning)
         try await app.runService(gracefulShutdownSignals: [])
     }
 
     nonisolated static func makeApplication(
+        host: String = RemoteAccessSettings.bindHost(for: RemoteAccessSettings.defaultBindMode),
         port: Int,
+        bindMode: RemoteAccessBindMode = RemoteAccessSettings.defaultBindMode,
         handler: CMUXRemoteRPCHandler,
         eventHub: CMUXRemoteEventHub = .shared,
         onRunning: @escaping @Sendable () async -> Void = {}
@@ -755,7 +988,7 @@ final class CMUXRemoteServer: ObservableObject {
             middleware: CORSMiddleware(
                 allowOrigin: .originBased,
                 allowHeaders: [.authorization, .contentType, .accept, .origin],
-                allowMethods: [.get, .post, .options],
+                allowMethods: [.get, .post, .delete, .options],
                 allowCredentials: true,
                 maxAge: .seconds(600)
             )
@@ -768,19 +1001,29 @@ final class CMUXRemoteServer: ObservableObject {
             if let eventReason = result.eventReason {
                 await eventHub.publishSnapshotChanged(reason: eventReason)
             }
-            return Self.response(statusCode: result.statusCode, body: result.body)
+            return Self.response(statusCode: result.statusCode, body: result.body, extraHeaders: result.headers)
         }
         router.get("snapshot") { request, _ -> Response in
             let result = await handler.handleSnapshot(authorizationHeader: request.headers[.authorization])
-            return Self.response(statusCode: result.statusCode, body: result.body)
+            return Self.response(statusCode: result.statusCode, body: result.body, extraHeaders: result.headers)
+        }
+        router.post("events/session") { request, _ -> Response in
+            let result = handler.handleEventSessionCreate(authorizationHeader: request.headers[.authorization])
+            return Self.response(statusCode: result.statusCode, body: result.body, extraHeaders: result.headers)
+        }
+        router.delete("events/session") { _, _ -> Response in
+            let result = handler.handleEventSessionDelete()
+            return Self.response(statusCode: result.statusCode, body: result.body, extraHeaders: result.headers)
         }
         router.get("events") { request, _ -> Response in
             let queryToken = request.uri.queryParameters["token"].map(String.init)
             if let authError = handler.handleEventAuthentication(
                 authorizationHeader: request.headers[.authorization],
-                queryToken: queryToken
+                cookieHeader: request.headers[.cookie],
+                queryToken: queryToken,
+                allowQueryToken: bindMode == .localhost
             ) {
-                return Self.response(statusCode: authError.statusCode, body: authError.body)
+                return Self.response(statusCode: authError.statusCode, body: authError.body, extraHeaders: authError.headers)
             }
 
             let stream = await eventHub.subscribe()
@@ -805,7 +1048,7 @@ final class CMUXRemoteServer: ObservableObject {
         return Application(
             router: router,
             configuration: .init(
-                address: .hostname("127.0.0.1", port: port),
+                address: .hostname(host, port: port),
                 serverName: "cmux-remote"
             ),
             onServerRunning: { _ in
@@ -814,12 +1057,15 @@ final class CMUXRemoteServer: ObservableObject {
         )
     }
 
-    nonisolated private static func response(statusCode: Int, body: String) -> Response {
+    nonisolated private static func response(statusCode: Int, body: String, extraHeaders: [String: String] = [:]) -> Response {
         let buffer = ByteBuffer(string: body)
         let status = HTTPResponse.Status(code: statusCode)
         var headers = HTTPFields()
         headers[.contentType] = "application/json; charset=utf-8"
         headers[.contentLength] = buffer.readableBytes.description
+        for (name, value) in extraHeaders {
+            headers[HTTPField.Name(name)!] = value
+        }
         return Response(
             status: status,
             headers: headers,
@@ -871,7 +1117,7 @@ final class CMUXRemoteServer: ObservableObject {
 
     var isRunning: Bool { false }
 
-    func start(port rawPort: Int) {
+    func start(port rawPort: Int, bindMode _: RemoteAccessBindMode = RemoteAccessSettings.defaultBindMode) {
         state = .failed(
             port: RemoteAccessSettings.normalizedPort(rawPort),
             message: String(localized: "remoteAccess.server.error.unavailableInBuild", defaultValue: "Remote access server is unavailable in this build.")

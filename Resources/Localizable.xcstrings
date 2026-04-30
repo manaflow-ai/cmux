@@ -61248,8 +61248,8 @@
     "settings.automation.remoteAccess.port.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The first version binds only to 127.0.0.1." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "最初のバージョンは127.0.0.1にのみバインドします。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Localhost mode binds only to 127.0.0.1." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "localhostモードでは127.0.0.1にのみバインドします。" } }
       }
     },
     "settings.automation.remoteAccess.rotateToken": {
@@ -61341,6 +61341,146 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Remote Access URL" } },
         "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセスURL" } }
+      }
+    },
+    "settings.automation.remoteAccess.bindMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote Access Mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセスモード" } }
+      }
+    },
+    "settings.automation.remoteAccess.bindMode.lan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LAN" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LAN" } }
+      }
+    },
+    "settings.automation.remoteAccess.bindMode.localhost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Localhost" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "localhost" } }
+      }
+    },
+    "settings.automation.remoteAccess.bindMode.subtitleLAN": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LAN mode allows devices on this network to reach cmux with the token." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LANモードでは、このネットワーク上のデバイスがトークンを使ってcmuxに接続できます。" } }
+      }
+    },
+    "settings.automation.remoteAccess.bindMode.subtitleLocalhost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Localhost mode only accepts connections from this Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "localhostモードでは、このMacからの接続のみを受け付けます。" } }
+      }
+    },
+    "settings.automation.remoteAccess.copyPairingURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy Pairing URL" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングURLをコピー" } }
+      }
+    },
+    "settings.automation.remoteAccess.generatePairingLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Generate Pairing Link" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングリンクを生成" } }
+      }
+    },
+    "settings.automation.remoteAccess.lan.noAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No LAN address found." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LANアドレスが見つかりません。" } }
+      }
+    },
+    "settings.automation.remoteAccess.lanURLs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LAN URLs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LAN URL" } }
+      }
+    },
+    "settings.automation.remoteAccess.lanWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Warning: LAN mode exposes cmux remote control to this network. Anyone with the pairing URL or token can operate cmux." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "警告: LANモードでは、このネットワークにcmuxのリモート操作を公開します。ペアリングURLまたはトークンを持つ人はcmuxを操作できます。" } }
+      }
+    },
+    "settings.automation.remoteAccess.pairWithPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pair with Phone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "電話とペアリング" } }
+      }
+    },
+    "settings.automation.remoteAccess.pairingAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pairing Address" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングアドレス" } }
+      }
+    },
+    "settings.automation.remoteAccess.pairingAddress.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Used for the QR code and Copy Pairing URL." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "QRコードと「ペアリングURLをコピー」で使用されます。" } }
+      }
+    },
+    "settings.automation.remoteAccess.pairingURLCopied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pairing URL copied." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングURLをコピーしました。" } }
+      }
+    },
+    "settings.automation.remoteAccess.pairingLinkReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pairing link ready." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングリンクの準備ができました。" } }
+      }
+    },
+    "settings.automation.remoteAccess.pairingURLUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No LAN pairing URL is available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "利用できるLANペアリングURLがありません。" } }
+      }
+    },
+    "settings.automation.remoteAccess.port.subtitleLAN": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LAN mode listens on all network interfaces." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LANモードでは、すべてのネットワークインターフェイスで待ち受けます。" } }
+      }
+    },
+    "settings.automation.remoteAccess.qrHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Scan this QR code from a phone on the same network. The token is embedded in the link." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "同じネットワーク上の電話でこのQRコードをスキャンしてください。リンクにはトークンが埋め込まれています。" } }
+      }
+    },
+    "settings.automation.remoteAccess.qrGenerateHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Generate a pairing link to show a QR code for the selected LAN address." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択したLANアドレスのQRコードを表示するには、ペアリングリンクを生成してください。" } }
+      }
+    },
+    "settings.automation.remoteAccess.subtitleOnLAN": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Listening on this network." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このネットワークで待ち受けています。" } }
       }
     },
     "remoteAccess.token.error.malformed": {

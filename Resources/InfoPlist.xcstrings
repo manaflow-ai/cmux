@@ -149,6 +149,23 @@
         }
       }
     },
+    "NSLocalNetworkUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux uses the local network when you enable LAN remote access for pairing a phone or browser on the same network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は、LAN リモートアクセスを有効にしたときに、同じネットワーク上のスマートフォンやブラウザとペアリングするためにローカルネットワークを使用します。"
+          }
+        }
+      }
+    },
     "New $(PRODUCT_NAME) Workspace Here": {
       "extractionState": "manual",
       "localizations": {

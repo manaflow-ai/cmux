@@ -36,7 +36,8 @@ This should start as remote control of the desktop app, not a full headless rewr
 - **Event stream**
   - Add `GET /events`.
   - Use Server-Sent Events for v1 with coarse `snapshot_changed` events.
-  - Authenticate browser `EventSource` connections with a `token` query parameter while the server is localhost-only; replace this with pairing/session auth before LAN mode.
+  - Authenticate browser `EventSource` connections through an event session cookie created by authenticated `POST /events/session`.
+  - Keep query-token event auth limited to localhost compatibility; never allow URL query tokens in LAN mode.
   - Push updates for:
     - workspace created, closed, renamed, or selected
     - pane and surface changes
@@ -49,6 +50,7 @@ This should start as remote control of the desktop app, not a full headless rewr
   - Add a Remote Access settings section.
   - Generate a pairing token or password.
   - Show a QR code with the connection URL.
+  - Put pairing tokens in the URL fragment so the token is not sent with the initial static page request.
   - Require auth for every remote request.
   - Support token rotation and revocation.
   - Never expose unauthenticated control APIs on LAN.
@@ -56,8 +58,8 @@ This should start as remote control of the desktop app, not a full headless rewr
 - **Network discovery**
   - Start with local-only mode.
   - Add optional LAN mode.
-  - Advertise LAN mode with mDNS/Bonjour.
   - Display reachable URLs in Settings.
+  - Advertise LAN mode with mDNS/Bonjour in a later iteration.
   - Add Tailscale or Cloudflare Tunnel guidance later for away-from-LAN access.
 
 - **Mobile web client / PWA**
@@ -131,5 +133,6 @@ This should start as remote control of the desktop app, not a full headless rewr
 3. Build a minimal mobile web UI for workspace list, terminal read, send text, and send keys.
 4. Add SSE or WebSocket events.
 5. Add feed and notification actions.
-6. Add pairing QR code and mDNS discovery.
-7. Add browser controls and richer mobile UX.
+6. Add LAN mode and pairing QR code.
+7. Add mDNS/Bonjour discovery.
+8. Add browser controls and richer mobile UX.

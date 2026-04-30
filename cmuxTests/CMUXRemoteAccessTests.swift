@@ -2,6 +2,7 @@ import XCTest
 #if canImport(HummingbirdTesting)
 import Hummingbird
 import HummingbirdTesting
+import HTTPTypes
 #endif
 
 #if canImport(cmux_DEV)
@@ -11,6 +12,53 @@ import HummingbirdTesting
 #endif
 
 final class CMUXRemoteAccessTests: XCTestCase {
+    func testRemoteAccessBindModeAndPairingURLHelpers() {
+        XCTAssertEqual(RemoteAccessSettings.normalizedBindMode("localhost"), .localhost)
+        XCTAssertEqual(RemoteAccessSettings.normalizedBindMode("lan"), .lan)
+        XCTAssertEqual(RemoteAccessSettings.normalizedBindMode("invalid"), .localhost)
+        XCTAssertEqual(RemoteAccessSettings.bindHost(for: .localhost), "127.0.0.1")
+        XCTAssertEqual(RemoteAccessSettings.bindHost(for: .lan), "0.0.0.0")
+
+        let url = RemoteAccessSettings.pairingURLString(
+            host: "192.168.1.10",
+            port: 8765,
+            token: "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        )
+        XCTAssertEqual(url, "http://192.168.1.10:8765/remote#token=abcdefghijklmnopqrstuvwxyzABCDEF1234567890")
+        XCTAssertFalse(url.contains("?token="))
+    }
+
+    func testRemoteAccessLANAddressFilteringPrefersPrivateIPv4() {
+        let addresses = RemoteAccessSettings.lanIPv4Addresses(interfaces: [
+            .init(name: "lo0", address: "127.0.0.1", isUp: true, isLoopback: true),
+            .init(name: "en2", address: "169.254.1.4", isUp: true, isLoopback: false),
+            .init(name: "en3", address: "203.0.113.10", isUp: true, isLoopback: false),
+            .init(name: "en0", address: "192.168.1.4", isUp: true, isLoopback: false),
+            .init(name: "en1", address: "10.0.0.8", isUp: false, isLoopback: false),
+        ])
+
+        XCTAssertEqual(addresses, ["192.168.1.4", "203.0.113.10"])
+    }
+
+    func testRemoteAccessLANAddressRankingPrefersPhysicalPrivateInterfaces() {
+        let addresses = RemoteAccessSettings.lanIPv4Addresses(interfaces: [
+            .init(name: "bridge100", address: "192.168.64.1", isUp: true, isLoopback: false),
+            .init(name: "utun4", address: "10.7.0.2", isUp: true, isLoopback: false),
+            .init(name: "vmnet8", address: "172.16.4.1", isUp: true, isLoopback: false),
+            .init(name: "en0", address: "192.168.1.20", isUp: true, isLoopback: false),
+            .init(name: "en7", address: "10.0.0.20", isUp: true, isLoopback: false),
+            .init(name: "bridge101", address: "192.168.64.1", isUp: true, isLoopback: false),
+        ])
+
+        XCTAssertEqual(addresses, [
+            "192.168.1.20",
+            "10.0.0.20",
+            "192.168.64.1",
+            "10.7.0.2",
+            "172.16.4.1",
+        ])
+    }
+
     func testTokenStoreGeneratesPersistsAndRotatesToken() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-remote-token-tests-\(UUID().uuidString)", isDirectory: true)
@@ -35,7 +83,7 @@ final class CMUXRemoteAccessTests: XCTestCase {
     func testRemoteServerRunnerThrowMarksFailedAndNotRunning() async {
         let probe = RemoteServerLifecycleProbe()
         let port = RemoteAccessSettings.defaultPort
-        let server = makeLifecycleServer { port, _, _ in
+        let server = makeLifecycleServer { _, port, _, _ in
             await probe.recordRunnerCall(port: port)
             throw RemoteServerLifecycleError.runnerFailed
         }
@@ -51,7 +99,7 @@ final class CMUXRemoteAccessTests: XCTestCase {
     func testRemoteServerStopFromRunningWaitsForRunnerCompletion() async {
         let probe = RemoteServerLifecycleProbe()
         let port = RemoteAccessSettings.defaultPort
-        let server = makeLifecycleServer { port, _, onRunning in
+        let server = makeLifecycleServer { _, port, _, onRunning in
             try await probe.runBlockingFirstRunnerUntilShutdownReleased(port: port, onRunning: onRunning)
         }
 
@@ -82,7 +130,7 @@ final class CMUXRemoteAccessTests: XCTestCase {
         let port = RemoteAccessSettings.defaultPort
         let server = makeLifecycleServer(
             tokenBootstrap: { throw RemoteServerLifecycleError.tokenBootstrapFailed },
-            runner: { port, _, _ in
+            runner: { _, port, _, _ in
                 await probe.recordRunnerCall(port: port)
             }
         )
@@ -99,7 +147,7 @@ final class CMUXRemoteAccessTests: XCTestCase {
         let probe = RemoteServerLifecycleProbe()
         let firstPort = RemoteAccessSettings.defaultPort
         let secondPort = RemoteAccessSettings.defaultPort + 1
-        let server = makeLifecycleServer { port, _, onRunning in
+        let server = makeLifecycleServer { _, port, _, onRunning in
             try await probe.runBlockingFirstRunnerUntilShutdownReleased(port: port, onRunning: onRunning)
         }
 
@@ -676,6 +724,110 @@ final class CMUXRemoteAccessTests: XCTestCase {
                 XCTAssertEqual(response.status, .ok)
                 assertContentType(response.headers[.contentType], is: "text/event-stream")
                 XCTAssertTrue(String(buffer: response.body).contains("event: hello"))
+            }
+        }
+    }
+
+    func testEventSessionCookieAuthenticatesEvents() async throws {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let handler = makeHandler(expectedToken: token)
+        let eventHub = CMUXRemoteEventHub(
+            configuration: .init(
+                coalesceNanoseconds: 1_000_000,
+                keepaliveNanoseconds: nil,
+                finishAfterInitialFrame: true
+            )
+        )
+        let app = CMUXRemoteServer.makeApplication(
+            port: RemoteAccessSettings.defaultPort,
+            handler: handler,
+            eventHub: eventHub
+        )
+        let setCookieName = HTTPField.Name("Set-Cookie")!
+
+        try await app.test(.router) { client in
+            var cookieHeader = ""
+            try await client.execute(
+                uri: "/events/session",
+                method: .post,
+                headers: [.authorization: "Bearer \(token)"]
+            ) { response in
+                XCTAssertEqual(response.status, .ok)
+                cookieHeader = response.headers[setCookieName] ?? ""
+                XCTAssertTrue(cookieHeader.contains(CMUXRemoteRPCHandler.eventCookieName))
+                XCTAssertTrue(cookieHeader.contains("HttpOnly"))
+                XCTAssertTrue(cookieHeader.contains("SameSite=Strict"))
+                XCTAssertTrue(cookieHeader.contains("Max-Age=\(CMUXRemoteRPCHandler.eventCookieMaxAgeSeconds)"))
+            }
+
+            try await client.execute(
+                uri: "/events",
+                method: .get,
+                headers: [.cookie: cookieHeader]
+            ) { response in
+                XCTAssertEqual(response.status, .ok)
+                assertContentType(response.headers[.contentType], is: "text/event-stream")
+                XCTAssertTrue(String(buffer: response.body).contains("event: hello"))
+            }
+
+            try await client.execute(uri: "/events/session", method: .delete) { response in
+                XCTAssertEqual(response.status, .ok)
+                XCTAssertTrue((response.headers[setCookieName] ?? "").contains("Max-Age=0"))
+            }
+        }
+    }
+
+    func testLANEventsRejectQueryTokenButAcceptCookie() async throws {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let handler = makeHandler(expectedToken: token)
+        let eventHub = CMUXRemoteEventHub(
+            configuration: .init(
+                coalesceNanoseconds: 1_000_000,
+                keepaliveNanoseconds: nil,
+                finishAfterInitialFrame: true
+            )
+        )
+        let app = CMUXRemoteServer.makeApplication(
+            port: RemoteAccessSettings.defaultPort,
+            bindMode: .lan,
+            handler: handler,
+            eventHub: eventHub
+        )
+
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/events?token=\(token)", method: .get) { response in
+                XCTAssertEqual(response.status, .unauthorized)
+            }
+
+            try await client.execute(
+                uri: "/events",
+                method: .get,
+                headers: [.cookie: "\(CMUXRemoteRPCHandler.eventCookieName)=\(token)"]
+            ) { response in
+                XCTAssertEqual(response.status, .ok)
+                XCTAssertTrue(String(buffer: response.body).contains("event: hello"))
+            }
+        }
+    }
+
+    func testRPCAndSnapshotRejectCookieOnlyAuth() async throws {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let handler = makeHandler(expectedToken: token)
+        let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: handler)
+        let cookie = "\(CMUXRemoteRPCHandler.eventCookieName)=\(token)"
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/rpc",
+                method: .post,
+                headers: [.cookie: cookie, .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"id":"req-cookie","method":"system.ping","params":{}}"#)
+            ) { response in
+                XCTAssertEqual(response.status, .unauthorized)
+            }
+
+            try await client.execute(uri: "/snapshot", method: .get, headers: [.cookie: cookie]) { response in
+                XCTAssertEqual(response.status, .unauthorized)
             }
         }
     }
