@@ -1919,6 +1919,7 @@ class TabManager: ObservableObject {
     func startSearch() {
         if let panel = selectedTerminalPanel {
             let hadExistingSearch = panel.searchState != nil
+            panel.hostedView.preparePanelFocusIntentForActivation(.findField)
             let recoveredNeedle = hadExistingSearch ? "" : panel.surface.lastSearchNeedle
             let handled = startOrFocusTerminalSearch(panel.surface, initialNeedle: recoveredNeedle) { surface in
                 NotificationCenter.default.post(
@@ -1937,7 +1938,6 @@ class TabManager: ObservableObject {
 #endif
             return
         }
-
         focusedBrowserPanel?.startFind()
     }
 
