@@ -96027,7 +96027,7 @@
         }
       }
     },
-    "menu.view.taskManager": {
+    "menu.window.taskManager": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Task Manager..." } },

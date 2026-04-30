@@ -64,6 +64,7 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+        TaskManagerWindowMenuInstaller.shared.start()
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
@@ -630,12 +631,6 @@ struct cmuxApp: App {
                         NSSound.beep()
                     }
                 }
-
-                Button(String(localized: "menu.view.taskManager", defaultValue: "Task Manager...")) {
-                    appDelegate.openTaskManagerWindow()
-                }
-
-                Divider()
 
                 splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                     _ = activeTabManager.zoomInFocusedBrowser()
