@@ -266,6 +266,13 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "titleFontSize": {
+          "type": "number",
+          "minimum": 9,
+          "maximum": 24,
+          "default": 12.5,
+          "description": "Point size of the workspace title text in each sidebar tab. Other detail rows are unaffected."
         }
       }
     },

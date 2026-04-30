@@ -60,6 +60,7 @@ final class CmuxSettingsFileStore {
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showCustomMetadata",
+        "sidebar.titleFontSize",
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",
         "workspaceColors.notificationBadgeColor",
@@ -531,6 +532,10 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["showCustomMetadata"]) {
             snapshot.managedUserDefaults["sidebarShowStatusPills"] = .bool(value)
+        }
+        if let value = jsonDouble(section["titleFontSize"]) {
+            let clamped = min(max(value, SidebarTabTitleFontSettings.minSize), SidebarTabTitleFontSettings.maxSize)
+            snapshot.managedUserDefaults[SidebarTabTitleFontSettings.userDefaultsKey] = .double(clamped)
         }
     }
 
@@ -1263,6 +1268,7 @@ final class CmuxSettingsFileStore {
                     "showLog": true,
                     "showProgress": true,
                     "showCustomMetadata": true,
+                    "titleFontSize": SidebarTabTitleFontSettings.defaultSize,
                 ],
             ],
             [
