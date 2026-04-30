@@ -3253,7 +3253,8 @@ class TerminalController {
 
     private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
         let base = v2MainSync {
-            self.v2SystemTopBasePayload(params: params)
+            self.v2RefreshKnownRefs()
+            return self.v2SystemTopBasePayload(params: params)
         }
         guard case .ok(let value) = base else { return base }
         guard var payload = value as? [String: Any],
@@ -3261,7 +3262,6 @@ class TerminalController {
               var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
             return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
         }
-
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         let totalPIDs = v2AnnotateTopWindows(
