@@ -2980,9 +2980,22 @@ class GhosttyApp {
         let path = ghosttyStringValue(ghostty_config_open_path())
         guard !path.isEmpty else { return }
         let fileURL = URL(fileURLWithPath: path)
-        let editorURL = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
-        let configuration = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open([fileURL], withApplicationAt: editorURL, configuration: configuration)
+        // Resolve the OS-configured default editor for the file using the modern
+        // NSWorkspace API (macOS 12+). We first try the app registered for the
+        // specific file URL (honours per-extension default app settings), then
+        // fall back to letting the OS open the file with whatever app it chooses.
+        // This replaces the deprecated LSCopyDefaultApplicationURLForContentType
+        // (deprecated in macOS 12) while preserving the same user-intent semantics.
+        if let editorURL = NSWorkspace.shared.urlForApplication(toOpen: fileURL) {
+            NSWorkspace.shared.open(
+                [fileURL],
+                withApplicationAt: editorURL,
+                configuration: NSWorkspace.OpenConfiguration()
+            )
+        } else {
+            // Last resort: let the OS pick any associated application
+            NSWorkspace.shared.open(fileURL)
+        }
         #endif
     }
 
