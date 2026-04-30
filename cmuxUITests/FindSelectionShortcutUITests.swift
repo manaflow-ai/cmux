@@ -14,7 +14,7 @@ final class FindSelectionShortcutUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: socketPath)
     }
 
-    func testRepeatedCmdFPreservesOpenTerminalAndBrowserFindSelection() {
+    func testRepeatedCmdFPreservesOpenTerminalAndBrowserFindCaretAndSelection() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
@@ -35,6 +35,8 @@ final class FindSelectionShortcutUITests: XCTestCase {
         openBrowserInRightPane(app)
         assertFindRefocusPreservesSelection(app, pane: .terminal, initial: "abc", replacement: "x", expected: "abx")
         assertFindRefocusPreservesSelection(app, pane: .browser, initial: "def", replacement: "y", expected: "dey")
+        assertFindRefocusPreservesCaret(app, pane: .terminal, initial: "abcd", insertion: "z", expected: "abzcd")
+        assertFindRefocusPreservesCaret(app, pane: .browser, initial: "wxyz", insertion: "q", expected: "wxqyz")
     }
 
     func testEscapeClosesTerminalAndBrowserFindAfterQuery() {
@@ -107,7 +109,7 @@ final class FindSelectionShortcutUITests: XCTestCase {
             findField.waitForExistence(timeout: 6.0),
             "Expected \(pane.replacementMessage) field after Cmd+F. data=\(String(describing: loadData()))"
         )
-        app.typeText(initial)
+        replaceFindText(app, with: initial)
         app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [.shift])
         focusPane(pane.opposite, app: app)
         XCTAssertTrue(
@@ -129,6 +131,50 @@ final class FindSelectionShortcutUITests: XCTestCase {
                 data["focusedPanelKind"] == pane.opposite.focusKey && data[pane.needleKey] == expected
             },
             "Expected repeated Cmd+F to preserve \(pane.replacementMessage) selection. data=\(String(describing: loadData()))"
+        )
+    }
+
+    private func assertFindRefocusPreservesCaret(
+        _ app: XCUIApplication,
+        pane: Pane,
+        initial: String,
+        insertion: String,
+        expected: String
+    ) {
+        focusPane(pane, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { $0["focusedPanelKind"] == pane.focusKey },
+            "Expected \(pane.focusKey) focus. data=\(String(describing: loadData()))"
+        )
+        app.typeKey("f", modifierFlags: [.command])
+        let findField = app.textFields[pane.findFieldId].firstMatch
+        XCTAssertTrue(
+            findField.waitForExistence(timeout: 6.0),
+            "Expected \(pane.replacementMessage) field after Cmd+F. data=\(String(describing: loadData()))"
+        )
+        replaceFindText(app, with: initial)
+        app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [])
+        app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [])
+        focusPane(pane.opposite, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.opposite.focusKey && data[pane.needleKey] == initial
+            },
+            "Expected initial \(pane.replacementMessage) before caret refocus. data=\(String(describing: loadData()))"
+        )
+        focusPane(pane, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { $0["focusedPanelKind"] == pane.focusKey },
+            "Expected \(pane.focusKey) focus before repeated Cmd+F. data=\(String(describing: loadData()))"
+        )
+        app.typeKey("f", modifierFlags: [.command])
+        app.typeText(insertion)
+        focusPane(pane.opposite, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.opposite.focusKey && data[pane.needleKey] == expected
+            },
+            "Expected repeated Cmd+F to preserve \(pane.replacementMessage) caret. data=\(String(describing: loadData()))"
         )
     }
 
@@ -223,6 +269,12 @@ final class FindSelectionShortcutUITests: XCTestCase {
 
     private func focusPane(_ pane: Pane, app: XCUIApplication) {
         app.typeKey(pane.arrowKey, modifierFlags: [.command, .option])
+    }
+
+    private func replaceFindText(_ app: XCUIApplication, with text: String) {
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText(text)
     }
 
     private func waitForOmnibarToContainExampleDomain(_ omnibar: XCUIElement, timeout: TimeInterval) -> Bool {

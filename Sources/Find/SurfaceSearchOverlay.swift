@@ -2,27 +2,6 @@ import AppKit
 import Bonsplit
 import SwiftUI
 
-enum FindFocusNotificationKey {
-    static let selectAll = "cmux.find.selectAll"
-}
-
-func cmuxClampedFindSelection(_ range: NSRange, in text: String) -> NSRange {
-    let textLength = text.utf16.count
-    guard range.location != NSNotFound else {
-        return NSRange(location: textLength, length: 0)
-    }
-    let location = min(max(range.location, 0), textLength)
-    let length = min(max(range.length, 0), textLength - location)
-    return NSRange(location: location, length: length)
-}
-
-func cmuxTextFieldIsFirstResponder(_ field: NSTextField, in window: NSWindow) -> Bool {
-    let fr = window.firstResponder
-    return fr === field ||
-        field.currentEditor() != nil ||
-        (fr as? NSTextView).flatMap { cmuxFieldEditorOwnerView($0) } === field
-}
-
 private extension NSView {
     func cmuxAncestor<T: NSView>(of type: T.Type) -> T? {
         var current: NSView? = self
@@ -222,9 +201,7 @@ struct SurfaceSearchOverlay: View {
 
 /// NSTextField subclass for the terminal find bar.
 /// Strips visual chrome so SwiftUI handles the background/border appearance.
-private final class SearchNativeTextField: NSTextField {
-    var cmuxLastSelectedRange: NSRange?
-
+private final class SearchNativeTextField: FindSelectionTrackingTextField {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isBordered = false
@@ -238,15 +215,6 @@ private final class SearchNativeTextField: NSTextField {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func becomeFirstResponder() -> Bool {
-        guard super.becomeFirstResponder() else { return false }
-        guard let cmuxLastSelectedRange else { return true }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let editor = self.currentEditor() as? NSTextView, !editor.hasMarkedText() else { return }
-            editor.setSelectedRange(cmuxClampedFindSelection(cmuxLastSelectedRange, in: editor.string))
-        }
-        return true
-    }
 }
 
 /// NSViewRepresentable wrapping SearchNativeTextField.
@@ -288,14 +256,17 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                       let editor = field.currentEditor() as? NSTextView else { return }
                 guard !editor.hasMarkedText() else { return }
                 if selectAll {
-                    let selection = NSRange(location: 0, length: editor.string.utf16.count)
+                    let selection = field.cmuxRememberSelection(
+                        NSRange(location: 0, length: editor.string.utf16.count),
+                        in: editor.string
+                    )
                     editor.setSelectedRange(selection)
                     self.lastSelectedRange = selection
-                    field.cmuxLastSelectedRange = selection
-                } else if !alreadyFocused, let lastSelectedRange = self.lastSelectedRange {
-                    let selection = cmuxClampedFindSelection(lastSelectedRange, in: editor.string)
+                } else if !alreadyFocused,
+                          let rememberedRange = field.cmuxLastSelectedRange ?? self.lastSelectedRange {
+                    let selection = field.cmuxRememberSelection(rememberedRange, in: editor.string)
                     editor.setSelectedRange(selection)
-                    field.cmuxLastSelectedRange = selection
+                    self.lastSelectedRange = selection
                 }
             }
         }
@@ -354,13 +325,19 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         }
 
         private func rememberSelection(from field: NSTextField) {
+            if let field = field as? SearchNativeTextField,
+               let selection = field.cmuxRememberSelectionFromCurrentEditor() {
+                lastSelectedRange = selection
+                return
+            }
             guard let editor = field.currentEditor() as? NSTextView else { return }
             rememberSelection(from: editor)
-            (field as? SearchNativeTextField)?.cmuxLastSelectedRange = lastSelectedRange
         }
 
         private func rememberSelection(from textView: NSTextView) {
-            lastSelectedRange = cmuxClampedFindSelection(textView.selectedRange(), in: textView.string)
+            let selection = cmuxClampedFindSelection(textView.selectedRange(), in: textView.string)
+            lastSelectedRange = selection
+            parentField?.cmuxLastSelectedRange = selection
         }
     }
 
@@ -420,13 +397,12 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         // Sync text from binding to field (skip during active IME composition)
         if let editor = nsView.currentEditor() as? NSTextView {
             if editor.string != text, !editor.hasMarkedText() {
-                let selectedRange = cmuxClampedFindSelection(editor.selectedRange(), in: text)
+                let selectedRange = nsView.cmuxRememberSelection(editor.selectedRange(), in: text)
                 context.coordinator.isProgrammaticMutation = true
                 editor.string = text
                 nsView.stringValue = text
                 editor.setSelectedRange(selectedRange)
                 context.coordinator.lastSelectedRange = selectedRange
-                nsView.cmuxLastSelectedRange = selectedRange
                 context.coordinator.isProgrammaticMutation = false
             }
         } else if nsView.stringValue != text {
