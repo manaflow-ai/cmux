@@ -105462,6 +105462,108 @@
         }
       }
     },
+    "dock.empty.agentPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add cmux Dock controls for this repo. Create .cmux/dock.json with a controls array. Each control needs id, title, command, and optional cwd, height, env. Use safe commands for this repo and do not include secrets. Example:\n\n{\n  \"controls\": [\n    {\n      \"id\": \"feed\",\n      \"title\": \"Feed\",\n      \"command\": \"cmux feed tui --opentui\",\n      \"height\": 320\n    },\n    {\n      \"id\": \"git\",\n      \"title\": \"Git\",\n      \"command\": \"lazygit\",\n      \"height\": 300\n    }\n  ]\n}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリポジトリ用のcmux Dockコントロールを追加してください。.cmux/dock.json を作成し、controls配列を入れてください。各コントロールには id、title、command が必要で、cwd、height、env は任意です。このリポジトリで安全なコマンドを使い、シークレットは含めないでください。例:\n\n{\n  \"controls\": [\n    {\n      \"id\": \"feed\",\n      \"title\": \"Feed\",\n      \"command\": \"cmux feed tui --opentui\",\n      \"height\": 320\n    },\n    {\n      \"id\": \"git\",\n      \"title\": \"Git\",\n      \"command\": \"lazygit\",\n      \"height\": 300\n    }\n  ]\n}"
+          }
+        }
+      }
+    },
+    "dock.empty.copyPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Agent Prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント用プロンプトをコピー"
+          }
+        }
+      }
+    },
+    "dock.empty.copyPrompt.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy a prompt you can paste into an AI coding agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIコーディングエージェントに貼り付けるプロンプトをコピー"
+          }
+        }
+      }
+    },
+    "dock.empty.copyPromptDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーしました"
+          }
+        }
+      }
+    },
+    "dock.empty.openDocs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドキュメント"
+          }
+        }
+      }
+    },
+    "dock.empty.openDocs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the Dock documentation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockドキュメントを開く"
+          }
+        }
+      }
+    },
     "dock.empty.title": {
       "extractionState": "manual",
       "localizations": {
