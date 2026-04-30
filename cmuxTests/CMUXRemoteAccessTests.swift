@@ -245,6 +245,42 @@ final class CMUXRemoteAccessTests: XCTestCase {
         XCTAssertTrue(forwardedLine?.contains(#""method":"system.ping""#) == true)
     }
 
+    func testRPCMarksSuccessfulRemoteMutationsForEvents() async {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let handler = CMUXRemoteRPCHandler(
+            loadToken: { token },
+            dispatch: { _ in
+                #"{"id":"req-mutate","ok":true,"result":{}}"#
+            }
+        )
+
+        let response = await handler.handle(
+            body: Data(#"{"id":"req-mutate","method":"surface.send_text","params":{"text":"pwd"}}"#.utf8),
+            authorizationHeader: "Bearer \(token)"
+        )
+
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(response.eventReason, .remoteMutation)
+    }
+
+    func testRPCDoesNotMarkFailedRemoteMutationsForEvents() async {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let handler = CMUXRemoteRPCHandler(
+            loadToken: { token },
+            dispatch: { _ in
+                #"{"id":"req-mutate","ok":false,"error":{"code":"workspace_not_found"}}"#
+            }
+        )
+
+        let response = await handler.handle(
+            body: Data(#"{"id":"req-mutate","method":"surface.send_key","params":{"key":"enter"}}"#.utf8),
+            authorizationHeader: "Bearer \(token)"
+        )
+
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertNil(response.eventReason)
+    }
+
     func testRPCDefaultsMissingParamsToObject() async {
         let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
         nonisolated(unsafe) var forwardedLine: String?
@@ -351,6 +387,51 @@ final class CMUXRemoteAccessTests: XCTestCase {
     }
 
     #if canImport(HummingbirdTesting)
+    func testRemoteEventHubStreamsHelloAndCoalescedSnapshotChanged() async {
+        let hub = CMUXRemoteEventHub(
+            configuration: .init(
+                coalesceNanoseconds: 1_000_000,
+                keepaliveNanoseconds: nil,
+                finishAfterInitialFrame: false
+            )
+        )
+        let stream = await hub.subscribe()
+        var iterator = stream.makeAsyncIterator()
+
+        let hello = await iterator.next()
+        XCTAssertTrue(hello?.contains("event: hello") == true)
+        XCTAssertTrue(hello?.contains("retry: 2000") == true)
+
+        await hub.publishSnapshotChanged(reason: .workspace)
+        await hub.publishSnapshotChanged(reason: .surface)
+
+        let event = await iterator.next()
+        XCTAssertTrue(event?.contains("event: snapshot_changed") == true)
+        XCTAssertTrue(event?.contains(#""workspace""#) == true)
+        XCTAssertTrue(event?.contains(#""surface""#) == true)
+    }
+
+    func testRemoteEventHubDoesNotRetainFinishedEventSubscribers() async {
+        let hub = CMUXRemoteEventHub(
+            configuration: .init(
+                coalesceNanoseconds: 1_000_000,
+                keepaliveNanoseconds: nil,
+                finishAfterInitialFrame: true
+            )
+        )
+        let stream = await hub.subscribe()
+        var iterator = stream.makeAsyncIterator()
+
+        let hello = await iterator.next()
+        XCTAssertTrue(hello?.contains("event: hello") == true)
+        XCTAssertNil(await iterator.next())
+        XCTAssertEqual(await hub.subscriberCountForTesting(), 0)
+
+        await hub.publishSnapshotChanged(reason: .workspace)
+        try? await Task.sleep(nanoseconds: 2_000_000)
+        XCTAssertEqual(await hub.subscriberCountForTesting(), 0)
+    }
+
     func testRemoteStaticHTMLRoutesAreServedWithoutAuthOrDispatch() async throws {
         let probe = RemoteStaticRouteProbe()
         let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: probe.handler)
@@ -451,6 +532,106 @@ final class CMUXRemoteAccessTests: XCTestCase {
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/snapshot",
+                method: .options,
+                headers: [.origin: "http://localhost:5173"]
+            ) { response in
+                XCTAssertEqual(response.status, .noContent)
+                XCTAssertEqual(response.headers[.accessControlAllowOrigin], "http://localhost:5173")
+                XCTAssertEqual(response.headers[.accessControlAllowCredentials], "true")
+                XCTAssertEqual(response.headers[.accessControlMaxAge], "600")
+                assertCORSHeaderList(response.headers[.accessControlAllowHeaders], includes: ["Authorization"])
+                assertCORSAllowMethods(response.headers[.accessControlAllowMethods], include: ["GET", "POST", "OPTIONS"])
+            }
+        }
+    }
+
+    func testEventsRejectMissingAndBadTokens() async throws {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let handler = makeHandler(expectedToken: token)
+        let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: handler)
+
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/events", method: .get) { response in
+                XCTAssertEqual(response.status, .unauthorized)
+                XCTAssertTrue(String(buffer: response.body).contains(#""code":"unauthorized""#))
+            }
+
+            try await client.execute(uri: "/events?token=wrongabcdefghijklmnopqrstuvwxyz123456", method: .get) { response in
+                XCTAssertEqual(response.status, .unauthorized)
+                XCTAssertTrue(String(buffer: response.body).contains(#""code":"unauthorized""#))
+            }
+        }
+    }
+
+    func testEventsAcceptQueryTokenAndStreamHelloFrame() async throws {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let handler = makeHandler(expectedToken: token)
+        let eventHub = CMUXRemoteEventHub(
+            configuration: .init(
+                coalesceNanoseconds: 1_000_000,
+                keepaliveNanoseconds: nil,
+                finishAfterInitialFrame: true
+            )
+        )
+        let app = CMUXRemoteServer.makeApplication(
+            port: RemoteAccessSettings.defaultPort,
+            handler: handler,
+            eventHub: eventHub
+        )
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/events?token=\(token)",
+                method: .get,
+                headers: [.origin: "http://localhost:5173"]
+            ) { response in
+                XCTAssertEqual(response.status, .ok)
+                assertContentType(response.headers[.contentType], is: "text/event-stream")
+                XCTAssertEqual(response.headers[.cacheControl], "no-cache")
+                XCTAssertEqual(response.headers[.accessControlAllowOrigin], "http://localhost:5173")
+                let body = String(buffer: response.body)
+                XCTAssertTrue(body.contains("event: hello"))
+                XCTAssertTrue(body.contains(#""ok":true"#))
+            }
+        }
+    }
+
+    func testEventsAcceptAuthorizationHeaderAndStreamHelloFrame() async throws {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let handler = makeHandler(expectedToken: token)
+        let eventHub = CMUXRemoteEventHub(
+            configuration: .init(
+                coalesceNanoseconds: 1_000_000,
+                keepaliveNanoseconds: nil,
+                finishAfterInitialFrame: true
+            )
+        )
+        let app = CMUXRemoteServer.makeApplication(
+            port: RemoteAccessSettings.defaultPort,
+            handler: handler,
+            eventHub: eventHub
+        )
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/events",
+                method: .get,
+                headers: [.authorization: "Bearer \(token)"]
+            ) { response in
+                XCTAssertEqual(response.status, .ok)
+                assertContentType(response.headers[.contentType], is: "text/event-stream")
+                XCTAssertTrue(String(buffer: response.body).contains("event: hello"))
+            }
+        }
+    }
+
+    func testEventsPreflightReturnsCORSHeadersForBrowserClients() async throws {
+        let handler = makeHandler(expectedToken: "abcdefghijklmnopqrstuvwxyzABCDEF1234567890")
+        let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: handler)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/events",
                 method: .options,
                 headers: [.origin: "http://localhost:5173"]
             ) { response in

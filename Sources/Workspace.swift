@@ -8385,6 +8385,7 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
+        CMUXRemoteEvents.publishSnapshotChanged(reason: .surface)
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -8517,6 +8518,7 @@ final class Workspace: Identifiable, ObservableObject {
         processTitle = title
         guard customTitle == nil else { return }
         self.title = title
+        CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
     }
 
     func setCustomColor(_ hex: String?) {
@@ -8547,12 +8549,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     func setCustomTitle(_ title: String?) {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let previousTitle = self.title
+        let previousCustomTitle = customTitle
         if trimmed.isEmpty {
             customTitle = nil
             self.title = processTitle
         } else {
             customTitle = trimmed
             self.title = trimmed
+        }
+        if previousTitle != self.title || previousCustomTitle != customTitle {
+            CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
         }
     }
 
@@ -8826,6 +8833,9 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
+        if didMutate {
+            CMUXRemoteEvents.publishSnapshotChanged(reason: .surface)
+        }
         return didMutate
     }
 

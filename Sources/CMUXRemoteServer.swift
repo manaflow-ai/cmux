@@ -144,6 +144,13 @@ enum RemoteAccessTokenStore {
 struct CMUXRemoteHTTPResponse: Equatable {
     let statusCode: Int
     let body: String
+    let eventReason: CMUXRemoteEventReason?
+
+    init(statusCode: Int, body: String, eventReason: CMUXRemoteEventReason? = nil) {
+        self.statusCode = statusCode
+        self.body = body
+        self.eventReason = eventReason
+    }
 }
 
 enum RemoteAccessServerState: Equatable {
@@ -159,6 +166,161 @@ enum RemoteAccessServerState: Equatable {
             return message
         }
         return nil
+    }
+}
+
+enum CMUXRemoteEventReason: String, CaseIterable, Sendable {
+    case remoteMutation = "remote_mutation"
+    case workspace
+    case surface
+    case notification
+    case feed
+}
+
+enum CMUXRemoteEvents {
+    nonisolated static func publishSnapshotChanged(reason: CMUXRemoteEventReason) {
+        Task {
+            await CMUXRemoteEventHub.shared.publishSnapshotChanged(reason: reason)
+        }
+    }
+}
+
+actor CMUXRemoteEventHub {
+    struct Configuration: Sendable {
+        var coalesceNanoseconds: UInt64
+        var keepaliveNanoseconds: UInt64?
+        var finishAfterInitialFrame: Bool
+
+        static let production = Configuration(
+            coalesceNanoseconds: 250_000_000,
+            keepaliveNanoseconds: 15_000_000_000,
+            finishAfterInitialFrame: false
+        )
+    }
+
+    static let shared = CMUXRemoteEventHub()
+
+    private struct Subscriber {
+        let continuation: AsyncStream<String>.Continuation
+        var keepaliveTask: Task<Void, Never>?
+    }
+
+    private let configuration: Configuration
+    private var subscribers: [UUID: Subscriber] = [:]
+    private var nextSequence: UInt64 = 0
+    private var pendingReasons = Set<CMUXRemoteEventReason>()
+    private var coalesceTask: Task<Void, Never>?
+
+    init(configuration: Configuration = .production) {
+        self.configuration = configuration
+    }
+
+    func subscribe() -> AsyncStream<String> {
+        let id = UUID()
+        let stream = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(16))
+        stream.continuation.onTermination = { @Sendable _ in
+            Task { await self.removeSubscriber(id) }
+        }
+        addSubscriber(id: id, continuation: stream.continuation)
+        return stream.stream
+    }
+
+    func publishSnapshotChanged(reason: CMUXRemoteEventReason) {
+        pendingReasons.insert(reason)
+        guard coalesceTask == nil else { return }
+
+        let delay = configuration.coalesceNanoseconds
+        coalesceTask = Task { [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            await self?.flushSnapshotChanged()
+        }
+    }
+
+    private func addSubscriber(id: UUID, continuation: AsyncStream<String>.Continuation) {
+        var subscriber = Subscriber(continuation: continuation, keepaliveTask: nil)
+        if let keepaliveNanoseconds = configuration.keepaliveNanoseconds {
+            subscriber.keepaliveTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: keepaliveNanoseconds)
+                    guard !Task.isCancelled else { return }
+                    await self?.sendKeepalive(to: id)
+                }
+            }
+        }
+        subscribers[id] = subscriber
+        guard yield(Self.helloFrame(), to: id) else { return }
+        if configuration.finishAfterInitialFrame {
+            continuation.finish()
+            removeSubscriber(id)
+        }
+    }
+
+    private func removeSubscriber(_ id: UUID) {
+        subscribers.removeValue(forKey: id)?.keepaliveTask?.cancel()
+    }
+
+    private func sendKeepalive(to id: UUID) {
+        yield(": keepalive\n\n", to: id)
+    }
+
+    private func flushSnapshotChanged() {
+        coalesceTask = nil
+        guard !subscribers.isEmpty, !pendingReasons.isEmpty else {
+            pendingReasons.removeAll()
+            return
+        }
+
+        nextSequence &+= 1
+        let reasons = pendingReasons.map(\.rawValue).sorted()
+        pendingReasons.removeAll()
+
+        let payload: [String: Any] = [
+            "sequence": nextSequence,
+            "reasons": reasons,
+        ]
+        broadcast(Self.eventFrame(name: "snapshot_changed", id: nextSequence, payload: payload))
+    }
+
+    private func broadcast(_ frame: String) {
+        for id in Array(subscribers.keys) {
+            yield(frame, to: id)
+        }
+    }
+
+    @discardableResult
+    private func yield(_ frame: String, to id: UUID) -> Bool {
+        guard let subscriber = subscribers[id] else { return false }
+        switch subscriber.continuation.yield(frame) {
+        case .terminated:
+            removeSubscriber(id)
+            return false
+        default:
+            return true
+        }
+    }
+
+    func subscriberCountForTesting() -> Int {
+        subscribers.count
+    }
+
+    private static func helloFrame() -> String {
+        eventFrame(name: "hello", id: 0, payload: ["ok": true], prefix: "retry: 2000\n")
+    }
+
+    private static func eventFrame(name: String, id: UInt64, payload: [String: Any], prefix: String = "") -> String {
+        let data = jsonLine(payload)
+        return "\(prefix)event: \(name)\nid: \(id)\ndata: \(data)\n\n"
+    }
+
+    private static func jsonLine(_ payload: [String: Any]) -> String {
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return #"{"ok":false}"#
+        }
+        return string
     }
 }
 
@@ -185,6 +347,10 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
     ].sorted()
 
     private static let allowedMethods = Set(remoteAllowedMethods)
+    private static let mutatingMethods: Set<String> = [
+        "surface.send_key",
+        "surface.send_text",
+    ]
 
     private let loadToken: TokenLoader
     private let dispatch: Dispatcher
@@ -260,7 +426,10 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
         }
 
         let response = await dispatch(line)
-        return CMUXRemoteHTTPResponse(statusCode: 200, body: response)
+        let eventReason: CMUXRemoteEventReason? = Self.mutatingMethods.contains(method) && Self.isSuccessfulResponse(response)
+            ? .remoteMutation
+            : nil
+        return CMUXRemoteHTTPResponse(statusCode: 200, body: response, eventReason: eventReason)
     }
 
     func handleSnapshot(authorizationHeader: String?) async -> CMUXRemoteHTTPResponse {
@@ -284,7 +453,11 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
         return CMUXRemoteHTTPResponse(statusCode: 200, body: response)
     }
 
-    private func authenticationError(id: Any?, authorizationHeader: String?) -> CMUXRemoteHTTPResponse? {
+    func handleEventAuthentication(authorizationHeader: String?, queryToken: String?) -> CMUXRemoteHTTPResponse? {
+        authenticationError(id: nil, authorizationHeader: authorizationHeader, queryToken: queryToken)
+    }
+
+    private func authenticationError(id: Any?, authorizationHeader: String?, queryToken: String? = nil) -> CMUXRemoteHTTPResponse? {
         let expectedToken: String
         do {
             guard let loadedToken = try loadToken() else {
@@ -295,7 +468,7 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
             return Self.jsonError(statusCode: 500, id: id, code: "auth_unavailable", message: "Remote access token could not be loaded.")
         }
 
-        guard let providedToken = Self.bearerToken(from: authorizationHeader),
+        guard let providedToken = Self.bearerToken(from: authorizationHeader) ?? Self.queryToken(queryToken),
               RemoteAccessTokenStore.verify(candidate: providedToken, expected: expectedToken) else {
             return Self.jsonError(statusCode: 401, id: id, code: "unauthorized", message: "Missing or invalid remote access token.")
         }
@@ -312,12 +485,28 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
         return token.isEmpty ? nil : token
     }
 
+    private static func queryToken(_ token: String?) -> String? {
+        guard let token else { return nil }
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private static func extractIdIfPossible(from body: Data) -> Any? {
         guard let object = try? JSONSerialization.jsonObject(with: body, options: []),
               let dict = object as? [String: Any] else {
             return nil
         }
         return dict["id"]
+    }
+
+    private static func isSuccessfulResponse(_ body: String) -> Bool {
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []),
+              let dict = object as? [String: Any],
+              let ok = dict["ok"] as? Bool else {
+            return true
+        }
+        return ok
     }
 
     private static func jsonError(statusCode: Int, id: Any?, code: String, message: String) -> CMUXRemoteHTTPResponse {
@@ -357,6 +546,7 @@ final class CMUXRemoteServer: ObservableObject {
     private var activePort: Int?
     private var pendingStartPort: Int?
     private var startGeneration = 0
+    private var eventObservers: [NSObjectProtocol] = []
     private let tokenBootstrap: TokenBootstrap
     private let runApplication: ApplicationRunner
 
@@ -371,6 +561,10 @@ final class CMUXRemoteServer: ObservableObject {
         state.failureMessage
     }
 
+    nonisolated func publishSnapshotChanged(reason: CMUXRemoteEventReason) {
+        CMUXRemoteEvents.publishSnapshotChanged(reason: reason)
+    }
+
     init(
         tokenBootstrap: @escaping TokenBootstrap = {
             _ = try RemoteAccessTokenStore.loadOrCreateToken()
@@ -379,6 +573,13 @@ final class CMUXRemoteServer: ObservableObject {
     ) {
         self.tokenBootstrap = tokenBootstrap
         self.runApplication = runApplication
+        installEventObservers()
+    }
+
+    deinit {
+        for observer in eventObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     func start(port rawPort: Int) {
@@ -512,6 +713,23 @@ final class CMUXRemoteServer: ObservableObject {
         }
     }
 
+    private func installEventObservers() {
+        for (name, reason) in [
+            (Notification.Name.ghosttyDidSetTitle, CMUXRemoteEventReason.surface),
+            (Notification.Name.ghosttyDidFocusTab, CMUXRemoteEventReason.workspace),
+            (Notification.Name.ghosttyDidFocusSurface, CMUXRemoteEventReason.surface),
+        ] {
+            let observer = NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                CMUXRemoteEvents.publishSnapshotChanged(reason: reason)
+            }
+            eventObservers.append(observer)
+        }
+    }
+
     nonisolated private static func defaultRunApplication(
         port: Int,
         handler: CMUXRemoteRPCHandler,
@@ -524,6 +742,7 @@ final class CMUXRemoteServer: ObservableObject {
     nonisolated static func makeApplication(
         port: Int,
         handler: CMUXRemoteRPCHandler,
+        eventHub: CMUXRemoteEventHub = .shared,
         onRunning: @escaping @Sendable () async -> Void = {}
     ) -> Application<Router<BasicRequestContext>.Responder> {
         let router = Router()
@@ -541,11 +760,26 @@ final class CMUXRemoteServer: ObservableObject {
             let buffer = try await request.collectBody(upTo: CMUXRemoteRPCHandler.maxBodyBytes + 1)
             let data = buffer.getData(at: buffer.readerIndex, length: buffer.readableBytes) ?? Data()
             let result = await handler.handle(body: data, authorizationHeader: request.headers[.authorization])
+            if let eventReason = result.eventReason {
+                await eventHub.publishSnapshotChanged(reason: eventReason)
+            }
             return Self.response(statusCode: result.statusCode, body: result.body)
         }
         router.get("snapshot") { request, _ -> Response in
             let result = await handler.handleSnapshot(authorizationHeader: request.headers[.authorization])
             return Self.response(statusCode: result.statusCode, body: result.body)
+        }
+        router.get("events") { request, _ -> Response in
+            let queryToken = request.uri.queryParameters["token"].map(String.init)
+            if let authError = handler.handleEventAuthentication(
+                authorizationHeader: request.headers[.authorization],
+                queryToken: queryToken
+            ) {
+                return Self.response(statusCode: authError.statusCode, body: authError.body)
+            }
+
+            let stream = await eventHub.subscribe()
+            return Self.eventStreamResponse(stream: stream)
         }
         for path in ["/", "/remote", "/remote/app.js", "/remote/strings.json", "/remote/styles.css", "/remote/manifest.webmanifest", "/remote/icon.svg", "/remote/maskable-icon.svg", "/remote/icon-maskable.svg"] {
             router.get(RouterPath(path)) { _, _ -> Response in
@@ -577,6 +811,22 @@ final class CMUXRemoteServer: ObservableObject {
             status: status,
             headers: headers,
             body: .init(byteBuffer: buffer)
+        )
+    }
+
+    nonisolated private static func eventStreamResponse(stream: AsyncStream<String>) -> Response {
+        var headers = HTTPFields()
+        headers[.contentType] = "text/event-stream; charset=utf-8"
+        headers[.cacheControl] = "no-cache"
+        return Response(
+            status: .ok,
+            headers: headers,
+            body: .init(contentLength: nil) { writer in
+                for await frame in stream {
+                    try await writer.write(ByteBuffer(string: frame))
+                }
+                try await writer.finish(nil)
+            }
         )
     }
 
@@ -617,6 +867,9 @@ final class CMUXRemoteServer: ObservableObject {
 
     func stop() {
         state = .stopped
+    }
+
+    nonisolated func publishSnapshotChanged(reason: CMUXRemoteEventReason) {
     }
 }
 #endif

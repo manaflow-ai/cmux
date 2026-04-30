@@ -699,6 +699,7 @@ final class TerminalNotificationStore: ObservableObject {
                 notificationMenuSnapshot = nextMenuSnapshot
             }
             refreshDockBadge()
+            CMUXRemoteEvents.publishSnapshotChanged(reason: .notification)
         }
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])

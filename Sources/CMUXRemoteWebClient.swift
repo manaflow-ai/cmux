@@ -48,6 +48,9 @@ enum CMUXRemoteWebClient {
         LocalizedEntry("status.disconnected", key: "remoteAccess.web.status.disconnected", defaultValue: "Disconnected"),
         LocalizedEntry("status.refreshing", key: "remoteAccess.web.status.refreshing", defaultValue: "Refreshing..."),
         LocalizedEntry("status.connected", key: "remoteAccess.web.status.connected", defaultValue: "Connected"),
+        LocalizedEntry("status.live", key: "remoteAccess.web.status.live", defaultValue: "Live"),
+        LocalizedEntry("status.reconnecting", key: "remoteAccess.web.status.reconnecting", defaultValue: "Reconnecting..."),
+        LocalizedEntry("status.offline", key: "remoteAccess.web.status.offline", defaultValue: "Offline"),
         LocalizedEntry("refreshButton", key: "remoteAccess.web.action.refresh", defaultValue: "Refresh"),
         LocalizedEntry("forgetButton", key: "remoteAccess.web.action.forget", defaultValue: "Forget"),
         LocalizedEntry("sessionsTitle", key: "remoteAccess.web.sessions.title", defaultValue: "Sessions"),
@@ -264,21 +267,24 @@ enum CMUXRemoteWebClient {
     private static let css = #"""
 :root {
   color-scheme: dark;
-  --bg: #0b0d10;
-  --bg-raised: #101317;
-  --panel: #15191f;
-  --panel-2: #1d232b;
-  --terminal: #050608;
-  --text: #f2efe7;
-  --muted: #8d98a7;
-  --muted-2: #657182;
-  --line: #2a313a;
-  --line-strong: #3a4350;
-  --accent: #5ee6a8;
-  --accent-2: #6bbcff;
-  --warning: #f5c76b;
-  --danger: #ff7b72;
-  --shadow: 0 18px 70px rgba(0, 0, 0, 0.36);
+  --bg: #08090b;
+  --bg-grid: rgba(126, 147, 171, 0.06);
+  --panel: #11151a;
+  --panel-2: #171d23;
+  --panel-3: #202730;
+  --terminal: #030507;
+  --terminal-2: #070b0e;
+  --text: #f0efe8;
+  --muted: #95a1af;
+  --muted-2: #687584;
+  --line: #28313a;
+  --line-strong: #3b4652;
+  --accent: #50e39f;
+  --accent-2: #63b7ff;
+  --warning: #f0c66a;
+  --danger: #ff756f;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.44);
+  --mono: "SF Mono", Menlo, Consolas, monospace;
 }
 
 * {
@@ -293,10 +299,11 @@ html,
 body {
   margin: 0;
   min-height: 100%;
+  overflow-x: hidden;
   background:
-    radial-gradient(circle at top left, rgba(94, 230, 168, 0.10), transparent 34rem),
-    radial-gradient(circle at 85% 8%, rgba(107, 188, 255, 0.08), transparent 30rem),
-    var(--bg);
+    linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(0deg, var(--bg-grid) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(180deg, #0c1014 0%, var(--bg) 38%, #050607 100%);
   color: var(--text);
   font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
@@ -312,11 +319,12 @@ textarea {
 }
 
 button {
+  min-width: 0;
+  min-height: 38px;
   border: 1px solid var(--line);
-  background: var(--panel-2);
+  border-radius: 7px;
+  background: linear-gradient(180deg, #222a33, #161c22);
   color: var(--text);
-  border-radius: 8px;
-  min-height: 40px;
   padding: 0 13px;
   cursor: pointer;
   transition: border-color 120ms ease, background 120ms ease, color 120ms ease, transform 80ms ease;
@@ -324,7 +332,7 @@ button {
 
 button:hover:not(:disabled) {
   border-color: var(--line-strong);
-  background: #252c36;
+  background: linear-gradient(180deg, #2b3440, #1b222a);
 }
 
 button:active {
@@ -333,48 +341,48 @@ button:active {
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.48;
+  opacity: 0.46;
 }
 
 button.primary,
 button[type="submit"] {
-  background: var(--accent);
-  color: #07120d;
+  background: linear-gradient(180deg, #73f2b6, var(--accent));
+  color: #05120c;
   border-color: transparent;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 button.ghost {
-  background: rgba(255, 255, 255, 0.02);
+  background: #0c1014;
 }
 
 input,
 textarea {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #080a0d;
+  border-radius: 7px;
+  background: #05080b;
   color: var(--text);
-  padding: 12px;
+  padding: 11px 12px;
   outline: none;
 }
 
 input:focus,
 textarea:focus {
-  border-color: rgba(94, 230, 168, 0.72);
-  box-shadow: 0 0 0 3px rgba(94, 230, 168, 0.12);
+  border-color: rgba(80, 227, 159, 0.74);
+  box-shadow: 0 0 0 3px rgba(80, 227, 159, 0.12);
 }
 
 textarea {
-  min-height: 76px;
+  min-height: 74px;
   resize: vertical;
 }
 
 .shell {
-  width: min(1280px, 100%);
+  width: min(1440px, 100%);
   margin: 0 auto;
   min-height: 100dvh;
-  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
 }
 
 .token-panel {
@@ -383,7 +391,7 @@ textarea {
   padding: 22px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: linear-gradient(180deg, rgba(29, 35, 43, 0.98), rgba(18, 22, 27, 0.98));
+  background: linear-gradient(180deg, rgba(23, 29, 35, 0.98), rgba(10, 13, 16, 0.98));
   box-shadow: var(--shadow);
 }
 
@@ -396,12 +404,13 @@ textarea {
 .mark {
   display: grid;
   place-items: center;
+  flex: 0 0 auto;
   width: 48px;
   height: 48px;
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--accent);
   color: #07120d;
-  font-weight: 800;
+  font-weight: 900;
   font-size: 28px;
 }
 
@@ -440,9 +449,10 @@ p,
 }
 
 .remote-view {
-  min-height: calc(100dvh - max(14px, env(safe-area-inset-top)) - max(14px, env(safe-area-inset-bottom)));
+  min-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)));
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
 }
 
 .topbar,
@@ -455,20 +465,31 @@ p,
 
 .topbar {
   position: sticky;
-  top: 0;
+  top: max(8px, env(safe-area-inset-top));
   z-index: 5;
-  padding: 4px 2px 12px;
-  background: linear-gradient(180deg, var(--bg) 72%, rgba(11, 13, 16, 0));
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(12, 16, 20, 0.94);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(14px);
 }
 
 .topbar-brand {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: 11px;
+}
+
+.topbar-brand h1 {
+  font-size: 18px;
 }
 
 .top-actions {
   display: flex;
+  flex: 0 0 auto;
   gap: 8px;
 }
 
@@ -477,9 +498,11 @@ p,
   align-items: center;
   gap: 7px;
   width: fit-content;
-  margin-top: 4px;
-  font-size: 12px;
+  max-width: 100%;
+  margin-top: 3px;
+  font: 12px/1.3 var(--mono);
   color: var(--muted);
+  text-transform: uppercase;
 }
 
 .status-pill::before {
@@ -488,23 +511,24 @@ p,
   height: 7px;
   border-radius: 999px;
   background: var(--warning);
-  box-shadow: 0 0 16px rgba(245, 199, 107, 0.5);
+  box-shadow: 0 0 14px rgba(240, 198, 106, 0.5);
 }
 
 .status-pill.error::before {
   background: var(--danger);
-  box-shadow: 0 0 16px rgba(255, 123, 114, 0.5);
+  box-shadow: 0 0 14px rgba(255, 117, 111, 0.5);
 }
 
 .status-pill.connected::before {
   background: var(--accent);
-  box-shadow: 0 0 16px rgba(94, 230, 168, 0.55);
+  box-shadow: 0 0 14px rgba(80, 227, 159, 0.6);
 }
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: minmax(248px, 330px) minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -514,12 +538,12 @@ p,
   min-height: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(21, 25, 31, 0.9);
+  background: rgba(17, 21, 26, 0.94);
   box-shadow: var(--shadow);
 }
 
 .nav-panel {
-  padding: 12px;
+  padding: 10px;
   overflow: auto;
 }
 
@@ -530,12 +554,22 @@ p,
 }
 
 .panel-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font: 700 11px/1.2 var(--mono);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   margin-bottom: 8px;
+}
+
+.panel-title::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
 }
 
 .panel-title.compact {
@@ -557,21 +591,44 @@ p,
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 9px;
-  background: rgba(8, 10, 13, 0.52);
+  background: linear-gradient(180deg, rgba(7, 10, 13, 0.78), rgba(10, 13, 16, 0.58));
+}
+
+.workspace.active {
+  border-color: rgba(80, 227, 159, 0.42);
+  background: linear-gradient(180deg, rgba(80, 227, 159, 0.08), rgba(10, 13, 16, 0.66));
 }
 
 .workspace-title {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-weight: 700;
+  min-width: 0;
+  font-weight: 800;
   font-size: 13px;
+}
+
+.workspace-title span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-title span:last-child {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font: 700 11px/1.4 var(--mono);
 }
 
 .workspace-meta,
 .surface-meta {
   color: var(--muted);
   font-size: 12px;
+}
+
+.workspace-meta {
+  margin-top: 2px;
 }
 
 .surface-list {
@@ -583,40 +640,45 @@ p,
 .surface-button {
   display: grid;
   gap: 3px;
-  min-height: 56px;
-  padding: 9px 10px;
-  background: rgba(255, 255, 255, 0.025);
+  min-height: 52px;
+  padding: 8px 10px;
+  background: #0b0f13;
 }
 
 .surface-button.selected {
-  border-color: var(--accent);
-  background: rgba(94, 230, 168, 0.09);
+  border-color: rgba(80, 227, 159, 0.86);
+  background: linear-gradient(90deg, rgba(80, 227, 159, 0.16), rgba(11, 15, 19, 0.95) 58%);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .surface-button.focused:not(.selected) {
-  border-color: rgba(107, 188, 255, 0.45);
+  border-color: rgba(99, 183, 255, 0.46);
 }
 
 .surface-button:disabled {
-  opacity: 0.58;
+  opacity: 0.56;
 }
 
 .surface-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .surface-meta {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .surface-meta::before {
   content: "";
+  flex: 0 0 auto;
   width: 6px;
   height: 6px;
   border-radius: 999px;
@@ -625,11 +687,11 @@ p,
 
 .surface-button.focused .surface-meta::before {
   background: var(--accent-2);
-  box-shadow: 0 0 12px rgba(107, 188, 255, 0.5);
+  box-shadow: 0 0 12px rgba(99, 183, 255, 0.55);
 }
 
 .terminal-title {
-  font-weight: 800;
+  font-weight: 900;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -637,13 +699,20 @@ p,
 
 .terminal-head {
   min-width: 0;
-  padding: 13px 14px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(29, 35, 43, 0.78), rgba(21, 25, 31, 0.92));
+  background: linear-gradient(180deg, rgba(32, 39, 48, 0.82), rgba(17, 21, 26, 0.92));
 }
 
 .terminal-head > div {
   min-width: 0;
+}
+
+.terminal-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12px/1.4 var(--mono);
 }
 
 .terminal-frame {
@@ -653,6 +722,10 @@ p,
   background: var(--terminal);
 }
 
+.remote-view:not(.has-selection) .terminal-frame {
+  opacity: 0.72;
+}
+
 .terminal-toolbar {
   display: flex;
   align-items: center;
@@ -660,12 +733,31 @@ p,
   gap: 10px;
   min-height: 42px;
   padding: 8px 10px 8px 14px;
-  border-bottom: 1px solid #1a2027;
+  border-bottom: 1px solid #172028;
+  background: linear-gradient(180deg, #0d1318, #070b0f);
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font: 800 11px/1.2 var(--mono);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.terminal-toolbar span {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-toolbar span::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, var(--danger) 0 27%, transparent 27% 36%, var(--warning) 36% 63%, transparent 63% 72%, var(--accent) 72%);
 }
 
 .terminal-output {
@@ -676,11 +768,13 @@ p,
   word-break: break-word;
   margin: 0;
   padding: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.025);
   background:
     linear-gradient(rgba(255, 255, 255, 0.018) 50%, transparent 50%) 0 0 / 100% 2.9em,
+    linear-gradient(90deg, rgba(80, 227, 159, 0.035), transparent 9rem),
     var(--terminal);
-  color: #e7dfd3;
-  font: 12.5px/1.48 "SF Mono", Menlo, Consolas, monospace;
+  color: #e8e1d4;
+  font: 12.5px/1.48 var(--mono);
   tab-size: 2;
 }
 
@@ -694,34 +788,65 @@ p,
 .composer-panel {
   display: grid;
   gap: 10px;
-  padding: 12px;
+  padding: 10px;
   border-top: 1px solid var(--line);
-  background: rgba(16, 19, 23, 0.98);
+  background: linear-gradient(180deg, rgba(17, 21, 26, 0.99), rgba(9, 12, 15, 0.99));
 }
 
 .send-form {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
+  min-width: 0;
+}
+
+.send-form button[type="submit"] {
+  align-self: stretch;
+}
+
+.key-section {
+  min-width: 0;
 }
 
 .key-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
   gap: 6px;
   margin-top: 8px;
 }
 
 .key-grid button {
-  min-height: 34px;
+  min-height: 32px;
   padding: 0 8px;
+  overflow: hidden;
   color: var(--muted);
-  background: #0c0f13;
-  font-size: 12px;
+  background: #080c10;
+  font: 700 12px/1 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .error {
   color: var(--danger);
+}
+
+@media (max-width: 1040px) {
+  .layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .nav-panel {
+    max-height: 30dvh;
+  }
+
+  .terminal-panel {
+    min-height: 62dvh;
+  }
+
+  .terminal-output {
+    min-height: 34dvh;
+  }
 }
 
 @media (max-width: 760px) {
@@ -736,14 +861,6 @@ p,
 
   .topbar {
     position: static;
-  }
-
-  .layout {
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
-
-  .topbar {
     align-items: flex-start;
   }
 
@@ -752,24 +869,12 @@ p,
     justify-content: flex-end;
   }
 
-  .nav-panel {
-    max-height: 34dvh;
-  }
-
-  .terminal-panel {
-    min-height: 62dvh;
-  }
-
-  .terminal-output {
-    min-height: 34dvh;
-  }
-
   .send-form {
     grid-template-columns: 1fr;
   }
 
   .key-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
   }
 }
 
@@ -777,6 +882,10 @@ p,
   .topbar,
   .terminal-head {
     align-items: flex-start;
+  }
+
+  .topbar {
+    flex-direction: column;
   }
 
   .top-actions {
@@ -787,7 +896,12 @@ p,
     flex: 1;
   }
 
+  .terminal-head {
+    padding: 11px 12px;
+  }
+
   .terminal-output {
+    padding: 12px;
     font-size: 12px;
   }
 }
@@ -819,6 +933,9 @@ const state = {
   snapshot: null,
   selectedSurface: null,
   polling: null,
+  events: null,
+  eventState: "offline",
+  eventRefreshTimer: null,
 };
 
 function t(key) {
@@ -863,7 +980,42 @@ function applyStaticStrings() {
 function setStatus(message, isError = false) {
   els.statusLine.textContent = message;
   els.statusLine.classList.toggle("error", isError);
-  els.statusLine.classList.toggle("connected", message === t("status.connected") && !isError);
+  els.statusLine.classList.toggle("connected", (message === t("status.connected") || message === t("status.live")) && !isError);
+}
+
+function setConnectedStatus() {
+  if (state.eventState === "live") {
+    setStatus(t("status.live"));
+  } else if (state.eventState === "reconnecting") {
+    setStatus(t("status.reconnecting"));
+  } else {
+    setStatus(t("status.connected"));
+  }
+}
+
+function setEventState(eventState) {
+  state.eventState = eventState;
+  if (eventState === "live") {
+    setStatus(t("status.live"));
+  } else if (eventState === "reconnecting") {
+    setStatus(t("status.reconnecting"));
+  } else if (eventState === "offline" && state.token) {
+    setStatus(t("status.offline"), true);
+  }
+}
+
+function tokenRejectedError() {
+  const error = new Error(t("error.tokenRejected"));
+  error.authFailed = true;
+  return error;
+}
+
+function handleRemoteError(error) {
+  if (error?.authFailed) {
+    stopEvents();
+    stopPolling();
+  }
+  setStatus(error?.message || String(error), true);
 }
 
 function setTerminalOutput(text, isEmpty = false) {
@@ -915,27 +1067,92 @@ async function rpc(method, params = {}) {
   });
   const payload = await response.json();
   if (!response.ok || payload.ok === false) {
+    if (response.status === 401) {
+      throw tokenRejectedError();
+    }
     const status = payload.error?.code || response.status;
     throw new Error(format("error.requestFailed", { status }));
   }
   return payload.result;
 }
 
-async function fetchSnapshot() {
-  setStatus(t("status.refreshing"));
+async function fetchSnapshot(options = {}) {
+  if (options.showRefreshing !== false) {
+    setStatus(t("status.refreshing"));
+  }
   const response = await fetch("/snapshot", { headers: authHeaders() });
   const payload = await response.json();
   if (!response.ok || payload.ok === false) {
     if (response.status === 401) {
-      throw new Error(t("error.tokenRejected"));
+      throw tokenRejectedError();
     }
     const status = payload.error?.code || response.status;
     throw new Error(format("error.snapshotFailed", { status }));
   }
   state.snapshot = payload.result;
-  setStatus(t("status.connected"));
+  setConnectedStatus();
   renderTree();
   ensureSelection();
+}
+
+function eventURL() {
+  const url = new URL("/events", window.location.origin);
+  url.searchParams.set("token", state.token);
+  return url.toString();
+}
+
+function scheduleEventRefresh() {
+  if (document.hidden || !state.token) return;
+  if (state.eventRefreshTimer) return;
+  state.eventRefreshTimer = window.setTimeout(() => {
+    state.eventRefreshTimer = null;
+    fetchSnapshot({ showRefreshing: false }).catch(handleRemoteError);
+  }, 200);
+}
+
+function startEvents() {
+  stopEvents();
+  if (!state.token || !("EventSource" in window)) {
+    setEventState("offline");
+    return;
+  }
+
+  const source = new EventSource(eventURL());
+  state.events = source;
+  source.onopen = () => {
+    if (state.events === source) {
+      setEventState("live");
+      scheduleEventRefresh();
+    }
+  };
+  source.addEventListener("hello", () => {
+    if (state.events === source) {
+      setEventState("live");
+      scheduleEventRefresh();
+    }
+  });
+  source.addEventListener("snapshot_changed", () => {
+    if (state.events === source) {
+      scheduleEventRefresh();
+    }
+  });
+  source.onerror = () => {
+    if (state.events === source && state.token) {
+      setEventState("reconnecting");
+    }
+  };
+}
+
+function stopEvents() {
+  if (state.events) {
+    state.events.close();
+    state.events = null;
+  }
+  if (state.eventRefreshTimer) {
+    window.clearTimeout(state.eventRefreshTimer);
+    state.eventRefreshTimer = null;
+  }
+  state.eventState = "offline";
 }
 
 function allSurfaces() {
@@ -962,7 +1179,7 @@ function ensureSelection() {
     state.selectedSurface = refreshedSelection;
     renderTree();
     renderTerminalHeader();
-    readSelectedTerminal().catch((error) => setStatus(error.message, true));
+    readSelectedTerminal().catch(handleRemoteError);
     return;
   }
   state.selectedSurface =
@@ -972,7 +1189,7 @@ function ensureSelection() {
   renderTree();
   renderTerminalHeader();
   if (state.selectedSurface) {
-    readSelectedTerminal().catch((error) => setStatus(error.message, true));
+    readSelectedTerminal().catch(handleRemoteError);
   } else {
     setTerminalOutput(t("terminalEmptyOutput"), true);
   }
@@ -993,6 +1210,7 @@ function renderTree() {
     for (const workspace of win.workspaces || []) {
       const card = document.createElement("section");
       card.className = "workspace";
+      card.classList.toggle("active", Boolean(workspace.selected));
 
       const title = document.createElement("div");
       title.className = "workspace-title";
@@ -1023,7 +1241,7 @@ function renderTree() {
             state.selectedSurface = { window: win, workspace, pane, surface };
             renderTree();
             renderTerminalHeader();
-            readSelectedTerminal().catch((error) => setStatus(error.message, true));
+            readSelectedTerminal().catch(handleRemoteError);
           });
           const label = document.createElement("div");
           label.className = "surface-label";
@@ -1045,6 +1263,7 @@ function renderTree() {
 
 function renderTerminalHeader() {
   const selected = state.selectedSurface;
+  els.remoteView.classList.toggle("has-selection", Boolean(selected));
   if (!selected) {
     els.terminalTitle.textContent = t("noTerminalSelected");
     els.terminalMeta.textContent = t("selectTerminal");
@@ -1092,7 +1311,7 @@ function startPolling() {
   stopPolling();
   state.polling = window.setInterval(() => {
     if (!document.hidden && state.selectedSurface) {
-      readSelectedTerminal().catch(() => {});
+      readSelectedTerminal().catch(handleRemoteError);
     }
   }, 3000);
 }
@@ -1111,11 +1330,16 @@ els.tokenForm.addEventListener("submit", (event) => {
   localStorage.setItem(storageKey, token);
   state.token = token;
   updateVisibility();
-  fetchSnapshot().then(startPolling).catch((error) => setStatus(error.message, true));
+  fetchSnapshot()
+    .then(() => {
+      startEvents();
+      startPolling();
+    })
+    .catch(handleRemoteError);
 });
 
 els.refreshButton.addEventListener("click", () => {
-  fetchSnapshot().catch((error) => setStatus(error.message, true));
+  fetchSnapshot().catch(handleRemoteError);
 });
 
 els.forgetButton.addEventListener("click", () => {
@@ -1123,30 +1347,37 @@ els.forgetButton.addEventListener("click", () => {
   state.token = "";
   state.snapshot = null;
   state.selectedSurface = null;
+  stopEvents();
   stopPolling();
   updateVisibility();
 });
 
 els.readButton.addEventListener("click", () => {
-  readSelectedTerminal().catch((error) => setStatus(error.message, true));
+  readSelectedTerminal().catch(handleRemoteError);
 });
 
 els.sendForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = els.sendInput.value;
   els.sendInput.value = "";
-  sendText(text).catch((error) => setStatus(error.message, true));
+  sendText(text).catch(handleRemoteError);
 });
 
 document.querySelectorAll("[data-key]").forEach((button) => {
   button.addEventListener("click", () => {
-    sendKey(button.dataset.key).catch((error) => setStatus(error.message, true));
+    sendKey(button.dataset.key).catch(handleRemoteError);
   });
 });
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && state.token) {
-    fetchSnapshot().catch((error) => setStatus(error.message, true));
+    fetchSnapshot()
+      .then(() => {
+        if (!state.events) {
+          startEvents();
+        }
+      })
+      .catch(handleRemoteError);
   }
 });
 
@@ -1154,7 +1385,12 @@ async function init() {
   await loadStrings();
   loadToken();
   if (state.token) {
-    fetchSnapshot().then(startPolling).catch((error) => setStatus(error.message, true));
+    fetchSnapshot()
+      .then(() => {
+        startEvents();
+        startPolling();
+      })
+      .catch(handleRemoteError);
   }
 }
 

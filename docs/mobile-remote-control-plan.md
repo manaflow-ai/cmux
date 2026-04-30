@@ -35,6 +35,8 @@ This should start as remote control of the desktop app, not a full headless rewr
 
 - **Event stream**
   - Add `GET /events`.
+  - Use Server-Sent Events for v1 with coarse `snapshot_changed` events.
+  - Authenticate browser `EventSource` connections with a `token` query parameter while the server is localhost-only; replace this with pairing/session auth before LAN mode.
   - Push updates for:
     - workspace created, closed, renamed, or selected
     - pane and surface changes

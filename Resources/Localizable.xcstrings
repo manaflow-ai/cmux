@@ -61441,6 +61441,27 @@
         "ja": { "stringUnit": { "state": "translated", "value": "接続済み" } }
       }
     },
+    "remoteAccess.web.status.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Live" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブ" } }
+      }
+    },
+    "remoteAccess.web.status.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再接続中..." } }
+      }
+    },
+    "remoteAccess.web.status.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Offline" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オフライン" } }
+      }
+    },
     "remoteAccess.web.action.refresh": {
       "extractionState": "manual",
       "localizations": {
