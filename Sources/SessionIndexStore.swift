@@ -6,7 +6,7 @@ import SQLite3
 
 // MARK: - Agents
 
-enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable {
+enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
     case claude
     case codex
     case opencode
@@ -28,6 +28,58 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable {
         case .codex: return "AgentIcons/Codex"
         case .opencode: return "AgentIcons/OpenCode"
         }
+    }
+}
+
+enum OpenCodeDatabaseSnapshot {
+    struct Snapshot {
+        let databaseURL: URL
+        private let directoryURL: URL
+
+        init(databaseURL: URL, directoryURL: URL) {
+            self.databaseURL = databaseURL
+            self.directoryURL = directoryURL
+        }
+
+        func remove() {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+    }
+
+    private static let sourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
+
+    static func make(prefix: String) throws -> Snapshot? {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: sourcePath) else { return nil }
+
+        let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
+            "\(prefix)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
+
+        let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
+        do {
+            try fileManager.copyItem(atPath: sourcePath, toPath: snapshotDB.path)
+        } catch {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw error
+        }
+
+        do {
+            for sidecar in ["-wal", "-shm"] {
+                let source = sourcePath + sidecar
+                let destination = snapshotDB.path + sidecar
+                if fileManager.fileExists(atPath: source) {
+                    try fileManager.copyItem(atPath: source, toPath: destination)
+                }
+            }
+        } catch {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw error
+        }
+
+        return Snapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
     }
 }
 
@@ -100,6 +152,13 @@ struct SessionEntry: Identifiable, Hashable {
             }
             return parts.joined(separator: " ")
         }
+    }
+
+    var resumeCommandWithCwd: String {
+        guard let cwd, !cwd.isEmpty else {
+            return resumeCommand
+        }
+        return "cd \(Self.shellQuote(cwd)) && \(resumeCommand)"
     }
 
     private var claudeConfigDirectoryForResume: String? {
@@ -1753,21 +1812,24 @@ final class SessionIndexStore: ObservableObject {
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag
     ) -> [SessionEntry] {
-        let dbPath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: dbPath) else { return [] }
-        let snapshotDir = fm.temporaryDirectory.appendingPathComponent("cmux-opencode-search-\(UUID().uuidString)", isDirectory: true)
-        do { try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true) } catch { return [] }
-        defer { try? fm.removeItem(at: snapshotDir) }
-        let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
-        do { try fm.copyItem(atPath: dbPath, toPath: snapshotDB.path) } catch { return [] }
-        for sidecar in ["-wal", "-shm"] {
-            let src = dbPath + sidecar
-            let dst = snapshotDB.path + sidecar
-            if fm.fileExists(atPath: src) { try? fm.copyItem(atPath: src, toPath: dst) }
+        let snapshot: OpenCodeDatabaseSnapshot.Snapshot
+        do {
+            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-search") else {
+                return []
+            }
+            snapshot = madeSnapshot
+        } catch {
+            let format = String(
+                localized: "sessionIndex.error.openCodeSnapshot",
+                defaultValue: "OpenCode: cannot snapshot opencode.db (%@)"
+            )
+            errorBag.add(String(format: format, error.localizedDescription))
+            return []
         }
+        defer { snapshot.remove() }
+
         var db: OpaquePointer?
-        guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+        guard sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
             errorBag.add("OpenCode: cannot open opencode.db (\(sqliteMessage(db) ?? "unknown error"))")
             sqlite3_close(db)
             return []

@@ -107,6 +107,12 @@ jobs:
             zig version
           fi
 
+      - name: Install Bun for Feed sidebar tests
+        if: ${{ inputs.test_filter == 'FeedSidebarUITests' || startsWith(inputs.test_filter, 'FeedSidebarUITests/') }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
       - name: Create virtual display
         if: ${{ inputs.test_filter != 'DisplayResolutionRegressionUITests' }}
         run: |

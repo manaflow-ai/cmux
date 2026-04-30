@@ -2,6 +2,17 @@ import AppKit
 import Bonsplit
 import SwiftUI
 
+enum FindFocusNotificationKey {
+    static let selectAll = "cmux.find.selectAll"
+}
+
+func cmuxTextFieldIsFirstResponder(_ field: NSTextField, in window: NSWindow) -> Bool {
+    let fr = window.firstResponder
+    return fr === field ||
+        field.currentEditor() != nil ||
+        (fr as? NSTextView).flatMap { cmuxFieldEditorOwnerView($0) } === field
+}
+
 private extension NSView {
     func cmuxAncestor<T: NSView>(of type: T.Type) -> T? {
         var current: NSView? = self
@@ -251,6 +262,18 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        func focusField(_ field: SearchNativeTextField, in window: NSWindow, selectAll: Bool) {
+            let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
+            guard alreadyFocused || window.makeFirstResponder(field) else { return }
+            guard selectAll else { return }
+            DispatchQueue.main.async { [weak field] in
+                guard let field,
+                      let editor = field.currentEditor() as? NSTextView else { return }
+                guard !editor.hasMarkedText() else { return }
+                editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
+            }
+        }
+
         func controlTextDidChange(_ obj: Notification) {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
@@ -324,25 +347,23 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                   surface.id == coordinator.parent.surfaceId else { return }
             guard coordinator.parent.canApplyFocusRequest() else { return }
             guard let window = field.window else { return }
+            let selectAll = notification.userInfo?[FindFocusNotificationKey.selectAll] as? Bool == true
             // Don't re-focus if already first responder. makeFirstResponder on an
             // already-editing NSTextField ends the editing session and restarts it
             // with all text selected, causing typed characters to replace each other.
-            let fr = window.firstResponder
-            let alreadyFocused = fr === field ||
-                field.currentEditor() != nil ||
-                ((fr as? NSTextView)?.delegate as? NSTextField) === field
+            let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
             #if DEBUG
             cmuxDebugLog(
                 "find.nativeField.searchFocusNotification surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) " +
-                "alreadyFocused=\(alreadyFocused) firstResponder=\(String(describing: fr))"
+                "alreadyFocused=\(alreadyFocused) firstResponder=\(String(describing: window.firstResponder))"
             )
             #endif
-            guard !alreadyFocused else { return }
-            let result = window.makeFirstResponder(field)
+            guard !alreadyFocused || selectAll else { return }
+            coordinator.focusField(field, in: window, selectAll: selectAll)
 #if DEBUG
             cmuxDebugLog(
                 "find.nativeField.searchFocusApply surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) " +
-                "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
+                "selectAll=\(selectAll ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
             )
 #endif
         }
@@ -368,11 +389,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
 
         // Sync focus from binding to AppKit
         if let window = nsView.window {
-            let fr = window.firstResponder
-            let isFirstResponder =
-                fr === nsView ||
-                nsView.currentEditor() != nil ||
-                ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
+            let isFirstResponder = cmuxTextFieldIsFirstResponder(nsView, in: window)
 
             if isFocused,
                canApplyFocusRequest(),
@@ -385,12 +402,9 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                           coordinator.parent.isFocused,
                           coordinator.parent.canApplyFocusRequest() else { return }
                     guard let nsView, let window = nsView.window else { return }
-                    let fr = window.firstResponder
-                    let alreadyFocused = fr === nsView ||
-                        nsView.currentEditor() != nil ||
-                        ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
+                    let alreadyFocused = cmuxTextFieldIsFirstResponder(nsView, in: window)
                     guard !alreadyFocused else { return }
-                    window.makeFirstResponder(nsView)
+                    coordinator.focusField(nsView, in: window, selectAll: false)
                 }
             }
         }
