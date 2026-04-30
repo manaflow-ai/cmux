@@ -59,9 +59,6 @@ final class FeedSidebarUITests: XCTestCase {
             app.launchEnvironment["PATH"] = path
         }
         let bunPath = resolvedBunPathForFeedTUI()
-        if let bunPath {
-            app.launchEnvironment["CMUX_UI_TEST_FEED_TUI_BUN_PATH"] = bunPath
-        }
         try writeFeedDockConfig(bunPath: bunPath)
         launchAndEnsureUsable(app)
 
