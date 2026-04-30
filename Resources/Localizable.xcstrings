@@ -103789,6 +103789,17 @@
         }
       }
     },
+    "kbd.switch-right-sidebar-to-diff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Per-Turn Diff Panel"
+          }
+        }
+      }
+    },
     "menu.view.focusRightSidebar": {
       "extractionState": "manual",
       "localizations": {
@@ -105237,6 +105248,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dock"
+          }
+        }
+      }
+    },
+    "right-sidebar.diff.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff"
+          }
+        }
+      }
+    },
+    "right-sidebar.diff.no-workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a workspace to see per-turn diffs"
           }
         }
       }

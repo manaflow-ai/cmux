@@ -16,6 +16,7 @@ enum RightSidebarMode: String, CaseIterable {
     case sessions
     case feed
     case dock
+    case diff
 
     var label: String {
         switch self {
@@ -24,6 +25,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Sessions")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .diff: return String(localized: "right-sidebar.diff.label", defaultValue: "Diff")
         }
     }
 
@@ -34,6 +36,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .sessions: return "bubble.left.and.text.bubble.right"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
+        case .diff: return "arrow.triangle.branch"
         }
     }
 
@@ -44,6 +47,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
+        case .diff: return .switchRightSidebarToDiff
         }
     }
 }
@@ -65,6 +69,9 @@ extension RightSidebarMode {
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToDock).matches(event: event) {
             return .dock
+        }
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToDiff).matches(event: event) {
+            return .diff
         }
         return nil
     }
@@ -282,6 +289,16 @@ struct RightSidebarPanelView: View {
             FeedPanelView()
         case .dock:
             DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
+        case .diff:
+            if let workspaceId {
+                TurnDiffPanelHost(workspaceId: workspaceId)
+            } else {
+                Text(String(localized: "right-sidebar.diff.no-workspace",
+                            defaultValue: "Open a workspace to see per-turn diffs"))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+            }
         }
     }
 

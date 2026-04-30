@@ -6,20 +6,20 @@ import Combine
 /// Hosts a WKWebView loading TurnDiffWebViewBundle.html and bridges to the per-workspace
 /// TurnCheckpointManager via TurnDiffMessageHandler + cmuxDispatchTurnDiff.
 struct TurnDiffPanelHost: View {
-    @ObservedObject var workspace: Workspace
+    let workspaceId: UUID
 
     var body: some View {
-        TurnDiffWebViewWrapper(workspace: workspace)
+        TurnDiffWebViewWrapper(workspaceId: workspaceId)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(red: 0.086, green: 0.086, blue: 0.094))
     }
 }
 
 private struct TurnDiffWebViewWrapper: NSViewRepresentable {
-    let workspace: Workspace
+    let workspaceId: UUID
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(workspaceId: workspace.id)
+        Coordinator(workspaceId: workspaceId)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -39,9 +39,9 @@ private struct TurnDiffWebViewWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
-        if context.coordinator.workspaceId != workspace.id {
+        if context.coordinator.workspaceId != workspaceId {
             context.coordinator.detachManagerCallbacks()
-            context.coordinator.workspaceId = workspace.id
+            context.coordinator.workspaceId = workspaceId
             context.coordinator.attachManagerCallbacks()
         }
     }
