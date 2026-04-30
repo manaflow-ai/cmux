@@ -5020,7 +5020,6 @@ extension BrowserPanel {
         pendingAddressBarFocusRequestId = nil
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
-        let shouldSelectAll = created && !recoveredNeedle.isEmpty
 #if DEBUG
         let window = webView.window
         cmuxDebugLog(
@@ -5031,11 +5030,10 @@ extension BrowserPanel {
             "firstResponder=\(String(describing: window?.firstResponder))"
         )
 #endif
-        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
-        // Focus notification can race with portal overlay mount. Re-post on the
-        // next runloop and shortly after so the find field can claim first responder.
+        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: created && !recoveredNeedle.isEmpty)
+        // Re-post because portal overlay mount can race first responder focus.
         DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: shouldSelectAll)
+            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: created && !recoveredNeedle.isEmpty)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation, selectAll: false)
