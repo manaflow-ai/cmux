@@ -1767,7 +1767,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "session-start"],
+            arguments: ["hooks", "codex", "session-start"],
             environment: environment,
             timeout: 5
         )
@@ -1837,7 +1837,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -1911,7 +1911,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -1989,7 +1989,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2056,7 +2056,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2117,7 +2117,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2178,7 +2178,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2239,7 +2239,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2300,7 +2300,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2375,7 +2375,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2452,7 +2452,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2526,7 +2526,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2601,7 +2601,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2671,7 +2671,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2738,8 +2738,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
-                "codex-hook",
-                "monitor",
+                "hooks", "codex", "monitor",
                 "--workspace",
                 workspaceId,
                 "--surface",
@@ -2819,8 +2818,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
-                "codex-hook",
-                "monitor",
+                "hooks", "codex", "monitor",
                 "--workspace",
                 workspaceId,
                 "--surface",
@@ -2904,8 +2902,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
-                "codex-hook",
-                "monitor",
+                "hooks", "codex", "monitor",
                 "--workspace",
                 workspaceId,
                 "--surface",
@@ -2986,8 +2983,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: cliPath)
         process.arguments = [
-            "codex-hook",
-            "monitor",
+            "hooks", "codex", "monitor",
             "--workspace",
             workspaceId,
             "--surface",

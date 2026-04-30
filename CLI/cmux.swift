@@ -1966,7 +1966,6 @@ struct CMUXCLI {
         }
         if command != "__tmux-compat",
            command != "claude-teams",
-           command != "codex",
            preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
@@ -2058,108 +2057,22 @@ struct CMUXCLI {
         if command == "codex" {
             let sub = commandArgs.first?.lowercased() ?? "help"
             if sub == "install-hooks" {
-                try installAgentHooks(Self.agentDef(named: "codex")!)
+                try installHooksForAgent(Self.agentDef(named: "codex")!, arguments: Array(commandArgs.dropFirst()))
                 return
             } else if sub == "uninstall-hooks" {
-                try uninstallAgentHooks(Self.agentDef(named: "codex")!)
+                try uninstallHooksForAgent(Self.agentDef(named: "codex")!, arguments: Array(commandArgs.dropFirst()))
                 return
             }
         }
 
-        // OpenCode plugin management (no socket needed)
-        if command == "opencode" {
-            let sub = commandArgs.first?.lowercased() ?? "help"
-            if sub == "install-hooks" {
-                try installAgentHooks(Self.agentDef(named: "opencode")!)
-                return
-            } else if sub == "uninstall-hooks" {
-                try uninstallAgentHooks(Self.agentDef(named: "opencode")!)
+        if command == "hooks" {
+            if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
             }
-        }
-
-        // Codex hook handler: gracefully no-op when not inside cmux
-        // (before socket connection, so it doesn't fail when no socket exists)
-        if command == "codex-hook" {
-            let env = ProcessInfo.processInfo.environment
-            let hasExplicitTarget = commandArgs.contains("--workspace") || commandArgs.contains("--surface")
-            guard env["CMUX_SURFACE_ID"] != nil || env["CMUX_WORKSPACE_ID"] != nil || hasExplicitTarget else {
-                print("{}")
-                return
-            }
-        }
-
-        // OpenCode hook handler: gracefully no-op when not inside cmux
-        if command == "opencode-hook" {
-            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
-                print("{}")
-                return
-            }
-        }
-
-        // Cursor hooks management (no socket needed)
-        if command == "cursor" {
-            let sub = commandArgs.first?.lowercased() ?? "help"
-            if sub == "install-hooks" {
-                try runCursorInstallHooks()
-                return
-            } else if sub == "uninstall-hooks" {
-                try runCursorUninstallHooks()
-                return
-            }
-        }
-
-        // Cursor hook handler: gracefully no-op when not inside cmux
-        if command == "cursor-hook" {
-            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
-                print("{}")
-                return
-            }
-        }
-
-        // Gemini hooks management (no socket needed)
-        if command == "gemini" {
-            let sub = commandArgs.first?.lowercased() ?? "help"
-            if sub == "install-hooks" {
-                try runGeminiInstallHooks()
-                return
-            } else if sub == "uninstall-hooks" {
-                try runGeminiUninstallHooks()
-                return
-            }
-        }
-
-        // Gemini hook handler: gracefully no-op when not inside cmux
-        if command == "gemini-hook" {
-            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
-                print("{}")
-                return
-            }
-        }
-
-        // Generic agent hooks management (copilot, codebuddy, factory, qoder)
-        for agentName in ["copilot", "codebuddy", "factory", "qoder"] {
-            guard command == agentName else { continue }
-            let sub = commandArgs.first?.lowercased() ?? "help"
-            if sub == "install-hooks", let def = Self.agentDef(named: agentName) {
-                try installAgentHooks(def)
-                return
-            } else if sub == "uninstall-hooks", let def = Self.agentDef(named: agentName) {
-                try uninstallAgentHooks(def)
-                return
-            }
-        }
-
-        // Generic agent hook handlers: gracefully no-op outside cmux
-        if ["copilot-hook", "codebuddy-hook", "factory-hook", "qoder-hook"].contains(command) {
-            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
-                print("{}")
-                return
-            }
-        }
-
-        if command == "feed-hook" {
-            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
+            if Self.hooksCommandNeedsCmuxTarget(commandArgs),
+               processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
+               processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
+               !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) {
                 print("{}")
                 return
             }
@@ -2185,24 +2098,6 @@ struct CMUXCLI {
             default:
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
             }
-        }
-
-        // OpenCode plugin install/uninstall (plugin JS, not a hook file)
-        if command == "opencode" {
-            let sub = commandArgs.first?.lowercased() ?? "help"
-            if sub == "install-hooks" {
-                try runOpenCodeInstallHooks()
-                return
-            } else if sub == "uninstall-hooks" {
-                try runOpenCodeUninstallHooks()
-                return
-            }
-        }
-
-        // Unified hook setup for all agents
-        if command == "setup-hooks" || command == "uninstall-hooks" {
-            try runSetupHooks(uninstall: command == "uninstall-hooks")
-            return
         }
 
         let browserAvailabilityArgs = commandArgs.filter { $0 != "--json" }
@@ -3308,75 +3203,8 @@ struct CMUXCLI {
                 throw error
             }
 
-        case "feed-hook":
-            cliTelemetry.breadcrumb("feed-hook.dispatch")
-            do {
-                try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
-                cliTelemetry.breadcrumb("feed-hook.completed")
-            } catch {
-                cliTelemetry.breadcrumb("feed-hook.failure")
-                cliTelemetry.captureError(stage: "feed_hook_dispatch", error: error)
-                throw error
-            }
-
-        case "codex-hook":
-            cliTelemetry.breadcrumb("codex-hook.dispatch")
-            do {
-                try runGenericAgentHook(def: Self.agentDef(named: "codex")!, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
-                cliTelemetry.breadcrumb("codex-hook.completed")
-            } catch {
-                cliTelemetry.breadcrumb("codex-hook.failure")
-                cliTelemetry.captureError(stage: "codex_hook_dispatch", error: error)
-                throw error
-            }
-
-        case "opencode-hook":
-            cliTelemetry.breadcrumb("opencode-hook.dispatch")
-            do {
-                try runGenericAgentHook(def: Self.agentDef(named: "opencode")!, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
-                cliTelemetry.breadcrumb("opencode-hook.completed")
-            } catch {
-                cliTelemetry.breadcrumb("opencode-hook.failure")
-                cliTelemetry.captureError(stage: "opencode_hook_dispatch", error: error)
-                throw error
-            }
-
-        case "cursor-hook":
-            cliTelemetry.breadcrumb("cursor-hook.dispatch")
-            do {
-                try runCursorHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
-                cliTelemetry.breadcrumb("cursor-hook.completed")
-            } catch {
-                cliTelemetry.breadcrumb("cursor-hook.failure")
-                cliTelemetry.captureError(stage: "cursor_hook_dispatch", error: error)
-                throw error
-            }
-
-        case "gemini-hook":
-            cliTelemetry.breadcrumb("gemini-hook.dispatch")
-            do {
-                try runGeminiHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
-                cliTelemetry.breadcrumb("gemini-hook.completed")
-            } catch {
-                cliTelemetry.breadcrumb("gemini-hook.failure")
-                cliTelemetry.captureError(stage: "gemini_hook_dispatch", error: error)
-                throw error
-            }
-
-        case "copilot-hook", "codebuddy-hook", "factory-hook", "qoder-hook":
-            let agentName = String(command.dropLast("-hook".count))
-            guard let def = Self.agentDef(named: agentName) else {
-                throw CLIError(message: "Unknown agent: \(agentName)")
-            }
-            cliTelemetry.breadcrumb("\(command).dispatch")
-            do {
-                try runGenericAgentHook(def: def, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
-                cliTelemetry.breadcrumb("\(command).completed")
-            } catch {
-                cliTelemetry.breadcrumb("\(command).failure")
-                cliTelemetry.captureError(stage: "\(agentName)_hook_dispatch", error: error)
-                throw error
-            }
+        case "hooks":
+            try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
 
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
@@ -8539,11 +8367,35 @@ struct CMUXCLI {
               --opentui        Force the OpenTUI implementation and fail if unavailable
               --legacy         Force the older built-in Swift TUI
             """
-        case "opencode":
+        case "hooks":
             return """
-            Usage: cmux opencode <install-hooks|uninstall-hooks> [--project] [--yes|-y]
+            Usage: cmux hooks setup [--agent <name>] [--yes|-y]
+                   cmux hooks uninstall [--agent <name>] [--yes|-y]
+                   cmux hooks <agent> install [--yes|-y] (opencode supports --project)
+                   cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
+                   cmux hooks <agent> <event> [flags]
+                   cmux hooks feed --source <agent> [--event <event>]
 
-            Manage the cmux OpenCode Feed plugin.
+            Manage and run cmux agent hooks without adding one top-level command per
+            agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
+
+            Agents:
+              codex, opencode, cursor, gemini, copilot, codebuddy, factory, qoder
+
+            Hook targets:
+              setup              Install hooks for all supported agents on PATH
+              uninstall          Remove hooks for all supported agents
+              <agent> install    Install one agent integration
+              <agent> uninstall  Remove one agent integration
+              <agent> <event>    Internal hook entrypoint used by generated configs
+              feed               Internal Feed decision bridge
+
+            Examples:
+              cmux hooks setup
+              cmux hooks setup --agent codex
+              cmux hooks codex install
+              cmux hooks opencode install --project
+              cmux hooks uninstall
             """
         case "themes":
             return """
@@ -8618,20 +8470,6 @@ struct CMUXCLI {
               cmux omo --continue
               cmux omo --model claude-sonnet-4-6
             """)
-        case "opencode":
-            return """
-            Usage: cmux opencode <install-hooks|uninstall-hooks> [--yes]
-
-            Install or remove the OpenCode plugin that lets cmux remember
-            restorable OpenCode session IDs for reopened terminals.
-
-            Files:
-              ~/.config/opencode/plugins/cmux-session.js
-
-            Examples:
-              cmux opencode install-hooks --yes
-              cmux opencode uninstall-hooks
-            """
         case "omx":
             return String(localized: "cli.omx.usage", defaultValue: """
             Usage: cmux omx [omx-args...]
@@ -9713,22 +9551,6 @@ struct CMUXCLI {
             Subcommands:
               install-hooks     Install cmux hooks into ~/.codex/hooks.json
               uninstall-hooks   Remove cmux hooks from ~/.codex/hooks.json
-            """
-        case "codex-hook":
-            return """
-            Usage: cmux codex-hook <session-start|prompt-submit|stop> [flags]
-
-            Hook for Codex CLI integration. Reads JSON from stdin.
-            Gracefully no-ops when not running inside cmux.
-
-            Subcommands:
-              session-start   Register a Codex session
-              prompt-submit   Set Running status on user prompt
-              stop            Send completion notification, set Idle
-
-            Flags:
-              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
             """
         case "browser":
             return """
@@ -15222,7 +15044,7 @@ struct CMUXCLI {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         var monitorArgs = [
-            "codex-hook",
+            "hooks", "codex",
             "monitor",
             "--workspace",
             workspaceId,
@@ -15524,7 +15346,7 @@ struct CMUXCLI {
     // MARK: - Codex hooks
 
     /// The hooks.json content that cmux installs into ~/.codex/.
-    /// Each hook calls `cmux codex-hook <event>` which gracefully no-ops
+    /// Each hook calls `cmux hooks codex <event>` which gracefully no-ops
     /// when not running inside cmux. The command checks for cmux on PATH
     /// first so it silently succeeds even when cmux is not installed
     /// (e.g. user opened codex in a non-cmux terminal).
@@ -16042,12 +15864,12 @@ struct CMUXCLI {
     private static func isClaudeHookSettingsOption(_ args: [String], index: Int) -> Bool {
         let arg = args[index]
         if arg.hasPrefix("--settings=") {
-            return arg.contains("claude-hook")
+            return arg.contains("claude-hook") || arg.contains("hooks claude")
         }
         guard arg == "--settings", index + 1 < args.count else {
             return false
         }
-        return args[index + 1].contains("claude-hook")
+        return args[index + 1].contains("claude-hook") || args[index + 1].contains("hooks claude")
     }
 
     private static let claudeLaunchValueOptions: Set<String> = [
@@ -16263,11 +16085,11 @@ struct CMUXCLI {
         let configDirEnvOverride: String? // e.g. "CODEX_HOME" overrides configDir
         let sessionStoreSuffix: String // e.g. "cursor" -> ~/.cmuxterm/cursor-hook-sessions.json
         let disableEnvVar: String   // e.g. "CMUX_CURSOR_HOOKS_DISABLED"
-        let hookMarker: String      // Marker in commands: "cmux cursor-hook"
+        let hookMarker: String      // Marker in commands: "cmux hooks cursor"
         let format: HookFormat
         let events: [HookEvent]
         /// Feed-hook events. Each entry installs a second hook for
-        /// `agentEvent` that invokes `cmux feed-hook --source <name>`
+        /// `agentEvent` that invokes `cmux hooks feed --source <name>`
         /// with a 120s timeout so the socket reply wait doesn't trip the
         /// agent's default hook timeout when the user takes time to
         /// approve/deny a permission / plan / question.
@@ -16335,7 +16157,7 @@ struct CMUXCLI {
             name: "codex", displayName: "Codex", statusKey: "codex",
             configDir: ".codex", configFile: "hooks.json", configDirEnvOverride: "CODEX_HOME",
             sessionStoreSuffix: "codex", disableEnvVar: "CMUX_CODEX_HOOKS_DISABLED",
-            hookMarker: "cmux codex-hook", format: .nested(timeoutMs: 5000),
+            hookMarker: "cmux hooks codex", format: .nested(timeoutMs: 5000),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
@@ -16348,14 +16170,14 @@ struct CMUXCLI {
             name: "opencode", displayName: "OpenCode", statusKey: "opencode",
             configDir: ".config/opencode", configFile: "plugins/cmux-session.js", configDirEnvOverride: "OPENCODE_CONFIG_DIR",
             sessionStoreSuffix: "opencode", disableEnvVar: "CMUX_OPENCODE_HOOKS_DISABLED",
-            hookMarker: "cmux opencode-hook", format: .flat,
+            hookMarker: "cmux hooks opencode", format: .flat,
             events: []
         ),
         AgentHookDef(
             name: "cursor", displayName: "Cursor", statusKey: "cursor",
             configDir: ".cursor", configFile: "hooks.json",
             sessionStoreSuffix: "cursor", disableEnvVar: "CMUX_CURSOR_HOOKS_DISABLED",
-            hookMarker: "cmux cursor-hook", format: .flat,
+            hookMarker: "cmux hooks cursor", format: .flat,
             events: [
                 .init(agentEvent: "beforeSubmitPrompt", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "stop", cmuxSubcommand: "stop"),
@@ -16369,7 +16191,7 @@ struct CMUXCLI {
             name: "gemini", displayName: "Gemini", statusKey: "gemini",
             configDir: ".gemini", configFile: "settings.json",
             sessionStoreSuffix: "gemini", disableEnvVar: "CMUX_GEMINI_HOOKS_DISABLED",
-            hookMarker: "cmux gemini-hook", format: .nested(timeoutMs: 10000),
+            hookMarker: "cmux hooks gemini", format: .nested(timeoutMs: 10000),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "BeforeAgent", cmuxSubcommand: "prompt-submit"),
@@ -16382,7 +16204,7 @@ struct CMUXCLI {
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
             configDir: ".copilot", configFile: "config.json",
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
-            hookMarker: "cmux copilot-hook", format: .nested(timeoutMs: 5000),
+            hookMarker: "cmux hooks copilot", format: .nested(timeoutMs: 5000),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
@@ -16395,7 +16217,7 @@ struct CMUXCLI {
             name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",
             configDir: ".codebuddy", configFile: "settings.json",
             sessionStoreSuffix: "codebuddy", disableEnvVar: "CMUX_CODEBUDDY_HOOKS_DISABLED",
-            hookMarker: "cmux codebuddy-hook", format: .nested(timeoutMs: 5000),
+            hookMarker: "cmux hooks codebuddy", format: .nested(timeoutMs: 5000),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
@@ -16408,7 +16230,7 @@ struct CMUXCLI {
             name: "factory", displayName: "Factory", statusKey: "factory",
             configDir: ".factory", configFile: "settings.json",
             sessionStoreSuffix: "factory", disableEnvVar: "CMUX_FACTORY_HOOKS_DISABLED",
-            hookMarker: "cmux factory-hook", format: .nested(timeoutMs: 5000),
+            hookMarker: "cmux hooks factory", format: .nested(timeoutMs: 5000),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
@@ -16421,7 +16243,7 @@ struct CMUXCLI {
             name: "qoder", displayName: "Qoder", statusKey: "qoder",
             configDir: ".qoder", configFile: "settings.json",
             sessionStoreSuffix: "qoder", disableEnvVar: "CMUX_QODER_HOOKS_DISABLED",
-            hookMarker: "cmux qoder-hook", format: .nested(timeoutMs: 5000),
+            hookMarker: "cmux hooks qoder", format: .nested(timeoutMs: 5000),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
@@ -16435,23 +16257,37 @@ struct CMUXCLI {
         agentDefs.first { $0.name == name }
     }
 
+    private static func hookMarkers(for def: AgentHookDef) -> [String] {
+        var markers = [def.hookMarker]
+        if def.name == "codex" {
+            markers.append("cmux codex-hook")
+        }
+        return markers
+    }
+
     // MARK: Generic hook install/uninstall
 
     private func hookCommand(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
-        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux \(def.name)-hook \(event.cmuxSubcommand) || echo '{}'"
+        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
     }
 
-    /// Shell command the agent runs for a feed-hook event. 120s timeout
+    /// Shell command the agent runs for a Feed bridge event. 120s timeout
     /// inside the shell is applied via the agent's `timeout` field in the
     /// nested hook config (see `buildHooksDict`); the shell command
     /// itself just dispatches.
     private func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
-        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux feed-hook --source \(def.name) --event \(agentEvent) || echo '{}'"
+        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
     }
 
-    /// Marker substring we look for when removing / upgrading our own
-    /// feed-hook entries on reinstall or uninstall.
-    private static let feedHookMarker = "cmux feed-hook --source"
+    /// Marker substrings used when removing / upgrading our own Feed bridge
+    /// entries on reinstall or uninstall.
+    private static func feedHookMarkers(for def: AgentHookDef) -> [String] {
+        var markers = ["cmux hooks feed --source"]
+        if def.name == "codex" {
+            markers.append("cmux feed-hook --source")
+        }
+        return markers
+    }
 
     private func buildHooksDict(for def: AgentHookDef) -> [String: Any] {
         var result: [String: Any] = [:]
@@ -16470,7 +16306,7 @@ struct CMUXCLI {
                 result[event.agentEvent] = groups
             }
         }
-        // Layer in feed-hook entries with a long (120000 ms = 120s)
+        // Layer in Feed bridge entries with a long (120000 ms = 120s)
         // timeout so blocking user decisions don't trip the agent's
         // default per-event timeout.
         let feedTimeoutMs = 120_000
@@ -16497,7 +16333,7 @@ struct CMUXCLI {
     private static let openCodeSessionPluginSource = #"""
 // cmux-opencode-session-plugin-marker v1
 // Bridges OpenCode session lifecycle events into cmux's restorable session store.
-// Installed by `cmux opencode install-hooks` or `cmux setup-hooks`.
+// Installed by `cmux hooks opencode install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
 import { spawnSync } from "node:child_process";
@@ -16629,7 +16465,7 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   };
   const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
-    spawnSync(cmux, ["opencode-hook", subcommand], {
+    spawnSync(cmux, ["hooks", "opencode", subcommand], {
       input: JSON.stringify(payload),
       encoding: "utf8",
       env: hookEnvironment(cwd),
@@ -16827,12 +16663,13 @@ export default CMUXSessionRestore;
         let newHooks = buildHooksDict(for: def)
 
         // Remove existing cmux-owned entries (both the per-agent hook
-        // dispatcher and the feed-hook bridge). Non-cmux entries are
+        // dispatcher and the Feed bridge). Non-cmux entries are
         // always preserved — even when the user mixed them into the
         // same group as a cmux hook, we only prune our own entries
         // within that group so the user's stays put.
         let isCmuxOwnedCommand: (String) -> Bool = { cmd in
-            cmd.contains(def.hookMarker) || cmd.contains(Self.feedHookMarker)
+            Self.hookMarkers(for: def).contains { cmd.contains($0) }
+                || Self.feedHookMarkers(for: def).contains { cmd.contains($0) }
         }
         for (event, value) in hooks {
             switch def.format {
@@ -16980,7 +16817,8 @@ export default CMUXSessionRestore;
         var removed = 0
 
         let isCmuxOwnedCommand: (String) -> Bool = { cmd in
-            cmd.contains(def.hookMarker) || cmd.contains(Self.feedHookMarker)
+            Self.hookMarkers(for: def).contains { cmd.contains($0) }
+                || Self.feedHookMarkers(for: def).contains { cmd.contains($0) }
         }
         for (event, value) in hooks {
             switch def.format {
@@ -19160,12 +18998,12 @@ export default CMUXSessionRestore;
     /// so the agent honors the user's choice.
     ///
     /// Usage:
-    ///   echo "<hook_json>" | cmux feed-hook --source <claude|codex|...>
+    ///   echo "<hook_json>" | cmux hooks feed --source <claude|codex|...>
     ///
     /// Designed so agents and wrappers can point a native decision hook
     /// at it and have permission/plan/question events surface in the
     /// Feed sidebar. Agent-specific lifecycle/status hooks can be
-    /// chained separately. For Claude, `claude-hook pre-tool-use` is
+    /// chained separately. For Claude, `hooks claude pre-tool-use` is
     /// async status-only telemetry; blocking decisions come through
     /// PermissionRequest.
     private func runFeedHook(
@@ -19177,7 +19015,7 @@ export default CMUXSessionRestore;
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {
-            throw CLIError(message: "cmux feed-hook requires --source <agent-name>")
+            throw CLIError(message: "cmux hooks feed requires --source <agent-name>")
         }
 
         // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
@@ -19325,7 +19163,7 @@ export default CMUXSessionRestore;
     }
 
     /// Classifies a raw agent hook event into our wire `hook_event_name`
-    /// plus an `isActionable` flag that drives whether `feed-hook`
+    /// plus an `isActionable` flag that drives whether the Feed bridge
     /// blocks waiting for a user decision. Claude Code owns decisions
     /// through its native PermissionRequest hook. Its PreToolUse hook is
     /// telemetry/status only.
@@ -19732,7 +19570,144 @@ export default CMUXSessionRestore;
         try runGenericAgentHook(def: Self.agentDef(named: "gemini")!, commandArgs: commandArgs, client: client, telemetry: telemetry)
     }
 
-    // MARK: - Unified setup-hooks
+    // MARK: - Hooks namespace
+
+    private func runHooksNoSocketCommand(commandArgs: [String]) throws -> Bool {
+        guard let first = commandArgs.first?.lowercased() else {
+            print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
+            return true
+        }
+
+        switch first {
+        case "help", "--help", "-h":
+            print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
+            return true
+
+        case "setup":
+            try runSetupHooks(uninstall: false)
+            return true
+
+        case "uninstall":
+            try runSetupHooks(uninstall: true)
+            return true
+
+        default:
+            guard let def = Self.agentDef(named: first) else {
+                if first == "feed" || first == "claude" {
+                    return false
+                }
+                throw CLIError(message: "Unknown hooks target: \(first)")
+            }
+
+            let rest = Array(commandArgs.dropFirst())
+            guard let action = rest.first?.lowercased() else {
+                print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
+                return true
+            }
+            let actionArgs = Array(rest.dropFirst())
+            switch action {
+            case "install":
+                try installHooksForAgent(def, arguments: actionArgs)
+                return true
+            case "uninstall":
+                try uninstallHooksForAgent(def, arguments: actionArgs)
+                return true
+            case "install-hooks", "uninstall-hooks", "remove":
+                throw CLIError(message: "Unknown hooks action: \(action). Use install or uninstall.")
+            default:
+                return false
+            }
+        }
+    }
+
+    private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
+        guard let first = commandArgs.first?.lowercased() else { return false }
+        if first == "feed" || first == "claude" { return true }
+        guard Self.agentDef(named: first) != nil else { return false }
+        let action = commandArgs.dropFirst().first?.lowercased()
+        return action != "install" && action != "uninstall"
+    }
+
+    private func installHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
+        if def.name == "opencode" {
+            let projectLocal = arguments.contains("--project")
+            if projectLocal {
+                // Project-local OpenCode install manages only the plugin file.
+                try installOpenCodePlugin(projectLocal: true)
+                return
+            }
+            try installAgentHooks(def)
+            try installOpenCodePlugin(projectLocal: false)
+            return
+        }
+        try installAgentHooks(def)
+    }
+
+    private func uninstallHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
+        if def.name == "opencode" {
+            let projectLocal = arguments.contains("--project")
+            if projectLocal {
+                try uninstallOpenCodePlugin(projectLocal: true)
+                return
+            }
+            try uninstallAgentHooks(def)
+            try uninstallOpenCodePlugin(projectLocal: false)
+            return
+        }
+        try uninstallAgentHooks(def)
+    }
+
+    private func runHooksSocketCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) throws {
+        guard let first = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "Usage: cmux hooks <setup|uninstall|feed|claude|agent>")
+        }
+        let rest = Array(commandArgs.dropFirst())
+
+        switch first {
+        case "setup", "install", "uninstall":
+            throw CLIError(message: "hooks \(first) must be handled before socket dispatch")
+
+        case "feed":
+            telemetry.breadcrumb("hooks.feed.dispatch")
+            do {
+                try runFeedHook(commandArgs: rest, client: client, telemetry: telemetry)
+                telemetry.breadcrumb("hooks.feed.completed")
+            } catch {
+                telemetry.breadcrumb("hooks.feed.failure")
+                telemetry.captureError(stage: "hooks_feed_dispatch", error: error)
+                throw error
+            }
+
+        case "claude":
+            telemetry.breadcrumb("hooks.claude.dispatch")
+            do {
+                try runClaudeHook(commandArgs: rest, client: client, telemetry: telemetry)
+                telemetry.breadcrumb("hooks.claude.completed")
+            } catch {
+                telemetry.breadcrumb("hooks.claude.failure")
+                telemetry.captureError(stage: "hooks_claude_dispatch", error: error)
+                throw error
+            }
+
+        default:
+            guard let def = Self.agentDef(named: first) else {
+                throw CLIError(message: "Unknown hooks target: \(first)")
+            }
+            telemetry.breadcrumb("hooks.\(def.name).dispatch")
+            do {
+                try runGenericAgentHook(def: def, commandArgs: rest, client: client, telemetry: telemetry)
+                telemetry.breadcrumb("hooks.\(def.name).completed")
+            } catch {
+                telemetry.breadcrumb("hooks.\(def.name).failure")
+                telemetry.captureError(stage: "hooks_\(def.name)_dispatch", error: error)
+                throw error
+            }
+        }
+    }
 
     private func runSetupHooks(uninstall: Bool = false) throws {
         let args = ProcessInfo.processInfo.arguments
@@ -19741,7 +19716,7 @@ export default CMUXSessionRestore;
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
 
-        print("cmux \(isUninstall ? "uninstall" : "setup")-hooks: \(verb) agent hooks")
+        print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
         if !isUninstall {
             print("  (Claude Code hooks are injected automatically via the claude wrapper)")
         }
@@ -20209,13 +20184,16 @@ export default CMUXSessionRestore;
           disable-browser | enable-browser | browser-status
           restore-session
           feedback [--email <email> --body <text> [--image <path> ...]]
+          feed tui|clear
           themes [list|set|clear]
           claude-teams [claude-args...]
           omo [opencode-args...]
           omx [omx-args...]
           omc [omc-args...]
-          codex <install-hooks|uninstall-hooks>
-          opencode <install-hooks|uninstall-hooks>
+          hooks setup|uninstall [--agent <name>]
+          hooks <agent> <install|uninstall|event> [options; opencode supports --project]
+          hooks feed --source <agent> [--event <event>]
+          codex <install-hooks|uninstall-hooks>   (compatibility alias)
           ping
           version
           capabilities
@@ -20252,6 +20230,7 @@ export default CMUXSessionRestore;
           refresh-surfaces
           reload-config
           surface-health [--workspace <id|ref>]
+          debug-terminals
           trigger-flash [--workspace <id|ref>] [--surface <id|ref>]
           list-panels [--workspace <id|ref>]
           focus-panel --panel <id|ref> [--workspace <id|ref>]
@@ -20268,8 +20247,16 @@ export default CMUXSessionRestore;
           notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
           list-notifications
           clear-notifications
-          claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
-          opencode-hook <session-start|prompt-submit|stop|session-end> [--workspace <id|ref>] [--surface <id|ref>]
+          set-status <key> <value> [--workspace <id|ref>] [--icon <name>] [--color <#hex>]
+          clear-status <key> [--workspace <id|ref>]
+          list-status [--workspace <id|ref>]
+          set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref>]
+          clear-progress [--workspace <id|ref>]
+          log [--level <level>] [--source <name>] [--workspace <id|ref>] <message>
+          clear-log [--workspace <id|ref>]
+          list-log [--workspace <id|ref>] [--limit <n>]
+          sidebar-state [--workspace <id|ref>]
+          claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]   (compatibility alias)
           set-app-focus <active|inactive|clear>
           simulate-app-active
 
