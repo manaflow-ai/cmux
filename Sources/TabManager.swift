@@ -2124,6 +2124,7 @@ class TabManager: ObservableObject {
                 newWorkspace.setCustomTitle(title)
             }
             wireClosedBrowserTracking(for: newWorkspace)
+            TurnCheckpointRegistry.shared.attach(workspace: newWorkspace)
             if eagerLoadTerminal && !select {
                 requestBackgroundWorkspaceLoad(for: newWorkspace.id)
             }
@@ -4108,6 +4109,7 @@ class TabManager: ObservableObject {
         workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
+        TurnCheckpointRegistry.shared.detach(workspaceId: workspace.id)
         workspace.owningTabManager = nil
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
@@ -4127,6 +4129,8 @@ class TabManager: ObservableObject {
     /// Used by the socket API for cross-window moves.
     @discardableResult
     func detachWorkspace(tabId: UUID) -> Workspace? {
+        // NOTE: TurnCheckpointRegistry is intentionally NOT detached here —
+        // detachWorkspace is for cross-window moves; checkpoint state should persist.
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         clearWorkspaceGitProbes(workspaceId: tabId)
         sidebarSelectedWorkspaceIds.remove(tabId)
