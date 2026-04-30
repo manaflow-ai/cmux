@@ -101,8 +101,7 @@ extension CMUXCLI {
         let wantsJSON = jsonOutput || parsedArgs.head.contains("--json")
         let args = parsedArgs.arguments
 
-        if let first = parsedArgs.head.first,
-           first == "--help" || first == "-h" || first.lowercased() == "help" {
+        if hasHelpRequest(beforeSeparator: parsedArgs.head) {
             print(docsUsage())
             return
         }
@@ -247,8 +246,7 @@ extension CMUXCLI {
         let args = parsedArgs.arguments
         let subcommand = args.first?.lowercased() ?? "open"
 
-        if let first = parsedArgs.head.first,
-           first == "help" || first == "--help" || first == "-h" {
+        if hasHelpRequest(beforeSeparator: parsedArgs.head) {
             print(settingsUsage())
             return
         }
@@ -466,5 +464,11 @@ extension CMUXCLI {
         let tail = separatorIndex.map { Array(commandArgs[commandArgs.index(after: $0)...]) } ?? []
         let headArguments = head.filter { $0 != "--json" }
         return (head, headArguments + tail)
+    }
+
+    private func hasHelpRequest(beforeSeparator args: [String]) -> Bool {
+        args.contains { arg in
+            arg == "--help" || arg == "-h" || arg.lowercased() == "help"
+        }
     }
 }
