@@ -7,9 +7,9 @@ alias like `alias sudo='sudo '` break Ghostty's `sudo()` wrapper definition.
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -25,10 +25,8 @@ def main() -> int:
         print("SKIP: zsh is not installed")
         return 0
 
-    base = Path("/tmp") / f"cmux_issue_3134_{os.getpid()}"
+    base = Path(tempfile.mkdtemp(prefix="cmux_issue_3134_"))
     try:
-        shutil.rmtree(base, ignore_errors=True)
-        base.mkdir(parents=True, exist_ok=True)
 
         home = base / "home"
         orig = base / "orig-zdotdir"
