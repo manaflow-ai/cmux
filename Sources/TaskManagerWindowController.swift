@@ -198,7 +198,7 @@ private struct CmuxTaskManagerView: View {
     }
 
     private var tableHeader: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Text(String(localized: "taskManager.column.name", defaultValue: "Name"))
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(String(localized: "taskManager.column.cpu", defaultValue: "CPU"))
@@ -208,10 +208,10 @@ private struct CmuxTaskManagerView: View {
             Text(String(localized: "taskManager.column.processes", defaultValue: "Proc"))
                 .frame(width: 58, alignment: .trailing)
         }
-        .font(.caption.weight(.semibold))
+        .font(.system(size: 11, weight: .semibold))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.vertical, 5)
     }
 
     @ViewBuilder
@@ -263,20 +263,21 @@ private struct CmuxTaskManagerRowView: View {
     let row: CmuxTaskManagerRow
 
     var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 7) {
+        HStack(spacing: 8) {
+            HStack(spacing: 5) {
                 Color.clear
-                    .frame(width: CGFloat(row.level) * 18)
+                    .frame(width: CGFloat(row.level) * 14)
                 Image(systemName: row.kind.systemImage)
                     .foregroundStyle(row.kind.tint)
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 2) {
+                    .font(.system(size: 12))
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 0) {
                     Text(row.title)
-                        .font(.system(.body))
+                        .font(.system(size: 12.5))
                         .lineLimit(1)
                     if !row.detail.isEmpty {
                         Text(row.detail)
-                            .font(.caption)
+                            .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -291,10 +292,10 @@ private struct CmuxTaskManagerRowView: View {
             Text("\(row.resources.processCount)")
                 .frame(width: 58, alignment: .trailing)
         }
-        .font(.system(.body, design: .default))
+        .font(.system(size: 12.5, design: .default))
         .monospacedDigit()
         .padding(.horizontal, 16)
-        .padding(.vertical, 7)
+        .padding(.vertical, 3)
         .opacity(row.isDimmed ? 0.68 : 1)
     }
 }
