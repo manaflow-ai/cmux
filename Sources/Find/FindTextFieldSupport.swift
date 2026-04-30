@@ -72,6 +72,22 @@ func cmuxRememberFindSelection(in root: NSView?) -> NSRange? {
     return nil
 }
 
+func cmuxFindResponderSnapshot() -> [String: String] {
+    let responder = (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder
+    var updates: [String: String] = [
+        "firstResponderType": responder.map { String(describing: type(of: $0)) } ?? "",
+        "firstResponderIdentifier": (responder as? NSView)?.identifier?.rawValue ?? "",
+    ]
+    if let textView = responder as? NSTextView {
+        updates["firstResponderSelectedRange"] = NSStringFromRange(textView.selectedRange())
+        if let owner = cmuxFieldEditorOwnerView(textView) {
+            updates["fieldEditorOwnerType"] = String(describing: type(of: owner))
+            updates["fieldEditorOwnerIdentifier"] = owner.identifier?.rawValue ?? ""
+        }
+    }
+    return updates
+}
+
 class FindSelectionTrackingTextField: NSTextField {
     var cmuxLastSelectedRange: NSRange?
     private var cmuxSelectionObserver: NSObjectProtocol?

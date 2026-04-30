@@ -8519,7 +8519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } ?? ""
         updates["browserFindTotal"] = browserWithFind?.searchState?.total.map(String.init) ?? ""
         updates["browserFindVisible"] = browserWithFind == nil ? "false" : "true"
-
+        updates.merge(cmuxFindResponderSnapshot()) { _, new in new }
         return updates
     }
 
