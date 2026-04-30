@@ -68,6 +68,7 @@ final class FindSelectionShortcutUITests: XCTestCase {
         var focusKey: String { self == .terminal ? "terminal" : "browser" }
         var needleKey: String { self == .terminal ? "terminalFindNeedle" : "browserFindNeedle" }
         var visibleKey: String { self == .terminal ? "terminalFindVisible" : "browserFindVisible" }
+        var findFieldId: String { self == .terminal ? "TerminalFindSearchTextField" : "BrowserFindSearchTextField" }
         var replacementMessage: String { self == .terminal ? "terminal find text" : "browser find text" }
         var arrowKey: String {
             self == .terminal ? XCUIKeyboardKey.leftArrow.rawValue : XCUIKeyboardKey.rightArrow.rawValue
@@ -124,6 +125,11 @@ final class FindSelectionShortcutUITests: XCTestCase {
             "Expected \(pane.focusKey) focus before opening find. data=\(String(describing: loadData()))"
         )
         app.typeKey("f", modifierFlags: [.command])
+        let findField = app.textFields[pane.findFieldId].firstMatch
+        XCTAssertTrue(
+            findField.waitForExistence(timeout: 6.0),
+            "Expected \(pane.replacementMessage) field after Cmd+F. data=\(String(describing: loadData()))"
+        )
         app.typeText(query)
         XCTAssertTrue(
             waitForDataMatch(timeout: 6.0) { data in
