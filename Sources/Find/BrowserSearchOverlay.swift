@@ -211,6 +211,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         weak var parentField: BrowserSearchNativeTextField?
         var pendingFocusRequest: Bool?
         var searchFocusObserver: NSObjectProtocol?
+        var lastSelectedRange: NSRange?
 
         init(parent: BrowserSearchTextFieldRepresentable) {
             self.parent = parent
@@ -225,15 +226,16 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         func focusField(_ field: BrowserSearchNativeTextField, in window: NSWindow, selectAll: Bool) {
             let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
             guard alreadyFocused || window.makeFirstResponder(field) else { return }
-            DispatchQueue.main.async { [weak field] in
-                guard let field,
+            DispatchQueue.main.async { [weak field, weak self] in
+                guard let field, let self,
                       let editor = field.currentEditor() as? NSTextView else { return }
                 guard !editor.hasMarkedText() else { return }
                 if selectAll {
-                    editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
-                } else if !alreadyFocused {
-                    let end = field.stringValue.utf16.count
-                    editor.setSelectedRange(NSRange(location: end, length: 0))
+                    let selection = NSRange(location: 0, length: editor.string.utf16.count)
+                    editor.setSelectedRange(selection)
+                    self.lastSelectedRange = selection
+                } else if !alreadyFocused, let lastSelectedRange = self.lastSelectedRange {
+                    editor.setSelectedRange(cmuxClampedFindSelection(lastSelectedRange, in: editor.string))
                 }
             }
         }
@@ -242,6 +244,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
             parent.text = field.stringValue
+            rememberSelection(from: field)
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {
@@ -254,6 +257,9 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ obj: Notification) {
+            if let field = obj.object as? NSTextField {
+                rememberSelection(from: field)
+            }
             if parent.isFocused {
                 DispatchQueue.main.async {
                     self.parent.isFocused = false
@@ -265,16 +271,27 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             switch commandSelector {
             case #selector(NSResponder.cancelOperation(_:)):
                 if textView.hasMarkedText() { return false }
+                rememberSelection(from: textView)
                 parent.onEscape()
                 return true
             case #selector(NSResponder.insertNewline(_:)):
                 if textView.hasMarkedText() { return false }
+                rememberSelection(from: textView)
                 let isShift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
                 parent.onReturn(isShift)
                 return true
             default:
                 return false
             }
+        }
+
+        private func rememberSelection(from field: NSTextField) {
+            guard let editor = field.currentEditor() as? NSTextView else { return }
+            rememberSelection(from: editor)
+        }
+
+        private func rememberSelection(from textView: NSTextView) {
+            lastSelectedRange = cmuxClampedFindSelection(textView.selectedRange(), in: textView.string)
         }
     }
 
@@ -319,9 +336,12 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
 
         if let editor = nsView.currentEditor() as? NSTextView {
             if editor.string != text, !editor.hasMarkedText() {
+                let selectedRange = cmuxClampedFindSelection(editor.selectedRange(), in: text)
                 context.coordinator.isProgrammaticMutation = true
                 editor.string = text
                 nsView.stringValue = text
+                editor.setSelectedRange(selectedRange)
+                context.coordinator.lastSelectedRange = selectedRange
                 context.coordinator.isProgrammaticMutation = false
             }
         } else if nsView.stringValue != text {

@@ -5020,7 +5020,7 @@ extension BrowserPanel {
         pendingAddressBarFocusRequestId = nil
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
-        let shouldSelectAll = !created || !recoveredNeedle.isEmpty
+        let shouldSelectAll = created && !recoveredNeedle.isEmpty
 #if DEBUG
         let window = webView.window
         cmuxDebugLog(
