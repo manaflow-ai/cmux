@@ -26,6 +26,7 @@ struct BrowserSearchOverlay: View {
                     isFocused: $isSearchFieldFocused,
                     panelId: panelId,
                     focusRequestGeneration: focusRequestGeneration,
+                    selectionOwner: searchState,
                     canApplyFocusRequest: canApplyFocusRequest,
                     onFieldDidFocus: onFieldDidFocus,
                     onEscape: onClose,
@@ -200,6 +201,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
     @Binding var isFocused: Bool
     let panelId: UUID
     let focusRequestGeneration: UInt64
+    let selectionOwner: AnyObject
     let canApplyFocusRequest: (UInt64) -> Bool
     let onFieldDidFocus: () -> Void
     let onEscape: () -> Void
@@ -238,7 +240,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
                     editor.setSelectedRange(selection)
                     self.lastSelectedRange = selection
                 } else if !alreadyFocused,
-                          let rememberedRange = field.cmuxLastSelectedRange ?? self.lastSelectedRange {
+                          let rememberedRange = field.cmuxLastSelectedRange ?? cmuxStoredFindSelection(for: self.parent.selectionOwner) ?? self.lastSelectedRange {
                     let selection = field.cmuxRememberSelection(rememberedRange, in: editor.string)
                     editor.setSelectedRange(selection)
                     self.lastSelectedRange = selection
@@ -276,10 +278,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.cancelOperation(_:)):
-                if textView.hasMarkedText() { return false }
-                rememberSelection(from: textView)
-                parent.onEscape()
-                return true
+                return handleEscape(from: textView)
             case #selector(NSResponder.insertNewline(_:)):
                 if textView.hasMarkedText() { return false }
                 rememberSelection(from: textView)
@@ -297,6 +296,13 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        func handleEscape(from textView: NSTextView) -> Bool {
+            if textView.hasMarkedText() { return false }
+            rememberSelection(from: textView)
+            parent.onEscape()
+            return true
+        }
+
         private func rememberSelection(from field: NSTextField) {
             if let field = field as? BrowserSearchNativeTextField,
                let selection = field.cmuxRememberSelectionFromCurrentEditor() {
@@ -311,6 +317,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             let selection = cmuxClampedFindSelection(textView.selectedRange(), in: textView.string)
             lastSelectedRange = selection
             parentField?.cmuxLastSelectedRange = selection
+            cmuxStoreFindSelection(selection, for: parent.selectionOwner)
         }
     }
 
@@ -324,6 +331,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.setAccessibilityIdentifier("BrowserFindSearchTextField")
         field.delegate = context.coordinator
+        field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
         field.target = nil
         field.action = nil
         field.isEditable = true
@@ -361,6 +369,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
                 nsView.stringValue = text
                 editor.setSelectedRange(selectedRange)
                 context.coordinator.lastSelectedRange = selectedRange
+                cmuxStoreFindSelection(selectedRange, for: selectionOwner)
                 context.coordinator.isProgrammaticMutation = false
             }
         } else if nsView.stringValue != text {
@@ -395,6 +404,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             coordinator.searchFocusObserver = nil
         }
         nsView.delegate = nil
+        nsView.cmuxOnEscape = nil
         coordinator.parentField = nil
     }
 }

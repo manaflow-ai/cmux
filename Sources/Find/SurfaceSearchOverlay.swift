@@ -37,6 +37,7 @@ struct SurfaceSearchOverlay: View {
                     text: $searchState.needle,
                     isFocused: $isSearchFieldFocused,
                     surfaceId: surfaceId,
+                    selectionOwner: searchState,
                     canApplyFocusRequest: canApplyFocusRequest,
                     onFieldDidFocus: onFieldDidFocus,
                     onEscape: {
@@ -225,6 +226,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let surfaceId: UUID
+    let selectionOwner: AnyObject
     let canApplyFocusRequest: () -> Bool
     let onFieldDidFocus: () -> Void
     let onEscape: () -> Void
@@ -263,7 +265,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                     editor.setSelectedRange(selection)
                     self.lastSelectedRange = selection
                 } else if !alreadyFocused,
-                          let rememberedRange = field.cmuxLastSelectedRange ?? self.lastSelectedRange {
+                          let rememberedRange = field.cmuxLastSelectedRange ?? cmuxStoredFindSelection(for: self.parent.selectionOwner) ?? self.lastSelectedRange {
                     let selection = field.cmuxRememberSelection(rememberedRange, in: editor.string)
                     editor.setSelectedRange(selection)
                     self.lastSelectedRange = selection
@@ -307,12 +309,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.cancelOperation(_:)):
-                // Don't intercept Escape during CJK IME composition (issue #118)
-                if textView.hasMarkedText() { return false }
-                rememberSelection(from: textView)
-                control.cmuxAncestor(of: GhosttySurfaceScrollView.self)?.beginFindEscapeSuppression()
-                parent.onEscape()
-                return true
+                return handleEscape(from: textView, control: control)
             case #selector(NSResponder.insertNewline(_:)):
                 if textView.hasMarkedText() { return false }
                 rememberSelection(from: textView)
@@ -330,6 +327,15 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        func handleEscape(from textView: NSTextView, control: NSControl? = nil) -> Bool {
+            // Don't intercept Escape during CJK IME composition (issue #118)
+            if textView.hasMarkedText() { return false }
+            rememberSelection(from: textView)
+            (control ?? parentField)?.cmuxAncestor(of: GhosttySurfaceScrollView.self)?.beginFindEscapeSuppression()
+            parent.onEscape()
+            return true
+        }
+
         private func rememberSelection(from field: NSTextField) {
             if let field = field as? SearchNativeTextField,
                let selection = field.cmuxRememberSelectionFromCurrentEditor() {
@@ -344,6 +350,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             let selection = cmuxClampedFindSelection(textView.selectedRange(), in: textView.string)
             lastSelectedRange = selection
             parentField?.cmuxLastSelectedRange = selection
+            cmuxStoreFindSelection(selection, for: parent.selectionOwner)
         }
     }
 
@@ -352,13 +359,14 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> SearchNativeTextField {
-        let field = SearchNativeTextField(frame: .zero)
+            let field = SearchNativeTextField(frame: .zero)
         field.font = .systemFont(ofSize: NSFont.systemFontSize)
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
-        field.setAccessibilityIdentifier("TerminalFindSearchTextField")
-        field.delegate = context.coordinator
-        field.stringValue = text
-        context.coordinator.parentField = field
+            field.setAccessibilityIdentifier("TerminalFindSearchTextField")
+            field.delegate = context.coordinator
+            field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
+            field.stringValue = text
+            context.coordinator.parentField = field
 
         // Observe .ghosttySearchFocus to immediately focus from AppKit level.
         // This is the primary mechanism for restoring focus after window switches.
@@ -409,6 +417,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                 nsView.stringValue = text
                 editor.setSelectedRange(selectedRange)
                 context.coordinator.lastSelectedRange = selectedRange
+                cmuxStoreFindSelection(selectedRange, for: selectionOwner)
                 context.coordinator.isProgrammaticMutation = false
             }
         } else if nsView.stringValue != text {
@@ -444,6 +453,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             coordinator.searchFocusObserver = nil
         }
         nsView.delegate = nil
+        nsView.cmuxOnEscape = nil
         coordinator.parentField = nil
     }
 }

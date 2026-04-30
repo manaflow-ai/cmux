@@ -57,6 +57,18 @@ func cmuxFindCommandMayChangeSelection(_ selector: Selector) -> Bool {
     cmuxFindSelectionChangingCommands.contains(NSStringFromSelector(selector))
 }
 
+private let cmuxFindSelectionStore = NSMapTable<AnyObject, NSValue>.weakToStrongObjects()
+
+func cmuxStoredFindSelection(for owner: AnyObject?) -> NSRange? {
+    guard let owner else { return nil }
+    return cmuxFindSelectionStore.object(forKey: owner)?.rangeValue
+}
+
+func cmuxStoreFindSelection(_ range: NSRange, for owner: AnyObject?) {
+    guard let owner else { return }
+    cmuxFindSelectionStore.setObject(NSValue(range: range), forKey: owner)
+}
+
 @discardableResult
 func cmuxRememberFindSelection(in root: NSView?) -> NSRange? {
     guard let root else { return nil }
@@ -90,11 +102,14 @@ func cmuxFindResponderSnapshot() -> [String: String] {
 
 class FindSelectionTrackingTextField: NSTextField {
     var cmuxLastSelectedRange: NSRange?
+    var cmuxOnEscape: ((NSTextView) -> Bool)?
     private var cmuxSelectionObserver: NSObjectProtocol?
+    private var cmuxKeyMonitor: Any?
     private weak var cmuxObservedEditor: NSTextView?
 
     deinit {
         cmuxDetachSelectionObserver()
+        cmuxRemoveKeyMonitor()
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -107,6 +122,7 @@ class FindSelectionTrackingTextField: NSTextField {
     override func textDidBeginEditing(_ notification: Notification) {
         super.textDidBeginEditing(notification)
         cmuxAttachSelectionObserverIfNeeded()
+        cmuxInstallKeyMonitorIfNeeded()
         _ = cmuxRememberSelectionFromCurrentEditor()
     }
 
@@ -117,6 +133,7 @@ class FindSelectionTrackingTextField: NSTextField {
 
     override func textDidEndEditing(_ notification: Notification) {
         _ = cmuxRememberSelectionFromCurrentEditor()
+        cmuxRemoveKeyMonitor()
         cmuxDetachSelectionObserver()
         super.textDidEndEditing(notification)
     }
@@ -160,6 +177,26 @@ class FindSelectionTrackingTextField: NSTextField {
             self.cmuxSelectionObserver = nil
         }
         cmuxObservedEditor = nil
+    }
+
+    private func cmuxInstallKeyMonitorIfNeeded() {
+        guard cmuxKeyMonitor == nil else { return }
+        cmuxKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  event.window === self.window,
+                  let editor = self.currentEditor() as? NSTextView,
+                  self.window?.firstResponder === editor else { return event }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock])
+            guard flags.isEmpty, event.keyCode == 53, !editor.hasMarkedText(), self.cmuxOnEscape?(editor) == true else { return event }
+            return nil
+        }
+    }
+
+    private func cmuxRemoveKeyMonitor() {
+        if let cmuxKeyMonitor {
+            NSEvent.removeMonitor(cmuxKeyMonitor)
+            self.cmuxKeyMonitor = nil
+        }
     }
 
     private func cmuxRestoreRememberedSelection() {
