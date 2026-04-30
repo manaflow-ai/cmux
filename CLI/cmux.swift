@@ -3133,7 +3133,7 @@ struct CMUXCLI {
                 if let explicitSurfaceArg { params["surface_id"] = explicitSurfaceArg }
             } else {
                 method = "notification.create_for_caller"
-                params["prefer_tty"] = preferTTYFallback
+                params["prefer_tty"] = preferTTYFallback && explicitWorkspaceArg == nil
                 let env = ProcessInfo.processInfo.environment
                 let workspaceArg = explicitWorkspaceArg ?? (windowId == nil ? env["CMUX_WORKSPACE_ID"] : nil)
                 if let workspaceArg, isUUID(workspaceArg) { params["preferred_workspace_id"] = workspaceArg }

@@ -3230,7 +3230,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let state = MockSocketServerState()
         let currentWorkspace = "11111111-1111-1111-1111-111111111111"
         let currentSurface = "22222222-2222-2222-2222-222222222222"
-        let staleWorkspace = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
         let staleSurface = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
 
         defer {
@@ -3269,8 +3268,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_WORKSPACE_ID"] = staleWorkspace
+        environment["CMUX_WORKSPACE_ID"] = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
         environment["CMUX_SURFACE_ID"] = staleSurface
+        environment["TMUX"] = "/tmp/tmux-current,123,0"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
