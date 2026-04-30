@@ -1978,6 +1978,11 @@ struct CMUXCLI {
             return
         }
 
+        if command == "help" {
+            print(usage())
+            return
+        }
+
         if command == "remote-daemon-status" {
             try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput)
             return
@@ -1985,6 +1990,24 @@ struct CMUXCLI {
 
         if command == "vm-pty-connect" {
             try runVMPtyConnect(commandArgs: commandArgs)
+            return
+        }
+
+        // Check for --help/-h on subcommands before resolving sockets,
+        // so help text is available even when cmux is not running.
+        let preSeparatorArgs: ArraySlice<String>
+        if let separatorIndex = commandArgs.firstIndex(of: "--") {
+            preSeparatorArgs = commandArgs[..<separatorIndex]
+        } else {
+            preSeparatorArgs = commandArgs[...]
+        }
+        if command != "__tmux-compat",
+           command != "claude-teams",
+           preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
+            if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
+                return
+            }
+            print("Unknown command '\(command)'. Run 'cmux help' to see available commands.")
             return
         }
 
@@ -2015,29 +2038,6 @@ struct CMUXCLI {
         // If the argument looks like a path (not a known command), open a workspace there.
         if looksLikePath(command) {
             try openPath(command, socketPath: resolvedSocketPath)
-            return
-        }
-
-        // Check for --help/-h on subcommands before connecting to the socket,
-        // so help text is available even when cmux is not running.
-        let preSeparatorArgs: ArraySlice<String>
-        if let separatorIndex = commandArgs.firstIndex(of: "--") {
-            preSeparatorArgs = commandArgs[..<separatorIndex]
-        } else {
-            preSeparatorArgs = commandArgs[...]
-        }
-        if command != "__tmux-compat",
-           command != "claude-teams",
-           preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
-            if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
-                return
-            }
-            print("Unknown command '\(command)'. Run 'cmux help' to see available commands.")
-            return
-        }
-
-        if command == "help" {
-            print(usage())
             return
         }
 
