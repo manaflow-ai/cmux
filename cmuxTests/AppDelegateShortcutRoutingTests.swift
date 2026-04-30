@@ -1740,9 +1740,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 titlebarPadding: 32,
                 hostingSafeAreaTop: 0
             ),
-            32,
+            WindowChromeMetrics.appTitlebarHeight,
             accuracy: 0.5,
-            "Standard mode should preserve the measured titlebar inset so content stays below the draggable titlebar zone"
+            "Standard mode should align terminal content with cmux's visual titlebar height even when AppKit reports a taller native titlebar zone"
         )
 
         XCTAssertEqual(
