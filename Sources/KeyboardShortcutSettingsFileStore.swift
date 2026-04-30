@@ -35,6 +35,7 @@ final class CmuxSettingsFileStore {
         "app.focusPaneOnFirstClick",
         "app.preferredEditor",
         "app.openMarkdownInCmuxViewer",
+        "app.iMessageMode",
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
         "app.warnBeforeQuit",
@@ -424,6 +425,9 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["reorderOnNotification"]) {
             snapshot.managedUserDefaults[WorkspaceAutoReorderSettings.key] = .bool(value)
+        }
+        if let value = jsonBool(section["iMessageMode"]) {
+            snapshot.managedUserDefaults[IMessageModeSettings.key] = .bool(value)
         }
         if let value = jsonBool(section["sendAnonymousTelemetry"]) {
             snapshot.managedUserDefaults[TelemetrySettings.sendAnonymousTelemetryKey] = .bool(value)
@@ -1227,6 +1231,7 @@ final class CmuxSettingsFileStore {
                     "preferredEditor": "",
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
+                    "iMessageMode": IMessageModeSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
                     "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,

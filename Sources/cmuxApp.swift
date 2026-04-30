@@ -5269,6 +5269,7 @@ struct SettingsView: View {
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+    @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
@@ -6009,6 +6010,21 @@ struct SettingsView: View {
                                 .controlSize(.small)
                                 .accessibilityLabel(
                                     String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.iMessageMode"),
+                            String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode"),
+                            subtitle: String(localized: "settings.app.iMessageMode.subtitle", defaultValue: "Move a workspace to the top and show the submitted message when you send an agent prompt.")
+                        ) {
+                            Toggle("", isOn: $iMessageMode)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode")
                                 )
                         }
 
@@ -7469,6 +7485,7 @@ struct SettingsView: View {
             TerminalScrollBarSettings.notifyDidChange()
         }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+        iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout

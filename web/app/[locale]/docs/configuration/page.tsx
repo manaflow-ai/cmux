@@ -53,7 +53,8 @@ const settingsFileExample = `{
   // "app": {
   //   "appearance": "dark",
   //   "menuBarOnly": false,
-  //   "newWorkspacePlacement": "afterCurrent"
+  //   "newWorkspacePlacement": "afterCurrent",
+  //   "iMessageMode": true
   // },
 
   // "terminal": {
