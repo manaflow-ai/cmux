@@ -265,6 +265,56 @@ final class CMUXRemoteAccessTests: XCTestCase {
         XCTAssertTrue(forwardedLine?.contains(#""params":{}"#) == true)
     }
 
+    func testSnapshotRejectsMissingAndBadTokenWithoutDispatching() async {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        nonisolated(unsafe) var dispatchCount = 0
+        let handler = CMUXRemoteRPCHandler(
+            loadToken: { token },
+            dispatch: { _ in
+                dispatchCount += 1
+                return #"{"ok":false}"#
+            }
+        )
+
+        let missing = await handler.handleSnapshot(authorizationHeader: nil)
+        XCTAssertEqual(missing.statusCode, 401)
+        XCTAssertTrue(missing.body.contains(#""code":"unauthorized""#))
+
+        let bad = await handler.handleSnapshot(authorizationHeader: "Bearer wrongabcdefghijklmnopqrstuvwxyz123456")
+        XCTAssertEqual(bad.statusCode, 401)
+        XCTAssertTrue(bad.body.contains(#""code":"unauthorized""#))
+
+        XCTAssertEqual(dispatchCount, 0)
+    }
+
+    func testSnapshotDispatchesSystemTreeOnceAndPreservesResponseBody() async throws {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let dispatcherBody = #"{"id":"snapshot-1","ok":true,"result":{"windows":[]}}"#
+        nonisolated(unsafe) var forwardedLines: [String] = []
+        let handler = CMUXRemoteRPCHandler(
+            loadToken: { token },
+            dispatch: { line in
+                forwardedLines.append(line)
+                return dispatcherBody
+            }
+        )
+
+        let response = await handler.handleSnapshot(authorizationHeader: "Bearer \(token)")
+
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(response.body, dispatcherBody)
+        XCTAssertEqual(forwardedLines.count, 1)
+
+        let line = try XCTUnwrap(forwardedLines.first)
+        XCTAssertFalse(line.contains("\n"))
+
+        let object = try jsonObject(from: line)
+        XCTAssertEqual(object["method"] as? String, "system.tree")
+        let params = try XCTUnwrap(object["params"] as? [String: Any])
+        XCTAssertEqual(params["all_windows"] as? Bool, true)
+        XCTAssertEqual(params.count, 1)
+    }
+
     func testRPCCapabilitiesAreRemoteSpecificAndDoNotDispatch() async throws {
         let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
         nonisolated(unsafe) var didDispatch = false
@@ -315,10 +365,28 @@ final class CMUXRemoteAccessTests: XCTestCase {
                 XCTAssertEqual(response.headers[.accessControlAllowOrigin], "http://localhost:5173")
                 XCTAssertEqual(response.headers[.accessControlAllowCredentials], "true")
                 XCTAssertEqual(response.headers[.accessControlMaxAge], "600")
-                XCTAssertTrue(response.headers[.accessControlAllowHeaders]?.contains("authorization") == true)
-                XCTAssertTrue(response.headers[.accessControlAllowHeaders]?.contains("content-type") == true)
-                XCTAssertTrue(response.headers[.accessControlAllowMethods]?.contains("POST") == true)
-                XCTAssertTrue(response.headers[.accessControlAllowMethods]?.contains("OPTIONS") == true)
+                assertCORSHeaderList(response.headers[.accessControlAllowHeaders], includes: ["Authorization", "Content-Type"])
+                assertCORSAllowMethods(response.headers[.accessControlAllowMethods], include: ["GET", "POST", "OPTIONS"])
+            }
+        }
+    }
+
+    func testSnapshotPreflightReturnsCORSHeadersForBrowserClients() async throws {
+        let handler = makeHandler(expectedToken: "abcdefghijklmnopqrstuvwxyzABCDEF1234567890")
+        let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: handler)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/snapshot",
+                method: .options,
+                headers: [.origin: "http://localhost:5173"]
+            ) { response in
+                XCTAssertEqual(response.status, .noContent)
+                XCTAssertEqual(response.headers[.accessControlAllowOrigin], "http://localhost:5173")
+                XCTAssertEqual(response.headers[.accessControlAllowCredentials], "true")
+                XCTAssertEqual(response.headers[.accessControlMaxAge], "600")
+                assertCORSHeaderList(response.headers[.accessControlAllowHeaders], includes: ["Authorization"])
+                assertCORSAllowMethods(response.headers[.accessControlAllowMethods], include: ["GET", "POST", "OPTIONS"])
             }
         }
     }
@@ -385,6 +453,42 @@ final class CMUXRemoteAccessTests: XCTestCase {
             }
         }
     }
+
+    func testSnapshotGetAddsCORSHeadersToAuthenticatedAndErrorResponses() async throws {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let handler = CMUXRemoteRPCHandler(
+            loadToken: { token },
+            dispatch: { _ in
+                #"{"id":"snapshot-2","ok":true,"result":{"windows":[]}}"#
+            }
+        )
+        let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: handler)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/snapshot",
+                method: .get,
+                headers: [
+                    .origin: "http://localhost:5173",
+                    .authorization: "Bearer \(token)",
+                ]
+            ) { response in
+                XCTAssertEqual(response.status, .ok)
+                XCTAssertEqual(response.headers[.accessControlAllowOrigin], "http://localhost:5173")
+                XCTAssertEqual(response.headers[.accessControlAllowCredentials], "true")
+            }
+
+            try await client.execute(
+                uri: "/snapshot",
+                method: .get,
+                headers: [.origin: "http://localhost:5173"]
+            ) { response in
+                XCTAssertEqual(response.status, .unauthorized)
+                XCTAssertEqual(response.headers[.accessControlAllowOrigin], "http://localhost:5173")
+                XCTAssertEqual(response.headers[.accessControlAllowCredentials], "true")
+            }
+        }
+    }
     #endif
 
     private func makeHandler(expectedToken: String) -> CMUXRemoteRPCHandler {
@@ -395,6 +499,33 @@ final class CMUXRemoteAccessTests: XCTestCase {
                 return #"{"ok":false}"#
             }
         )
+    }
+
+    private func jsonObject(from string: String) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: Data(string.utf8)) as? [String: Any])
+    }
+
+    private func assertCORSAllowMethods(
+        _ value: String?,
+        include expectedMethods: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for method in expectedMethods {
+            XCTAssertTrue(value?.contains(method) == true, "Missing \(method) in Access-Control-Allow-Methods", file: file, line: line)
+        }
+    }
+
+    private func assertCORSHeaderList(
+        _ value: String?,
+        includes expectedHeaders: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let lowercased = value?.lowercased()
+        for header in expectedHeaders {
+            XCTAssertTrue(lowercased?.contains(header.lowercased()) == true, "Missing \(header) in Access-Control-Allow-Headers", file: file, line: line)
+        }
     }
 
     #if canImport(Hummingbird)

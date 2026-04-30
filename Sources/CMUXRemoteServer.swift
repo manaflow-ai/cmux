@@ -201,19 +201,8 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
             return Self.jsonError(statusCode: 413, id: parsedId, code: "content_too_large", message: "Request body is too large.")
         }
 
-        let expectedToken: String
-        do {
-            guard let loadedToken = try loadToken() else {
-                return Self.jsonError(statusCode: 401, id: parsedId, code: "auth_unconfigured", message: "Remote access token is not configured.")
-            }
-            expectedToken = loadedToken
-        } catch {
-            return Self.jsonError(statusCode: 500, id: parsedId, code: "auth_unavailable", message: "Remote access token could not be loaded.")
-        }
-
-        guard let providedToken = Self.bearerToken(from: authorizationHeader),
-              RemoteAccessTokenStore.verify(candidate: providedToken, expected: expectedToken) else {
-            return Self.jsonError(statusCode: 401, id: parsedId, code: "unauthorized", message: "Missing or invalid remote access token.")
+        if let authError = authenticationError(id: parsedId, authorizationHeader: authorizationHeader) {
+            return authError
         }
 
         guard let object = try? JSONSerialization.jsonObject(with: body, options: []),
@@ -272,6 +261,46 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
 
         let response = await dispatch(line)
         return CMUXRemoteHTTPResponse(statusCode: 200, body: response)
+    }
+
+    func handleSnapshot(authorizationHeader: String?) async -> CMUXRemoteHTTPResponse {
+        if let authError = authenticationError(id: nil, authorizationHeader: authorizationHeader) {
+            return authError
+        }
+
+        let forwarded: [String: Any] = [
+            "method": "system.tree",
+            "params": [
+                "all_windows": true,
+            ],
+        ]
+
+        guard let data = try? JSONSerialization.data(withJSONObject: forwarded, options: []),
+              let line = String(data: data, encoding: .utf8) else {
+            return Self.jsonError(statusCode: 500, id: nil, code: "internal_error", message: "Snapshot request could not be forwarded.")
+        }
+
+        let response = await dispatch(line)
+        return CMUXRemoteHTTPResponse(statusCode: 200, body: response)
+    }
+
+    private func authenticationError(id: Any?, authorizationHeader: String?) -> CMUXRemoteHTTPResponse? {
+        let expectedToken: String
+        do {
+            guard let loadedToken = try loadToken() else {
+                return Self.jsonError(statusCode: 401, id: id, code: "auth_unconfigured", message: "Remote access token is not configured.")
+            }
+            expectedToken = loadedToken
+        } catch {
+            return Self.jsonError(statusCode: 500, id: id, code: "auth_unavailable", message: "Remote access token could not be loaded.")
+        }
+
+        guard let providedToken = Self.bearerToken(from: authorizationHeader),
+              RemoteAccessTokenStore.verify(candidate: providedToken, expected: expectedToken) else {
+            return Self.jsonError(statusCode: 401, id: id, code: "unauthorized", message: "Missing or invalid remote access token.")
+        }
+
+        return nil
     }
 
     private static func bearerToken(from authorizationHeader: String?) -> String? {
@@ -502,7 +531,7 @@ final class CMUXRemoteServer: ObservableObject {
             middleware: CORSMiddleware(
                 allowOrigin: .originBased,
                 allowHeaders: [.authorization, .contentType, .accept, .origin],
-                allowMethods: [.post, .options],
+                allowMethods: [.get, .post, .options],
                 allowCredentials: true,
                 maxAge: .seconds(600)
             )
@@ -512,6 +541,10 @@ final class CMUXRemoteServer: ObservableObject {
             let buffer = try await request.collectBody(upTo: CMUXRemoteRPCHandler.maxBodyBytes + 1)
             let data = buffer.getData(at: buffer.readerIndex, length: buffer.readableBytes) ?? Data()
             let result = await handler.handle(body: data, authorizationHeader: request.headers[.authorization])
+            return Self.response(statusCode: result.statusCode, body: result.body)
+        }
+        router.get("snapshot") { request, _ -> Response in
+            let result = await handler.handleSnapshot(authorizationHeader: request.headers[.authorization])
             return Self.response(statusCode: result.statusCode, body: result.body)
         }
         return Application(
