@@ -222,13 +222,19 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
-        func focusField(_ field: BrowserSearchNativeTextField, in window: NSWindow) {
-            guard window.makeFirstResponder(field) else { return }
+        func focusField(_ field: BrowserSearchNativeTextField, in window: NSWindow, selectAll: Bool) {
+            let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
+            guard alreadyFocused || window.makeFirstResponder(field) else { return }
             DispatchQueue.main.async { [weak field] in
                 guard let field,
                       let editor = field.currentEditor() as? NSTextView else { return }
-                let end = field.stringValue.utf16.count
-                editor.setSelectedRange(NSRange(location: end, length: 0))
+                guard !editor.hasMarkedText() else { return }
+                if selectAll {
+                    editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
+                } else if !alreadyFocused {
+                    let end = field.stringValue.utf16.count
+                    editor.setSelectedRange(NSRange(location: end, length: 0))
+                }
             }
         }
 
@@ -299,12 +305,10 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
                   notifiedPanelId == coordinator.parent.panelId else { return }
             guard coordinator.parent.canApplyFocusRequest(coordinator.parent.focusRequestGeneration) else { return }
             guard let window = field.window else { return }
-            let fr = window.firstResponder
-            let alreadyFocused = fr === field ||
-                field.currentEditor() != nil ||
-                ((fr as? NSTextView)?.delegate as? NSTextField) === field
-            guard !alreadyFocused else { return }
-            coordinator.focusField(field, in: window)
+            let selectAll = notification.userInfo?[FindFocusNotificationKey.selectAll] as? Bool == true
+            let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
+            guard !alreadyFocused || selectAll else { return }
+            coordinator.focusField(field, in: window, selectAll: selectAll)
         }
         return field
     }
@@ -325,11 +329,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         }
 
         if let window = nsView.window {
-            let fr = window.firstResponder
-            let isFirstResponder =
-                fr === nsView ||
-                nsView.currentEditor() != nil ||
-                ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
+            let isFirstResponder = cmuxTextFieldIsFirstResponder(nsView, in: window)
 
             if isFocused,
                canApplyFocusRequest(focusRequestGeneration),
@@ -342,12 +342,9 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
                           coordinator.parent.isFocused,
                           coordinator.parent.canApplyFocusRequest(coordinator.parent.focusRequestGeneration) else { return }
                     guard let nsView, let window = nsView.window else { return }
-                    let fr = window.firstResponder
-                    let alreadyFocused = fr === nsView ||
-                        nsView.currentEditor() != nil ||
-                        ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
+                    let alreadyFocused = cmuxTextFieldIsFirstResponder(nsView, in: window)
                     guard !alreadyFocused else { return }
-                    coordinator.focusField(nsView, in: window)
+                    coordinator.focusField(nsView, in: window, selectAll: false)
                 }
             }
         }

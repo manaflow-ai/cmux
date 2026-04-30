@@ -14,6 +14,11 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
 }
 
+nonisolated private struct SocketLineProcessingResult: Sendable {
+    let response: String
+    let authenticated: Bool
+}
+
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -47,16 +52,17 @@ class TerminalController {
     private nonisolated(unsafe) var activeAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var nextAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var pendingAcceptLoopRearmGeneration: UInt64?
-    private nonisolated(unsafe) var pendingAcceptLoopResumeGeneration: UInt64?
     private nonisolated(unsafe) var listenerStartInProgress = false
     private nonisolated let listenerStateLock = NSLock()
+    private nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
+    private nonisolated(unsafe) var listenerReadSource: DispatchSourceRead?
+    private nonisolated(unsafe) var listenerReadSourceSuspended = false
+    private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
-    private var accessMode: SocketControlMode = .cmuxOnly
-    private let myPid = getpid()
-    private nonisolated(unsafe) static var socketCommandPolicyDepth: Int = 0
-    private nonisolated(unsafe) static var socketCommandFocusAllowanceStack: [Bool] = []
-    private nonisolated static let socketCommandPolicyLock = NSLock()
+    private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
+    private nonisolated let myPid = getpid()
+    private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenBacklog: Int32 = 128
     private nonisolated static let acceptFailureBaseBackoffMs = 10
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
@@ -81,7 +87,6 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
-        let pendingResumeGeneration: UInt64?
         let listenerStartInProgress: Bool
     }
 
@@ -117,7 +122,7 @@ class TerminalController {
         case failure(path: String, stage: String, errnoCode: Int32)
     }
 
-    private static let focusIntentV1Commands: Set<String> = [
+    private nonisolated static let focusIntentV1Commands: Set<String> = [
         "focus_window",
         "select_workspace",
         "focus_surface",
@@ -125,10 +130,11 @@ class TerminalController {
         "focus_surface_by_panel",
         "focus_webview",
         "focus_notification",
-        "activate_app"
+        "activate_app",
+        "debug_right_sidebar_focus",
     ]
 
-    private static let focusIntentV2Methods: Set<String> = [
+    private nonisolated static let focusIntentV2Methods: Set<String> = [
         "window.focus",
         "workspace.select",
         "workspace.next",
@@ -143,6 +149,7 @@ class TerminalController {
         "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate",
+        "debug.right_sidebar.focus",
         "feed.jump"
     ]
 
@@ -234,7 +241,6 @@ class TerminalController {
                 acceptLoopAlive: acceptLoopAlive,
                 activeGeneration: activeAcceptLoopGeneration,
                 pendingRearmGeneration: pendingAcceptLoopRearmGeneration,
-                pendingResumeGeneration: pendingAcceptLoopResumeGeneration,
                 listenerStartInProgress: listenerStartInProgress
             )
         }
@@ -255,9 +261,7 @@ class TerminalController {
     }
 
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
-        socketCommandPolicyLock.lock()
-        defer { socketCommandPolicyLock.unlock() }
-        return socketCommandPolicyDepth > 0
+        !currentSocketCommandFocusAllowanceStack().isEmpty
     }
 
     nonisolated static func socketCommandAllowsInAppFocusMutations() -> Bool {
@@ -265,9 +269,7 @@ class TerminalController {
     }
 
     private nonisolated static func allowsInAppFocusMutationsForActiveSocketCommand() -> Bool {
-        socketCommandPolicyLock.lock()
-        defer { socketCommandPolicyLock.unlock() }
-        return socketCommandFocusAllowanceStack.last ?? false
+        currentSocketCommandFocusAllowanceStack().last ?? false
     }
 
     private func socketCommandAllowsInAppFocusMutations() -> Bool {
@@ -292,27 +294,44 @@ class TerminalController {
         }
     }
 
-    private static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool) -> Bool {
+    private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool) -> Bool {
         if isV2 {
             return focusIntentV2Methods.contains(commandKey)
         }
         return focusIntentV1Commands.contains(commandKey)
     }
 
-    private func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, _ body: () -> T) -> T {
+    nonisolated func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, _ body: () -> T) -> T {
         let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(commandKey: commandKey, isV2: isV2)
-        Self.socketCommandPolicyLock.lock()
-        Self.socketCommandPolicyDepth += 1
-        Self.socketCommandFocusAllowanceStack.append(allowsFocusMutation)
-        Self.socketCommandPolicyLock.unlock()
+        var stack = Self.currentSocketCommandFocusAllowanceStack()
+        stack.append(allowsFocusMutation)
+        Self.setCurrentSocketCommandFocusAllowanceStack(stack)
         defer {
-            Self.socketCommandPolicyLock.lock()
-            if !Self.socketCommandFocusAllowanceStack.isEmpty {
-                _ = Self.socketCommandFocusAllowanceStack.popLast()
+            var stack = Self.currentSocketCommandFocusAllowanceStack()
+            if !stack.isEmpty {
+                _ = stack.popLast()
             }
-            Self.socketCommandPolicyDepth = max(0, Self.socketCommandPolicyDepth - 1)
-            Self.socketCommandPolicyLock.unlock()
+            Self.setCurrentSocketCommandFocusAllowanceStack(stack)
         }
+        return body()
+    }
+
+    private nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
+        Thread.current.threadDictionary[socketCommandFocusAllowanceStackKey] as? [Bool] ?? []
+    }
+
+    private nonisolated static func setCurrentSocketCommandFocusAllowanceStack(_ stack: [Bool]) {
+        if stack.isEmpty {
+            Thread.current.threadDictionary.removeObject(forKey: socketCommandFocusAllowanceStackKey)
+        } else {
+            Thread.current.threadDictionary[socketCommandFocusAllowanceStackKey] = stack
+        }
+    }
+
+    private nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
+        let previous = currentSocketCommandFocusAllowanceStack()
+        setCurrentSocketCommandFocusAllowanceStack(stack)
+        defer { setCurrentSocketCommandFocusAllowanceStack(previous) }
         return body()
     }
 
@@ -569,7 +588,7 @@ class TerminalController {
 
     /// Check if the peer has the same UID as this process using LOCAL_PEERCRED.
     /// This works even after the peer has disconnected (unlike LOCAL_PEERPID).
-    private func peerHasSameUID(_ socket: Int32) -> Bool {
+    private nonisolated func peerHasSameUID(_ socket: Int32) -> Bool {
         var cred = xucred()
         var credLen = socklen_t(MemoryLayout<xucred>.size)
         let result = getsockopt(socket, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credLen)
@@ -578,7 +597,7 @@ class TerminalController {
     }
 
     /// Check if `pid` is a descendant of this process by walking the process tree.
-    func isDescendant(_ pid: pid_t) -> Bool {
+    nonisolated func isDescendant(_ pid: pid_t) -> Bool {
         var current = pid
         // Walk up to 128 levels to avoid infinite loops from kernel bugs
         for _ in 0..<128 {
@@ -598,7 +617,7 @@ class TerminalController {
     }
 
     /// Get the parent PID of a process using sysctl.
-    private func parentPid(of pid: pid_t) -> pid_t {
+    private nonisolated func parentPid(of pid: pid_t) -> pid_t {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.size
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
@@ -790,6 +809,28 @@ class TerminalController {
         }
     }
 
+    private nonisolated static func configureNonBlocking(_ fd: Int32) -> Int32? {
+        let flags = fcntl(fd, F_GETFL, 0)
+        guard flags >= 0 else {
+            return errno
+        }
+        guard fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0 else {
+            return errno
+        }
+        return nil
+    }
+
+    private nonisolated static func configureBlocking(_ fd: Int32) -> Int32? {
+        let flags = fcntl(fd, F_GETFL, 0)
+        guard flags >= 0 else {
+            return errno
+        }
+        guard fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) >= 0 else {
+            return errno
+        }
+        return nil
+    }
+
     private nonisolated static func makeSocketTimeout(_ timeout: TimeInterval) -> timeval {
         let normalizedTimeout = max(timeout, 0)
         let seconds = floor(normalizedTimeout)
@@ -873,15 +914,23 @@ class TerminalController {
         }
     }
 
-    func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
+    func start(
+        tabManager: TabManager,
+        socketPath: String,
+        accessMode: SocketControlMode,
+        preserveAcceptFailureStreak: Bool = false
+    ) {
         self.tabManager = tabManager
         self.accessMode = accessMode
 
         let existing = withListenerState {
-            (isRunning: isRunning, socketPath: self.socketPath, acceptLoopAlive: acceptLoopAlive)
+            (
+                isRunning: isRunning,
+                socketPath: self.socketPath
+            )
         }
 
-        if existing.isRunning && existing.socketPath == socketPath && existing.acceptLoopAlive {
+        if existing.isRunning && existing.socketPath == socketPath {
             self.accessMode = accessMode
             applySocketPermissions()
             return
@@ -976,6 +1025,17 @@ class TerminalController {
 
         applySocketPermissions()
 
+        if let errnoCode = Self.configureNonBlocking(newServerSocket) {
+            print("TerminalController: Failed to configure socket")
+            close(newServerSocket)
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "configure_nonblocking",
+                errnoCode: errnoCode
+            )
+            return
+        }
+
         // Listen
         guard listen(newServerSocket, Self.socketListenBacklog) >= 0 else {
             let errnoCode = errno
@@ -994,7 +1054,9 @@ class TerminalController {
         let generation = withListenerState {
             isRunning = true
             pendingAcceptLoopRearmGeneration = nil
-            pendingAcceptLoopResumeGeneration = nil
+            if !preserveAcceptFailureStreak {
+                acceptSourceConsecutiveFailures = 0
+            }
             nextAcceptLoopGeneration &+= 1
             let generation = nextAcceptLoopGeneration
             activeAcceptLoopGeneration = generation
@@ -1051,10 +1113,7 @@ class TerminalController {
             return pidsByWorkspace
         }
 
-        // Accept connections in background thread
-        Thread.detachNewThread { [weak self] in
-            self?.acceptLoop(listenerSocket: listenerSocket, generation: generation)
-        }
+        startAcceptSource(listenerSocket: listenerSocket, generation: generation)
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
@@ -1165,18 +1224,34 @@ class TerminalController {
     }
 
     nonisolated func stop() {
-        let (socketToClose, socketPathToUnlink) = withListenerState {
+        let (sourceToCancel, sourceWasSuspended, socketToShutdown, socketToClose, socketPathToUnlink) = withListenerState {
             isRunning = false
             acceptLoopAlive = false
             pendingAcceptLoopRearmGeneration = nil
-            pendingAcceptLoopResumeGeneration = nil
             listenerStartInProgress = false
             nextAcceptLoopGeneration &+= 1
             activeAcceptLoopGeneration = 0
+            let sourceToCancel = listenerReadSource
+            let sourceWasSuspended = listenerReadSourceSuspended
+            listenerReadSource = nil
+            listenerReadSourceSuspended = false
             let socketToClose = serverSocket
             serverSocket = -1
-            return (socketToClose, socketPath)
+            return (
+                sourceToCancel,
+                sourceWasSuspended,
+                socketToClose,
+                sourceToCancel == nil ? socketToClose : Int32(-1),
+                socketPath
+            )
         }
+        if socketToShutdown >= 0 {
+            shutdown(socketToShutdown, SHUT_RDWR)
+        }
+        if sourceWasSuspended {
+            sourceToCancel?.resume()
+        }
+        sourceToCancel?.cancel()
         if socketToClose >= 0 {
             close(socketToClose)
         }
@@ -1217,14 +1292,14 @@ class TerminalController {
         }
     }
 
-    private func writeSocketResponse(_ response: String, to socket: Int32) {
+    private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) {
         let payload = response + "\n"
         payload.withCString { ptr in
             _ = write(socket, ptr, strlen(ptr))
         }
     }
 
-    private func passwordAuthRequiredResponse(for command: String) -> String {
+    private nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
         let message = "Authentication required. Send auth <password> first."
         guard command.hasPrefix("{"),
               let data = command.data(using: .utf8),
@@ -1235,7 +1310,7 @@ class TerminalController {
         return v2Error(id: id, code: "auth_required", message: message)
     }
 
-    private func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+    private nonisolated func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
         let lowered = command.lowercased()
         guard lowered == "auth" || lowered.hasPrefix("auth ") else {
             return nil
@@ -1260,7 +1335,7 @@ class TerminalController {
         return "OK: Authenticated"
     }
 
-    private func passwordLoginV2ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+    private nonisolated func passwordLoginV2ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
         guard command.hasPrefix("{"),
               let data = command.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
@@ -1292,7 +1367,7 @@ class TerminalController {
         return v2Ok(id: id, result: ["authenticated": true])
     }
 
-    private func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+    private nonisolated func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
         guard accessMode.requiresPasswordAuth else {
             return nil
         }
@@ -1308,248 +1383,308 @@ class TerminalController {
         return nil
     }
 
-    private nonisolated func acceptLoop(listenerSocket: Int32, generation: UInt64) {
-        let armedAcceptLoop = withListenerState {
-            guard generation == activeAcceptLoopGeneration else { return false }
+    private nonisolated func socketWorkerAuthResponseIfNeeded(for command: String) -> String? {
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return nil
+        }
+
+        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard method == "auth.status" || method == "auth.begin_sign_in" || method == "auth.sign_out" else {
+            return nil
+        }
+
+        let id: Any? = dict["id"]
+        let params = dict["params"] as? [String: Any] ?? [:]
+
+        return withSocketCommandPolicy(commandKey: method, isV2: true) {
+            switch method {
+            case "auth.status":
+                let semaphore = DispatchSemaphore(value: 0)
+                Task { @MainActor in
+                    await AuthManager.shared.awaitBootstrapped()
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: false))
+            case "auth.begin_sign_in":
+                let timeoutSeconds = (params["timeout_seconds"] as? Double) ?? 300
+                let semaphore = DispatchSemaphore(value: 0)
+                nonisolated(unsafe) var signedIn = false
+                Task { @MainActor in
+                    signedIn = await AuthManager.shared.beginSignInAndAwait(
+                        timeout: timeoutSeconds
+                    )
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: !signedIn))
+            case "auth.sign_out":
+                let semaphore = DispatchSemaphore(value: 0)
+                Task { @MainActor in
+                    _ = await AuthManager.shared.signOutAndAwait(timeout: 5)
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                return v2Ok(id: id, result: v2AuthStatusPayload(timedOut: false))
+            default:
+                return nil
+            }
+        }
+    }
+
+    private nonisolated func socketWorkerFeedbackResponseIfNeeded(for command: String) -> String? {
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return nil
+        }
+
+        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard method == "feedback.submit" else { return nil }
+
+        let id: Any? = dict["id"]
+        let params = dict["params"] as? [String: Any] ?? [:]
+        return withSocketCommandPolicy(commandKey: method, isV2: true) {
+            v2Result(id: id, v2FeedbackSubmit(params: params))
+        }
+    }
+
+    private nonisolated func startAcceptSource(listenerSocket: Int32, generation: UInt64) {
+        let source = DispatchSource.makeReadSource(fileDescriptor: listenerSocket, queue: socketListenerQueue)
+        source.setEventHandler { [weak self] in
+            self?.drainPendingSocketClients(listenerSocket: listenerSocket, generation: generation)
+        }
+        source.setCancelHandler { [weak self] in
+            close(listenerSocket)
+            self?.finishAcceptSourceCancel(listenerSocket: listenerSocket, generation: generation)
+        }
+
+        let shouldResume = withListenerState {
+            guard isRunning, serverSocket == listenerSocket, generation == activeAcceptLoopGeneration else {
+                return false
+            }
+            listenerReadSource = source
+            listenerReadSourceSuspended = false
             acceptLoopAlive = true
             return true
         }
-        guard armedAcceptLoop else {
+
+        guard shouldResume else {
+            source.cancel()
+            source.resume()
             return
         }
 
         sentryBreadcrumb(
-            "socket.listener.accept_loop.started",
+            "socket.listener.accept_source.started",
             category: "socket",
             data: socketListenerEventData(
-                stage: "accept_loop_start",
+                stage: "accept_source_start",
                 extra: [
                     "generation": generation,
                     "listenerSocket": Int(listenerSocket)
                 ]
             )
         )
+        source.resume()
+    }
 
-        var exitReason = "stopped"
-        var lastAcceptErrno: Int32?
-        var lastAcceptErrnoClass = "none"
-        var rearmRequested = false
-        var resumeRequested = false
-
-        defer {
-            let cleanup = withListenerState {
-                guard generation == activeAcceptLoopGeneration else {
-                    return (
-                        shouldCaptureExit: false,
-                        socketToClose: Int32(-1),
-                        pathToUnlink: nil as String?
-                    )
-                }
-
-                if resumeRequested && exitReason == "accept_backoff_resume" {
-                    acceptLoopAlive = false
-                    return (
-                        shouldCaptureExit: false,
-                        socketToClose: Int32(-1),
-                        pathToUnlink: nil as String?
-                    )
-                }
-
-                if isRunning && exitReason == "stopped" {
-                    exitReason = "unexpected_loop_exit"
-                }
-                let shouldCaptureExit = exitReason != "stopped"
-
-                acceptLoopAlive = false
-                isRunning = false
-                activeAcceptLoopGeneration = 0
-                pendingAcceptLoopResumeGeneration = nil
-
-                var socketToClose: Int32 = -1
-                var pathToUnlink: String?
-                if serverSocket == listenerSocket {
-                    socketToClose = serverSocket
-                    serverSocket = -1
-                    if shouldCaptureExit {
-                        pathToUnlink = socketPath
-                    }
-                }
-                return (shouldCaptureExit, socketToClose, pathToUnlink)
-            }
-
-            if cleanup.socketToClose >= 0 {
-                close(cleanup.socketToClose)
-            }
-            if let pathToUnlink = cleanup.pathToUnlink {
-                unlinkSocketPathIfListenerStillInactive(pathToUnlink)
-            }
-
-            if cleanup.shouldCaptureExit {
-                let data = socketListenerEventData(
-                    stage: "accept_loop_exit",
-                    errnoCode: lastAcceptErrno,
-                    extra: [
-                        "reason": exitReason,
-                        "generation": generation,
-                        "errnoClass": lastAcceptErrnoClass,
-                        "rearmRequested": rearmRequested ? 1 : 0,
-                        "resumeRequested": resumeRequested ? 1 : 0
-                    ]
-                )
-                sentryBreadcrumb("socket.listener.accept_loop.exited", category: "socket", data: data)
-                sentryCaptureError(
-                    "socket.listener.accept_loop.exited",
-                    category: "socket",
-                    data: data,
-                    contextKey: "socket_listener"
-                )
-            }
-        }
-
-        var consecutiveFailures = 0
-
-        while shouldContinueAcceptLoop(generation: generation) {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-
-            let clientSocket = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    accept(listenerSocket, sockaddrPtr, &clientAddrLen)
-                }
-            }
-
-            guard clientSocket >= 0 else {
-                if !shouldContinueAcceptLoop(generation: generation) {
-                    exitReason = "stopped"
-                    break
-                }
-
-                let errnoCode = errno
-                lastAcceptErrno = errnoCode
-                let errnoClass = Self.acceptErrorClassification(errnoCode: errnoCode)
-                lastAcceptErrnoClass = errnoClass
-
-                if Self.shouldRetryAcceptImmediately(errnoCode: errnoCode) {
-                    continue
-                }
-
-                consecutiveFailures += 1
-                let recoveryAction = Self.acceptFailureRecoveryAction(
-                    errnoCode: errnoCode,
-                    consecutiveFailures: consecutiveFailures
-                )
-
-                if Self.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: consecutiveFailures) {
-                    sentryBreadcrumb(
-                        "socket.listener.accept.failed",
-                        category: "socket",
-                        data: socketListenerEventData(
-                            stage: "accept",
-                            errnoCode: errnoCode,
-                            extra: [
-                                "consecutiveFailures": consecutiveFailures,
-                                "generation": generation,
-                                "errnoClass": errnoClass,
-                                "delayMs": recoveryAction.delayMs,
-                                "recoveryAction": recoveryAction.debugLabel
-                            ]
-                        )
-                    )
-                }
-
-                let shouldRearmForFatalErrno = Self.shouldRearmListenerForAcceptError(errnoCode: errnoCode)
-
-                if case .rearmAfterDelay(let delayMs) = recoveryAction {
-                    exitReason = shouldRearmForFatalErrno
-                        ? "fatal_accept_error"
-                        : "persistent_accept_failures"
-                    rearmRequested = true
-                    withListenerState {
-                        pendingAcceptLoopRearmGeneration = generation
-                    }
-                    scheduleListenerRearm(
-                        generation: generation,
-                        errnoCode: errnoCode,
-                        consecutiveFailures: consecutiveFailures,
-                        delayMs: delayMs
-                    )
-                    break
-                }
-
-                if case .resumeAfterDelay(let delayMs) = recoveryAction {
-                    exitReason = "accept_backoff_resume"
-                    resumeRequested = true
-                    withListenerState {
-                        pendingAcceptLoopResumeGeneration = generation
-                    }
-                    scheduleAcceptLoopResume(
-                        listenerSocket: listenerSocket,
-                        generation: generation,
-                        errnoCode: errnoCode,
-                        consecutiveFailures: consecutiveFailures,
-                        delayMs: delayMs
-                    )
-                    break
-                }
-
-                continue
-            }
-
-            consecutiveFailures = 0
-
-            // Capture peer PID immediately — before the client can disconnect.
-            // ncat --send-only closes the connection right after writing, so by
-            // the time a new thread starts the peer may already be gone.
-            let peerPid = getPeerPid(clientSocket)
-
-            // Handle client in new thread
-            Thread.detachNewThread { [weak self] in
-                self?.handleClient(clientSocket, peerPid: peerPid)
-            }
+    private nonisolated func finishAcceptSourceCancel(listenerSocket: Int32, generation: UInt64) {
+        withListenerState {
+            guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else { return }
+            acceptLoopAlive = false
+            listenerReadSource = nil
+            listenerReadSourceSuspended = false
         }
     }
 
-    private nonisolated func scheduleAcceptLoopResume(
+    private nonisolated func drainPendingSocketClients(listenerSocket: Int32, generation: UInt64) {
+        while shouldContinueAcceptLoop(generation: generation) {
+            let clientSocket = accept(listenerSocket, nil, nil)
+
+            guard clientSocket >= 0 else {
+                let errnoCode = errno
+                if errnoCode == EAGAIN || errnoCode == EWOULDBLOCK {
+                    return
+                }
+                if errnoCode == EINTR || errnoCode == ECONNABORTED {
+                    continue
+                }
+                handleAcceptSourceFailure(
+                    listenerSocket: listenerSocket,
+                    generation: generation,
+                    errnoCode: errnoCode
+                )
+                return
+            }
+
+            withListenerState {
+                acceptSourceConsecutiveFailures = 0
+            }
+
+            if let errnoCode = Self.configureBlocking(clientSocket) {
+                sentryBreadcrumb(
+                    "socket.listener.client_config.failed",
+                    category: "socket",
+                    data: socketListenerEventData(
+                        stage: "accept_client_configure_blocking",
+                        errnoCode: errnoCode,
+                        extra: ["generation": generation]
+                    )
+                )
+                close(clientSocket)
+                continue
+            }
+
+            // Capture peer PID immediately, before short-lived clients can disconnect.
+            let peerPid = getPeerPid(clientSocket)
+            spawnClientHandler(socket: clientSocket, peerPid: peerPid)
+        }
+    }
+
+    private nonisolated func handleAcceptSourceFailure(
+        listenerSocket: Int32,
+        generation: UInt64,
+        errnoCode: Int32
+    ) {
+        let errnoClass = Self.acceptErrorClassification(errnoCode: errnoCode)
+        let consecutiveFailures = withListenerState {
+            guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else { return 0 }
+            acceptSourceConsecutiveFailures += 1
+            return acceptSourceConsecutiveFailures
+        }
+        guard consecutiveFailures > 0 else { return }
+
+        let recoveryAction = Self.acceptFailureRecoveryAction(
+            errnoCode: errnoCode,
+            consecutiveFailures: consecutiveFailures
+        )
+
+        sentryBreadcrumb(
+            "socket.listener.accept.failed",
+            category: "socket",
+            data: socketListenerEventData(
+                stage: "accept_source",
+                errnoCode: errnoCode,
+                extra: [
+                    "generation": generation,
+                    "consecutiveFailures": consecutiveFailures,
+                    "errnoClass": errnoClass,
+                    "recoveryAction": recoveryAction.debugLabel
+                ]
+            )
+        )
+
+        switch recoveryAction {
+        case .retryImmediately:
+            return
+        case .resumeAfterDelay(let delayMs):
+            scheduleAcceptSourceResume(
+                listenerSocket: listenerSocket,
+                generation: generation,
+                errnoCode: errnoCode,
+                consecutiveFailures: consecutiveFailures,
+                delayMs: delayMs
+            )
+            return
+        case .rearmAfterDelay(let delayMs):
+            let cleanup = withListenerState {
+                guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else {
+                    return (didCleanup: false, sourceToCancel: nil as DispatchSourceRead?, sourceWasSuspended: false)
+                }
+                pendingAcceptLoopRearmGeneration = generation
+                isRunning = false
+                acceptLoopAlive = false
+                let source = listenerReadSource
+                let sourceWasSuspended = listenerReadSourceSuspended
+                listenerReadSource = nil
+                listenerReadSourceSuspended = false
+                serverSocket = -1
+                shutdown(listenerSocket, SHUT_RDWR)
+                if source == nil {
+                    close(listenerSocket)
+                }
+                return (didCleanup: true, sourceToCancel: source, sourceWasSuspended: sourceWasSuspended)
+            }
+            guard cleanup.didCleanup else {
+                return
+            }
+            if cleanup.sourceWasSuspended {
+                cleanup.sourceToCancel?.resume()
+            }
+            cleanup.sourceToCancel?.cancel()
+
+            scheduleListenerRearm(
+                generation: generation,
+                errnoCode: errnoCode,
+                consecutiveFailures: consecutiveFailures,
+                delayMs: delayMs
+            )
+        }
+    }
+
+    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
+        Thread.detachNewThread { [weak self] in
+            guard let self else {
+                close(clientSocket)
+                return
+            }
+            self.handleClient(clientSocket, peerPid: peerPid)
+        }
+    }
+
+    private nonisolated func scheduleAcceptSourceResume(
         listenerSocket: Int32,
         generation: UInt64,
         errnoCode: Int32,
         consecutiveFailures: Int,
         delayMs: Int
     ) {
-        let deadline = DispatchTime.now() + .milliseconds(delayMs)
-        DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self] in
-            guard let self else { return }
-            let shouldResume = self.withListenerState {
-                guard self.pendingAcceptLoopResumeGeneration == generation else { return false }
-                guard self.activeAcceptLoopGeneration == generation else {
-                    self.pendingAcceptLoopResumeGeneration = nil
-                    return false
-                }
-                guard self.isRunning, self.serverSocket == listenerSocket else {
-                    self.pendingAcceptLoopResumeGeneration = nil
-                    return false
-                }
-                self.pendingAcceptLoopResumeGeneration = nil
-                return true
+        let sourceToPause = withListenerState {
+            guard activeAcceptLoopGeneration == generation,
+                  serverSocket == listenerSocket,
+                  let source = listenerReadSource,
+                  !listenerReadSourceSuspended else {
+                return nil as DispatchSourceRead?
             }
-            guard shouldResume else { return }
+            source.suspend()
+            listenerReadSourceSuspended = true
+            return source
+        }
+        guard let sourceToPause else {
+            return
+        }
 
-            sentryBreadcrumb(
-                "socket.listener.resume.requested",
-                category: "socket",
-                data: self.socketListenerEventData(
-                    stage: "accept_resume",
-                    errnoCode: errnoCode,
-                    extra: [
-                        "generation": generation,
-                        "consecutiveFailures": consecutiveFailures,
-                        "resumeDelayMs": delayMs
-                    ]
-                )
+        sentryBreadcrumb(
+            "socket.listener.accept.resume_scheduled",
+            category: "socket",
+            data: socketListenerEventData(
+                stage: "accept_source_resume",
+                errnoCode: errnoCode,
+                extra: [
+                    "generation": generation,
+                    "consecutiveFailures": consecutiveFailures,
+                    "resumeDelayMs": delayMs
+                ]
             )
+        )
 
-            Thread.detachNewThread { [weak self] in
-                self?.acceptLoop(listenerSocket: listenerSocket, generation: generation)
+        let deadline = DispatchTime.now() + .milliseconds(delayMs)
+        socketListenerQueue.asyncAfter(deadline: deadline) { [weak self, sourceToPause] in
+            guard let self else { return }
+            self.withListenerState {
+                guard self.activeAcceptLoopGeneration == generation,
+                      self.serverSocket == listenerSocket,
+                      self.isRunning,
+                      let activeSource = self.listenerReadSource,
+                      activeSource === sourceToPause,
+                      self.listenerReadSourceSuspended else {
+                    return
+                }
+                sourceToPause.resume()
+                self.listenerReadSourceSuspended = false
             }
         }
     }
@@ -1587,11 +1722,16 @@ class TerminalController {
             )
 
             self.stop()
-            self.start(tabManager: tabManager, socketPath: restartPath, accessMode: restartMode)
+            self.start(
+                tabManager: tabManager,
+                socketPath: restartPath,
+                accessMode: restartMode,
+                preserveAcceptFailureStreak: true
+            )
         }
     }
 
-    private func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
+    private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
         defer { close(socket) }
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
@@ -1640,15 +1780,35 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
-                if let authResponse = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
-                    writeSocketResponse(authResponse, to: socket)
-                    continue
-                }
-
-                let response = processCommand(trimmed)
-                writeSocketResponse(response, to: socket)
+                let result = processSocketLine(trimmed, authenticated: authenticated)
+                authenticated = result.authenticated
+                writeSocketResponse(result.response, to: socket)
             }
         }
+    }
+
+    private nonisolated func processSocketLine(
+        _ command: String,
+        authenticated: Bool
+    ) -> SocketLineProcessingResult {
+        var nextAuthenticated = authenticated
+        if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
+            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        }
+        if let response = socketWorkerAuthResponseIfNeeded(for: command) {
+            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        }
+        if let response = socketWorkerFeedbackResponseIfNeeded(for: command) {
+            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        }
+        if let response = socketWorkerCloudVMResponseIfNeeded(for: command) {
+            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        }
+
+        let response = v2MainSync {
+            self.processCommand(command)
+        }
+        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
 
     /// Public entry point mirroring the socket's `processCommand` path so
@@ -1932,6 +2092,9 @@ class TerminalController {
 
         case "focus_notification":
             return focusFromNotification(args)
+
+        case "debug_right_sidebar_focus":
+            return debugRightSidebarFocus(args)
 
         case "flash_count":
             return flashCount(args)
@@ -2582,6 +2745,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugBrowserAddressBarFocused(params: params))
         case "debug.browser.favicon":
             return v2Result(id: id, self.v2DebugBrowserFavicon(params: params))
+        case "debug.right_sidebar.focus":
+            return v2Result(id: id, self.v2DebugRightSidebarFocus(params: params))
         case "debug.sidebar.visible":
             return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
@@ -2813,6 +2978,7 @@ class TerminalController {
             "debug.command_palette.rename_input.select_all",
             "debug.browser.address_bar_focused",
             "debug.browser.favicon",
+            "debug.right_sidebar.focus",
             "debug.sidebar.visible",
             "debug.terminal.is_focused",
             "debug.terminal.read_text",
@@ -3664,54 +3830,67 @@ class TerminalController {
     // MARK: - V2 Helpers (encoding + result plumbing)
     // MARK: - V2 Helpers (encoding + result plumbing)
 
-    private func v2AuthStatusPayload(timedOut: Bool) -> [String: Any] {
+    private nonisolated func v2AuthStatusPayload(timedOut: Bool) -> [String: Any] {
         var result: [String: Any] = [:]
         v2MainSync {
-            let manager = AuthManager.shared
-            var status: [String: Any] = [
-                "signed_in": manager.isAuthenticated,
-                "is_restoring_session": manager.isRestoringSession,
-                "is_loading": manager.isLoading,
-                "timed_out": timedOut
-            ]
-            if let user = manager.currentUser {
-                var userDict: [String: Any] = ["id": user.id]
-                if let email = user.primaryEmail { userDict["email"] = email }
-                if let name = user.displayName { userDict["display_name"] = name }
-                status["user"] = userDict
-            }
-            if let teamID = manager.resolvedTeamID {
-                status["selected_team_id"] = teamID
-            }
-            if !manager.availableTeams.isEmpty {
-                status["teams"] = manager.availableTeams.map { team -> [String: Any] in
-                    var dict: [String: Any] = [
-                        "id": team.id,
-                        "display_name": team.displayName
-                    ]
-                    if let slug = team.slug { dict["slug"] = slug }
-                    return dict
+            MainActor.assumeIsolated {
+                let manager = AuthManager.shared
+                var status: [String: Any] = [
+                    "signed_in": manager.isAuthenticated,
+                    "is_restoring_session": manager.isRestoringSession,
+                    "is_loading": manager.isLoading,
+                    "timed_out": timedOut
+                ]
+                if let user = manager.currentUser {
+                    var userDict: [String: Any] = ["id": user.id]
+                    if let email = user.primaryEmail { userDict["email"] = email }
+                    if let name = user.displayName { userDict["display_name"] = name }
+                    status["user"] = userDict
                 }
+                if let teamID = manager.resolvedTeamID {
+                    status["selected_team_id"] = teamID
+                }
+                if !manager.availableTeams.isEmpty {
+                    status["teams"] = manager.availableTeams.map { team -> [String: Any] in
+                        var dict: [String: Any] = [
+                            "id": team.id,
+                            "display_name": team.displayName
+                        ]
+                        if let slug = team.slug { dict["slug"] = slug }
+                        return dict
+                    }
+                }
+                result = status
             }
-            result = status
         }
         return result
     }
 
-    private func v2OrNull(_ value: Any?) -> Any {
+    private nonisolated func v2OrNull(_ value: Any?) -> Any {
         // Avoid relying on `?? NSNull()` inference (Swift toolchains can disagree).
         if let value { return value }
         return NSNull()
     }
 
-    private func v2MainSync<T>(_ body: () -> T) -> T {
+    private nonisolated func v2MainSync<T>(_ body: @MainActor () -> T) -> T {
+        let policyStack = Self.currentSocketCommandFocusAllowanceStack()
         if Thread.isMainThread {
-            return body()
+            return MainActor.assumeIsolated {
+                Self.withSocketCommandPolicyStack(policyStack) {
+                    body()
+                }
+            }
         }
-        return DispatchQueue.main.sync(execute: body)
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated {
+                Self.withSocketCommandPolicyStack(policyStack) {
+                    body()
+                }
+            }
+        }
     }
 
-    private func v2Ok(id: Any?, result: Any) -> String {
+    private nonisolated func v2Ok(id: Any?, result: Any) -> String {
         return v2Encode([
             "id": v2OrNull(id),
             "ok": true,
@@ -3722,7 +3901,7 @@ class TerminalController {
     /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
     /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
     /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
-    private func v2VmCall(
+    nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval = 17 * 60,
         _ work: @escaping () async throws -> [String: Any]
@@ -3763,7 +3942,7 @@ class TerminalController {
         }
     }
 
-    private func v2Error(id: Any?, code: String, message: String, data: Any? = nil) -> String {
+    nonisolated func v2Error(id: Any?, code: String, message: String, data: Any? = nil) -> String {
         var err: [String: Any] = ["code": code, "message": message]
         if let data {
             err["data"] = data
@@ -3780,7 +3959,7 @@ class TerminalController {
         case err(code: String, message: String, data: Any?)
     }
 
-    private func v2Result(id: Any?, _ res: V2CallResult) -> String {
+    private nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
         switch res {
         case .ok(let payload):
             return v2Ok(id: id, result: payload)
@@ -3789,7 +3968,7 @@ class TerminalController {
         }
     }
 
-    private func v2Encode(_ object: Any) -> String {
+    private nonisolated func v2Encode(_ object: Any) -> String {
         guard JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object, options: []),
               var s = String(data: data, encoding: .utf8) else {
@@ -7830,7 +8009,7 @@ class TerminalController {
 
     private func v2NotificationList() -> [String: Any] {
         var items: [[String: Any]] = []
-        DispatchQueue.main.sync {
+        v2MainSync {
             items = TerminalNotificationStore.shared.notifications.map { n in
                 return [
                     "id": n.id.uuidString,
@@ -7904,20 +8083,20 @@ class TerminalController {
         let shouldActivate = v2FocusAllowed(requested: v2Bool(params, "activate") ?? true)
 
         let navigationTarget: SettingsNavigationTarget?
-        switch targetRaw {
-        case nil:
+        if let targetRaw {
+            guard let target = SettingsNavigationTarget(rawValue: targetRaw) else {
+                return .err(code: "invalid_params", message: "Unknown settings target", data: ["target": targetRaw])
+            }
+            navigationTarget = target
+        } else {
             navigationTarget = nil
-        case SettingsNavigationTarget.keyboardShortcuts.rawValue:
-            navigationTarget = .keyboardShortcuts
-        default:
-            return .err(code: "invalid_params", message: "Unknown settings target", data: ["target": targetRaw ?? ""])
         }
 
         DispatchQueue.main.async {
             if shouldActivate {
                 AppDelegate.presentPreferencesWindow(navigationTarget: navigationTarget)
             } else {
-                SettingsWindowController.shared.show(navigationTarget: navigationTarget)
+                SettingsWindowPresenter.show(navigationTarget: navigationTarget)
             }
         }
         return .ok([
@@ -7926,7 +8105,7 @@ class TerminalController {
         ])
     }
 
-    private func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
         guard let email = params["email"] as? String else {
             return .err(code: "invalid_params", message: "Missing email", data: ["field": "email"])
         }
@@ -11890,7 +12069,7 @@ class TerminalController {
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "No window", data: nil)
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let window = NSApp.keyWindow
                 ?? NSApp.mainWindow
                 ?? NSApp.windows.first(where: { $0.isVisible })
@@ -11925,7 +12104,7 @@ class TerminalController {
     private func v2DebugToggleCommandPalette(params: [String: Any]) -> V2CallResult {
         let requestedWindowId = v2UUID(params, "window_id")
         var result: V2CallResult = .ok([:])
-        DispatchQueue.main.sync {
+        v2MainSync {
             let targetWindow: NSWindow?
             if let requestedWindowId {
                 guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
@@ -11948,7 +12127,7 @@ class TerminalController {
     private func v2DebugOpenCommandPaletteRenameTabInput(params: [String: Any]) -> V2CallResult {
         let requestedWindowId = v2UUID(params, "window_id")
         var result: V2CallResult = .ok([:])
-        DispatchQueue.main.sync {
+        v2MainSync {
             let targetWindow: NSWindow?
             if let requestedWindowId {
                 guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
@@ -11976,7 +12155,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
         }
         var visible = false
-        DispatchQueue.main.sync {
+        v2MainSync {
             visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
         }
         return .ok([
@@ -11992,7 +12171,7 @@ class TerminalController {
         }
         var visible = false
         var selectedIndex = 0
-        DispatchQueue.main.sync {
+        v2MainSync {
             visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
             selectedIndex = AppDelegate.shared?.commandPaletteSelectionIndex(windowId: windowId) ?? 0
         }
@@ -12015,7 +12194,7 @@ class TerminalController {
         var selectedIndex = 0
         var snapshot = CommandPaletteDebugSnapshot.empty
 
-        DispatchQueue.main.sync {
+        v2MainSync {
             visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
             selectedIndex = AppDelegate.shared?.commandPaletteSelectionIndex(windowId: windowId) ?? 0
             snapshot = AppDelegate.shared?.commandPaletteSnapshot(windowId: windowId) ?? .empty
@@ -12045,7 +12224,7 @@ class TerminalController {
     private func v2DebugCommandPaletteRenameInputInteraction(params: [String: Any]) -> V2CallResult {
         let requestedWindowId = v2UUID(params, "window_id")
         var result: V2CallResult = .ok([:])
-        DispatchQueue.main.sync {
+        v2MainSync {
             let targetWindow: NSWindow?
             if let requestedWindowId {
                 guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
@@ -12071,7 +12250,7 @@ class TerminalController {
     private func v2DebugCommandPaletteRenameInputDeleteBackward(params: [String: Any]) -> V2CallResult {
         let requestedWindowId = v2UUID(params, "window_id")
         var result: V2CallResult = .ok([:])
-        DispatchQueue.main.sync {
+        v2MainSync {
             let targetWindow: NSWindow?
             if let requestedWindowId {
                 guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
@@ -12108,7 +12287,7 @@ class TerminalController {
             "text_length": 0
         ])
 
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let window = AppDelegate.shared?.mainWindow(for: windowId) else {
                 result = .err(
                     code: "not_found",
@@ -12144,7 +12323,7 @@ class TerminalController {
                     data: ["enabled": rawEnabled]
                 )
             }
-            DispatchQueue.main.sync {
+            v2MainSync {
                 UserDefaults.standard.set(
                     enabled,
                     forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey
@@ -12153,7 +12332,7 @@ class TerminalController {
         }
 
         var enabled = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
-        DispatchQueue.main.sync {
+        v2MainSync {
             enabled = CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled()
         }
 
@@ -12165,7 +12344,7 @@ class TerminalController {
     private func v2DebugBrowserAddressBarFocused(params: [String: Any]) -> V2CallResult {
         let requestedSurfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "panel_id")
         var focusedSurfaceId: UUID?
-        DispatchQueue.main.sync {
+        v2MainSync {
             focusedSurfaceId = AppDelegate.shared?.focusedBrowserAddressBarPanelId()
         }
 
@@ -12203,12 +12382,105 @@ class TerminalController {
         }
     }
 
+#if DEBUG
+    private func v2DebugRightSidebarFocus(params: [String: Any]) -> V2CallResult {
+        let modeName = v2String(params, "mode") ?? RightSidebarMode.dock.rawValue
+        guard let mode = RightSidebarMode(rawValue: modeName) else {
+            return .err(code: "invalid_params", message: "Invalid right sidebar mode", data: ["mode": modeName])
+        }
+        let requestedWindowId = v2UUID(params, "window_id")
+        let focusFirstItem = v2Bool(params, "focus_first_item") ?? true
+        var focused = false
+        var focusApplied = false
+        var contextFound = false
+        var stateFound = false
+        var visible = false
+        var activeMode: String?
+        var missingWindow = false
+
+        DispatchQueue.main.sync {
+            let preferredWindow: NSWindow?
+            if let requestedWindowId {
+                preferredWindow = AppDelegate.shared?.mainWindow(for: requestedWindowId)
+                missingWindow = preferredWindow == nil
+            } else {
+                preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            guard !missingWindow else { return }
+            let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: focusFirstItem,
+                preferredWindow: preferredWindow
+            )
+            focused = result?.revealed ?? false
+            focusApplied = result?.focusApplied ?? false
+            contextFound = result?.contextFound ?? false
+            stateFound = result?.stateFound ?? false
+            visible = result?.visible ?? false
+            activeMode = result?.activeMode
+        }
+
+        if missingWindow {
+            return .err(
+                code: "not_found",
+                message: "Window not found",
+                data: requestedWindowId.map { ["window_id": $0.uuidString, "window_ref": v2Ref(kind: .window, uuid: $0)] }
+            )
+        }
+        return .ok([
+            "focused": focused,
+            "focus_applied": focusApplied,
+            "context_found": contextFound,
+            "state_found": stateFound,
+            "visible": visible,
+            "active_mode": v2OrNull(activeMode),
+            "mode": mode.rawValue,
+            "window_id": v2OrNull(requestedWindowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+        ])
+    }
+
+    private func debugRightSidebarFocus(_ args: String) -> String {
+        let modeName = args.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? RightSidebarMode.dock.rawValue
+            : args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let mode = RightSidebarMode(rawValue: modeName) else {
+            return "ERROR: Invalid right sidebar mode: \(modeName)"
+        }
+
+        var revealed = false
+        var focusApplied = false
+        var contextFound = false
+        var stateFound = false
+        var visible = false
+        var activeMode = ""
+
+        DispatchQueue.main.sync {
+            let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: false,
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            revealed = result?.revealed ?? false
+            focusApplied = result?.focusApplied ?? false
+            contextFound = result?.contextFound ?? false
+            stateFound = result?.stateFound ?? false
+            visible = result?.visible ?? false
+            activeMode = result?.activeMode ?? ""
+        }
+
+        let details = "mode=\(mode.rawValue) active=\(activeMode) visible=\(visible ? 1 : 0) " +
+            "context=\(contextFound ? 1 : 0) state=\(stateFound ? 1 : 0) focus=\(focusApplied ? 1 : 0)"
+        return revealed ? "OK: \(details)" : "ERROR: \(details)"
+    }
+#endif
+
     private func v2DebugSidebarVisible(params: [String: Any]) -> V2CallResult {
         guard let windowId = v2UUID(params, "window_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
         }
         var visibility: Bool?
-        DispatchQueue.main.sync {
+        v2MainSync {
             visibility = AppDelegate.shared?.sidebarVisibility(windowId: windowId)
         }
         guard let visible = visibility else {
@@ -12439,7 +12711,7 @@ class TerminalController {
 
         let trimmedSurfaceArg = surfaceArg.trimmingCharacters(in: .whitespacesAndNewlines)
         var result = "ERROR: No tab selected"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -12702,7 +12974,7 @@ class TerminalController {
         let requestTimestamp = ProcessInfo.processInfo.systemUptime
 
         var result = "ERROR: Failed to create event"
-        DispatchQueue.main.sync {
+        v2MainSync {
             // Prefer the current active-tab-manager window so shortcut simulation stays
             // scoped to the intended window even when NSApp.keyWindow is stale.
             let targetWindow: NSWindow? = {
@@ -12762,7 +13034,7 @@ class TerminalController {
     }
 
     private func activateApp() -> String {
-        DispatchQueue.main.sync {
+        v2MainSync {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.unhide(nil)
             let hasMainTerminalWindow = NSApp.windows.contains { window in
@@ -12797,7 +13069,7 @@ class TerminalController {
         let text = unescapeSocketText(raw)
 
         var result = "ERROR: No window"
-        DispatchQueue.main.sync {
+        v2MainSync {
             // Like simulate_shortcut, prefer a visible window so debug automation doesn't
             // fail during key window transitions.
             guard let window = NSApp.keyWindow
@@ -12842,7 +13114,7 @@ class TerminalController {
         }
 
         var result = "ERROR: Surface not found"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let panel = resolveTerminalPanel(from: target, tabManager: tabManager) else { return }
             result = panel.hostedView.debugSimulateFileDrop(paths: paths)
                 ? "OK"
@@ -12887,14 +13159,14 @@ class TerminalController {
             }
         }
 
-        DispatchQueue.main.sync {
+        v2MainSync {
             _ = NSPasteboard(name: .drag).declareTypes(types, owner: nil)
         }
         return "OK"
     }
 
     private func clearDragPasteboard() -> String {
-        DispatchQueue.main.sync {
+        v2MainSync {
             _ = NSPasteboard(name: .drag).clearContents()
         }
         return "OK"
@@ -12913,7 +13185,7 @@ class TerminalController {
         let eventType = parsedEvent.eventType
 
         var shouldCapture = false
-        DispatchQueue.main.sync {
+        v2MainSync {
             let pb = NSPasteboard(name: .drag)
             shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
                 pasteboardTypes: pb.types,
@@ -12937,7 +13209,7 @@ class TerminalController {
         }
 
         var shouldCapture = false
-        DispatchQueue.main.sync {
+        v2MainSync {
             let pb = NSPasteboard(name: .drag)
             shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
                 pasteboardTypes: pb.types,
@@ -12959,7 +13231,7 @@ class TerminalController {
         let eventType = parsedEvent.eventType
 
         var shouldPassThrough = false
-        DispatchQueue.main.sync {
+        v2MainSync {
             let pb = NSPasteboard(name: .drag)
             shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
                 pasteboardTypes: pb.types,
@@ -12982,7 +13254,7 @@ class TerminalController {
         }
 
         var shouldCapture = false
-        DispatchQueue.main.sync {
+        v2MainSync {
             let pb = NSPasteboard(name: .drag)
             shouldCapture = DragOverlayRoutingPolicy.shouldCaptureSidebarExternalOverlay(
                 hasSidebarDragState: hasSidebarDragState,
@@ -13007,7 +13279,7 @@ class TerminalController {
         }
 
         var result = "ERROR: No selected workspace"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let selectedId = tabManager.selectedTabId,
                   let workspace = tabManager.tabs.first(where: { $0.id == selectedId }) else {
                 return
@@ -13115,7 +13387,7 @@ class TerminalController {
         }
 
         var result = "ERROR: No window"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let window = NSApp.mainWindow
                 ?? NSApp.keyWindow
                 ?? NSApp.windows.first(where: { win in
@@ -13156,7 +13428,7 @@ class TerminalController {
         }
 
         var result = "ERROR: No window"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let window = NSApp.mainWindow
                 ?? NSApp.keyWindow
                 ?? NSApp.windows.first(where: { win in
@@ -13258,7 +13530,7 @@ class TerminalController {
         guard !panelArg.isEmpty else { return "ERROR: Usage: is_terminal_focused <panel_id|idx>" }
 
         var result = "false"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 result = "false"
@@ -13304,7 +13576,7 @@ class TerminalController {
         let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var result = "ERROR: No tab selected"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -13610,7 +13882,7 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var result: String = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             let tabs = tabManager.tabs.enumerated().map { (index, tab) in
                 let selected = tab.id == tabManager.selectedTabId ? "*" : " "
                 return "\(selected) \(index): \(tab.id.uuidString) \(tab.title)"
@@ -13628,7 +13900,7 @@ class TerminalController {
 
         var newTabId: UUID?
         let focus = socketCommandAllowsInAppFocusMutations()
-        DispatchQueue.main.sync {
+        v2MainSync {
             let workspace = tabManager.addWorkspace(title: title, select: focus, eagerLoadTerminal: !focus)
             newTabId = workspace.id
         }
@@ -13652,7 +13924,7 @@ class TerminalController {
         }
 
         var result = "ERROR: Failed to create split"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -13685,7 +13957,7 @@ class TerminalController {
     private func listSurfaces(_ tabArg: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         var result = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTab(from: tabArg, tabManager: tabManager) else {
                 result = "ERROR: Tab not found"
                 return
@@ -13707,7 +13979,7 @@ class TerminalController {
         guard !trimmed.isEmpty else { return "ERROR: Missing panel id or index" }
 
         var success = false
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -13737,7 +14009,7 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId else {
                 result = "ERROR: No tab selected"
                 return
@@ -13765,7 +14037,7 @@ class TerminalController {
         let payload = parts.count > 1 ? parts[1] : ""
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 result = "ERROR: No tab selected"
@@ -13803,7 +14075,7 @@ class TerminalController {
         if let workspaceId = UUID(uuidString: tabArg),
            let panelId = UUID(uuidString: panelArg) {
             var result = "OK"
-            DispatchQueue.main.sync {
+            v2MainSync {
                 guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
                     result = "ERROR: Tab not found"
                     return
@@ -13824,7 +14096,7 @@ class TerminalController {
         }
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             let tab: Tab?
             if let tabId = UUID(uuidString: tabArg) {
                 tab = tabForSidebarMutation(id: tabId)
@@ -13853,7 +14125,7 @@ class TerminalController {
 
     private func listNotifications() -> String {
         var result = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             let lines = TerminalNotificationStore.shared.notifications.enumerated().map { index, notification in
                 let surfaceText = notification.surfaceId?.uuidString ?? "none"
                 let readText = notification.isRead ? "read" : "unread"
@@ -13905,7 +14177,7 @@ class TerminalController {
     }
 
     private func simulateAppDidBecomeActive() -> String {
-        DispatchQueue.main.sync {
+        v2MainSync {
             AppDelegate.shared?.applicationDidBecomeActive(
                 Notification(name: NSApplication.didBecomeActiveNotification)
             )
@@ -13922,7 +14194,7 @@ class TerminalController {
         let surfaceArg = parts.count > 1 ? parts[1] : ""
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTab(from: tabArg, tabManager: tabManager) else {
                 result = "ERROR: Tab not found"
                 return
@@ -13945,7 +14217,7 @@ class TerminalController {
         guard !trimmed.isEmpty else { return "ERROR: Missing surface id or index" }
 
         var result = "ERROR: Surface not found"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 result = "ERROR: No tab selected"
@@ -13962,7 +14234,7 @@ class TerminalController {
     }
 
     private func resetFlashCounts() -> String {
-        DispatchQueue.main.sync {
+        v2MainSync {
             GhosttySurfaceScrollView.resetFlashCounts()
         }
         return "OK"
@@ -13987,7 +14259,7 @@ class TerminalController {
         guard !panelArg.isEmpty else { return "ERROR: Usage: panel_snapshot_reset <panel_id|idx>" }
 
         var result = "ERROR: No tab selected"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -14094,7 +14366,7 @@ class TerminalController {
         let outputPath = outputDir.appendingPathComponent(filename)
 
         var result = "ERROR: No tab selected"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -14185,7 +14457,7 @@ class TerminalController {
         guard let tabManager else { return "ERROR: TabManager not available" }
 
         var result = "ERROR: No tab selected"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -14197,6 +14469,7 @@ class TerminalController {
                 paneFrames[pane.paneId] = pane.frame
             }
 
+            @MainActor
             func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
                 if view.isHidden { return true }
                 var current = view.superview
@@ -14207,6 +14480,7 @@ class TerminalController {
                 return false
             }
 
+            @MainActor
             func windowFrame(for view: NSView) -> CGRect? {
                 guard view.window != nil else { return nil }
                 // Prefer the view's frame as laid out by its superview. Some AppKit views
@@ -14217,6 +14491,7 @@ class TerminalController {
                 return view.convert(view.bounds, to: nil)
             }
 
+            @MainActor
             func splitViewInfos(for view: NSView) -> [LayoutDebugSplitView] {
                 var infos: [LayoutDebugSplitView] = []
                 var current: NSView? = view
@@ -14357,14 +14632,14 @@ class TerminalController {
 
     private func emptyPanelCount() -> String {
         var result = "OK 0"
-        DispatchQueue.main.sync {
+        v2MainSync {
             result = "OK \(DebugUIEventCounters.emptyPanelAppearCount)"
         }
         return result
     }
 
     private func resetEmptyPanelCount() -> String {
-        DispatchQueue.main.sync {
+        v2MainSync {
             DebugUIEventCounters.resetEmptyPanelAppearCount()
         }
         return "OK"
@@ -14372,7 +14647,7 @@ class TerminalController {
 
     private func bonsplitUnderflowCount() -> String {
         var result = "OK 0"
-        DispatchQueue.main.sync {
+        v2MainSync {
 #if DEBUG
             result = "OK \(BonsplitDebugCounters.arrangedSubviewUnderflowCount)"
 #else
@@ -14383,7 +14658,7 @@ class TerminalController {
     }
 
     private func resetBonsplitUnderflowCount() -> String {
-        DispatchQueue.main.sync {
+        v2MainSync {
 #if DEBUG
             BonsplitDebugCounters.reset()
 #endif
@@ -14412,7 +14687,7 @@ class TerminalController {
 
         // Capture the main window on main thread
         var captureError: String?
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let window = NSApp.mainWindow ?? NSApp.windows.first else {
                 captureError = "No window available"
                 return
@@ -14618,7 +14893,7 @@ class TerminalController {
         guard let uuid = UUID(uuidString: tabId) else { return "ERROR: Invalid tab ID" }
 
         var result = "ERROR: Tab not found"
-        DispatchQueue.main.sync {
+        v2MainSync {
             if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
                 guard tabManager.canCloseWorkspace(tab) else {
                     result = "ERROR: \(workspaceCloseProtectedMessage())"
@@ -14635,7 +14910,7 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var success = false
-        DispatchQueue.main.sync {
+        v2MainSync {
             // Try as UUID first
             if let uuid = UUID(uuidString: arg) {
                 if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
@@ -14656,7 +14931,7 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var result: String = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             if let id = tabManager.selectedTabId {
                 result = id.uuidString
             }
@@ -14756,7 +15031,7 @@ class TerminalController {
 
         var success = false
         var error: String?
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
                   let terminalPanel = tab.focusedTerminalPanel else {
@@ -14830,7 +15105,7 @@ class TerminalController {
 
         var success = false
         var error: String?
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let targetManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
                 ?? (tabManager.tabs.contains(where: { $0.id == workspaceId }) ? tabManager : nil) else {
                 error = "ERROR: Workspace not found"
@@ -14917,7 +15192,7 @@ class TerminalController {
         let text = parts[1]
 
         var success = false
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
 
             let unescaped = text
@@ -14944,7 +15219,7 @@ class TerminalController {
 
         var success = false
         var error: String?
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
                   let terminalPanel = tab.focusedTerminalPanel else {
@@ -14968,7 +15243,7 @@ class TerminalController {
 
         var success = false
         var error: String?
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
                 error = "ERROR: Surface not found"
                 return
@@ -15013,7 +15288,7 @@ class TerminalController {
 
         var result = "ERROR: Failed to create browser panel"
         let focus = socketCommandAllowsInAppFocusMutations()
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }),
                   let focusedPanelId = tab.focusedPanelId else {
@@ -15042,7 +15317,7 @@ class TerminalController {
         let urlStr = parts[1]
 
         var result = "ERROR: Panel not found or not a browser"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }),
                   let panelId = UUID(uuidString: panelArg),
@@ -15063,7 +15338,7 @@ class TerminalController {
         guard !panelArg.isEmpty else { return "ERROR: Usage: browser_back <panel_id>" }
 
         var result = "ERROR: Panel not found or not a browser"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }),
                   let panelId = UUID(uuidString: panelArg),
@@ -15084,7 +15359,7 @@ class TerminalController {
         guard !panelArg.isEmpty else { return "ERROR: Usage: browser_forward <panel_id>" }
 
         var result = "ERROR: Panel not found or not a browser"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }),
                   let panelId = UUID(uuidString: panelArg),
@@ -15105,7 +15380,7 @@ class TerminalController {
         guard !panelArg.isEmpty else { return "ERROR: Usage: browser_reload <panel_id>" }
 
         var result = "ERROR: Panel not found or not a browser"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }),
                   let panelId = UUID(uuidString: panelArg),
@@ -15126,7 +15401,7 @@ class TerminalController {
         guard !panelArg.isEmpty else { return "ERROR: Usage: get_url <panel_id>" }
 
         var result = "ERROR: Panel not found or not a browser"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }),
                   let panelId = UUID(uuidString: panelArg),
@@ -15146,7 +15421,7 @@ class TerminalController {
         guard !panelArg.isEmpty else { return "ERROR: Usage: focus_webview <panel_id>" }
 
         var result = "ERROR: Panel not found or not a browser"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }),
                   let panelId = UUID(uuidString: panelArg),
@@ -15199,7 +15474,7 @@ class TerminalController {
         guard !panelArg.isEmpty else { return "ERROR: Usage: is_webview_focused <panel_id>" }
 
         var result = "ERROR: Panel not found or not a browser"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }),
                   let panelId = UUID(uuidString: panelArg),
@@ -15223,7 +15498,7 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var result = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 result = "ERROR: No tab selected"
@@ -15247,7 +15522,7 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var result = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 result = "ERROR: No tab selected"
@@ -15303,7 +15578,7 @@ class TerminalController {
         guard !paneArg.isEmpty else { return "ERROR: Usage: focus_pane <pane_id>" }
 
         var result = "ERROR: Pane not found"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -15331,7 +15606,7 @@ class TerminalController {
         guard !tabArg.isEmpty else { return "ERROR: Usage: focus_surface_by_panel <panel_id>" }
 
         var result = "ERROR: Panel not found"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -15366,7 +15641,7 @@ class TerminalController {
 	        let insertFirst = (direction == .left || direction == .up)
 	
 	        var result = "ERROR: Failed to move surface"
-	        DispatchQueue.main.sync {
+	        v2MainSync {
 	            guard let tabId = tabManager.selectedTabId,
 	                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
 	                result = "ERROR: No tab selected"
@@ -15435,7 +15710,7 @@ class TerminalController {
 
         var result = "ERROR: Failed to create pane"
         let focus = socketCommandAllowsInAppFocusMutations()
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }),
                   let focusedPanelId = tab.focusedPanelId else {
@@ -15931,7 +16206,7 @@ class TerminalController {
 
     private func listSidebarMetadata(_ args: String, emptyMessage: String) -> String {
         var result = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = "ERROR: Tab not found"
                 return
@@ -16060,7 +16335,7 @@ class TerminalController {
         }
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16074,7 +16349,7 @@ class TerminalController {
 
     private func listMetaBlocks(_ args: String) -> String {
         var result = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = "ERROR: Tab not found"
                 return
@@ -16102,7 +16377,7 @@ class TerminalController {
         let source = parsed.options["source"]
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16119,7 +16394,7 @@ class TerminalController {
 
     private func clearLog(_ args: String) -> String {
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = "ERROR: Tab not found"
                 return
@@ -16143,7 +16418,7 @@ class TerminalController {
         }
 
         var result = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16181,7 +16456,7 @@ class TerminalController {
         let label = parsed.options["label"]
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16193,7 +16468,7 @@ class TerminalController {
 
     private func clearProgress(_ args: String) -> String {
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = "ERROR: Tab not found"
                 return
@@ -16233,7 +16508,7 @@ class TerminalController {
         }
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16263,7 +16538,7 @@ class TerminalController {
             return "OK"
         }
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = "ERROR: Tab not found"
                 return
@@ -16361,7 +16636,7 @@ class TerminalController {
         }
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16423,7 +16698,7 @@ class TerminalController {
             return "OK"
         }
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16489,7 +16764,7 @@ class TerminalController {
         guard let tabManager else { return "ERROR: TabManager not available" }
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16559,7 +16834,7 @@ class TerminalController {
     private func clearPorts(_ args: String) -> String {
         let parsed = parseOptions(args)
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16618,7 +16893,7 @@ class TerminalController {
         }
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16692,7 +16967,7 @@ class TerminalController {
         }
 
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
@@ -16729,7 +17004,7 @@ class TerminalController {
 
     private func sidebarState(_ args: String) -> String {
         var result = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = "ERROR: Tab not found"
                 return
@@ -16800,7 +17075,7 @@ class TerminalController {
 
     private func resetSidebar(_ args: String) -> String {
         var result = "OK"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = "ERROR: Tab not found"
                 return
@@ -16826,7 +17101,7 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var refreshedCount = 0
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -16866,7 +17141,7 @@ class TerminalController {
     private func surfaceHealth(_ tabArg: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         var result = ""
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tab = resolveTab(from: tabArg, tabManager: tabManager) else {
                 result = "ERROR: Tab not found"
                 return
@@ -16898,7 +17173,7 @@ class TerminalController {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var result = "ERROR: Failed to close surface"
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
@@ -16959,7 +17234,7 @@ class TerminalController {
 
         var result = "ERROR: Failed to create tab"
         let focus = socketCommandAllowsInAppFocusMutations()
-        DispatchQueue.main.sync {
+        v2MainSync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return

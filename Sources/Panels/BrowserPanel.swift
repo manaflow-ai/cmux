@@ -5031,18 +5031,18 @@ extension BrowserPanel {
             "firstResponder=\(String(describing: window?.firstResponder))"
         )
 #endif
-        postBrowserSearchFocusNotification(reason: "immediate", generation: generation)
+        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: !created)
         // Focus notification can race with portal overlay mount. Re-post on the
         // next runloop and shortly after so the find field can claim first responder.
         DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation)
+            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: !created)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation)
+            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation, selectAll: false)
         }
     }
 
-    private func postBrowserSearchFocusNotification(reason: String, generation: UInt64) {
+    private func postBrowserSearchFocusNotification(reason: String, generation: UInt64, selectAll: Bool) {
         guard canApplySearchFocusRequest(generation) else {
 #if DEBUG
             cmuxDebugLog(
@@ -5057,11 +5057,11 @@ extension BrowserPanel {
         cmuxDebugLog(
             "browser.find.focusNotification panel=\(id.uuidString.prefix(5)) " +
             "generation=\(generation) " +
-            "reason=\(reason) window=\(window?.windowNumber ?? -1) " +
+            "reason=\(reason) selectAll=\(selectAll ? 1 : 0) window=\(window?.windowNumber ?? -1) " +
             "firstResponder=\(String(describing: window?.firstResponder))"
         )
 #endif
-        NotificationCenter.default.post(name: .browserSearchFocus, object: id)
+        NotificationCenter.default.post(name: .browserSearchFocus, object: id, userInfo: [FindFocusNotificationKey.selectAll: selectAll])
     }
 
     func findNext() {
@@ -5092,10 +5092,7 @@ extension BrowserPanel {
         if replaySearch, !state.needle.isEmpty {
             executeFindSearch(state.needle)
         }
-        postBrowserSearchFocusNotification(
-            reason: "restoreAfterNavigation",
-            generation: searchFocusRequestGeneration
-        )
+        postBrowserSearchFocusNotification(reason: "restoreAfterNavigation", generation: searchFocusRequestGeneration, selectAll: false)
     }
 
     private func executeFindSearch(_ needle: String) {
@@ -6058,6 +6055,7 @@ func browserNavigationShouldCreatePopup(
     navigationType: WKNavigationType,
     modifierFlags: NSEvent.ModifierFlags,
     buttonNumber: Int,
+    popupFeaturesWereSpecified: Bool = false,
     hasRecentMiddleClickIntent: Bool = false,
     currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
     currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
@@ -6070,7 +6068,7 @@ func browserNavigationShouldCreatePopup(
         currentEventType: currentEventType,
         currentEventButtonNumber: currentEventButtonNumber
     )
-    return navigationType == .other && !isUserNewTab
+    return navigationType == .other && popupFeaturesWereSpecified && !isUserNewTab
 }
 
 func browserNavigationShouldFallbackNilTargetToNewTab(
@@ -6112,6 +6110,18 @@ func browserNavigationPopupFeaturesWereSpecified(
         allowsResizing != nil
 }
 
+func browserNavigationPopupFeaturesWereSpecified(windowFeatures: WKWindowFeatures) -> Bool {
+    browserNavigationPopupFeaturesWereSpecified(
+        x: windowFeatures.x,
+        y: windowFeatures.y,
+        width: windowFeatures.width,
+        height: windowFeatures.height,
+        menuBarVisibility: windowFeatures.menuBarVisibility,
+        statusBarVisibility: windowFeatures.statusBarVisibility,
+        toolbarsVisibility: windowFeatures.toolbarsVisibility,
+        allowsResizing: windowFeatures.allowsResizing
+    )
+}
 // Keep popup retargeting intentionally narrow. Explicit cross-host alias groups
 // preserve known first-party search flows without guessing at the public suffix
 // list for arbitrary hosted tenants, while same-host scripted popups stay on
@@ -6637,16 +6647,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         }
 
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        let popupFeaturesWereSpecified = browserNavigationPopupFeaturesWereSpecified(
-            x: windowFeatures.x,
-            y: windowFeatures.y,
-            width: windowFeatures.width,
-            height: windowFeatures.height,
-            menuBarVisibility: windowFeatures.menuBarVisibility,
-            statusBarVisibility: windowFeatures.statusBarVisibility,
-            toolbarsVisibility: windowFeatures.toolbarsVisibility,
-            allowsResizing: windowFeatures.allowsResizing
-        )
+        let popupFeaturesWereSpecified = browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures)
         let shouldOpenSimpleUserGesturePopupInCurrentTab = browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
             navigationType: navigationAction.navigationType,
             requestMethod: navigationAction.request.httpMethod,
@@ -6675,17 +6676,13 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             return nil
         }
 
-        // Classifier: only scripted requests (window.open()) get popup windows.
-        // User-initiated actions (link clicks, context menu "Open Link in New Tab",
-        // Cmd+click, middle-click) fall through to existing new-tab behavior.
-        //
-        // WebKit sometimes delivers .other for Cmd+click / middle-click, so we
-        // reuse browserNavigationShouldOpenInNewTab to recover user intent before
-        // treating .other as a scripted popup.
+        // Only treat scripted `.other` requests as popups when WebKit surfaced
+        // explicit window features; bare `_blank` falls through to tabs.
         let isScriptedPopup = browserNavigationShouldCreatePopup(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
+            popupFeaturesWereSpecified: popupFeaturesWereSpecified,
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
 

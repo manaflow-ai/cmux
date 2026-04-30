@@ -710,6 +710,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var focusLockTimer: DispatchSourceTimer?
     private var scheduledFocusWorkItem: DispatchWorkItem?
     private var isPaletteVisible = false
+    private var hasMountedPaletteRootView = false
     private var windowDidBecomeKeyObserver: NSObjectProtocol?
     private var windowDidResignKeyObserver: NSObjectProtocol?
 
@@ -1108,10 +1109,18 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         editor.setSelectedRange(NSRange(location: length, length: 0))
     }
 
-    func update(rootView: AnyView, isVisible: Bool) {
+    func update(
+        isVisible: Bool,
+        makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
+    ) {
+        let wasVisible = isPaletteVisible
+        if !isVisible, !wasVisible, !hasMountedPaletteRootView, containerView.isHidden {
+            return
+        }
+
         guard ensureInstalled() else { return }
         let shouldPromote = CommandPaletteOverlayPromotionPolicy.shouldPromote(
-            previouslyVisible: isPaletteVisible,
+            previouslyVisible: wasVisible,
             isVisible: isVisible
         )
 #if DEBUG
@@ -1127,7 +1136,8 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 #endif
         isPaletteVisible = isVisible
         if isVisible {
-            hostingView.rootView = rootView
+            hostingView.rootView = makeRootView()
+            hasMountedPaletteRootView = true
             containerView.capturesMouseEvents = true
             containerView.isHidden = false
             containerView.alphaValue = 1
@@ -1141,6 +1151,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 _ = window.makeFirstResponder(nil)
             }
             hostingView.rootView = AnyView(EmptyView())
+            hasMountedPaletteRootView = false
             containerView.capturesMouseEvents = false
             containerView.alphaValue = 0
             containerView.isHidden = true
@@ -1182,6 +1193,7 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private let model = TmuxWorkspacePaneOverlayModel()
     private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayView>
     private var installConstraints: [NSLayoutConstraint] = []
+    private var lastRenderState: TmuxWorkspacePaneOverlayRenderState?
 
     init(window: NSWindow) {
         self.window = window
@@ -1238,7 +1250,16 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
 
     func update(state: TmuxWorkspacePaneOverlayRenderState?) {
         guard ensureInstalled() else { return }
+
+        if state == nil, lastRenderState == nil, containerView.isHidden {
+            return
+        }
+        if let state, state == lastRenderState {
+            return
+        }
+
         if let state {
+            lastRenderState = state
             model.apply(state)
             hostingView.rootView = TmuxWorkspacePaneOverlayView(
                 unreadRects: model.unreadRects,
@@ -1249,6 +1270,7 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
             containerView.alphaValue = 1
             containerView.isHidden = false
         } else {
+            lastRenderState = nil
             model.clear()
             hostingView.rootView = TmuxWorkspacePaneOverlayView(
                 unreadRects: [],
@@ -1866,6 +1888,16 @@ struct ContentView: View {
             )
         }
 
+        if unreadRects.isEmpty, flashRect == nil {
+            return TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: workspace.id,
+                unreadRects: [],
+                flashRect: nil,
+                flashToken: workspace.tmuxWorkspaceFlashToken,
+                flashReason: workspace.tmuxWorkspaceFlashReason
+            )
+        }
+
         return TmuxWorkspacePaneOverlayRenderState(
             workspaceId: workspace.id,
             unreadRects: unreadRects,
@@ -2451,7 +2483,13 @@ struct ContentView: View {
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
             onSendFeedback: presentFeedbackComposer,
-            titlebarHeight: titlebarPadding,
+            onToggleSidebar: { sidebarState.toggle() },
+            onNewTab: {
+                AppDelegate.shared?.performNewWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "titlebar.hiddenNewWorkspace"
+                )
+            },
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
@@ -2460,8 +2498,8 @@ struct ContentView: View {
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// Space at top of content area for the titlebar. This must be at least the actual titlebar
-    /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
+    /// Native titlebar inset reported by AppKit. Standard mode keeps content below this zone;
+    /// minimal WindowGroup hosts can still need it cancelled.
     @State private var titlebarPadding: CGFloat = WindowChromeMetrics.defaultTitlebarHeight
     /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
     /// main windows use MainWindowHostingView and report zero.
@@ -2620,7 +2658,7 @@ struct ContentView: View {
     }
 
     private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
+        let panel = sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
             rightSidebarPanel
         }
         .overlay(alignment: .leading) {
@@ -2628,6 +2666,8 @@ struct ContentView: View {
                 WindowChromeBorder(orientation: .vertical)
             }
         }
+
+        return panel
     }
 
     private var rightSidebarPanel: some View {
@@ -2635,7 +2675,8 @@ struct ContentView: View {
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
-            titlebarHeight: titlebarPadding,
+            titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
+            workspaceId: tabManager.selectedTabId,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             }
@@ -2735,7 +2776,8 @@ struct ContentView: View {
     }
 
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
-        ZStack {
+        let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
+        return ZStack {
             // Enable window dragging from the titlebar strip without making the entire content
             // view draggable (which breaks drag gestures like tab reordering).
             WindowDragHandleView()
@@ -2763,12 +2805,12 @@ struct ContentView: View {
                 Spacer()
 
             }
-            .frame(height: 28)
+            .frame(height: titlebarContentHeight)
             .padding(.top, 2)
             .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset + CGFloat(debugTitlebarLeadingExtra)))
             .padding(.trailing, 8)
         }
-        .frame(height: titlebarPadding)
+        .frame(height: WindowChromeMetrics.appTitlebarHeight)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
@@ -2780,6 +2822,34 @@ struct ContentView: View {
     private func syncTrafficLightInset() {
         let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen) ? 80 : 0
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
+    }
+
+    private func schedulePortalGeometrySynchronize() {
+        if let observedWindow {
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+        } else {
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+        }
+    }
+
+    private func refreshWindowChromeMetrics(for window: NSWindow) {
+        // Keep content below the titlebar so drags on Bonsplit's tab bar don't
+        // get interpreted as window drags.
+        let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
+        let nextPadding = WindowChromeMetrics.clampedTitlebarHeight(computedTitlebarHeight)
+        let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
+        if abs(titlebarPadding - nextPadding) > 0.5 {
+            DispatchQueue.main.async {
+                titlebarPadding = nextPadding
+            }
+        }
+        if abs(hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
+            DispatchQueue.main.async {
+                hostingSafeAreaTop = nextSafeAreaTop
+            }
+        }
     }
 
     private func updateTitlebarText() {
@@ -3047,6 +3117,9 @@ struct ContentView: View {
                 }
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
+                .background(
+                    MinimalModeTitlebarEventSurfaceView(isEnabled: isMinimalMode && !isFullScreen)
+                )
         )
 
         view = AnyView(view.onAppear {
@@ -3484,12 +3557,10 @@ struct ContentView: View {
         })
 
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
-            MainActor.assumeIsolated {
-                let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
-                tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
-                let overlayController = commandPaletteWindowOverlayController(for: window)
-                overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
-            }
+            let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
+            tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
+            let overlayController = commandPaletteWindowOverlayController(for: window)
+            overlayController.update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
         }))
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
@@ -3537,21 +3608,17 @@ struct ContentView: View {
                 sidebarState.persistedWidth = sanitized
             }
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
-            // terminals need an explicit post-layout geometry resync.
-            if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            }
+            // terminals and browsers need an explicit post-layout geometry resync.
+            schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
+        view = AnyView(view.onChange(of: sidebarState.isVisible) { isVisible in
+            setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
             if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+                AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
+            schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
@@ -3571,14 +3638,20 @@ struct ContentView: View {
             tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")
             guard sidebarState.isVisible,
                   sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
-            if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            }
+            schedulePortalGeometrySynchronize()
         })
 
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
+            if let observedWindow {
+                setTitlebarControlsHidden(isFullScreen, in: observedWindow)
+                AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
+                refreshWindowChromeMetrics(for: observedWindow)
+                observedWindow.contentView?.needsLayout = true
+                observedWindow.contentView?.superview?.needsLayout = true
+                observedWindow.invalidateShadow()
+            }
+            schedulePortalGeometrySynchronize()
+            updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
 
@@ -3615,6 +3688,7 @@ struct ContentView: View {
         view = AnyView(view.background(WindowAccessor { [appearance] window in
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.isRestorable = false
+            setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
             window.titlebarAppearsTransparent = true
             // Keep window immovable; the sidebar's WindowDragHandleView handles
             // drag-to-move via performDrag with temporary movable override.
@@ -3638,6 +3712,7 @@ struct ContentView: View {
                 }
             }
 
+            refreshWindowChromeMetrics(for: window)
             // Keep content below the titlebar so drags on Bonsplit's tab bar don't
             // get interpreted as window drags.
             // User settings decide whether window glass is active. The native Tahoe
@@ -3646,19 +3721,6 @@ struct ContentView: View {
             let currentThemeBackground = appearance.compositedTerminalBackgroundColor
             let shouldApplyWindowGlass = appearance.windowGlassSettings.shouldApply()
             let shouldForceTransparentHosting = appearance.shouldUseTransparentHosting()
-            let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
-            let nextPadding = WindowChromeMetrics.clampedTitlebarHeight(computedTitlebarHeight)
-            let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
-            if abs(titlebarPadding - nextPadding) > 0.5 {
-                DispatchQueue.main.async {
-                    titlebarPadding = nextPadding
-                }
-            }
-            if abs(hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
-                DispatchQueue.main.async {
-                    hostingSafeAreaTop = nextSafeAreaTop
-                }
-            }
             removeNativeTitlebarBackdrop(in: window)
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
@@ -4176,10 +4238,11 @@ struct ContentView: View {
 
     private func setTitlebarControlsHidden(_ hidden: Bool, in window: NSWindow) {
         let controlsId = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+        let shouldHide = hidden || isMinimalMode
         for accessory in window.titlebarAccessoryViewControllers {
             if accessory.view.identifier == controlsId {
-                accessory.isHidden = hidden
-                accessory.view.alphaValue = hidden ? 0 : 1
+                accessory.isHidden = shouldHide
+                accessory.view.alphaValue = shouldHide ? 0 : 1
             }
         }
     }
@@ -9588,7 +9651,8 @@ struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
-    let titlebarHeight: CGFloat
+    let onToggleSidebar: () -> Void
+    let onNewTab: () -> Void
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @Binding var selection: SidebarSelection
@@ -9611,10 +9675,16 @@ struct VerticalTabsSidebar: View {
     private var sidebarMatchTerminalBackground = false
 
     private let tabRowSpacing: CGFloat = 2
-    private let hiddenTitlebarControlsLeadingInset: CGFloat = 72
-
     private var workspaceScrollTopVisibilityInset: CGFloat {
-        titlebarHeight + 8
+        SidebarWorkspaceListMetrics.scrollTopInset
+    }
+
+    private var sidebarTitlebarInteractionHeight: CGFloat {
+        MinimalModeChromeMetrics.titlebarHeight
+    }
+
+    private var sidebarTopScrimHeight: CGFloat {
+        SidebarWorkspaceListMetrics.topScrimHeight
     }
 
     private var isMinimalMode: Bool {
@@ -9821,20 +9891,30 @@ struct VerticalTabsSidebar: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
-                    SidebarTopScrim(height: titlebarHeight + 20)
+                    SidebarTopScrim(height: sidebarTopScrimHeight)
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
-                    // Match native titlebar behavior in the sidebar top strip:
-                    // drag-to-move and double-click action (zoom/minimize).
+                    // The sidebar top strip remains draggable and handles
+                    // double-clicks with the standard titlebar action.
                     WindowDragHandleView()
-                        .frame(height: titlebarHeight)
+                        .frame(height: sidebarTitlebarInteractionHeight)
                         .background(TitlebarDoubleClickMonitorView())
                 }
                 .overlay(alignment: .topLeading) {
                     if isMinimalMode {
-                        HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
-                            .padding(.leading, hiddenTitlebarControlsLeadingInset)
+                        HiddenTitlebarSidebarControlsView(
+                            notificationStore: notificationStore,
+                            onToggleSidebar: onToggleSidebar,
+                            onToggleNotifications: { anchorView in
+                                AppDelegate.shared?.toggleNotificationsPopover(
+                                    animated: true,
+                                    anchorView: anchorView
+                                )
+                            },
+                            onNewTab: onNewTab
+                        )
+                            .padding(.leading, MinimalModeSidebarTitlebarControlsMetrics.leadingInset)
                             .padding(.top, 2)
                     }
                 }
@@ -9890,7 +9970,7 @@ struct VerticalTabsSidebar: View {
                 workspaceRow(tab, renderContext: renderContext)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -9971,6 +10051,7 @@ struct VerticalTabsSidebar: View {
         )
         .equatable()
         .id(tab.id)
+        .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
     }
 
@@ -12662,8 +12743,7 @@ private struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let latestNotificationSubtitle = latestNotificationText
-        let effectiveSubtitle = latestNotificationSubtitle
+        let effectiveSubtitle = latestNotificationText
         let detailVisibility = visibleAuxiliaryDetails
 
         VStack(alignment: .leading, spacing: 4) {
@@ -12765,7 +12845,6 @@ private struct TabItemView: View, Equatable {
                 }
             }
 
-            // Latest log entry
             if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
                 HStack(spacing: 4) {
                     Image(systemName: logLevelIcon(latestLog.level))
@@ -12780,7 +12859,6 @@ private struct TabItemView: View, Equatable {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Progress bar
             if detailVisibility.showsProgress, let progress = workspaceSnapshot.progress {
                 VStack(alignment: .leading, spacing: 2) {
                     GeometryReader { geo in
@@ -12862,6 +12940,7 @@ private struct TabItemView: View, Equatable {
             if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
+                        let pullRequestNumber = String(pullRequest.number)
                         Button(action: {
                             openPullRequestLink(pullRequest.url)
                         }) {
@@ -12870,7 +12949,7 @@ private struct TabItemView: View, Equatable {
                                     status: pullRequest.status,
                                     color: pullRequestForegroundColor
                                 )
-                                Text("\(pullRequest.label) #\(pullRequest.number)")
+                                Text("\(pullRequest.label) #\(pullRequestNumber)")
                                     .underline()
                                     .lineLimit(1)
                                     .truncationMode(.tail)
@@ -12883,7 +12962,7 @@ private struct TabItemView: View, Equatable {
                             .opacity(pullRequest.isStale ? 0.5 : 1)
                         }
                         .buttonStyle(.plain)
-                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
+                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequestNumber)"))
                     }
                 }
             }
@@ -12892,14 +12971,15 @@ private struct TabItemView: View, Equatable {
             if detailVisibility.showsPorts, !workspaceSnapshot.listeningPorts.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(workspaceSnapshot.listeningPorts, id: \.self) { port in
+                        let portText = String(port)
                         Button(action: {
                             openPortLink(port)
                         }) {
-                            Text(String(localized: "sidebar.port.label", defaultValue: ":\(port)"))
+                            Text(String(localized: "sidebar.port.label", defaultValue: ":\(portText)"))
                                 .underline()
                         }
                         .buttonStyle(.plain)
-                        .safeHelp(String(localized: "sidebar.port.openTooltip", defaultValue: "Open localhost:\(port)"))
+                        .safeHelp(String(localized: "sidebar.port.openTooltip", defaultValue: "Open localhost:\(portText)"))
                     }
                     Spacer(minLength: 0)
                 }
@@ -13036,6 +13116,7 @@ private struct TabItemView: View, Equatable {
             guard !contextMenuState.isVisible else { return }
             isHovering = hovering
         }
+        .safeHelp(workspaceSnapshot.title)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(accessibilityTitle))
         .accessibilityHint(Text(accessibilityHintText))
@@ -15429,16 +15510,6 @@ enum WindowChromeSeparatorColor {
 
     static func current() -> NSColor {
         color(forChromeBackground: GhosttyBackgroundTheme.currentColor())
-    }
-}
-
-enum WindowChromeMetrics {
-    static let minimumTitlebarHeight: CGFloat = 28
-    static let maximumTitlebarHeight: CGFloat = 72
-    static let defaultTitlebarHeight: CGFloat = 32
-
-    static func clampedTitlebarHeight(_ height: CGFloat) -> CGFloat {
-        max(minimumTitlebarHeight, min(maximumTitlebarHeight, height))
     }
 }
 
