@@ -69,6 +69,17 @@ func cmuxStoreFindSelection(_ range: NSRange, for owner: AnyObject?) {
     cmuxFindSelectionStore.setObject(NSValue(range: range), forKey: owner)
 }
 
+@MainActor
+func cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: TabManager?, window: NSWindow?) {
+    guard let workspace = tabManager?.selectedWorkspace,
+          let focusedPanelId = workspace.focusedPanelId,
+          let editor = window?.firstResponder as? NSTextView else { return }
+    let owner = (workspace.terminalPanel(for: focusedPanelId)?.searchState as AnyObject?) ?? (workspace.browserPanel(for: focusedPanelId)?.searchState as AnyObject?)
+    guard let owner else { return }
+    let selection = cmuxClampedFindSelection(editor.selectedRange(), in: editor.string)
+    cmuxStoreFindSelection(selection, for: owner)
+}
+
 @discardableResult
 func cmuxApplyFindFocusSelection(
     field: FindSelectionTrackingTextField,
