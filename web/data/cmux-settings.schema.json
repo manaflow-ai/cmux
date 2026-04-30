@@ -103,6 +103,11 @@
           "default": true,
           "description": "Move workspaces with new notifications toward the top."
         },
+        "iMessageMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Move a workspace to the top and show the submitted message when sending an agent prompt."
+        },
         "sendAnonymousTelemetry": {
           "type": "boolean",
           "default": true,

@@ -203,7 +203,7 @@ cli_path = os.environ["CMUX_TEST_CLI_PATH"]
 socket_path = os.environ["CMUX_TEST_SOCKET_PATH"]
 workspace_id = os.environ["CMUX_WORKSPACE_ID"]
 surface_id = os.environ["CMUX_SURFACE_ID"]
-state_path = os.environ["CMUX_CLAUDE_HOOK_STATE_PATH"]
+state_dir = os.environ["CMUX_AGENT_HOOK_STATE_DIR"]
 session_id = os.environ["CMUX_TEST_SESSION_ID"]
 cwd = os.environ["CMUX_TEST_CWD"]
 ready_file = Path(os.environ["CMUX_TEST_READY_FILE"])
@@ -215,7 +215,7 @@ hook_env = os.environ.copy()
 hook_env["CMUX_SOCKET_PATH"] = socket_path
 hook_env["CMUX_WORKSPACE_ID"] = workspace_id
 hook_env["CMUX_SURFACE_ID"] = surface_id
-hook_env["CMUX_CLAUDE_HOOK_STATE_PATH"] = state_path
+hook_env["CMUX_AGENT_HOOK_STATE_DIR"] = state_dir
 payload = json.dumps({"session_id": session_id, "cwd": cwd})
 result = subprocess.run(
     [cli_path, "--socket", socket_path, "hooks", "codex", "session-start"],
@@ -275,7 +275,7 @@ finally:
     env["CMUX_TEST_SOCKET_PATH"] = socket_path
     env["CMUX_WORKSPACE_ID"] = workspace_id
     env["CMUX_SURFACE_ID"] = surface_id
-    env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_path.parent)
     env["CMUX_TEST_SESSION_ID"] = session_id
     env["CMUX_TEST_CWD"] = str(cwd)
     env["CMUX_TEST_READY_FILE"] = str(ready_file)
@@ -305,7 +305,8 @@ def main() -> int:
     except Exception as exc:
         return fail(str(exc))
 
-    state_path = Path(tempfile.gettempdir()) / f"cmux_codex_hook_state_{os.getpid()}.json"
+    state_dir = Path(tempfile.gettempdir()) / f"cmux_codex_hook_state_{os.getpid()}"
+    state_path = state_dir / "codex-hook-sessions.json"
     lock_path = Path(str(state_path) + ".lock")
     base = Path(tempfile.gettempdir()) / f"cmux_codex_ports_{os.getpid()}"
     launcher_procs: list[subprocess.Popen] = []
@@ -314,10 +315,8 @@ def main() -> int:
         if base.exists():
             shutil.rmtree(base)
         base.mkdir(parents=True, exist_ok=True)
-        if state_path.exists():
-            state_path.unlink()
-        if lock_path.exists():
-            lock_path.unlink()
+        shutil.rmtree(state_dir, ignore_errors=True)
+        state_dir.mkdir(parents=True, exist_ok=True)
 
         project_dir = base / "project"
         project_dir.mkdir(parents=True, exist_ok=True)
@@ -412,6 +411,7 @@ def main() -> int:
                 state_path.unlink()
             if lock_path.exists():
                 lock_path.unlink()
+            shutil.rmtree(state_dir, ignore_errors=True)
             shutil.rmtree(base, ignore_errors=True)
         except Exception:
             pass

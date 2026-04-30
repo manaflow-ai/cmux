@@ -8424,6 +8424,10 @@ struct CMUXCLI {
               <agent> <event>    Internal hook entrypoint used by generated configs
               feed               Internal Feed decision bridge
 
+            OpenCode files:
+              ~/.config/opencode/plugins/cmux-session.js
+              ~/.config/opencode/plugins/cmux-feed.js
+
             Examples:
               cmux hooks setup
               cmux hooks setup --agent codex
@@ -11932,7 +11936,7 @@ struct CMUXCLI {
     }
 
     private static let omoPluginName = "oh-my-opencode"
-    private static let openCodeSessionPluginConfigSpec = "cmux-session"
+    private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
 
     private func resolveExecutableInPath(_ name: String) -> String? {
         let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
@@ -13720,13 +13724,21 @@ struct CMUXCLI {
             ]
         )
 
-        defer {
+        var didSendFeedTelemetry = false
+        func sendClaudeFeedTelemetry(workspaceId: String? = nil) {
+            didSendFeedTelemetry = true
             sendFeedTelemetry(
                 client: client,
                 source: "claude",
                 subcommand: subcommand,
-                parsedInput: parsedInput
+                parsedInput: parsedInput,
+                workspaceId: workspaceId ?? workspaceArg
             )
+        }
+        defer {
+            if !didSendFeedTelemetry {
+                sendClaudeFeedTelemetry()
+            }
         }
 
         switch subcommand {
@@ -13743,6 +13755,7 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 client: client
             )
+            sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid: Int? = {
                 guard let raw = ProcessInfo.processInfo.environment["CMUX_CLAUDE_PID"]?
                     .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -13797,6 +13810,7 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     client: client
                 )
+                sendClaudeFeedTelemetry(workspaceId: workspaceId)
 
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
@@ -13847,6 +13861,7 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            sendClaudeFeedTelemetry(workspaceId: workspaceId)
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setClaudeStatus(
                 client: client,
@@ -13867,6 +13882,7 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            sendClaudeFeedTelemetry(workspaceId: workspaceId)
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
@@ -13935,6 +13951,7 @@ struct CMUXCLI {
             )
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
+                sendClaudeFeedTelemetry(workspaceId: workspaceId)
                 _ = try? clearClaudeStatus(client: client, workspaceId: workspaceId)
                 _ = try? sendV1Command("clear_agent_pid claude_code --tab=\(workspaceId)", client: client)
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
@@ -13951,6 +13968,7 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = mappedSession?.pid
 
             // AskUserQuestion means Claude is about to ask the user something.
@@ -16604,6 +16622,7 @@ export default CMUXSessionRestore;
                 return true
             }
             return value != Self.openCodeSessionPluginConfigSpec
+                && value != "cmux-session"
                 && value != "./plugins/\(Self.openCodeSessionPluginFilename)"
                 && !value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
                 && !value.hasSuffix("/\(Self.openCodeSessionPluginFilename)")
@@ -16721,7 +16740,7 @@ export default CMUXSessionRestore;
                 entries.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
                 hooks[event] = entries.isEmpty ? nil : entries
             case .nested:
-                guard var groups = value as? [[String: Any]] else { continue }
+                guard let groups = value as? [[String: Any]] else { continue }
                 var rewrittenGroups: [[String: Any]] = []
                 for var group in groups {
                     guard var hookList = group["hooks"] as? [[String: Any]] else {
@@ -16872,7 +16891,7 @@ export default CMUXSessionRestore;
                 removed += before - entries.count
                 hooks[event] = entries.isEmpty ? nil : entries
             case .nested:
-                guard var groups = value as? [[String: Any]] else { continue }
+                guard let groups = value as? [[String: Any]] else { continue }
                 var rewrittenGroups: [[String: Any]] = []
                 for var group in groups {
                     guard var hookList = group["hooks"] as? [[String: Any]] else {
@@ -16938,15 +16957,6 @@ export default CMUXSessionRestore;
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
 
-        defer {
-            sendFeedTelemetry(
-                client: client,
-                source: def.name,
-                subcommand: subcommand,
-                parsedInput: input
-            )
-        }
-
         let store = ClaudeHookSessionStore(
             processEnv: env.merging(
                 ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
@@ -16957,11 +16967,28 @@ export default CMUXSessionRestore;
         let sessionId = input.sessionId ?? env["CMUX_SURFACE_ID"] ?? ""
         let action = Self.subcommandActions[subcommand] ?? .noop
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
+        var didSendFeedTelemetry = false
+        func sendAgentFeedTelemetry(workspaceId: String? = nil) {
+            didSendFeedTelemetry = true
+            sendFeedTelemetry(
+                client: client,
+                source: def.name,
+                subcommand: subcommand,
+                parsedInput: input,
+                workspaceId: workspaceId ?? workspaceArg
+            )
+        }
+        defer {
+            if !didSendFeedTelemetry {
+                sendAgentFeedTelemetry()
+            }
+        }
 
         switch action {
         case .sessionStart:
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: nil, fallback: workspaceArg, client: client)
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: nil, fallback: surfaceArg, workspaceId: workspaceId, client: client)
+            sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = inferredCodexAgentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
@@ -16986,6 +17013,7 @@ export default CMUXSessionRestore;
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
+            sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredCodexAgentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
@@ -17025,6 +17053,7 @@ export default CMUXSessionRestore;
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: mapped?.surfaceId, fallback: surfaceArg, workspaceId: workspaceId, client: client)
+                sendAgentFeedTelemetry(workspaceId: workspaceId)
                 let pid = mapped?.pid ?? inferredCodexAgentPID()
                 let codexFailure: CodexHookFailureSummary?
                 if def.name == "codex" {
@@ -17097,6 +17126,7 @@ export default CMUXSessionRestore;
 
         case .sessionEnd:
             if let mapped = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+                sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
                 _ = try? sendV1Command("clear_status \(def.statusKey) --tab=\(mapped.workspaceId)", client: client)
                 _ = try? sendV1Command("clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId)", client: client)
             }
@@ -17320,10 +17350,14 @@ export default CMUXSessionRestore;
         client: SocketClient,
         source: String,
         subcommand: String,
-        parsedInput: ClaudeHookParsedInput
+        parsedInput: ClaudeHookParsedInput,
+        workspaceId: String? = nil
     ) {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         guard !hookEventName.isEmpty else { return }
+        let promptText = hookEventName == "UserPromptSubmit"
+            ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
+            : nil
         let sessionId = parsedInput.sessionId ?? UUID().uuidString
         var event: [String: Any] = [
             "session_id": "\(source)-\(sessionId)",
@@ -17331,6 +17365,9 @@ export default CMUXSessionRestore;
             "_source": source,
             "_ppid": ProcessInfo.processInfo.processIdentifier,
         ]
+        if let workspaceId = feedWorkspaceId(rawObject: parsedInput.object, fallback: workspaceId) {
+            event["workspace_id"] = workspaceId
+        }
         if let cwd = parsedInput.cwd { event["cwd"] = cwd }
         let toolName = parsedInput.object?["tool_name"] as? String
         if let toolName, !toolName.isEmpty {
@@ -17338,9 +17375,6 @@ export default CMUXSessionRestore;
         }
         if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = toolInput
-        } else if hookEventName == "UserPromptSubmit",
-                  let prompt = feedPromptText(from: parsedInput.object) {
-            event["tool_input"] = ["prompt": prompt]
         }
         if let context = feedContextForEvent(
             source: source,
@@ -17352,6 +17386,11 @@ export default CMUXSessionRestore;
         ) {
             event["context"] = context
         }
+        enrichUserPromptSubmitFeedEvent(
+            &event,
+            hookEventName: hookEventName,
+            promptText: promptText
+        )
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
         let frame: [String: Any] = [
@@ -17450,6 +17489,50 @@ export default CMUXSessionRestore;
             }
         }
         return nil
+    }
+
+    private func feedWorkspaceId(rawObject: [String: Any]?, fallback: String?) -> String? {
+        if let fallback {
+            let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        if let rawObject,
+           let direct = firstString(
+                in: rawObject,
+                keys: ["workspace_id", "workspaceId", "workspace_ref", "workspaceRef"]
+           ) {
+            return direct
+        }
+        return nil
+    }
+
+    private func enrichUserPromptSubmitFeedEvent(
+        _ event: inout [String: Any],
+        hookEventName: String,
+        promptText: String?
+    ) {
+        guard hookEventName == "UserPromptSubmit",
+              let promptText else { return }
+        if var toolInput = event["tool_input"] as? [String: Any] {
+            toolInput["prompt"] = promptText
+            event["tool_input"] = toolInput
+        } else {
+            event["tool_input"] = ["prompt": promptText]
+        }
+        var context = event["context"] as? [String: Any] ?? [:]
+        if context["lastUserMessage"] == nil {
+            setFeedContext(
+                &context,
+                key: "lastUserMessage",
+                value: promptText,
+                maxLength: 1_000
+            )
+        }
+        if !context.isEmpty {
+            event["context"] = context
+        }
     }
 
     private func feedContext(from raw: [String: Any]) -> [String: Any] {
@@ -18936,13 +19019,22 @@ export default CMUXSessionRestore;
 
     private static let openCodePluginFileName = "cmux-feed.js"
 
+    private func openCodeConfigDirPath() -> String {
+        if let override = ProcessInfo.processInfo.environment["OPENCODE_CONFIG_DIR"],
+           !override.isEmpty {
+            return NSString(string: override).expandingTildeInPath
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/opencode", isDirectory: true)
+            .path
+    }
+
     private func openCodePluginPath(projectLocal: Bool) -> String {
         if projectLocal {
             let cwd = FileManager.default.currentDirectoryPath
             return "\(cwd)/.opencode/plugins/\(Self.openCodePluginFileName)"
         }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/.config/opencode/plugins/\(Self.openCodePluginFileName)"
+        return "\(openCodeConfigDirPath())/plugins/\(Self.openCodePluginFileName)"
     }
 
     private func bundledOpenCodePluginSource() throws -> String {
@@ -19019,16 +19111,6 @@ export default CMUXSessionRestore;
             try fm.removeItem(atPath: path)
             print("OpenCode plugin removed from \(path)")
         }
-    }
-
-    private func runOpenCodeInstallHooks() throws {
-        let args = ProcessInfo.processInfo.arguments
-        let projectLocal = args.contains("--project")
-        try installOpenCodePlugin(projectLocal: projectLocal)
-    }
-
-    private func runOpenCodeUninstallHooks() throws {
-        try uninstallOpenCodePlugin()
     }
 
     // MARK: - Feed (workstream) hook bridge
@@ -19126,8 +19208,12 @@ export default CMUXSessionRestore;
             "_source": source,
             "_ppid": agentPid,
         ]
+        if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
+            eventDict["workspace_id"] = workspaceId
+        }
         if let cwd = stdinObj["cwd"] as? String { eventDict["cwd"] = cwd }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
+        let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
         if let toolInput = stdinObj["tool_input"] {
             eventDict["tool_input"] = toolInput
         }
@@ -19141,6 +19227,11 @@ export default CMUXSessionRestore;
         ) {
             eventDict["context"] = context
         }
+        enrichUserPromptSubmitFeedEvent(
+            &eventDict,
+            hookEventName: hookEventName,
+            promptText: promptText
+        )
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
@@ -19788,40 +19879,12 @@ export default CMUXSessionRestore;
             }
             print("  \(def.name):")
             if isUninstall {
-                try uninstallAgentHooks(def)
+                try uninstallHooksForAgent(def, arguments: [])
             } else {
-                try installAgentHooks(def)
+                try installHooksForAgent(def, arguments: [])
             }
             count += 1
             print("")
-        }
-
-        // OpenCode plugin install, conditional on binary presence. It
-        // uses a different config path (~/.config/opencode/plugins/…)
-        // and a JS plugin rather than a hook file, so it sits outside
-        // the agentDefs loop.
-        if agentFilter == nil || agentFilter?.lowercased() == "opencode" {
-            if isUninstall {
-                do {
-                    try uninstallOpenCodePlugin()
-                    count += 1
-                } catch {
-                    print("  opencode: \(String(describing: error))")
-                    skipped += 1
-                }
-            } else if Self.isBinaryOnPath("opencode") {
-                do {
-                    try installOpenCodePlugin(projectLocal: false)
-                    count += 1
-                } catch {
-                    print("  opencode: \(String(describing: error))")
-                    skipped += 1
-                }
-            } else {
-                print("  opencode: skipped (binary not found on PATH)")
-                skippedNoBinary.append("opencode")
-                skipped += 1
-            }
         }
 
         print("Done: \(count) \(isUninstall ? "uninstalled" : "installed"), \(skipped) skipped")

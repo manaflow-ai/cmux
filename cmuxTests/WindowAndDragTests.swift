@@ -583,13 +583,13 @@ final class WindowDragHandleHitTests: XCTestCase {
     }
 
     private final class SidebarActionRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
-        var config = TitlebarControlsStyle.classic.config
+        nonisolated(unsafe) var config = TitlebarControlsStyle.classic.config
 
-        func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
+        nonisolated func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
             minimalModeSidebarControlActionSlot(localPoint: localPoint) != nil
         }
 
-        func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot? {
+        nonisolated func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot? {
             let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
             for (index, range) in ranges.enumerated() where range.contains(localPoint.x) {
                 return MinimalModeSidebarControlActionSlot(rawValue: index)
@@ -815,7 +815,7 @@ final class WindowDragHandleHitTests: XCTestCase {
 
     func testMinimalModeTitlebarControlRegionCanLimitHitsInsideRegisteredView() {
         final class ButtonOnlyRegion: NSView, MinimalModeTitlebarControlHitRegionProviding {
-            func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
+            nonisolated func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
                 localPoint.x >= 24 && localPoint.x <= 48
             }
         }
@@ -1571,8 +1571,8 @@ final class FileDropOverlayViewTests: XCTestCase {
         let draggingLocation: NSPoint
         let draggedImageLocation: NSPoint
         let draggedImage: NSImage?
-        let draggingPasteboard: NSPasteboard
-        let draggingSource: Any?
+        nonisolated(unsafe) let draggingPasteboard: NSPasteboard
+        nonisolated(unsafe) let draggingSource: Any?
         let draggingSequenceNumber: Int
         var draggingFormation: NSDraggingFormation = .default
         var animatesToDestination = false

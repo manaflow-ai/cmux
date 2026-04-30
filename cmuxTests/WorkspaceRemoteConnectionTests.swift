@@ -1709,7 +1709,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let data = try Data(contentsOf: configURL)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         let plugins = try XCTUnwrap(json["plugin"] as? [String])
-        XCTAssertEqual(plugins, ["other-plugin", "cmux-session"])
+        XCTAssertEqual(plugins, ["other-plugin", "./plugins/cmux-session.js"])
     }
 
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {

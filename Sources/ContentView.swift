@@ -9558,6 +9558,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+    let iMessageModeEnabled: Bool
 
     init(defaults: UserDefaults = .standard) {
         sidebarShortcutHintXOffset = Self.double(
@@ -9614,6 +9615,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
         activeTabIndicatorStyle = SidebarActiveTabIndicatorSettings.current(defaults: defaults)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+        iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
     }
 
     private static func bool(
@@ -9632,6 +9634,12 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     ) -> Double {
         guard let value = defaults.object(forKey: key) as? NSNumber else { return defaultValue }
         return value.doubleValue
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 
@@ -12473,6 +12481,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
         let copyableSidebarSSHError: String?
+        let latestSubmittedMessage: String?
         let metadataEntries: [SidebarStatusEntry]
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
@@ -12790,7 +12799,13 @@ private struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let effectiveSubtitle = latestNotificationText
+        let latestNotificationSubtitle = latestNotificationText
+        let submittedMessageSubtitle = settings.iMessageModeEnabled
+            ? workspaceSnapshot.latestSubmittedMessage?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
+            : nil
+        let effectiveSubtitle = latestNotificationSubtitle ?? submittedMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
 
         VStack(alignment: .leading, spacing: 4) {
@@ -13780,6 +13795,7 @@ private struct TabItemView: View, Equatable {
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
             copyableSidebarSSHError: copyableSidebarSSHError,
+            latestSubmittedMessage: tab.latestSubmittedMessage,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,

@@ -355,7 +355,7 @@ def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[
 
 
 def test_live_socket_does_not_duplicate_bypass_availability_flag(failures: list[str]) -> None:
-    code, real_argv, _, stderr, _, _, _, _, _ = run_wrapper(
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["--allow-dangerously-skip-permissions", "hello"],
     )
