@@ -212,6 +212,27 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
     }
 
+    func testParseBackgroundBlurReadsMacOSGlassClear() {
+        var config = GhosttyConfig()
+        config.parse("background-blur = macos-glass-clear")
+        XCTAssertEqual(config.backgroundBlur, .macosGlassClear)
+    }
+
+    func testParseBackgroundBlurReadsMacOSGlassRegular() {
+        var config = GhosttyConfig()
+        config.parse("background-blur = macos-glass-regular")
+        XCTAssertEqual(config.backgroundBlur, .macosGlassRegular)
+    }
+
+    func testParseBackgroundBlurIgnoresMalformedValues() {
+        var config = GhosttyConfig()
+        config.parse("""
+        background-blur = macos-glass-clear
+        background-blur = not-a-blur
+        """)
+        XCTAssertEqual(config.backgroundBlur, .macosGlassClear)
+    }
+
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")
@@ -798,10 +819,29 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(rightPolicy.blendingMode, .withinWindow)
     }
 
-    private func makeSnapshot(unifySurfaceBackdrops: Bool) -> WindowAppearanceSnapshot {
+    func testMacOSGlassClearForcesTransparentHostingAndClearGlassStyle() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundOpacity: 1.0,
+            backgroundBlur: .macosGlassClear
+        )
+
+        XCTAssertTrue(snapshot.shouldUseTransparentHosting())
+        XCTAssertTrue(snapshot.windowGlassSettings.shouldApply())
+        XCTAssertEqual(snapshot.windowGlassSettings.style, .clear)
+        XCTAssertEqual(snapshot.windowGlassSettings.tintColor.hexString(includeAlpha: true), "#272822FF")
+        assertClearBackdrop(snapshot.policy(for: .windowRoot))
+    }
+
+    private func makeSnapshot(
+        unifySurfaceBackdrops: Bool,
+        backgroundOpacity: CGFloat = 0.6,
+        backgroundBlur: GhosttyBackgroundBlur = .disabled
+    ) -> WindowAppearanceSnapshot {
         WindowAppearanceSnapshot(
             terminalBackgroundColor: NSColor(hex: "#272822") ?? .black,
-            terminalBackgroundOpacity: 0.6,
+            terminalBackgroundOpacity: backgroundOpacity,
+            terminalBackgroundBlur: backgroundBlur,
             terminalRenderingMode: .windowHostBackdrop,
             unifySurfaceBackdrops: unifySurfaceBackdrops,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
@@ -820,7 +860,10 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
                 sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
                 isEnabled: false,
                 tintHex: "#000000",
-                tintOpacity: 0.03
+                tintOpacity: 0.03,
+                terminalBackgroundBlur: backgroundBlur,
+                terminalGlassTintColor: (NSColor(hex: "#272822") ?? .black)
+                    .withAlphaComponent(backgroundOpacity)
             )
         )
     }
@@ -1078,6 +1121,17 @@ final class WindowTransparencyDecisionTests: XCTestCase {
 
             XCTAssertTrue(cmuxShouldUseTransparentBackgroundWindow())
             XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 1.0))
+        }
+    }
+
+    func testGhosttyGlassStyleForcesClearWindowBackgroundAtOpaqueOpacity() {
+        withTemporaryWindowBackgroundDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set("withinWindow", forKey: sidebarBlendModeKey)
+            defaults.set(false, forKey: bgGlassEnabledKey)
+
+            XCTAssertFalse(cmuxShouldUseTransparentBackgroundWindow())
+            XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 1.0, usesGhosttyGlassStyle: true))
         }
     }
 

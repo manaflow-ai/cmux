@@ -29,6 +29,7 @@ struct GhosttyConfig {
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
     var backgroundOpacity: Double = 1.0
+    var backgroundBlur: GhosttyBackgroundBlur = .disabled
     var foregroundColor: NSColor = NSColor(hex: "#fdfff1")!
     var cursorColor: NSColor = NSColor(hex: "#c0c1b5")!
     var cursorTextColor: NSColor = NSColor(hex: "#8d8e82")!
@@ -416,6 +417,10 @@ struct GhosttyConfig {
                     if let opacity = Double(value) {
                         backgroundOpacity = opacity
                     }
+                case "background-blur":
+                    if let parsedBlur = Self.parseBackgroundBlur(value) {
+                        backgroundBlur = parsedBlur
+                    }
                 case "foreground":
                     if let color = NSColor(hex: value) {
                         foregroundColor = color
@@ -477,6 +482,24 @@ struct GhosttyConfig {
             return nil
         }
         return parsed
+    }
+
+    private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {
+        switch value {
+        case "false", "0":
+            return .disabled
+        case "true":
+            return .radius(20)
+        case "macos-glass-regular":
+            return .macosGlassRegular
+        case "macos-glass-clear":
+            return .macosGlassClear
+        default:
+            guard let radius = parseIntegerLiteral(value), radius > 0, radius <= Int(UInt8.max) else {
+                return nil
+            }
+            return .radius(radius)
+        }
     }
 
     mutating func loadTheme(_ name: String) {

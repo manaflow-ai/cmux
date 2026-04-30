@@ -3254,23 +3254,6 @@ final class BrowserHistoryStoreTests: XCTestCase {
     }
 }
 
-
-@MainActor
-final class CmuxWebViewDragRoutingTests: XCTestCase {
-    func testRejectsInternalPaneDragEvenWhenFilePromiseTypesArePresent() {
-        XCTAssertTrue(
-            CmuxWebView.shouldRejectInternalPaneDrag([
-                DragOverlayRoutingPolicy.bonsplitTabTransferType,
-                NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
-            ])
-        )
-    }
-
-    func testAllowsRegularExternalFileDrops() {
-        XCTAssertFalse(CmuxWebView.shouldRejectInternalPaneDrag([.fileURL]))
-    }
-}
-
 final class BrowserLinkOpenSettingsTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!

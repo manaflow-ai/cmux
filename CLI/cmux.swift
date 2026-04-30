@@ -2551,10 +2551,10 @@ struct CMUXCLI {
 
         case "workspace-action":
             try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
-
         case "tab-action":
             try runTabAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
-
+        case "move-tab-to-new-workspace", "detach-tab":
+            try runMoveTabToNewWorkspace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "rename-tab":
             try runRenameTab(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
@@ -2705,6 +2705,9 @@ struct CMUXCLI {
 
         case "tree":
             try runTreeCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "top":
+            try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -4393,7 +4396,7 @@ struct CMUXCLI {
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
 
-    private func runTabAction(
+    func runTabAction(
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
@@ -4406,8 +4409,9 @@ struct CMUXCLI {
         let (actionOpt, rem3) = parseOption(rem2, name: "--action")
         let (titleOpt, rem4) = parseOption(rem3, name: "--title")
         let (urlOpt, rem5) = parseOption(rem4, name: "--url")
+        let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
 
-        var positional = rem5
+        var positional = rem6
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -4461,24 +4465,16 @@ struct CMUXCLI {
         if let urlOpt, !urlOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["url"] = urlOpt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
+        try applyTabActionFocusOption(focusOpt, to: &params)
         let payload = try client.sendV2(method: "tab.action", params: params)
         var summaryParts = ["OK", "action=\(action)"]
-        if let tabHandle = formatTabHandle(payload, idFormat: idFormat) {
-            summaryParts.append("tab=\(tabHandle)")
-        }
-        if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
-            summaryParts.append("workspace=\(workspaceHandle)")
-        }
-        if let closed = payload["closed"] {
-            summaryParts.append("closed=\(closed)")
-        }
-        if let created = formatCreatedTabHandle(payload, idFormat: idFormat) {
-            summaryParts.append("created=\(created)")
-        }
+        if let tabHandle = formatTabHandle(payload, idFormat: idFormat) { summaryParts.append("tab=\(tabHandle)") }
+        if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) { summaryParts.append("workspace=\(workspaceHandle)") }
+        if let closed = payload["closed"] { summaryParts.append("closed=\(closed)") }
+        if let created = formatCreatedTabHandle(payload, idFormat: idFormat) { summaryParts.append("created=\(created)") }
+        appendCreatedWorkspaceSummaryParts(from: payload, idFormat: idFormat, to: &summaryParts)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
-
     private func runRenameTab(
         commandArgs: [String],
         client: SocketClient,
@@ -8693,6 +8689,7 @@ struct CMUXCLI {
               rename | clear-name
               close-left | close-right | close-others
               new-terminal-right | new-browser-right
+              move-to-new-workspace
               reload | duplicate
               pin | unpin
               mark-unread
@@ -8704,12 +8701,16 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename (or pass trailing title text)
               --url <url>                  Optional URL for new-browser-right
+              --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)
 
             Example:
               cmux tab-action --tab tab:3 --action pin
               cmux tab-action --action close-right
+              cmux tab-action --tab tab:2 --action move-to-new-workspace
               cmux tab-action --tab tab:2 --action rename --title "build logs"
             """
+        case "move-tab-to-new-workspace", "detach-tab":
+            return Self.moveTabToNewWorkspaceCommandHelp
         case "rename-tab":
             return """
             Usage: cmux rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] [--] <title>
@@ -8862,6 +8863,29 @@ struct CMUXCLI {
               cmux tree --all
               cmux tree --workspace workspace:2
               cmux --json tree --all
+            """
+        case "top":
+            return """
+            Usage: cmux top [flags]
+
+            Print CPU and RAM usage by cmux window, workspace, pane, surface, status tag, and browser webview.
+
+            Flags:
+              --all                         Include all windows (default: current window only)
+              --workspace <id|ref|index>   Show only one workspace
+              --processes                  Include process trees under surfaces, webviews, and tags
+              --json                        Structured JSON output
+
+            Output:
+              CPU comes from macOS process accounting and can exceed 100% across cores.
+              RSS is summed across the unique process IDs attributed to each tree node.
+              Browser webviews are attributed through their WebKit content process PID.
+
+            Example:
+              cmux top
+              cmux top --all
+              cmux top --workspace workspace:2 --processes
+              cmux --json top --all
             """
         case "focus-pane":
             return """
@@ -9810,6 +9834,13 @@ struct CMUXCLI {
         let jsonOutput: Bool
     }
 
+    private struct TopCommandOptions {
+        let includeAllWindows: Bool
+        let workspaceHandle: String?
+        let jsonOutput: Bool
+        let showProcesses: Bool
+    }
+
     private struct TreePath {
         let windowHandle: String?
         let workspaceHandle: String?
@@ -9862,6 +9893,89 @@ struct CMUXCLI {
         }
 
         return TreeCommandOptions(includeAllWindows: includeAll, workspaceHandle: workspaceOpt, jsonOutput: jsonOutput)
+    }
+
+    private func runTopCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let options = try parseTopCommandOptions(commandArgs)
+        let structuredOutput = jsonOutput || options.jsonOutput
+        let payload = try buildTopPayload(options: options, client: client)
+        if structuredOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            print(renderTopText(payload: payload, idFormat: idFormat, showProcesses: options.showProcesses))
+        }
+    }
+
+    private func parseTopCommandOptions(_ args: [String]) throws -> TopCommandOptions {
+        let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
+        if rem0.contains("--workspace") {
+            throw CLIError(message: "top requires --workspace <id|ref|index>")
+        }
+
+        var includeAll = false
+        var jsonOutput = false
+        var showProcesses = false
+        var remaining: [String] = []
+        for arg in rem0 {
+            if arg == "--all" {
+                includeAll = true
+                continue
+            }
+            if arg == "--json" {
+                jsonOutput = true
+                continue
+            }
+            if arg == "--processes" {
+                showProcesses = true
+                continue
+            }
+            remaining.append(arg)
+        }
+
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --json")
+        }
+        if let extra = remaining.first {
+            throw CLIError(message: "top: unexpected argument '\(extra)'")
+        }
+
+        return TopCommandOptions(
+            includeAllWindows: includeAll,
+            workspaceHandle: workspaceOpt,
+            jsonOutput: jsonOutput,
+            showProcesses: showProcesses
+        )
+    }
+
+    private func buildTopPayload(
+        options: TopCommandOptions,
+        client: SocketClient,
+        responseTimeout: TimeInterval? = nil
+    ) throws -> [String: Any] {
+        var params: [String: Any] = [
+            "all_windows": options.includeAllWindows,
+            "include_processes": options.showProcesses
+        ]
+        if let workspaceRaw = options.workspaceHandle {
+            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
+                throw CLIError(message: "Invalid workspace handle")
+            }
+            params["workspace_id"] = workspaceHandle
+        }
+        if let caller = treeCallerContextFromEnvironment() {
+            params["caller"] = caller
+        }
+
+        do {
+            return try client.sendV2(method: "system.top", params: params, responseTimeout: responseTimeout)
+        } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
+            throw CLIError(message: "cmux top requires a running cmux build with system.top support")
+        }
     }
 
     private func buildTreePayload(
@@ -10335,6 +10449,288 @@ struct CMUXCLI {
             parts.append(url)
         }
         return parts.joined(separator: " ")
+    }
+
+    private func renderTopText(
+        payload: [String: Any],
+        idFormat: CLIIDFormat,
+        showProcesses: Bool
+    ) -> String {
+        let windows = payload["windows"] as? [[String: Any]] ?? []
+        guard !windows.isEmpty else { return "No windows" }
+
+        var lines: [String] = ["  CPU%       RSS  PROC  NODE"]
+        if let totals = payload["totals"] as? [String: Any] {
+            lines.append("\(topResourceColumns(resources: totals))total")
+        }
+
+        for window in windows {
+            lines.append("\(topResourceColumns(node: window))\(topWindowLabel(window, idFormat: idFormat))")
+
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            for (workspaceIndex, workspace) in workspaces.enumerated() {
+                let workspaceIsLast = workspaceIndex == workspaces.count - 1
+                let workspaceBranch = workspaceIsLast ? "└── " : "├── "
+                let workspaceIndent = workspaceIsLast ? "    " : "│   "
+                lines.append("\(topResourceColumns(node: workspace))\(workspaceBranch)\(topWorkspaceLabel(workspace, idFormat: idFormat))")
+
+                let tags = workspace["tags"] as? [[String: Any]] ?? []
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                let workspaceChildCount = tags.count + panes.count
+                var workspaceChildIndex = 0
+
+                for tag in tags {
+                    let tagIsLast = workspaceChildIndex == workspaceChildCount - 1
+                    workspaceChildIndex += 1
+                    let tagBranch = tagIsLast ? "└── " : "├── "
+                    let tagIndent = tagIsLast ? "    " : "│   "
+                    lines.append("\(topResourceColumns(node: tag))\(workspaceIndent)\(tagBranch)\(topTagLabel(tag))")
+                    if showProcesses {
+                        appendTopProcessLines(
+                            tag["processes"] as? [[String: Any]] ?? [],
+                            to: &lines,
+                            indent: workspaceIndent + tagIndent
+                        )
+                    }
+                }
+
+                for pane in panes {
+                    let paneIsLast = workspaceChildIndex == workspaceChildCount - 1
+                    workspaceChildIndex += 1
+                    let paneBranch = paneIsLast ? "└── " : "├── "
+                    let paneIndent = paneIsLast ? "    " : "│   "
+                    lines.append("\(topResourceColumns(node: pane))\(workspaceIndent)\(paneBranch)\(topPaneLabel(pane, idFormat: idFormat))")
+
+                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+                    for (surfaceIndex, surface) in surfaces.enumerated() {
+                        let surfaceIsLast = surfaceIndex == surfaces.count - 1
+                        let surfaceBranch = surfaceIsLast ? "└── " : "├── "
+                        let surfaceIndent = surfaceIsLast ? "    " : "│   "
+                        lines.append("\(topResourceColumns(node: surface))\(workspaceIndent)\(paneIndent)\(surfaceBranch)\(topSurfaceLabel(surface, idFormat: idFormat))")
+
+                        let webviews = surface["webviews"] as? [[String: Any]] ?? []
+                        let surfaceProcesses = surface["processes"] as? [[String: Any]] ?? []
+                        let hasSurfaceProcesses = showProcesses && !surfaceProcesses.isEmpty
+                        if !webviews.isEmpty {
+                            for (webviewIndex, webview) in webviews.enumerated() {
+                                let webviewIsLast = webviewIndex == webviews.count - 1 && !hasSurfaceProcesses
+                                let webviewBranch = webviewIsLast ? "└── " : "├── "
+                                let webviewIndent = webviewIsLast ? "    " : "│   "
+                                lines.append("\(topResourceColumns(node: webview))\(workspaceIndent)\(paneIndent)\(surfaceIndent)\(webviewBranch)\(topWebViewLabel(webview))")
+                                if showProcesses {
+                                    appendTopProcessLines(
+                                        webview["processes"] as? [[String: Any]] ?? [],
+                                        to: &lines,
+                                        indent: workspaceIndent + paneIndent + surfaceIndent + webviewIndent
+                                    )
+                                }
+                            }
+                        }
+                        if showProcesses { appendTopProcessLines(surfaceProcesses, to: &lines, indent: workspaceIndent + paneIndent + surfaceIndent) }
+                    }
+                }
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func appendTopProcessLines(
+        _ processes: [[String: Any]],
+        to lines: inout [String],
+        indent: String
+    ) {
+        for (index, process) in processes.enumerated() {
+            let isLast = index == processes.count - 1
+            let branch = isLast ? "└── " : "├── "
+            let childIndent = isLast ? "    " : "│   "
+            lines.append("\(topResourceColumns(node: process))\(indent)\(branch)\(topProcessLabel(process))")
+            appendTopProcessLines(
+                process["children"] as? [[String: Any]] ?? [],
+                to: &lines,
+                indent: indent + childIndent
+            )
+        }
+    }
+
+    private func topWindowLabel(_ window: [String: Any], idFormat: CLIIDFormat) -> String {
+        var parts = ["window \(textHandle(window, idFormat: idFormat))"]
+        if (window["key"] as? Bool) == true {
+            parts.append("[key]")
+        }
+        if (window["visible"] as? Bool) == false {
+            parts.append("[hidden]")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func topWorkspaceLabel(_ workspace: [String: Any], idFormat: CLIIDFormat) -> String {
+        var parts = ["workspace \(textHandle(workspace, idFormat: idFormat))"]
+        let title = topLabelText(workspace["title"] as? String)
+        if !title.isEmpty {
+            parts.append("\"\(title)\"")
+        }
+        if (workspace["selected"] as? Bool) == true {
+            parts.append("[selected]")
+        }
+        if (workspace["pinned"] as? Bool) == true {
+            parts.append("[pinned]")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func topPaneLabel(_ pane: [String: Any], idFormat: CLIIDFormat) -> String {
+        var parts = ["pane \(textHandle(pane, idFormat: idFormat))"]
+        if (pane["focused"] as? Bool) == true {
+            parts.append("[focused]")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func topSurfaceLabel(_ surface: [String: Any], idFormat: CLIIDFormat) -> String {
+        let rawType = topLabelText(surface["type"] as? String)
+        let surfaceType = rawType.isEmpty ? "unknown" : rawType
+        var parts = ["surface \(textHandle(surface, idFormat: idFormat))", "[\(surfaceType)]"]
+        let title = topLabelText(surface["title"] as? String)
+        if !title.isEmpty {
+            parts.append("\"\(title)\"")
+        }
+        if (surface["selected"] as? Bool) == true {
+            parts.append("[selected]")
+        }
+        let tty = topLabelText(surface["tty"] as? String)
+        if !tty.isEmpty {
+            parts.append("tty=\(tty)")
+        }
+        if let pid = topInt(surface["browser_web_content_pid"]) {
+            parts.append("webpid=\(pid)")
+        }
+        let url = topLabelText(surface["url"] as? String)
+        if surfaceType.lowercased() == "browser", !url.isEmpty {
+            parts.append(url)
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func topTagLabel(_ tag: [String: Any]) -> String {
+        let key = topLabelText(tag["key"] as? String)
+        let value = topLabelText(tag["value"] as? String)
+        var parts = ["tag \(key.isEmpty ? "unknown" : key)"]
+        if !value.isEmpty {
+            parts.append("\"\(value)\"")
+        }
+        if (tag["visible"] as? Bool) == false {
+            parts.append("[pid-only]")
+        }
+        if let pid = topInt(tag["pid"]) {
+            parts.append("pid=\(pid)")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func topWebViewLabel(_ webview: [String: Any]) -> String {
+        var parts = ["webview"]
+        if let pid = topInt(webview["pid"]) {
+            parts.append("pid=\(pid)")
+        } else {
+            parts.append("pid=unknown")
+        }
+        if let sharedCount = topInt(webview["shared_process_count"]), sharedCount > 1 {
+            parts.append("[shared x\(sharedCount)]")
+        }
+        let title = topLabelText(webview["title"] as? String)
+        if !title.isEmpty {
+            parts.append("\"\(title)\"")
+        }
+        let url = topLabelText(webview["url"] as? String)
+        if !url.isEmpty {
+            parts.append(url)
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func topProcessLabel(_ process: [String: Any]) -> String {
+        let pid = topInt(process["pid"]).map(String.init) ?? "?"
+        let name = topLabelText(process["name"] as? String)
+        let label = name.isEmpty ? "process" : name
+        return "process \(pid) \(label)"
+    }
+
+    private func topResourceColumns(node: [String: Any]) -> String {
+        topResourceColumns(resources: node["resources"] as? [String: Any] ?? [:])
+    }
+
+    private func topResourceColumns(resources: [String: Any]) -> String {
+        let cpu = topDouble(resources["cpu_percent"])
+        let rss = topInt64(resources["resident_bytes"])
+        let count = topInt(resources["process_count"]) ?? 0
+        let cpuText = String(format: "%6.1f%%", cpu)
+        let rssText = padLeft(formatBytes(rss), width: 9)
+        let countText = padLeft(String(count), width: 5)
+        return "\(cpuText) \(rssText) \(countText)  "
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        let units = ["B", "KB", "MB", "GB", "TB"]
+        var value = Double(max(0, bytes))
+        var unitIndex = 0
+        while value >= 1024, unitIndex < units.count - 1 {
+            value /= 1024
+            unitIndex += 1
+        }
+        if unitIndex == 0 {
+            return "\(Int(value)) \(units[unitIndex])"
+        }
+        return String(format: "%.1f %@", value, units[unitIndex])
+    }
+
+    private func padLeft(_ value: String, width: Int) -> String {
+        guard value.count < width else { return value }
+        return String(repeating: " ", count: width - value.count) + value
+    }
+
+    private func topInt(_ raw: Any?) -> Int? {
+        if let value = raw as? Int {
+            return value
+        }
+        if let value = raw as? NSNumber {
+            return value.intValue
+        }
+        if let value = raw as? String {
+            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
+    }
+
+    private func topInt64(_ raw: Any?) -> Int64 {
+        if let value = raw as? Int64 {
+            return value
+        }
+        if let value = raw as? Int {
+            return Int64(value)
+        }
+        if let value = raw as? NSNumber {
+            return value.int64Value
+        }
+        if let value = raw as? String,
+           let parsed = Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return parsed
+        }
+        return 0
+    }
+
+    private func topDouble(_ raw: Any?) -> Double {
+        if let value = raw as? Double {
+            return value
+        }
+        if let value = raw as? NSNumber {
+            return value.doubleValue
+        }
+        if let value = raw as? String,
+           let parsed = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return parsed
+        }
+        return 0
     }
 
     private func isUUID(_ value: String) -> Bool {
@@ -19815,6 +20211,7 @@ export default CMUXSessionRestore;
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
@@ -19823,13 +20220,14 @@ export default CMUXSessionRestore;
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
+          top [--all] [--workspace <id|ref|index>] [--processes]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>]
           close-surface [--surface <id|ref>] [--workspace <id|ref>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>)
-          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>]
+          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
           rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
           drag-surface-to-split --surface <id|ref> <left|right|up|down>
           refresh-surfaces
