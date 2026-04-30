@@ -3124,18 +3124,17 @@ struct CMUXCLI {
             }
             var params: [String: Any] = ["title": title, "subtitle": subtitle, "body": body]
             let method: String
-            if explicitWorkspaceArg != nil || explicitSurfaceArg != nil {
+            if explicitSurfaceArg != nil {
                 method = "notification.create"
                 if let explicitWorkspaceArg { params["workspace_id"] = explicitWorkspaceArg }
                 if let explicitSurfaceArg { params["surface_id"] = explicitSurfaceArg }
             } else {
                 method = "notification.create_for_caller"
                 params["prefer_tty"] = preferTTYFallback
-                if windowId == nil {
-                    let env = ProcessInfo.processInfo.environment
-                    if let workspaceId = env["CMUX_WORKSPACE_ID"], isUUID(workspaceId) { params["preferred_workspace_id"] = workspaceId }
-                    if let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) { params["preferred_surface_id"] = surfaceId }
-                }
+                let env = ProcessInfo.processInfo.environment
+                let workspaceArg = explicitWorkspaceArg ?? (windowId == nil ? env["CMUX_WORKSPACE_ID"] : nil)
+                if let workspaceArg, isUUID(workspaceArg) { params["preferred_workspace_id"] = workspaceArg }
+                if windowId == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) { params["preferred_surface_id"] = surfaceId }
                 if let callerTTY = resolveCallerTTYName() { params["caller_tty"] = callerTTY }
             }
             let payload = try client.sendV2(method: method, params: params)

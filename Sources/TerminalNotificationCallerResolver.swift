@@ -34,7 +34,7 @@ extension TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            TerminalMutationBus.shared.enqueueNotification(
+            self.deliverNotificationSynchronously(
                 tabId: target.workspace.id,
                 surfaceId: target.surfaceId,
                 title: title,

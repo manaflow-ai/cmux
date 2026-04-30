@@ -283,6 +283,22 @@ final class TerminalNotificationCallerTests: XCTestCase {
         XCTAssertEqual(responses, ["OK"])
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
         XCTAssertEqual(store.notifications.first?.title, "Sync")
+
+        store.replaceNotificationsForTesting([])
+        let callerResponse = try await sendV2RequestAsync(
+            method: "notification.create_for_caller",
+            params: [
+                "preferred_workspace_id": workspace.id.uuidString,
+                "preferred_surface_id": focusedPanelId.uuidString,
+                "title": "CallerSync",
+                "subtitle": "Read after write",
+                "body": "Body"
+            ],
+            to: socketPath
+        )
+        XCTAssertEqual(callerResponse["ok"] as? Bool, true, "\(callerResponse)")
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
+        XCTAssertEqual(store.notifications.first?.title, "CallerSync")
     }
 
     private func makeSocketPath(_ name: String) -> String {

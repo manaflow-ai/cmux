@@ -3223,7 +3223,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testNotifyFallsBackFromStaleCallerWorkspaceAndSurfaceIDs() throws {
+    func testNotifyWithExplicitWorkspaceKeepsCallerSurfaceFallback() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -3246,7 +3246,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 switch method {
                 case "notification.create_for_caller":
-                    XCTAssertEqual(params["preferred_workspace_id"] as? String, staleWorkspace)
+                    XCTAssertEqual(params["preferred_workspace_id"] as? String, currentWorkspace)
                     XCTAssertEqual(params["preferred_surface_id"] as? String, staleSurface)
                     XCTAssertEqual(params["prefer_tty"] as? Bool, false)
                     return self.v2Response(
@@ -3276,7 +3276,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["notify"],
+            arguments: ["notify", "--workspace", currentWorkspace],
             environment: environment,
             timeout: 5
         )
