@@ -580,164 +580,7 @@ struct cmuxApp: App {
                 }
             }
 
-            // Tab navigation
-            CommandGroup(after: .toolbar) {
-                splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
-                    if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
-                        sidebarState.toggle()
-                    }
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Focus Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
-                    if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow() != true {
-                        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                        ) != true {
-                            NSSound.beep()
-                        }
-                    }
-                }
-
-                Divider()
-
-                splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Surface"), shortcut: menuShortcut(for: .nextSurface)) {
-                    activeTabManager.selectNextSurface()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.previousSurface", defaultValue: "Previous Surface"), shortcut: menuShortcut(for: .prevSurface)) {
-                    activeTabManager.selectPreviousSurface()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {
-                    activeTabManager.focusedBrowserPanel?.goBack()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.forward", defaultValue: "Forward"), shortcut: menuShortcut(for: .browserForward)) {
-                    activeTabManager.focusedBrowserPanel?.goForward()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.reloadPage", defaultValue: "Reload Page"), shortcut: menuShortcut(for: .browserReload)) {
-                    activeTabManager.focusedBrowserPanel?.reload()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: menuShortcut(for: .toggleBrowserDeveloperTools)) {
-                    let manager = activeTabManager
-                    if !manager.toggleDeveloperToolsFocusedBrowser() {
-                        NSSound.beep()
-                    }
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.showJSConsole", defaultValue: "Show JavaScript Console"), shortcut: menuShortcut(for: .showBrowserJavaScriptConsole)) {
-                    let manager = activeTabManager
-                    if !manager.showJavaScriptConsoleFocusedBrowser() {
-                        NSSound.beep()
-                    }
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: menuShortcut(for: .toggleReactGrab)) {
-                    if !activeTabManager.toggleReactGrabFromCurrentFocus() {
-                        NSSound.beep()
-                    }
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
-                    _ = activeTabManager.zoomInFocusedBrowser()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out"), shortcut: menuShortcut(for: .browserZoomOut)) {
-                    _ = activeTabManager.zoomOutFocusedBrowser()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.actualSize", defaultValue: "Actual Size"), shortcut: menuShortcut(for: .browserZoomReset)) {
-                    _ = activeTabManager.resetZoomFocusedBrowser()
-                }
-
-                Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
-                    BrowserHistoryStore.shared.clearHistory()
-                }
-
-                Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
-                    // Defer modal presentation until after AppKit finishes menu tracking.
-                    DispatchQueue.main.async {
-                        BrowserDataImportCoordinator.shared.presentImportDialog()
-                    }
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.nextWorkspace", defaultValue: "Next Workspace"), shortcut: menuShortcut(for: .nextSidebarTab)) {
-                    activeTabManager.selectNextTab()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.previousWorkspace", defaultValue: "Previous Workspace"), shortcut: menuShortcut(for: .prevSidebarTab)) {
-                    activeTabManager.selectPreviousTab()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…"), shortcut: menuShortcut(for: .renameWorkspace)) {
-                    _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…"), shortcut: menuShortcut(for: .editWorkspaceDescription)) {
-                    _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
-                }
-
-                splitCommandButton(title: String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen"), shortcut: menuShortcut(for: .toggleFullScreen)) {
-                    guard let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-                    targetWindow.toggleFullScreen(nil)
-                }
-
-                Divider()
-
-                splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: menuShortcut(for: .splitRight)) {
-                    performSplitFromMenu(direction: .right)
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.splitDown", defaultValue: "Split Down"), shortcut: menuShortcut(for: .splitDown)) {
-                    performSplitFromMenu(direction: .down)
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
-                    performBrowserSplitFromMenu(direction: .right)
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.splitBrowserDown", defaultValue: "Split Browser Down"), shortcut: menuShortcut(for: .splitBrowserDown)) {
-                    performBrowserSplitFromMenu(direction: .down)
-                }
-
-                Divider()
-
-                // Numbered workspace selection (9 = last workspace)
-                ForEach(1...9, id: \.self) { number in
-                    let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
-                    if selectWorkspaceByNumberShortcut.hasChord {
-                        Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                            let manager = activeTabManager
-                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                                manager.selectTab(at: targetIndex)
-                            }
-                        }
-                    } else {
-                        Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                            let manager = activeTabManager
-                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                                manager.selectTab(at: targetIndex)
-                            }
-                        }
-                        .keyboardShortcut(
-                            KeyEquivalent(Character("\(number)")),
-                            modifiers: selectWorkspaceByNumberShortcut.eventModifiers
-                        )
-                    }
-                }
-
-                Divider()
-
-                splitCommandButton(title: String(localized: "menu.view.jumpToUnread", defaultValue: "Jump to Latest Unread"), shortcut: menuShortcut(for: .jumpToUnread)) {
-                    AppDelegate.shared?.jumpToLatestUnread()
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
-                    showNotificationsPopover()
-                }
-            }
+            windowAndViewCommands
         }
 
         Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
@@ -754,6 +597,169 @@ struct cmuxApp: App {
 
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
+        }
+    }
+
+    @CommandsBuilder
+    private var windowAndViewCommands: some Commands {
+        CommandGroup(after: .windowArrangement) {
+            Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
+                TaskManagerWindowController.shared.show()
+            }
+        }
+        CommandGroup(after: .toolbar) {
+            splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
+                if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
+                    sidebarState.toggle()
+                }
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Focus Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
+                if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow() != true {
+                    if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                    ) != true {
+                        NSSound.beep()
+                    }
+                }
+            }
+            Divider()
+            splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Surface"), shortcut: menuShortcut(for: .nextSurface)) {
+                activeTabManager.selectNextSurface()
+            }
+            splitCommandButton(title: String(localized: "menu.view.previousSurface", defaultValue: "Previous Surface"), shortcut: menuShortcut(for: .prevSurface)) {
+                activeTabManager.selectPreviousSurface()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {
+                activeTabManager.focusedBrowserPanel?.goBack()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.forward", defaultValue: "Forward"), shortcut: menuShortcut(for: .browserForward)) {
+                activeTabManager.focusedBrowserPanel?.goForward()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.reloadPage", defaultValue: "Reload Page"), shortcut: menuShortcut(for: .browserReload)) {
+                activeTabManager.focusedBrowserPanel?.reload()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: menuShortcut(for: .toggleBrowserDeveloperTools)) {
+                let manager = activeTabManager
+                if !manager.toggleDeveloperToolsFocusedBrowser() {
+                    NSSound.beep()
+                }
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.showJSConsole", defaultValue: "Show JavaScript Console"), shortcut: menuShortcut(for: .showBrowserJavaScriptConsole)) {
+                let manager = activeTabManager
+                if !manager.showJavaScriptConsoleFocusedBrowser() {
+                    NSSound.beep()
+                }
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: menuShortcut(for: .toggleReactGrab)) {
+                if !activeTabManager.toggleReactGrabFromCurrentFocus() {
+                    NSSound.beep()
+                }
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
+                _ = activeTabManager.zoomInFocusedBrowser()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out"), shortcut: menuShortcut(for: .browserZoomOut)) {
+                _ = activeTabManager.zoomOutFocusedBrowser()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.actualSize", defaultValue: "Actual Size"), shortcut: menuShortcut(for: .browserZoomReset)) {
+                _ = activeTabManager.resetZoomFocusedBrowser()
+            }
+
+            Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
+                BrowserHistoryStore.shared.clearHistory()
+            }
+
+            Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
+                // Defer modal presentation until after AppKit finishes menu tracking.
+                DispatchQueue.main.async {
+                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                }
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.nextWorkspace", defaultValue: "Next Workspace"), shortcut: menuShortcut(for: .nextSidebarTab)) {
+                activeTabManager.selectNextTab()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.previousWorkspace", defaultValue: "Previous Workspace"), shortcut: menuShortcut(for: .prevSidebarTab)) {
+                activeTabManager.selectPreviousTab()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…"), shortcut: menuShortcut(for: .renameWorkspace)) {
+                _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…"), shortcut: menuShortcut(for: .editWorkspaceDescription)) {
+                _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+            }
+
+            splitCommandButton(title: String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen"), shortcut: menuShortcut(for: .toggleFullScreen)) {
+                guard let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+                targetWindow.toggleFullScreen(nil)
+            }
+
+            Divider()
+
+            splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: menuShortcut(for: .splitRight)) {
+                performSplitFromMenu(direction: .right)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.splitDown", defaultValue: "Split Down"), shortcut: menuShortcut(for: .splitDown)) {
+                performSplitFromMenu(direction: .down)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
+                performBrowserSplitFromMenu(direction: .right)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.splitBrowserDown", defaultValue: "Split Browser Down"), shortcut: menuShortcut(for: .splitBrowserDown)) {
+                performBrowserSplitFromMenu(direction: .down)
+            }
+
+            Divider()
+
+            // Numbered workspace selection (9 = last workspace)
+            ForEach(1...9, id: \.self) { number in
+                let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
+                if selectWorkspaceByNumberShortcut.hasChord {
+                    Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
+                        let manager = activeTabManager
+                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
+                            manager.selectTab(at: targetIndex)
+                        }
+                    }
+                } else {
+                    Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
+                        let manager = activeTabManager
+                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
+                            manager.selectTab(at: targetIndex)
+                        }
+                    }
+                    .keyboardShortcut(
+                        KeyEquivalent(Character("\(number)")),
+                        modifiers: selectWorkspaceByNumberShortcut.eventModifiers
+                    )
+                }
+            }
+
+            Divider()
+
+            splitCommandButton(title: String(localized: "menu.view.jumpToUnread", defaultValue: "Jump to Latest Unread"), shortcut: menuShortcut(for: .jumpToUnread)) {
+                AppDelegate.shared?.jumpToLatestUnread()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
+                showNotificationsPopover()
+            }
         }
     }
 

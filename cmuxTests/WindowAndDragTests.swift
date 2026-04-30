@@ -31,16 +31,100 @@ final class WindowGlassEffectTests: XCTestCase {
 
         if WindowGlassEffect.isAvailable {
             XCTAssertFalse(window.contentView === originalContentView)
-            XCTAssertTrue(window.contentView?.subviews.contains(where: { $0 === originalContentView }) == true)
+            XCTAssertTrue(WindowGlassEffect.originalContentView(for: window) === originalContentView)
+            XCTAssertTrue(originalContentView.superview === WindowGlassEffect.foregroundContainer(for: window))
+            XCTAssertNotNil(WindowGlassEffect.portalInstallationTarget(for: window))
         } else {
             XCTAssertTrue(window.contentView === originalContentView)
-            XCTAssertTrue(originalContentView.subviews.contains(where: { $0 is NSVisualEffectView }))
+            XCTAssertNil(WindowGlassEffect.originalContentView(for: window))
+            XCTAssertNil(WindowGlassEffect.foregroundContainer(for: window))
+            XCTAssertNil(WindowGlassEffect.portalInstallationTarget(for: window))
         }
+        XCTAssertTrue(Self.windowContainsGlassBackground(window))
 
         WindowGlassEffect.remove(from: window)
 
         XCTAssertTrue(window.contentView === originalContentView)
-        XCTAssertFalse(originalContentView.subviews.contains(where: { $0 is NSVisualEffectView }))
+        XCTAssertNil(WindowGlassEffect.foregroundContainer(for: window))
+        XCTAssertNil(WindowGlassEffect.originalContentView(for: window))
+        XCTAssertFalse(Self.windowContainsGlassBackground(window))
+    }
+
+    func testNativeGlassTintFollowsWindowKeyNotifications() throws {
+        guard WindowGlassEffect.isAvailable else {
+            throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")
+        }
+        _ = NSApplication.shared
+
+        let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+
+        WindowGlassEffect.apply(to: window, tintColor: .black, style: .clear)
+
+        guard let backgroundView = Self.glassBackgroundView(in: window.contentView),
+              let tintOverlay = backgroundView.subviews.last else {
+            XCTFail("Expected glass background tint overlay")
+            return
+        }
+
+        XCTAssertGreaterThan(tintOverlay.alphaValue, 0)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        XCTAssertEqual(tintOverlay.alphaValue, 0, accuracy: 0.001)
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        XCTAssertGreaterThan(tintOverlay.alphaValue, 0)
+    }
+
+    private static func windowContainsGlassBackground(_ window: NSWindow) -> Bool {
+        guard let contentView = window.contentView else { return false }
+        let root = contentView.superview ?? contentView
+        return glassBackgroundView(in: root) != nil
+    }
+
+    private static func glassBackgroundView(in view: NSView?) -> NSView? {
+        guard let view else { return nil }
+        if view.identifier == WindowGlassEffect.backgroundViewIdentifier {
+            return view
+        }
+        return view.subviews.lazy.compactMap(glassBackgroundView(in:)).first
+    }
+}
+
+@MainActor
+final class WindowAccessorTests: XCTestCase {
+    func testSameWindowDedupeAllowsRefreshIDChanges() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let coordinator = WindowAccessor.Coordinator()
+
+        XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "glass-off"))
+        XCTAssertFalse(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "glass-off"))
+        XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "glass-clear"))
+        XCTAssertFalse(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "glass-clear"))
+    }
+
+    func testDedupeDisabledAlwaysInvokesForSameWindow() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let coordinator = WindowAccessor.Coordinator()
+
+        XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: false, refreshID: "same"))
+        XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: false, refreshID: "same"))
     }
 }
 

@@ -1469,6 +1469,21 @@ private func attachFileDropOverlay(_ overlay: FileDropOverlayView, to contentVie
     ])
 }
 
+private func fileDropOverlay(_ overlay: FileDropOverlayView, isAttachedTo contentView: NSView, in themeFrame: NSView) -> Bool {
+    guard overlay.superview === themeFrame else { return false }
+    let requiredAttributes: [NSLayoutConstraint.Attribute] = [.top, .bottom, .leading, .trailing]
+    return requiredAttributes.allSatisfy { attribute in
+        themeFrame.constraints.contains { constraint in
+            let firstView = constraint.firstItem as? NSView
+            let secondView = constraint.secondItem as? NSView
+            return firstView === overlay &&
+                secondView === contentView &&
+                constraint.firstAttribute == attribute &&
+                constraint.secondAttribute == attribute
+        }
+    }
+}
+
 @discardableResult
 func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool {
     guard let contentView = window.contentView,
@@ -1481,7 +1496,9 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool
     if let existingOverlay {
         configureFileDropOverlay(existingOverlay, tabManager: tabManager)
         objc_setAssociatedObject(window, &fileDropOverlayKey, existingOverlay, .OBJC_ASSOCIATION_RETAIN)
-        guard existingOverlay.superview !== themeFrame else { return true }
+        guard !fileDropOverlay(existingOverlay, isAttachedTo: contentView, in: themeFrame) else {
+            return true
+        }
         existingOverlay.removeFromSuperview()
         attachFileDropOverlay(existingOverlay, to: contentView, in: themeFrame)
         return true
@@ -3685,7 +3702,7 @@ struct ContentView: View {
             removeSidebarResizerPointerMonitor()
         })
 
-        view = AnyView(view.background(WindowAccessor { [appearance] window in
+        view = AnyView(view.background(WindowAccessor(refreshID: appearance.appKitWindowMutationID) { [appearance] window in
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.isRestorable = false
             setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
@@ -3733,7 +3750,7 @@ struct ContentView: View {
                 // terminal focus-driven updates can leave stale opaque window fills.
                 window.backgroundColor = NSColor.white.withAlphaComponent(0.001)
                 // Configure contentView hierarchy for transparency.
-                if let contentView = window.contentView {
+                if let contentView = WindowGlassEffect.originalContentView(for: window) ?? window.contentView {
                     makeViewHierarchyTransparent(contentView)
                 }
             } else {
@@ -3745,9 +3762,20 @@ struct ContentView: View {
 
             if shouldApplyWindowGlass {
                 // Apply liquid glass effect to the window with tint from settings
-                WindowGlassEffect.apply(to: window, tintColor: appearance.windowGlassSettings.tintColor)
+                let didChangeGlassRoot = WindowGlassEffect.apply(
+                    to: window,
+                    tintColor: appearance.windowGlassSettings.tintColor,
+                    style: appearance.windowGlassSettings.style
+                )
+                if didChangeGlassRoot {
+                    TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+                    BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+                }
             } else {
-                WindowGlassEffect.remove(from: window)
+                if WindowGlassEffect.remove(from: window) {
+                    TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+                    BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+                }
             }
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)
@@ -3755,7 +3783,8 @@ struct ContentView: View {
             // material otherwise blends a lighter strip over the terminal area.
             syncNativeTitlebarBackdrop(
                 in: window,
-                enabled: true
+                enabled: true,
+                usesGlassStyle: shouldApplyWindowGlass
             )
             AppDelegate.shared?.registerMainWindow(
                 window,
@@ -4038,7 +4067,8 @@ struct ContentView: View {
 
     private func syncNativeTitlebarBackdrop(
         in window: NSWindow,
-        enabled: Bool
+        enabled: Bool,
+        usesGlassStyle: Bool
     ) {
         guard let titlebarContainer = nativeTitlebarContainer(in: window) else { return }
         let titlebarView = firstNativeDescendant(
@@ -4070,10 +4100,10 @@ struct ContentView: View {
         }
 
         titlebarContainer.wantsLayer = true
-        titlebarContainer.layer?.backgroundColor = nil
+        titlebarContainer.layer?.backgroundColor = usesGlassStyle ? NSColor.clear.cgColor : nil
         titlebarContainer.layer?.isOpaque = false
         titlebarView?.wantsLayer = true
-        titlebarView?.layer?.backgroundColor = nil
+        titlebarView?.layer?.backgroundColor = usesGlassStyle ? NSColor.clear.cgColor : nil
         titlebarView?.layer?.isOpaque = false
         for titlebarBackgroundView in titlebarBackgroundViews {
             titlebarBackgroundView.isHidden = true
