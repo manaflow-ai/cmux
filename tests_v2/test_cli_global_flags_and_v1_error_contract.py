@@ -61,6 +61,18 @@ def main() -> int:
     conflict_env = dict(os.environ)
     conflict_env["CMUX_SOCKET_PATH"] = SOCKET_PATH
     conflict_env[legacy_socket_key] = "/tmp/cmux-conflicting-legacy.sock"
+    conflict_version = _run([cli, "--version"], env=conflict_env)
+    conflict_version_out = _merged_output(conflict_version).lower()
+    _must(conflict_version.returncode == 0, f"--version should ignore socket env conflicts: {conflict_version_out!r}")
+    _must("cmux" in conflict_version_out, f"--version with socket env conflict should mention cmux: {conflict_version_out!r}")
+    conflict_help = _run([cli, "--help"], env=conflict_env)
+    conflict_help_out = _merged_output(conflict_help).lower()
+    _must(conflict_help.returncode == 0, f"--help should ignore socket env conflicts: {conflict_help_out!r}")
+    _must("usage" in conflict_help_out, f"--help with socket env conflict should show usage: {conflict_help_out!r}")
+    override_ping = _run([cli, "--socket", SOCKET_PATH, "ping"], env=conflict_env)
+    override_ping_out = _merged_output(override_ping).lower()
+    _must(override_ping.returncode == 0, f"--socket should override conflicting socket env: {override_ping_out!r}")
+    _must("pong" in override_ping_out, f"--socket override should still return pong: {override_ping_out!r}")
     conflict_proc = _run([cli, "ping"], env=conflict_env)
     conflict_out = _merged_output(conflict_proc)
     _must(conflict_proc.returncode != 0, f"conflicting socket env should fail: {conflict_out!r}")

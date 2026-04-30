@@ -1914,14 +1914,7 @@ struct CMUXCLI {
 
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
-        let envSocketPath = try CLISocketEnvironment.socketPath(in: processEnv)
-        var socketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
-        var socketPathSource: CLISocketPathSource
-        if let envSocketPath {
-            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(envSocketPath) ? .implicitDefault : .environment
-        } else {
-            socketPathSource = .implicitDefault
-        }
+        var explicitSocketPath: String? = nil
         var jsonOutput = false
         var idFormatArg: String? = nil
         var windowId: String? = nil
@@ -1934,8 +1927,7 @@ struct CMUXCLI {
                 guard index + 1 < args.count else {
                     throw CLIError(message: "--socket requires a path")
                 }
-                socketPath = args[index + 1]
-                socketPathSource = .explicitFlag
+                explicitSocketPath = args[index + 1]
                 index += 2
                 continue
             }
@@ -1986,17 +1978,6 @@ struct CMUXCLI {
 
         let command = args[index]
         let commandArgs = Array(args[(index + 1)...])
-        let cliTelemetry = CLISocketSentryTelemetry(
-            command: command,
-            commandArgs: commandArgs,
-            socketPath: socketPath,
-            processEnv: processEnv
-        )
-        let resolvedSocketPath = CLISocketPathResolver.resolve(
-            requestedPath: socketPath,
-            source: socketPathSource,
-            environment: processEnv
-        )
 
         if command == "version" {
             print(versionSummary())
@@ -2012,6 +1993,30 @@ struct CMUXCLI {
             try runVMPtyConnect(commandArgs: commandArgs)
             return
         }
+
+        let envSocketPath = explicitSocketPath == nil
+            ? try CLISocketEnvironment.socketPath(in: processEnv)
+            : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
+        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath
+        let socketPathSource: CLISocketPathSource
+        if explicitSocketPath != nil {
+            socketPathSource = .explicitFlag
+        } else if let envSocketPath {
+            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(envSocketPath) ? .implicitDefault : .environment
+        } else {
+            socketPathSource = .implicitDefault
+        }
+        let cliTelemetry = CLISocketSentryTelemetry(
+            command: command,
+            commandArgs: commandArgs,
+            socketPath: socketPath,
+            processEnv: processEnv
+        )
+        let resolvedSocketPath = CLISocketPathResolver.resolve(
+            requestedPath: socketPath,
+            source: socketPathSource,
+            environment: processEnv
+        )
 
         // If the argument looks like a path (not a known command), open a workspace there.
         if looksLikePath(command) {
