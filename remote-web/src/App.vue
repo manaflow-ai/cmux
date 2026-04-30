@@ -107,7 +107,7 @@
           </div>
 
           <div class="composer">
-            <form class="send-form" @submit.prevent="sendComposerText">
+            <form class="send-form" @submit.prevent="sendComposerTextAndEnter">
               <textarea
                 v-model="composerText"
                 rows="2"
@@ -115,6 +115,7 @@
                 spellcheck="false"
                 :disabled="!selectedSurface"
                 :placeholder="t('inputPlaceholder')"
+                @keydown.enter.exact="handleComposerEnter"
               ></textarea>
               <button type="submit" :disabled="!selectedSurface || !composerText">{{ t("sendButton") }}</button>
             </form>
@@ -464,12 +465,12 @@ async function readSelectedTerminal() {
   writeTerminal(result.text || t("terminalEmptyOutput"), !result.text);
 }
 
-async function sendText(text: string) {
+async function sendTextAndEnter(text: string) {
   const target = currentTerminalTarget();
   if (!target) return;
   terminalInputQueue.flushBuffer();
   await terminalInputQueue.waitForIdle();
-  await sendTextMutation(target, text);
+  await sendTextMutation(target, `${text}\r`);
   await readSelectedTerminalForTarget(target);
 }
 
@@ -530,10 +531,17 @@ function targetEquals(lhs: TerminalInputTarget, rhs: TerminalInputTarget) {
   return lhs.workspaceID === rhs.workspaceID && lhs.surfaceID === rhs.surfaceID;
 }
 
-function sendComposerText() {
+function sendComposerTextAndEnter() {
   const text = composerText.value;
+  if (!text) return;
   composerText.value = "";
-  sendText(text).catch(handleRemoteError);
+  sendTextAndEnter(text).catch(handleRemoteError);
+}
+
+function handleComposerEnter(event: KeyboardEvent) {
+  if (event.isComposing) return;
+  event.preventDefault();
+  sendComposerTextAndEnter();
 }
 
 function readSelectedTerminalFromButton() {

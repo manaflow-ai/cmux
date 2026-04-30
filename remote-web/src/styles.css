@@ -480,9 +480,11 @@ p {
 
 .terminal-stage {
   position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
   min-height: 260px;
-  padding-top: 29px;
+  padding: 39px 12px 12px;
   background:
     linear-gradient(180deg, #0d1318 0 29px, transparent 29px),
     radial-gradient(circle at 100% 0%, rgba(99, 183, 255, 0.08), transparent 35%),
@@ -517,9 +519,8 @@ p {
 
 .xterm-host {
   width: 100%;
-  height: 100%;
+  height: auto;
   min-height: 0;
-  padding: 10px 12px 12px;
   overflow: hidden;
 }
 
@@ -694,7 +695,7 @@ p {
   }
 
   .xterm-host {
-    padding: 8px;
+    min-height: 0;
   }
 
   .quick-key-strip {
