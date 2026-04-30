@@ -205,6 +205,7 @@ final class FindSelectionShortcutUITests: XCTestCase {
             waitForDataMatch(timeout: 6.0) { $0["focusedPanelKind"] == pane.focusKey },
             "Expected \(pane.focusKey) focus before Escape. data=\(String(describing: loadData()))"
         )
+        app.typeKey("f", modifierFlags: [.command])
         let restoredFindField = app.textFields[pane.findFieldId].firstMatch
         XCTAssertTrue(
             restoredFindField.waitForExistence(timeout: 6.0),

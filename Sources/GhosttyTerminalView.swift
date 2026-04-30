@@ -11863,7 +11863,7 @@ final class GhosttySurfaceScrollView: NSView {
               ownedPanelFocusIntent(for: firstResponder) == intent else {
             return false
         }
-
+        if intent == .findField { _ = cmuxRememberFindSelection(in: searchOverlayHostingView) }
         surfaceView.terminalSurface?.setFocus(false)
         resignOwnedFirstResponderIfNeeded(reason: "yieldPanelFocusIntent")
 #if DEBUG

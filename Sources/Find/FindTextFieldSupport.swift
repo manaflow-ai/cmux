@@ -21,6 +21,49 @@ func cmuxTextFieldIsFirstResponder(_ field: NSTextField, in window: NSWindow) ->
         (firstResponder as? NSTextView).flatMap { cmuxFieldEditorOwnerView($0) } === field
 }
 
+private let cmuxFindSelectionChangingCommands: Set<String> = [
+    "moveLeft:",
+    "moveRight:",
+    "moveUp:",
+    "moveDown:",
+    "moveWordLeft:",
+    "moveWordRight:",
+    "moveToBeginningOfLine:",
+    "moveToEndOfLine:",
+    "moveToBeginningOfDocument:",
+    "moveToEndOfDocument:",
+    "moveLeftAndModifySelection:",
+    "moveRightAndModifySelection:",
+    "moveUpAndModifySelection:",
+    "moveDownAndModifySelection:",
+    "moveWordLeftAndModifySelection:",
+    "moveWordRightAndModifySelection:",
+    "moveToBeginningOfLineAndModifySelection:",
+    "moveToEndOfLineAndModifySelection:",
+    "moveToBeginningOfDocumentAndModifySelection:",
+    "moveToEndOfDocumentAndModifySelection:",
+    "selectAll:",
+]
+
+func cmuxFindCommandMayChangeSelection(_ selector: Selector) -> Bool {
+    cmuxFindSelectionChangingCommands.contains(NSStringFromSelector(selector))
+}
+
+@discardableResult
+func cmuxRememberFindSelection(in root: NSView?) -> NSRange? {
+    guard let root else { return nil }
+    if let field = root as? FindSelectionTrackingTextField,
+       let selection = field.cmuxRememberSelectionFromCurrentEditor() {
+        return selection
+    }
+    for subview in root.subviews {
+        if let selection = cmuxRememberFindSelection(in: subview) {
+            return selection
+        }
+    }
+    return nil
+}
+
 class FindSelectionTrackingTextField: NSTextField {
     var cmuxLastSelectedRange: NSRange?
     private var cmuxSelectionObserver: NSObjectProtocol?

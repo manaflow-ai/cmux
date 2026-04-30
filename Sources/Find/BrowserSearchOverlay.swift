@@ -287,6 +287,12 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
                 parent.onReturn(isShift)
                 return true
             default:
+                if cmuxFindCommandMayChangeSelection(commandSelector) {
+                    DispatchQueue.main.async { [weak self, weak textView] in
+                        guard let textView else { return }
+                        self?.rememberSelection(from: textView)
+                    }
+                }
                 return false
             }
         }
