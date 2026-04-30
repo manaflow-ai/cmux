@@ -30,13 +30,18 @@ final class FilePreviewFocusCoordinator {
     }
 
     func focus(_ intent: FilePreviewPanelFocusIntent) -> Bool {
+        preferredIntent = intent
         guard let endpoint = endpoint(for: intent) else {
             pendingIntent = intent
             return false
         }
+        guard let window = endpoint.window,
+              window.makeFirstResponder(endpoint) else {
+            pendingIntent = intent
+            return false
+        }
         pendingIntent = nil
-        preferredIntent = intent
-        return endpoint.window?.makeFirstResponder(endpoint) ?? false
+        return true
     }
 
     func ownedIntent(for responder: NSResponder, in window: NSWindow) -> FilePreviewPanelFocusIntent? {
@@ -61,6 +66,11 @@ final class FilePreviewFocusCoordinator {
 
     private func fulfillPendingFocusIfNeeded(for intent: FilePreviewPanelFocusIntent) {
         guard pendingIntent == intent else { return }
+        fulfillPendingFocusIfNeeded()
+    }
+
+    func fulfillPendingFocusIfNeeded() {
+        guard let intent = pendingIntent else { return }
         _ = focus(intent)
     }
 

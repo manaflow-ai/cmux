@@ -561,6 +561,10 @@ final class FilePreviewPanel: Panel, ObservableObject {
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
     }
 
+    func retryPendingFocus() {
+        focusCoordinator.fulfillPendingFocusIfNeeded()
+    }
+
     func attachPDFPreview(root: NSView, primaryResponder: NSView) {
         attachPreviewFocus(root: root, primaryResponder: primaryResponder, intent: .pdfCanvas)
     }
@@ -1012,6 +1016,7 @@ final class SavingTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyFilePreviewTextEditorInsets()
+        panel?.retryPendingFocus()
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

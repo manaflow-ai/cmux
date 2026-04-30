@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Carbon.HIToolbox
 import XCTest
 
@@ -80,6 +81,68 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         }
     }
 
+    func testFocusCoordinatorKeepsPendingFocusUntilEndpointHasWindow() {
+        let textView = FilePreviewReviewFocusTestView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let coordinator = FilePreviewFocusCoordinator(preferredIntent: .textEditor)
+        coordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
+
+        XCTAssertFalse(coordinator.focus(.textEditor))
+
+        let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = textView
+        coordinator.fulfillPendingFocusIfNeeded()
+
+        XCTAssertTrue(window.firstResponder === textView)
+    }
+
+    func testFileOpenHonorsExplicitPaneDestinationInsteadOfReusingExistingPreview() throws {
+        let originalURL = try temporaryTextFile(contents: "original", encoding: .utf8)
+        let placeholderURL = try temporaryTextFile(contents: "placeholder", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: originalURL)
+            try? FileManager.default.removeItem(at: placeholderURL)
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let firstPane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let existingPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: firstPane,
+            filePath: originalURL.path,
+            focus: false
+        ))
+        let placeholderPanel = try XCTUnwrap(workspace.splitPaneWithFilePreview(
+            targetPane: firstPane,
+            orientation: .horizontal,
+            insertFirst: false,
+            filePath: placeholderURL.path
+        ))
+        let targetPane = try XCTUnwrap(workspace.paneId(forPanelId: placeholderPanel.id))
+        let startingTargetTabs = workspace.bonsplitController.tabs(inPane: targetPane).count
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let result = TerminalController.shared.v2FileOpen(params: [
+            "paths": [originalURL.path],
+            "workspace_id": workspace.id.uuidString,
+            "pane_id": targetPane.id.uuidString,
+            "focus": false
+        ])
+
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any],
+              let openedPanelIdString = payload["surface_id"] as? String,
+              let openedPanelId = UUID(uuidString: openedPanelIdString) else {
+            XCTFail("Expected file.open to succeed, got \(result)")
+            return
+        }
+
+        XCTAssertNotEqual(openedPanelId, existingPanel.id)
+        XCTAssertEqual(payload["pane_id"] as? String, targetPane.id.uuidString)
+        XCTAssertEqual(workspace.paneId(forPanelId: openedPanelId)?.id, targetPane.id)
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: targetPane).count, startingTargetTabs + 1)
+    }
+
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -116,4 +179,9 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             XCTFail("Timed out waiting for panel save", file: file, line: line)
         }
     }
+}
+
+private final class FilePreviewReviewFocusTestView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
 }

@@ -97,14 +97,17 @@ extension TerminalController {
                 v2MaybeSelectWorkspace(tabManager, workspace: ws)
             }
 
+            let requestedPaneUUID = v2UUID(params, "pane_id")
+            let requestedSurfaceUUID = v2UUID(params, "surface_id")
+            let hasExplicitPaneDestination = requestedPaneUUID != nil || requestedSurfaceUUID != nil
             let paneId: PaneID?
-            if let paneUUID = v2UUID(params, "pane_id") {
+            if let paneUUID = requestedPaneUUID {
                 paneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
                 if paneId == nil {
                     result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
                     return
                 }
-            } else if let surfaceId = v2UUID(params, "surface_id") {
+            } else if let surfaceId = requestedSurfaceUUID {
                 guard ws.panels[surfaceId] != nil else {
                     result = .err(
                         code: "not_found",
@@ -127,7 +130,7 @@ extension TerminalController {
                 inPane: paneId,
                 filePaths: filePaths,
                 focus: shouldFocus,
-                reuseExisting: filePaths.count == 1
+                reuseExisting: filePaths.count == 1 && !hasExplicitPaneDestination
             )
             guard !openedPanels.isEmpty else {
                 result = .err(code: "internal_error", message: "Failed to create file preview", data: nil)
