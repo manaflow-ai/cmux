@@ -56,7 +56,10 @@ enum CMUXRemoteWebClient {
         LocalizedEntry("readButton", key: "remoteAccess.web.action.read", defaultValue: "Read"),
         LocalizedEntry("inputPlaceholder", key: "remoteAccess.web.terminal.inputPlaceholder", defaultValue: "Type input"),
         LocalizedEntry("sendButton", key: "remoteAccess.web.action.send", defaultValue: "Send"),
+        LocalizedEntry("terminalOutputLabel", key: "remoteAccess.web.terminal.outputLabel", defaultValue: "Terminal output"),
         LocalizedEntry("terminalKeysLabel", key: "remoteAccess.web.terminal.keysLabel", defaultValue: "Terminal keys"),
+        LocalizedEntry("quickKeysLabel", key: "remoteAccess.web.terminal.quickKeysLabel", defaultValue: "Quick keys"),
+        LocalizedEntry("terminalEmptyOutput", key: "remoteAccess.web.terminal.emptyOutput", defaultValue: "No output yet. Press Read to fetch the terminal."),
         LocalizedEntry("key.enter", key: "remoteAccess.web.key.enter", defaultValue: "Enter"),
         LocalizedEntry("key.escape", key: "remoteAccess.web.key.escape", defaultValue: "Esc"),
         LocalizedEntry("key.ctrlC", key: "remoteAccess.web.key.ctrlC", defaultValue: "Ctrl-C"),
@@ -135,7 +138,7 @@ enum CMUXRemoteWebClient {
 </head>
 <body>
   <main id="app" class="shell">
-    <section id="token-view" class="panel token-panel">
+    <section id="token-view" class="token-panel">
       <div class="brand-row">
         <div class="mark" aria-hidden="true">c</div>
         <div>
@@ -153,9 +156,12 @@ enum CMUXRemoteWebClient {
 
     <section id="remote-view" class="remote-view" hidden>
       <header class="topbar">
-        <div>
-          <h1 data-i18n="productName">\#(htmlText(strings["productName"]))</h1>
-          <p id="status-line" data-i18n="status.disconnected">\#(htmlText(strings["status.disconnected"]))</p>
+        <div class="topbar-brand">
+          <div class="mark small" aria-hidden="true">c</div>
+          <div>
+            <h1 data-i18n="productName">\#(htmlText(strings["productName"]))</h1>
+            <p id="status-line" class="status-pill" data-i18n="status.disconnected">\#(htmlText(strings["status.disconnected"]))</p>
+          </div>
         </div>
         <div class="top-actions">
           <button id="refresh-button" type="button" data-i18n="refreshButton">\#(htmlText(strings["refreshButton"]))</button>
@@ -164,34 +170,48 @@ enum CMUXRemoteWebClient {
       </header>
 
       <section class="layout">
-        <aside class="panel nav-panel">
-          <div class="panel-title" data-i18n="sessionsTitle">\#(htmlText(strings["sessionsTitle"]))</div>
+        <aside class="nav-panel">
+          <div class="panel-title">
+            <span data-i18n="sessionsTitle">\#(htmlText(strings["sessionsTitle"]))</span>
+          </div>
           <div id="tree-list" class="tree-list"></div>
         </aside>
 
-        <section class="panel terminal-panel">
+        <section class="terminal-panel">
           <div class="terminal-head">
             <div>
               <div id="terminal-title" class="terminal-title" data-i18n="noTerminalSelected">\#(htmlText(strings["noTerminalSelected"]))</div>
               <div id="terminal-meta" class="terminal-meta" data-i18n="selectTerminal">\#(htmlText(strings["selectTerminal"]))</div>
             </div>
-            <button id="read-button" type="button" class="ghost" data-i18n="readButton">\#(htmlText(strings["readButton"]))</button>
           </div>
-          <pre id="terminal-output" class="terminal-output" aria-live="polite"></pre>
-          <form id="send-form" class="send-form">
-            <textarea id="send-input" rows="2" spellcheck="false" placeholder="\#(htmlAttribute(strings["inputPlaceholder"]))" data-i18n-placeholder="inputPlaceholder"></textarea>
-            <button type="submit" data-i18n="sendButton">\#(htmlText(strings["sendButton"]))</button>
-          </form>
-          <div class="key-grid" aria-label="\#(htmlAttribute(strings["terminalKeysLabel"]))" data-i18n-aria-label="terminalKeysLabel">
-            <button type="button" data-key="enter" data-i18n="key.enter">\#(htmlText(strings["key.enter"]))</button>
-            <button type="button" data-key="escape" data-i18n="key.escape">\#(htmlText(strings["key.escape"]))</button>
-            <button type="button" data-key="ctrl-c" data-i18n="key.ctrlC">\#(htmlText(strings["key.ctrlC"]))</button>
-            <button type="button" data-key="tab" data-i18n="key.tab">\#(htmlText(strings["key.tab"]))</button>
-            <button type="button" data-key="up" data-i18n="key.up">\#(htmlText(strings["key.up"]))</button>
-            <button type="button" data-key="down" data-i18n="key.down">\#(htmlText(strings["key.down"]))</button>
-            <button type="button" data-key="left" data-i18n="key.left">\#(htmlText(strings["key.left"]))</button>
-            <button type="button" data-key="right" data-i18n="key.right">\#(htmlText(strings["key.right"]))</button>
-            <button type="button" data-key="backspace" data-i18n="key.backspace">\#(htmlText(strings["key.backspace"]))</button>
+
+          <div class="terminal-frame">
+            <div class="terminal-toolbar">
+              <span data-i18n="terminalOutputLabel">\#(htmlText(strings["terminalOutputLabel"]))</span>
+              <button id="read-button" type="button" class="ghost" data-i18n="readButton">\#(htmlText(strings["readButton"]))</button>
+            </div>
+            <pre id="terminal-output" class="terminal-output empty" aria-live="polite" aria-label="\#(htmlAttribute(strings["terminalOutputLabel"]))" data-i18n-aria-label="terminalOutputLabel">\#(htmlText(strings["terminalEmptyOutput"]))</pre>
+          </div>
+
+          <div class="composer-panel">
+            <form id="send-form" class="send-form">
+              <textarea id="send-input" rows="2" spellcheck="false" placeholder="\#(htmlAttribute(strings["inputPlaceholder"]))" data-i18n-placeholder="inputPlaceholder"></textarea>
+              <button type="submit" data-i18n="sendButton">\#(htmlText(strings["sendButton"]))</button>
+            </form>
+            <div class="key-section">
+              <div class="panel-title compact" data-i18n="quickKeysLabel">\#(htmlText(strings["quickKeysLabel"]))</div>
+              <div class="key-grid" aria-label="\#(htmlAttribute(strings["terminalKeysLabel"]))" data-i18n-aria-label="terminalKeysLabel">
+                <button type="button" data-key="enter" data-i18n="key.enter">\#(htmlText(strings["key.enter"]))</button>
+                <button type="button" data-key="escape" data-i18n="key.escape">\#(htmlText(strings["key.escape"]))</button>
+                <button type="button" data-key="ctrl-c" data-i18n="key.ctrlC">\#(htmlText(strings["key.ctrlC"]))</button>
+                <button type="button" data-key="tab" data-i18n="key.tab">\#(htmlText(strings["key.tab"]))</button>
+                <button type="button" data-key="up" data-i18n="key.up">\#(htmlText(strings["key.up"]))</button>
+                <button type="button" data-key="down" data-i18n="key.down">\#(htmlText(strings["key.down"]))</button>
+                <button type="button" data-key="left" data-i18n="key.left">\#(htmlText(strings["key.left"]))</button>
+                <button type="button" data-key="right" data-i18n="key.right">\#(htmlText(strings["key.right"]))</button>
+                <button type="button" data-key="backspace" data-i18n="key.backspace">\#(htmlText(strings["key.backspace"]))</button>
+              </div>
+            </div>
           </div>
         </section>
       </section>
@@ -244,27 +264,45 @@ enum CMUXRemoteWebClient {
     private static let css = #"""
 :root {
   color-scheme: dark;
-  --bg: #121417;
-  --panel: #1b1f24;
-  --panel-2: #23282f;
-  --text: #f4f0e8;
-  --muted: #a8b0ba;
-  --line: #333a43;
-  --accent: #62d2a2;
+  --bg: #0b0d10;
+  --bg-raised: #101317;
+  --panel: #15191f;
+  --panel-2: #1d232b;
+  --terminal: #050608;
+  --text: #f2efe7;
+  --muted: #8d98a7;
+  --muted-2: #657182;
+  --line: #2a313a;
+  --line-strong: #3a4350;
+  --accent: #5ee6a8;
+  --accent-2: #6bbcff;
+  --warning: #f5c76b;
   --danger: #ff7b72;
+  --shadow: 0 18px 70px rgba(0, 0, 0, 0.36);
 }
 
 * {
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--bg);
+  background:
+    radial-gradient(circle at top left, rgba(94, 230, 168, 0.10), transparent 34rem),
+    radial-gradient(circle at 85% 8%, rgba(107, 188, 255, 0.08), transparent 30rem),
+    var(--bg);
   color: var(--text);
   font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+body {
+  min-height: 100dvh;
 }
 
 button,
@@ -278,12 +316,24 @@ button {
   background: var(--panel-2);
   color: var(--text);
   border-radius: 8px;
-  min-height: 42px;
-  padding: 0 14px;
+  min-height: 40px;
+  padding: 0 13px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease, transform 80ms ease;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: #252c36;
 }
 
 button:active {
   transform: translateY(1px);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 button.primary,
@@ -295,7 +345,7 @@ button[type="submit"] {
 }
 
 button.ghost {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 input,
@@ -303,32 +353,38 @@ textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #0f1114;
+  background: #080a0d;
   color: var(--text);
   padding: 12px;
+  outline: none;
+}
+
+input:focus,
+textarea:focus {
+  border-color: rgba(94, 230, 168, 0.72);
+  box-shadow: 0 0 0 3px rgba(94, 230, 168, 0.12);
 }
 
 textarea {
-  min-height: 70px;
+  min-height: 76px;
   resize: vertical;
 }
 
 .shell {
-  width: min(1180px, 100%);
+  width: min(1280px, 100%);
   margin: 0 auto;
-  padding: max(16px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom));
-}
-
-.panel {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  min-height: 100dvh;
+  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
 }
 
 .token-panel {
-  margin: 12vh auto 0;
-  max-width: 440px;
-  padding: 18px;
+  margin: 11vh auto 0;
+  max-width: 460px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(29, 35, 43, 0.98), rgba(18, 22, 27, 0.98));
+  box-shadow: var(--shadow);
 }
 
 .brand-row {
@@ -349,13 +405,19 @@ textarea {
   font-size: 28px;
 }
 
+.mark.small {
+  width: 34px;
+  height: 34px;
+  font-size: 20px;
+}
+
 h1,
 p {
   margin: 0;
 }
 
 h1 {
-  font-size: 22px;
+  font-size: 21px;
   letter-spacing: 0;
 }
 
@@ -377,6 +439,12 @@ p,
   font-size: 13px;
 }
 
+.remote-view {
+  min-height: calc(100dvh - max(14px, env(safe-area-inset-top)) - max(14px, env(safe-area-inset-bottom)));
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
 .topbar,
 .terminal-head {
   display: flex;
@@ -386,7 +454,17 @@ p,
 }
 
 .topbar {
-  padding: 4px 2px 14px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 4px 2px 12px;
+  background: linear-gradient(180deg, var(--bg) 72%, rgba(11, 13, 16, 0));
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
 }
 
 .top-actions {
@@ -394,15 +472,61 @@ p,
   gap: 8px;
 }
 
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status-pill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--warning);
+  box-shadow: 0 0 16px rgba(245, 199, 107, 0.5);
+}
+
+.status-pill.error::before {
+  background: var(--danger);
+  box-shadow: 0 0 16px rgba(255, 123, 114, 0.5);
+}
+
+.status-pill.connected::before {
+  background: var(--accent);
+  box-shadow: 0 0 16px rgba(94, 230, 168, 0.55);
+}
+
 .layout {
   display: grid;
-  grid-template-columns: minmax(260px, 360px) 1fr;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 12px;
+  min-height: 0;
 }
 
 .nav-panel,
 .terminal-panel {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(21, 25, 31, 0.9);
+  box-shadow: var(--shadow);
+}
+
+.nav-panel {
   padding: 12px;
+  overflow: auto;
+}
+
+.terminal-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .panel-title {
@@ -412,6 +536,10 @@ p,
   letter-spacing: 0.04em;
   text-transform: uppercase;
   margin-bottom: 8px;
+}
+
+.panel-title.compact {
+  margin: 0;
 }
 
 .tree-list {
@@ -428,8 +556,8 @@ p,
 .workspace {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px;
-  background: #15191d;
+  padding: 9px;
+  background: rgba(8, 10, 13, 0.52);
 }
 
 .workspace-title {
@@ -437,6 +565,7 @@ p,
   justify-content: space-between;
   gap: 10px;
   font-weight: 700;
+  font-size: 13px;
 }
 
 .workspace-meta,
@@ -451,27 +580,123 @@ p,
   margin-top: 8px;
 }
 
+.surface-button {
+  display: grid;
+  gap: 3px;
+  min-height: 56px;
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
 .surface-button.selected {
   border-color: var(--accent);
+  background: rgba(94, 230, 168, 0.09);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.surface-button.focused:not(.selected) {
+  border-color: rgba(107, 188, 255, 0.45);
+}
+
+.surface-button:disabled {
+  opacity: 0.58;
+}
+
+.surface-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.surface-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.surface-meta::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--muted-2);
+}
+
+.surface-button.focused .surface-meta::before {
+  background: var(--accent-2);
+  box-shadow: 0 0 12px rgba(107, 188, 255, 0.5);
 }
 
 .terminal-title {
   font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-head {
+  min-width: 0;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(29, 35, 43, 0.78), rgba(21, 25, 31, 0.92));
+}
+
+.terminal-head > div {
+  min-width: 0;
+}
+
+.terminal-frame {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--terminal);
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid #1a2027;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .terminal-output {
-  min-height: 46vh;
-  max-height: 56vh;
+  min-height: 0;
+  height: 100%;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  margin: 12px 0;
+  margin: 0;
+  padding: 14px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.018) 50%, transparent 50%) 0 0 / 100% 2.9em,
+    var(--terminal);
+  color: #e7dfd3;
+  font: 12.5px/1.48 "SF Mono", Menlo, Consolas, monospace;
+  tab-size: 2;
+}
+
+.terminal-output.empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted-2);
+  text-align: center;
+}
+
+.composer-panel {
+  display: grid;
+  gap: 10px;
   padding: 12px;
-  border-radius: 8px;
-  background: #080a0c;
-  color: #e9e1d4;
-  border: 1px solid #252b32;
-  font: 12px/1.45 "SF Mono", Menlo, Consolas, monospace;
+  border-top: 1px solid var(--line);
+  background: rgba(16, 19, 23, 0.98);
 }
 
 .send-form {
@@ -482,9 +707,17 @@ p,
 
 .key-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.key-grid button {
+  min-height: 34px;
+  padding: 0 8px;
+  color: var(--muted);
+  background: #0c0f13;
+  font-size: 12px;
 }
 
 .error {
@@ -497,8 +730,17 @@ p,
     padding-right: 10px;
   }
 
+  .remote-view {
+    min-height: auto;
+  }
+
+  .topbar {
+    position: static;
+  }
+
   .layout {
     grid-template-columns: 1fr;
+    min-height: auto;
   }
 
   .topbar {
@@ -506,11 +748,47 @@ p,
   }
 
   .top-actions {
-    flex-direction: column;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .nav-panel {
+    max-height: 34dvh;
+  }
+
+  .terminal-panel {
+    min-height: 62dvh;
   }
 
   .terminal-output {
-    min-height: 38vh;
+    min-height: 34dvh;
+  }
+
+  .send-form {
+    grid-template-columns: 1fr;
+  }
+
+  .key-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 430px) {
+  .topbar,
+  .terminal-head {
+    align-items: flex-start;
+  }
+
+  .top-actions {
+    width: 100%;
+  }
+
+  .top-actions button {
+    flex: 1;
+  }
+
+  .terminal-output {
+    font-size: 12px;
   }
 }
 """#
@@ -585,6 +863,15 @@ function applyStaticStrings() {
 function setStatus(message, isError = false) {
   els.statusLine.textContent = message;
   els.statusLine.classList.toggle("error", isError);
+  els.statusLine.classList.toggle("connected", message === t("status.connected") && !isError);
+}
+
+function setTerminalOutput(text, isEmpty = false) {
+  els.terminalOutput.textContent = text;
+  els.terminalOutput.classList.toggle("empty", isEmpty);
+  if (!isEmpty) {
+    els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
+  }
 }
 
 function authHeaders() {
@@ -610,6 +897,7 @@ function updateVisibility() {
   const hasToken = Boolean(state.token);
   els.tokenView.hidden = hasToken;
   els.remoteView.hidden = !hasToken;
+  document.body.classList.toggle("has-token", hasToken);
 }
 
 async function rpc(method, params = {}) {
@@ -686,7 +974,7 @@ function ensureSelection() {
   if (state.selectedSurface) {
     readSelectedTerminal().catch((error) => setStatus(error.message, true));
   } else {
-    els.terminalOutput.textContent = "";
+    setTerminalOutput(t("terminalEmptyOutput"), true);
   }
 }
 
@@ -729,6 +1017,7 @@ function renderTree() {
           button.type = "button";
           button.className = "surface-button";
           button.classList.toggle("selected", state.selectedSurface?.surface.id === surface.id);
+          button.classList.toggle("focused", Boolean(surface.focused));
           button.disabled = surface.type !== "terminal";
           button.addEventListener("click", () => {
             state.selectedSurface = { window: win, workspace, pane, surface };
@@ -737,6 +1026,7 @@ function renderTree() {
             readSelectedTerminal().catch((error) => setStatus(error.message, true));
           });
           const label = document.createElement("div");
+          label.className = "surface-label";
           label.textContent = surface.title || surface.type || t("tree.surfaceFallback");
           const detail = document.createElement("div");
           detail.className = "surface-meta";
@@ -772,8 +1062,8 @@ async function readSelectedTerminal() {
     surface_id: selected.surface.id,
     lines: 200,
   });
-  els.terminalOutput.textContent = result.text || "";
-  els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
+  const text = result.text || "";
+  setTerminalOutput(text || t("terminalEmptyOutput"), !text);
 }
 
 async function sendText(text) {

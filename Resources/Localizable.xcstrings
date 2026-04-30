@@ -61553,11 +61553,32 @@
         "ja": { "stringUnit": { "state": "translated", "value": "入力を入力" } }
       }
     },
+    "remoteAccess.web.terminal.outputLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal output" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル出力" } }
+      }
+    },
     "remoteAccess.web.terminal.keysLabel": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Terminal keys" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ターミナルキー" } }
+      }
+    },
+    "remoteAccess.web.terminal.quickKeysLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Quick keys" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クイックキー" } }
+      }
+    },
+    "remoteAccess.web.terminal.emptyOutput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No output yet. Press Read to fetch the terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "まだ出力はありません。「読み取り」でターミナルを取得します。" } }
       }
     },
     "remoteAccess.web.key.enter": {
