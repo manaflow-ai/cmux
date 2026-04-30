@@ -3223,7 +3223,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testNotifyWithExplicitWorkspaceKeepsCallerSurfaceFallback() throws {
+    func testNotifyWithWorkspaceHandleKeepsCallerSurfaceFallback() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -3242,9 +3242,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String,
                let method = payload["method"] as? String {
-                let params = payload["params"] as? [String: Any] ?? [:]
-                switch method {
-                case "notification.create_for_caller":
+                if method == "workspace.list" { return self.v2Response(id: id, ok: true, result: ["workspaces": [["id": currentWorkspace, "index": 1]]]) }
+                if method == "notification.create_for_caller" {
+                    let params = payload["params"] as? [String: Any] ?? [:]
                     XCTAssertEqual(params["preferred_workspace_id"] as? String, currentWorkspace)
                     XCTAssertEqual(params["preferred_surface_id"] as? String, staleSurface)
                     XCTAssertEqual(params["prefer_tty"] as? Bool, false)
@@ -3253,8 +3253,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                         ok: true,
                         result: ["workspace_id": currentWorkspace, "surface_id": currentSurface]
                     )
-                default:
-                    break
                 }
                 return self.v2Response(
                     id: id,
@@ -3276,7 +3274,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["notify", "--workspace", currentWorkspace],
+            arguments: ["notify", "--workspace", "1"],
             environment: environment,
             timeout: 5
         )

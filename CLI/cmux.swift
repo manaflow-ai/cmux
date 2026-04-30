@@ -3113,7 +3113,7 @@ struct CMUXCLI {
             let preferTTYFallback = windowId == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
             let hasExplicitHandle = [explicitWorkspaceArg, explicitSurfaceArg].compactMap { $0 }.contains { !isUUID($0) }
-            if hasExplicitHandle {
+            if hasExplicitHandle && explicitSurfaceArg != nil {
                 let workspaceRaw = explicitWorkspaceArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
                 let targetWorkspace = try (explicitWorkspaceArg == nil
                     ? resolveWorkspaceIdAllowingFallback(workspaceRaw, client: client)
@@ -3136,7 +3136,7 @@ struct CMUXCLI {
                 params["prefer_tty"] = preferTTYFallback && explicitWorkspaceArg == nil
                 let env = ProcessInfo.processInfo.environment
                 let workspaceArg = explicitWorkspaceArg ?? (windowId == nil ? env["CMUX_WORKSPACE_ID"] : nil)
-                if let workspaceArg, isUUID(workspaceArg) { params["preferred_workspace_id"] = workspaceArg }
+                if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil { params["preferred_workspace_id"] = isUUID(workspaceArg) ? workspaceArg : try resolveWorkspaceId(workspaceArg, client: client) }
                 if windowId == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) { params["preferred_surface_id"] = surfaceId }
                 if let callerTTY = resolveCallerTTYName() { params["caller_tty"] = callerTTY }
             }
