@@ -1147,7 +1147,7 @@ function writeReadyMarker(stage: string, details: Record<string, string> = {}): 
 }
 
 async function main() {
-  const socketPath = process.env.CMUX_SOCKET_PATH || process.env.CMUX_SOCKET;
+  const socketPath = process.env.CMUX_SOCKET_PATH;
   if (!socketPath) {
     throw new Error("CMUX_SOCKET_PATH is required.");
   }

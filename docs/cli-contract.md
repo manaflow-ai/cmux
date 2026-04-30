@@ -46,8 +46,7 @@ Environment:
 
 | Variable | Contract |
 | --- | --- |
-| `CMUX_SOCKET_PATH` | Primary socket path override. |
-| `CMUX_SOCKET` | Compatibility socket path override. |
+| `CMUX_SOCKET_PATH` | Socket path override. |
 | `CMUX_SOCKET_PASSWORD` | Socket password fallback when `--password` is absent. |
 | `CMUX_WORKSPACE_ID` | Default workspace context inside cmux terminals. |
 | `CMUX_SURFACE_ID` | Default surface context inside cmux terminals. |

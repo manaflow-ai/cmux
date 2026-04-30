@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 LAST_SOCKET_HINT_PATH = Path("/tmp/cmux-last-socket-path")
 
 
@@ -57,6 +57,15 @@ def main() -> int:
     _must(version_proc.returncode == 0, f"--version should succeed: {version_proc.returncode} {version_out!r}")
     _must("cmux" in version_out, f"--version output should mention cmux: {version_out!r}")
 
+    legacy_socket_key = "CMUX_" + "SOCKET"
+    conflict_env = dict(os.environ)
+    conflict_env["CMUX_SOCKET_PATH"] = SOCKET_PATH
+    conflict_env[legacy_socket_key] = "/tmp/cmux-conflicting-legacy.sock"
+    conflict_proc = _run([cli, "ping"], env=conflict_env)
+    conflict_out = _merged_output(conflict_proc)
+    _must(conflict_proc.returncode != 0, f"conflicting socket env should fail: {conflict_out!r}")
+    _must("CMUX_SOCKET_PATH" in conflict_out and "differ" in conflict_out, f"conflict error should name canonical socket env: {conflict_out!r}")
+
     # Debug builds should auto-resolve the active debug socket via /tmp/cmux-last-socket-path
     # when CMUX_SOCKET_PATH is not set.
     hint_backup: str | None = None
@@ -67,7 +76,6 @@ def main() -> int:
         LAST_SOCKET_HINT_PATH.write_text(f"{SOCKET_PATH}\n", encoding="utf-8")
         auto_env = dict(os.environ)
         auto_env.pop("CMUX_SOCKET_PATH", None)
-        auto_env.pop("CMUX_SOCKET", None)
         auto_ping = _run([cli, "ping"], env=auto_env)
         auto_ping_out = _merged_output(auto_ping).lower()
         _must(auto_ping.returncode == 0, f"debug auto socket resolution should succeed: {auto_ping.returncode} {auto_ping_out!r}")

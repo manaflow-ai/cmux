@@ -17,6 +17,32 @@ struct CLIError: Error, CustomStringConvertible {
     var description: String { message }
 }
 
+private enum CLISocketEnvironment {
+    private static let socketPathKey = "CMUX_SOCKET_PATH"
+    private static let legacySocketKey = "CMUX_SOCKET"
+
+    static func socketPath(in environment: [String: String]) throws -> String? {
+        let socketPath = normalized(environment[socketPathKey])
+        let legacySocketPath = normalized(environment[legacySocketKey])
+        if let socketPath, let legacySocketPath, socketPath != legacySocketPath {
+            throw CLIError(
+                message: "Refusing to choose socket: CMUX_SOCKET_PATH and CMUX_SOCKET differ. Use CMUX_SOCKET_PATH or unset CMUX_SOCKET."
+            )
+        }
+        return socketPath ?? legacySocketPath
+    }
+
+    static func socketPathForTelemetry(in environment: [String: String]) -> String? {
+        normalized(environment[socketPathKey]) ?? normalized(environment[legacySocketKey])
+    }
+
+    private static func normalized(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 private final class CLISocketSentryTelemetry {
     private struct PendingBreadcrumb {
         let message: String
@@ -138,7 +164,7 @@ private final class CLISocketSentryTelemetry {
         self.command = command.lowercased()
         self.subcommand = commandArgs.first?.lowercased() ?? "help"
         self.socketPath = socketPath
-        self.envSocketPath = processEnv["CMUX_SOCKET_PATH"] ?? processEnv["CMUX_SOCKET"]
+        self.envSocketPath = CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
         self.workspaceId = processEnv["CMUX_WORKSPACE_ID"]
         self.surfaceId = processEnv["CMUX_SURFACE_ID"]
         self.disabledByEnv =
@@ -246,7 +272,7 @@ private final class CLISocketSentryTelemetry {
         if CLISocketPathResolver.isImplicitDefaultPath(socketPath),
            (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
            !taggedSockets.isEmpty {
-            context["possible_root_cause"] = "CMUX_SOCKET_PATH/CMUX_SOCKET missing while tagged sockets exist"
+            context["possible_root_cause"] = "CMUX_SOCKET_PATH missing while tagged sockets exist"
         }
 
         return context
@@ -1888,16 +1914,7 @@ struct CMUXCLI {
 
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
-        let envSocketPath: String? = {
-            for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET"] {
-                guard let raw = processEnv[key] else { continue }
-                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            }
-            return nil
-        }()
+        let envSocketPath = try CLISocketEnvironment.socketPath(in: processEnv)
         var socketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
         var socketPathSource: CLISocketPathSource
         if let envSocketPath {
@@ -5231,8 +5248,8 @@ struct CMUXCLI {
                 "      cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\"}'",
                 "      cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"reason\":\"command\"}'",
                 "    fi",
-                "    CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" CMUX_SOCKET=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
-                "    CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" CMUX_SOCKET=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.ports_kick \"$cmux_relay_ports_kick\" >/dev/null 2>&1 || true",
+                "    CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
+                "    CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.ports_kick \"$cmux_relay_ports_kick\" >/dev/null 2>&1 || true",
                 "    unset cmux_relay_cli cmux_relay_report_tty cmux_relay_ports_kick",
                 "  fi",
             ]
@@ -5273,7 +5290,6 @@ struct CMUXCLI {
         commonShellExportLines.append("export CMUX_SHELL_INTEGRATION_DIR=\"\(shellStateDir)\"")
         if let relaySocket {
             commonShellExportLines.append("export CMUX_SOCKET_PATH=\(relaySocket)")
-            commonShellExportLines.append("export CMUX_SOCKET=\(relaySocket)")
         }
         commonShellExportLines.append(contentsOf: remoteCallerExportLines)
         commonShellExportLines.append(contentsOf: [
@@ -6652,7 +6668,7 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\"", with: "\\\"")
         return [
             preferredCLIPath.map { "cmux_reconnect_cli=\(shellQuote($0));" } ?? "cmux_reconnect_cli=\"\";",
-            "cmux_reconnect_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
+            "cmux_reconnect_socket=\"${CMUX_SOCKET_PATH:-}\";",
             "if [ -z \"$cmux_reconnect_cli\" ] && [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]; then cmux_reconnect_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
             "if [ ! -x \"$cmux_reconnect_cli\" ]; then cmux_reconnect_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi;",
             "if [ -n \"${CMUX_WORKSPACE_ID:-}\" ]; then",
@@ -11484,16 +11500,7 @@ struct CMUXCLI {
     }
 
     private func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) -> String {
-        let envSocketPath: String? = {
-            for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET"] {
-                guard let raw = processEnvironment[key] else { continue }
-                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            }
-            return nil
-        }()
+        let envSocketPath = try? CLISocketEnvironment.socketPath(in: processEnvironment)
 
         let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
         let source: CLISocketPathSource
@@ -11668,7 +11675,6 @@ struct CMUXCLI {
         setenv("TMUX_PANE", fakeTmuxPane, 1)
         setenv("TERM", fakeTerm, 1)
         setenv("CMUX_SOCKET_PATH", socketPath, 1)
-        setenv("CMUX_SOCKET", socketPath, 1)
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
@@ -11783,7 +11789,6 @@ struct CMUXCLI {
         let processEnvironment = ProcessInfo.processInfo.environment
         var launcherEnvironment = processEnvironment
         launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        launcherEnvironment["CMUX_SOCKET"] = socketPath
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
@@ -12313,7 +12318,6 @@ struct CMUXCLI {
         let processEnvironment = ProcessInfo.processInfo.environment
         var launcherEnvironment = processEnvironment
         launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        launcherEnvironment["CMUX_SOCKET"] = socketPath
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
@@ -12440,7 +12444,6 @@ struct CMUXCLI {
         let processEnvironment = ProcessInfo.processInfo.environment
         var launcherEnvironment = processEnvironment
         launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        launcherEnvironment["CMUX_SOCKET"] = socketPath
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
@@ -12570,7 +12573,6 @@ struct CMUXCLI {
         let processEnvironment = ProcessInfo.processInfo.environment
         var launcherEnvironment = processEnvironment
         launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        launcherEnvironment["CMUX_SOCKET"] = socketPath
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
@@ -18128,7 +18130,6 @@ export default CMUXSessionRestore;
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_SOCKET"] = socketPath
         if let socketPassword {
             environment["CMUX_SOCKET_PASSWORD"] = socketPassword
         }

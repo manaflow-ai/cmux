@@ -152,11 +152,6 @@ def socket_env(socket_path: str | None) -> dict[str, str]:
     env = os.environ.copy()
     if socket_path:
         env["CMUX_SOCKET_PATH"] = socket_path
-        env["CMUX_SOCKET"] = socket_path
-    elif env.get("CMUX_SOCKET_PATH"):
-        env["CMUX_SOCKET"] = env["CMUX_SOCKET_PATH"]
-    elif env.get("CMUX_SOCKET"):
-        env["CMUX_SOCKET_PATH"] = env["CMUX_SOCKET"]
     return env
 
 
@@ -257,7 +252,7 @@ def draw(stdscr: curses.window, stats: FrameStats, notify: NotifyState, args: ar
         "cmux frame probe TUI",
         "terminal cadence proxy, not a Core Animation compositor counter",
         f"target={stats.hz:.1f}Hz budget={budget:.2f}ms hiccup>={stats.hiccup_ms:.2f}ms cmux={args.cmux_bin}",
-        f"socket={args.socket_path or os.environ.get('CMUX_SOCKET_PATH') or os.environ.get('CMUX_SOCKET') or '(auto)'}",
+        f"socket={args.socket_path or os.environ.get('CMUX_SOCKET_PATH') or '(auto)'}",
         "",
         (
             f"frames={summary['frames']} elapsed={summary['elapsed_ms'] / 1000.0:.1f}s "

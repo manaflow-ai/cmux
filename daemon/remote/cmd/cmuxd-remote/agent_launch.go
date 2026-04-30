@@ -476,7 +476,6 @@ func configureAgentEnvironment(cfg agentConfig) {
 
 	// Socket path
 	os.Setenv("CMUX_SOCKET_PATH", cfg.socketPath)
-	os.Setenv("CMUX_SOCKET", cfg.socketPath)
 
 	// Unset TERM_PROGRAM so apps don't detect the host terminal and
 	// override tmux-compatible behavior (e.g. opencode switches to
