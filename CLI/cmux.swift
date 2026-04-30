@@ -1974,10 +1974,31 @@ struct CMUXCLI {
             return
         }
 
+        if command == "help" {
+            print(usage())
+            return
+        }
+
+        if command == "docs" {
+            try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput)
+            return
+        }
+
         if command == "welcome" {
             printWelcome()
             return
         }
+
+        if command == "settings" {
+            try runSettings(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         if command == "shortcuts" {
             try runShortcuts(
                 commandArgs: commandArgs,
@@ -3547,35 +3568,6 @@ struct CMUXCLI {
             "email": email,
             "body": body,
             "image_paths": resolvedImages,
-        ])
-        if jsonOutput {
-            print(jsonString(response))
-        } else {
-            print("OK")
-        }
-    }
-
-    private func runShortcuts(
-        commandArgs: [String],
-        socketPath: String,
-        explicitPassword: String?,
-        jsonOutput: Bool
-    ) throws {
-        let remaining = commandArgs.filter { $0 != "--" }
-        if let unknown = remaining.first {
-            throw CLIError(message: "shortcuts: unknown flag '\(unknown)'")
-        }
-
-        let client = try connectClient(
-            socketPath: socketPath,
-            explicitPassword: explicitPassword,
-            launchIfNeeded: true
-        )
-        defer { client.close() }
-
-        let response = try client.sendV2(method: "settings.open", params: [
-            "target": "keyboardShortcuts",
-            "activate": true,
         ])
         if jsonOutput {
             print(jsonString(response))
@@ -8292,7 +8284,12 @@ struct CMUXCLI {
             Usage: cmux help
 
             Show top-level CLI usage and command list.
+            Also works without a running cmux app or socket.
             """
+        case "docs":
+            return docsUsage()
+        case "settings":
+            return settingsUsage()
         case "welcome":
             return """
             Usage: cmux welcome
@@ -19780,8 +19777,15 @@ export default CMUXSessionRestore;
         Socket Auth:
           --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
 
+        Agent Help:
+          To change cmux settings, run `cmux docs settings` and `cmux settings path` first.
+          Back up any existing settings file to a timestamped .bak copy before editing.
+          Use printed curl commands to fetch the latest docs/schema, and prefer Ghostty config for terminal behavior Ghostty already supports.
+
         Commands:
           welcome
+          docs [settings|shortcuts|api|browser|agents]
+          settings [open|path|docs|target]
           shortcuts
           disable-browser | enable-browser | browser-status
           restore-session
