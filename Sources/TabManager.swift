@@ -1919,12 +1919,14 @@ class TabManager: ObservableObject {
     func startSearch() {
         if let panel = selectedTerminalPanel {
             let hadExistingSearch = panel.searchState != nil
+            let recoveredNeedle = hadExistingSearch ? "" : panel.surface.lastSearchNeedle
+            let shouldSelectAll = hadExistingSearch || !recoveredNeedle.isEmpty
             NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
-            let handled = startOrFocusTerminalSearch(panel.surface) { surface in
+            let handled = startOrFocusTerminalSearch(panel.surface, initialNeedle: recoveredNeedle) { surface in
                 NotificationCenter.default.post(
                     name: .ghosttySearchFocus,
                     object: surface,
-                    userInfo: [FindFocusNotificationKey.selectAll: hadExistingSearch]
+                    userInfo: [FindFocusNotificationKey.selectAll: shouldSelectAll]
                 )
             }
 #if DEBUG

@@ -334,7 +334,6 @@ func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
     let tinyGeometry = hostedSize.width <= 1 || hostedSize.height <= 1
     return tinyGeometry || hostedHiddenInHierarchy || !hostedAttachedToWindow
 }
-
 func focusedTerminalKeyRepairNeeded(
     responderIsWindow: Bool,
     responderHasViableKeyRoutingOwner: Bool,
@@ -342,7 +341,6 @@ func focusedTerminalKeyRepairNeeded(
 ) -> Bool {
     responderIsWindow || !responderHasViableKeyRoutingOwner || !responderMatchesPreferredKeyboardFocus
 }
-
 func shouldRepairFocusedTerminalCommandEquivalentInputs(
     flags: NSEvent.ModifierFlags,
     responderIsWindow: Bool,
@@ -355,7 +353,6 @@ func shouldRepairFocusedTerminalCommandEquivalentInputs(
     // that responder rather than retargeting to the selected terminal pane.
     return responderIsWindow || !responderHasViableKeyRoutingOwner
 }
-
 func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,
     flags: NSEvent.ModifierFlags,
@@ -371,29 +368,32 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
-
 @discardableResult
 func startOrFocusTerminalSearch(
     _ terminalSurface: TerminalSurface,
+    initialNeedle: String = "",
     searchFocusNotifier: @escaping (TerminalSurface) -> Void = {
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: $0)
     }
 ) -> Bool {
     if terminalSurface.searchState != nil {
+        if !initialNeedle.isEmpty { terminalSurface.searchState?.needle = initialNeedle }
         searchFocusNotifier(terminalSurface)
         return true
     }
-
     if terminalSurface.performBindingAction("start_search") {
         DispatchQueue.main.async { [weak terminalSurface] in
-            guard let terminalSurface, terminalSurface.searchState == nil else { return }
-            terminalSurface.searchState = TerminalSurface.SearchState()
+            guard let terminalSurface else { return }
+            if let searchState = terminalSurface.searchState {
+                if !initialNeedle.isEmpty { searchState.needle = initialNeedle }
+            } else {
+                terminalSurface.searchState = TerminalSurface.SearchState(needle: initialNeedle)
+            }
             searchFocusNotifier(terminalSurface)
         }
         return true
     }
-
-    terminalSurface.searchState = TerminalSurface.SearchState()
+    terminalSurface.searchState = TerminalSurface.SearchState(needle: initialNeedle)
     searchFocusNotifier(terminalSurface)
     return true
 }

@@ -2238,6 +2238,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Incremented whenever async browser find focus ownership changes.
     @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
+    private var lastSearchNeedle = ""
 
     /// Find-in-page state. Non-nil when the find bar is visible.
     @Published var searchState: BrowserSearchState? = nil {
@@ -2261,11 +2262,10 @@ final class BrowserPanel: Panel, ObservableObject {
                         NSLog("Find: browser needle updated panel=%@ needle=%@", self.id.uuidString, needle)
                         self.executeFindSearch(needle)
                     }
-            } else if oldValue != nil {
+            } else if let oldValue {
+                lastSearchNeedle = oldValue.needle
                 searchNeedleCancellable = nil
-                if preferredFocusIntent == .findField {
-                    preferredFocusIntent = .webView
-                }
+                if preferredFocusIntent == .findField { preferredFocusIntent = .webView }
                 invalidateSearchFocusRequests(reason: "searchStateCleared")
                 NSLog("Find: browser search state cleared panel=%@", id.uuidString)
                 executeFindClear()
@@ -5015,12 +5015,12 @@ extension BrowserPanel {
     func startFind() {
         preferredFocusIntent = .findField
         let created = searchState == nil
-        if created {
-            searchState = BrowserSearchState()
-        }
+        let recoveredNeedle = created ? lastSearchNeedle : ""
+        if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
         pendingAddressBarFocusRequestId = nil
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
+        let shouldSelectAll = !created || !recoveredNeedle.isEmpty
 #if DEBUG
         let window = webView.window
         cmuxDebugLog(
@@ -5031,11 +5031,11 @@ extension BrowserPanel {
             "firstResponder=\(String(describing: window?.firstResponder))"
         )
 #endif
-        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: !created)
+        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
         // Focus notification can race with portal overlay mount. Re-post on the
         // next runloop and shortly after so the find field can claim first responder.
         DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: !created)
+            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: shouldSelectAll)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation, selectAll: false)

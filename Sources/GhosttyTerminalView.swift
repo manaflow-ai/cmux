@@ -4158,7 +4158,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
                         _ = self?.performBindingAction("search:\(needle)")
                     }
-            } else if oldValue != nil {
+            } else if let oldValue {
+                lastSearchNeedle = oldValue.needle
                 searchNeedleCancellable = nil
 #if DEBUG
                 cmuxDebugLog("find.searchState cleared tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
@@ -4168,9 +4169,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
     @Published private(set) var keyboardCopyModeActive: Bool = false
+    private(set) var lastSearchNeedle = ""
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
-
     init(
         tabId: UUID,
         context: ghostty_surface_context_e,
@@ -4204,7 +4205,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         hostedView.attachSurface(self)
         TerminalSurfaceRegistry.shared.register(self)
     }
-
 
     func updateWorkspaceId(_ newTabId: UUID) {
         tabId = newTabId

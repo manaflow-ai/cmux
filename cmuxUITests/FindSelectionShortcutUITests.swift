@@ -56,8 +56,10 @@ final class FindSelectionShortcutUITests: XCTestCase {
             "Expected Cmd+D split before opening browser. data=\(String(describing: loadData()))"
         )
         openBrowserInRightPane(app)
-        assertFindClosesOnEscape(app, pane: .terminal, query: "terminal")
-        assertFindClosesOnEscape(app, pane: .browser, query: "browser")
+        enterFindThenEscape(app, pane: .terminal, query: "terminal")
+        enterFindThenEscape(app, pane: .browser, query: "browser")
+        assertFindRecoversAndCanReplace(app, pane: .terminal, query: "terminal", replacement: "t")
+        assertFindRecoversAndCanReplace(app, pane: .browser, query: "browser", replacement: "b")
     }
 
     private enum Pane {
@@ -118,7 +120,7 @@ final class FindSelectionShortcutUITests: XCTestCase {
         )
     }
 
-    private func assertFindClosesOnEscape(_ app: XCUIApplication, pane: Pane, query: String) {
+    private func enterFindThenEscape(_ app: XCUIApplication, pane: Pane, query: String) {
         focusPane(pane, app: app)
         XCTAssertTrue(
             waitForDataMatch(timeout: 6.0) { $0["focusedPanelKind"] == pane.focusKey },
@@ -158,6 +160,52 @@ final class FindSelectionShortcutUITests: XCTestCase {
                     data[pane.needleKey] == ""
             },
             "Expected Escape to close \(pane.replacementMessage). data=\(String(describing: loadData()))"
+        )
+    }
+
+    private func assertFindRecoversAndCanReplace(
+        _ app: XCUIApplication,
+        pane: Pane,
+        query: String,
+        replacement: String
+    ) {
+        focusPane(pane, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { $0["focusedPanelKind"] == pane.focusKey },
+            "Expected \(pane.focusKey) focus before recovering find. data=\(String(describing: loadData()))"
+        )
+        app.typeKey("f", modifierFlags: [.command])
+        let findField = app.textFields[pane.findFieldId].firstMatch
+        XCTAssertTrue(
+            findField.waitForExistence(timeout: 6.0),
+            "Expected \(pane.replacementMessage) field after recovery. data=\(String(describing: loadData()))"
+        )
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.focusKey &&
+                    data[pane.visibleKey] == "true" &&
+                    data[pane.needleKey] == query
+            },
+            "Expected Cmd+F to recover \(pane.replacementMessage). data=\(String(describing: loadData()))"
+        )
+        app.typeText(replacement)
+        focusPane(pane.opposite, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.opposite.focusKey &&
+                    data[pane.needleKey] == replacement
+            },
+            "Expected recovered \(pane.replacementMessage) to be selected before replacement. data=\(String(describing: loadData()))"
+        )
+        focusPane(pane, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { $0["focusedPanelKind"] == pane.focusKey },
+            "Expected \(pane.focusKey) focus before closing recovered find. data=\(String(describing: loadData()))"
+        )
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { $0[pane.visibleKey] == "false" },
+            "Expected Escape to close recovered \(pane.replacementMessage). data=\(String(describing: loadData()))"
         )
     }
 
