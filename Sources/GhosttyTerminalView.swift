@@ -1674,6 +1674,8 @@ class GhosttyApp {
     private let backgroundLogLock = NSLock()
     private var backgroundLogSequence: UInt64 = 0
     private var appObservers: [NSObjectProtocol] = []
+    private var appAppearanceObserver: NSKeyValueObservation?
+    private var lastAppliedAppColorScheme: ghostty_color_scheme_e?
     private var bellAudioSound: NSSound?
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
@@ -2003,7 +2005,42 @@ class GhosttyApp {
             ghostty_app_set_focus(app, false)
         })
 
+        // Track the system appearance at the app level so libghostty resolves
+        // `theme = light:X,dark:Y` to the correct side. Without this, the
+        // app's conditional state stays at its default and surfaces render the
+        // wrong theme regardless of OS appearance. Mirrors standalone Ghostty
+        // (see ghostty/macos/Sources/App/macOS/AppDelegate.swift).
+        appAppearanceObserver = NSApplication.shared.observe(
+            \.effectiveAppearance,
+            options: [.new, .initial]
+        ) { [weak self] _, change in
+            guard let self,
+                  let app = self.app,
+                  let appearance = change.newValue else { return }
+            self.applyAppColorScheme(for: appearance, source: "appearanceObserver", app: app)
+        }
+
         #endif
+    }
+
+    private func applyAppColorScheme(
+        for appearance: NSAppearance,
+        source: String,
+        app: ghostty_app_t
+    ) {
+        let scheme = Self.appColorScheme(for: appearance)
+        if lastAppliedAppColorScheme == scheme { return }
+        lastAppliedAppColorScheme = scheme
+        ghostty_app_set_color_scheme(app, scheme)
+        if backgroundLogEnabled {
+            let label = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
+            logBackground("app color scheme source=\(source) scheme=\(label)")
+        }
+    }
+
+    static func appColorScheme(for appearance: NSAppearance) -> ghostty_color_scheme_e {
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT
     }
 
     private func loadInlineGhosttyConfig(
