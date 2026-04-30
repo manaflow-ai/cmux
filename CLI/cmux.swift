@@ -3111,10 +3111,10 @@ struct CMUXCLI {
             let body = optionValue(commandArgs, name: "--body") ?? ""
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let preferTTYFallback = windowId == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
-            let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
+            let explicitSurfaceArg = optionValue(commandArgs, name: "--surface"), env = ProcessInfo.processInfo.environment
             let hasExplicitHandle = [explicitWorkspaceArg, explicitSurfaceArg].compactMap { $0 }.contains { !isUUID($0) }
             if hasExplicitHandle && explicitSurfaceArg != nil {
-                let workspaceRaw = explicitWorkspaceArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                let workspaceRaw = explicitWorkspaceArg ?? (windowId == nil ? env["CMUX_WORKSPACE_ID"] : nil)
                 let targetWorkspace = try (explicitWorkspaceArg == nil
                     ? resolveWorkspaceIdAllowingFallback(workspaceRaw, client: client)
                     : resolveWorkspaceId(workspaceRaw, client: client))
@@ -3130,11 +3130,11 @@ struct CMUXCLI {
             if explicitSurfaceArg != nil {
                 method = "notification.create"
                 if let explicitWorkspaceArg { params["workspace_id"] = explicitWorkspaceArg }
+                else if windowId == nil, let workspaceArg = env["CMUX_WORKSPACE_ID"], isUUID(workspaceArg) { params["workspace_id"] = workspaceArg }
                 if let explicitSurfaceArg { params["surface_id"] = explicitSurfaceArg }
             } else {
                 method = "notification.create_for_caller"
                 params["prefer_tty"] = preferTTYFallback && explicitWorkspaceArg == nil
-                let env = ProcessInfo.processInfo.environment
                 let workspaceArg = explicitWorkspaceArg ?? (windowId == nil ? env["CMUX_WORKSPACE_ID"] : nil)
                 if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil { params["preferred_workspace_id"] = isUUID(workspaceArg) ? workspaceArg : try resolveWorkspaceId(workspaceArg, client: client) }
                 if windowId == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) { params["preferred_surface_id"] = surfaceId }

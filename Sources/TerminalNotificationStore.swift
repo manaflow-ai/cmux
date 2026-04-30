@@ -1201,15 +1201,8 @@ final class TerminalNotificationStore: ObservableObject {
                for: authorizationState,
                isAppActive: AppFocusState.isAppActive()
            ) {
-            if !cachedDecision {
-                switch authorizationState {
-                case .denied:
-                    promptToEnableNotifications()
-                case .notDetermined:
-                    hasDeferredAuthorizationRequest = true
-                case .unknown, .authorized, .provisional, .ephemeral:
-                    break
-                }
+            if !cachedDecision, authorizationState == .notDetermined {
+                hasDeferredAuthorizationRequest = true
             }
             completion(cachedDecision)
             return
@@ -1231,8 +1224,10 @@ final class TerminalNotificationStore: ObservableObject {
                 case .authorized, .provisional, .ephemeral:
                     completion(true)
                 case .denied:
-                    self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
-                    self.promptToEnableNotifications()
+                    if origin != .notificationDelivery {
+                        self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
+                        self.promptToEnableNotifications()
+                    }
                     completion(false)
                 case .notDetermined:
                     if Self.shouldDeferAutomaticAuthorizationRequest(
