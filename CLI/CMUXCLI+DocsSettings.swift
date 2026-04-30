@@ -467,8 +467,7 @@ extension CMUXCLI {
     }
 
     private func hasHelpRequest(beforeSeparator args: [String]) -> Bool {
-        args.contains { arg in
-            arg == "--help" || arg == "-h" || arg.lowercased() == "help"
-        }
+        let positionalArgs = args.filter { $0 != "--json" }
+        return args.contains("--help") || args.contains("-h") || positionalArgs.first?.lowercased() == "help"
     }
 }
