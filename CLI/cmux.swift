@@ -11673,7 +11673,7 @@ struct CMUXCLI {
         setenv("TMUX", fakeTmuxValue, 1)
         setenv("TMUX_PANE", fakeTmuxPane, 1)
         setenv("TERM", fakeTerm, 1)
-        setenv("CMUX_SOCKET_PATH", socketPath, 1)
+        setenv("CMUX_SOCKET_PATH", socketPath, 1); unsetenv("CMUX_SOCKET")
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
@@ -11787,7 +11787,7 @@ struct CMUXCLI {
     ) throws {
         let processEnvironment = ProcessInfo.processInfo.environment
         var launcherEnvironment = processEnvironment
-        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath; launcherEnvironment.removeValue(forKey: "CMUX_SOCKET")
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
@@ -12316,7 +12316,7 @@ struct CMUXCLI {
     ) throws {
         let processEnvironment = ProcessInfo.processInfo.environment
         var launcherEnvironment = processEnvironment
-        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath; launcherEnvironment.removeValue(forKey: "CMUX_SOCKET")
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
@@ -12442,7 +12442,7 @@ struct CMUXCLI {
     ) throws {
         let processEnvironment = ProcessInfo.processInfo.environment
         var launcherEnvironment = processEnvironment
-        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath; launcherEnvironment.removeValue(forKey: "CMUX_SOCKET")
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
@@ -12571,7 +12571,7 @@ struct CMUXCLI {
     ) throws {
         let processEnvironment = ProcessInfo.processInfo.environment
         var launcherEnvironment = processEnvironment
-        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath; launcherEnvironment.removeValue(forKey: "CMUX_SOCKET")
         if let explicitPassword,
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
@@ -18128,7 +18128,7 @@ export default CMUXSessionRestore;
             isDirectory: true
         )
         var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SOCKET_PATH"] = socketPath; environment.removeValue(forKey: "CMUX_SOCKET")
         if let socketPassword {
             environment["CMUX_SOCKET_PASSWORD"] = socketPassword
         }

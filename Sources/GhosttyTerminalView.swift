@@ -4860,6 +4860,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         setManagedEnvironmentValue("CMUX_TAB_ID", tabId.uuidString)
         let socketPath = SocketControlSettings.socketPath()
         setManagedEnvironmentValue("CMUX_SOCKET_PATH", socketPath)
+        env.removeValue(forKey: "CMUX_SOCKET")
         if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
            FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
             setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
