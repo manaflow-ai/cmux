@@ -146,7 +146,6 @@ final class TerminalMutationBus: @unchecked Sendable {
             mutation: mutation,
             notificationCoalescingKey: nil
         ))
-        currentNotificationGeneration &+= 1
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
             drainScheduled = true
@@ -166,7 +165,6 @@ final class TerminalMutationBus: @unchecked Sendable {
             mutation: mutation,
             notificationCoalescingKey: nil
         ))
-        currentNotificationGeneration &+= 1
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
             drainScheduled = true

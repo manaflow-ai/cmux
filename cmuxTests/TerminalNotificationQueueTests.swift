@@ -101,7 +101,6 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
-
         var deliveredTitles: [String] = []
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, notification in
@@ -110,7 +109,6 @@ final class TerminalNotificationQueueTests: XCTestCase {
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
-
         let workspace = manager.addWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
@@ -291,6 +289,8 @@ final class TerminalNotificationQueueTests: XCTestCase {
             return
         }
 
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+        defer { TerminalMutationBus.shared.setDrainsSuspendedForTesting(false) }
         for title in ["First", "Second"] {
             TerminalMutationBus.shared.enqueueNotification(
                 tabId: workspace.id,
@@ -299,9 +299,9 @@ final class TerminalNotificationQueueTests: XCTestCase {
                 subtitle: "Same target",
                 body: "Body"
             )
+            if title == "First" { TerminalMutationBus.shared.enqueueMainActorMutation {} }
         }
         TerminalMutationBus.shared.drainForTesting()
-
         let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
         XCTAssertEqual(workspaceNotifications.map(\.title), ["Second"])
         XCTAssertEqual(deliveredTitles, ["Second"])
