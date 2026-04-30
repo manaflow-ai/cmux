@@ -335,8 +335,11 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
         "system.capabilities",
         "system.identify",
         "system.tree",
+        "workspace.create",
         "workspace.list",
         "workspace.current",
+        "surface.create",
+        "surface.health",
         "surface.list",
         "surface.current",
         "surface.read_text",
@@ -348,6 +351,8 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
 
     private static let allowedMethods = Set(remoteAllowedMethods)
     private static let mutatingMethods: Set<String> = [
+        "workspace.create",
+        "surface.create",
         "surface.send_key",
         "surface.send_text",
     ]

@@ -61462,6 +61462,34 @@
         "ja": { "stringUnit": { "state": "translated", "value": "オフライン" } }
       }
     },
+    "remoteAccess.web.status.creatingSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Creating session..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを作成中..." } }
+      }
+    },
+    "remoteAccess.web.status.sessionCreated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Session created" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを作成しました" } }
+      }
+    },
+    "remoteAccess.web.status.creatingTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Creating tab..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブを作成中..." } }
+      }
+    },
+    "remoteAccess.web.status.tabCreated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tab created" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブを作成しました" } }
+      }
+    },
     "remoteAccess.web.action.refresh": {
       "extractionState": "manual",
       "localizations": {
@@ -61474,6 +61502,34 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Forget" } },
         "ja": { "stringUnit": { "state": "translated", "value": "忘れる" } }
+      }
+    },
+    "remoteAccess.web.action.newSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Session" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規セッション" } }
+      }
+    },
+    "remoteAccess.web.action.creatingSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Creating..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作成中..." } }
+      }
+    },
+    "remoteAccess.web.action.newTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Tab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規タブ" } }
+      }
+    },
+    "remoteAccess.web.action.creatingTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Creating..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作成中..." } }
       }
     },
     "remoteAccess.web.action.read": {
@@ -61684,6 +61740,20 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Token was rejected." } },
         "ja": { "stringUnit": { "state": "translated", "value": "トークンが拒否されました。" } }
+      }
+    },
+    "remoteAccess.web.error.createdTerminalNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Created terminal was not found." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作成されたターミナルが見つかりませんでした。" } }
+      }
+    },
+    "remoteAccess.web.error.createdTerminalNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Created terminal did not start in time." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作成されたターミナルが時間内に起動しませんでした。" } }
       }
     },
     "settings.blendMode.behindWindow": {

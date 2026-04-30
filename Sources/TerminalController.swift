@@ -5998,6 +5998,7 @@ class TerminalController {
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
+        let shouldStart = v2Bool(params, "start") ?? false
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
         v2MainSync {
@@ -6022,15 +6023,21 @@ class TerminalController {
             }
 
             let newPanelId: UUID?
+            var newTerminalPanel: TerminalPanel?
             if panelType == .browser {
                 newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: v2FocusAllowed())?.id
             } else {
-                newPanelId = ws.newTerminalSurface(inPane: paneId, focus: v2FocusAllowed())?.id
+                newTerminalPanel = ws.newTerminalSurface(inPane: paneId, focus: v2FocusAllowed())
+                newPanelId = newTerminalPanel?.id
             }
 
             guard let newPanelId else {
                 result = .err(code: "internal_error", message: "Failed to create surface", data: nil)
                 return
+            }
+            if shouldStart, newTerminalPanel != nil {
+                tabManager.requestBackgroundWorkspaceLoad(for: ws.id)
+                _ = ws.prepareTerminalSurfaceForRemoteAccess(panelId: newPanelId, inPane: paneId)
             }
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -6378,11 +6385,14 @@ class TerminalController {
         var payload: [String: Any]?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let requestedSurfaceId = v2UUID(params, "surface_id")
             let panels = orderedPanels(in: ws)
             let items: [[String: Any]] = panels.enumerated().map { index, panel in
                 var inWindow: Any = NSNull()
+                var runtimeReady: Any = NSNull()
                 if let tp = panel as? TerminalPanel {
                     inWindow = tp.surface.isViewInWindow
+                    runtimeReady = tp.surface.surface != nil
                 } else if let bp = panel as? BrowserPanel {
                     inWindow = bp.webView.window != nil
                 }
@@ -6391,14 +6401,19 @@ class TerminalController {
                     "id": panel.id.uuidString,
                     "ref": v2Ref(kind: .surface, uuid: panel.id),
                     "type": panel.panelType.rawValue,
-                    "in_window": inWindow
+                    "in_window": inWindow,
+                    "runtime_ready": runtimeReady
                 ]
+            }
+            let requestedItem = requestedSurfaceId.flatMap { surfaceId in
+                items.first { ($0["id"] as? String) == surfaceId.uuidString }
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             payload = [
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "surfaces": items,
+                "surface": requestedItem ?? NSNull(),
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ]

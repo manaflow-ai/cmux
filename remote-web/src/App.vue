@@ -51,9 +51,14 @@
         <aside class="session-rail" :class="{ open: navOpen }">
           <div class="rail-header">
             <div class="panel-title">{{ t("sessionsTitle") }}</div>
-            <button type="button" class="icon-button rail-close" :aria-label="t('sessionsTitle')" @click="navOpen = false">
-              <span aria-hidden="true">x</span>
-            </button>
+            <div class="rail-actions">
+              <button type="button" class="ghost" :disabled="creatingSession" @click="createNewSession">
+                {{ creatingSession ? t("creatingSessionButton") : t("newSessionButton") }}
+              </button>
+              <button type="button" class="icon-button rail-close" :aria-label="t('sessionsTitle')" @click="navOpen = false">
+                <span aria-hidden="true">x</span>
+              </button>
+            </div>
           </div>
           <div v-if="!windows.length" class="empty-note">{{ t("tree.noWindows") }}</div>
           <section
@@ -92,9 +97,14 @@
               <h2>{{ terminalTitle }}</h2>
               <p>{{ terminalMeta }}</p>
             </div>
-            <button type="button" class="ghost read-button" :disabled="!selectedSurface" @click="readSelectedTerminalFromButton">
-              {{ t("readButton") }}
-            </button>
+            <div class="terminal-actions">
+              <button type="button" class="ghost" :disabled="!selectedSurface || creatingTab" @click="createNewTerminalTab">
+                {{ creatingTab ? t("creatingTabButton") : t("newTabButton") }}
+              </button>
+              <button type="button" class="ghost read-button" :disabled="!selectedSurface" @click="readSelectedTerminalFromButton">
+                {{ t("readButton") }}
+              </button>
+            </div>
           </div>
 
           <div class="terminal-stage">
@@ -192,6 +202,8 @@ const statusMessage = ref("");
 const statusIsError = ref(false);
 const composerText = ref("");
 const navOpen = ref(false);
+const creatingSession = ref(false);
+const creatingTab = ref(false);
 const terminalElement = ref<HTMLElement | null>(null);
 
 let terminal: Terminal | null = null;
@@ -358,7 +370,7 @@ async function rpc(method: string, params: Record<string, unknown> = {}) {
   return payload.result;
 }
 
-async function fetchSnapshot(options: { showRefreshing?: boolean } = {}) {
+async function fetchSnapshot(options: { showRefreshing?: boolean; updateSelection?: boolean } = {}) {
   if (options.showRefreshing !== false) {
     setStatus(t("status.refreshing"));
   }
@@ -370,7 +382,9 @@ async function fetchSnapshot(options: { showRefreshing?: boolean } = {}) {
   }
   snapshot.value = payload.result;
   clearStatus();
-  ensureSelection();
+  if (options.updateSelection !== false) {
+    ensureSelection();
+  }
 }
 
 function eventURL() {
@@ -446,11 +460,55 @@ function ensureSelection() {
   }
 }
 
+async function waitForTerminalInputIdle() {
+  terminalInputQueue.flushBuffer();
+  await terminalInputQueue.waitForIdle();
+}
+
+function stringResult(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function findTerminalSelection(workspaceID?: string, surfaceID?: string) {
+  return flatSurfaces.value.find((selection) => {
+    if (selection.surface.type !== "terminal") return false;
+    if (workspaceID && selection.workspace.id !== workspaceID) return false;
+    if (surfaceID && selection.surface.id !== surfaceID) return false;
+    return true;
+  }) || null;
+}
+
+function selectCreatedTerminal(workspaceID?: string, surfaceID?: string) {
+  const selection = findTerminalSelection(workspaceID, surfaceID);
+  if (!selection) {
+    ensureSelection();
+    setStatus(t("error.createdTerminalNotFound"), true);
+    return false;
+  }
+  selectSurface(selection);
+  return true;
+}
+
+function requireCreatedTerminal(workspaceID?: string, surfaceID?: string) {
+  const selection = findTerminalSelection(workspaceID, surfaceID);
+  if (!selection) {
+    throw new Error(t("error.createdTerminalNotFound"));
+  }
+  return selection;
+}
+
 function selectSurface(selection: Selection) {
   selectedSurface.value = selection;
   navOpen.value = false;
   readSelectedTerminal().catch(handleRemoteError);
-  nextTick(fitTerminal);
+  nextTick(() => {
+    fitTerminal();
+    terminal?.focus();
+  });
 }
 
 function surfaceMeta(surface: SurfaceSnapshot) {
@@ -461,7 +519,9 @@ function surfaceMeta(surface: SurfaceSnapshot) {
 async function readSelectedTerminal() {
   const selected = selectedSurface.value;
   if (!selected) return;
-  const result = await readTerminal(currentTargetForSelection(selected));
+  const target = currentTargetForSelection(selected);
+  const result = await readTerminal(target);
+  if (!targetMatchesSelection(target)) return;
   writeTerminal(result.text || t("terminalEmptyOutput"), !result.text);
 }
 
@@ -505,6 +565,36 @@ async function readTerminal(target: TerminalInputTarget) {
   });
 }
 
+function terminalRuntimeReady(payload: Record<string, unknown>, surfaceID: string) {
+  const directSurface = payload.surface as Record<string, unknown> | null | undefined;
+  if (directSurface?.id === surfaceID) {
+    return directSurface.runtime_ready === true;
+  }
+
+  const surfaces = Array.isArray(payload.surfaces) ? payload.surfaces : [];
+  return surfaces.some((surface) => {
+    const item = surface as Record<string, unknown>;
+    return item.id === surfaceID && item.runtime_ready === true;
+  });
+}
+
+async function waitForTerminalRuntime(workspaceID: string, surfaceID: string) {
+  if (!workspaceID || !surfaceID) {
+    throw new Error(t("error.createdTerminalNotFound"));
+  }
+
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const health = await rpc("surface.health", {
+      workspace_id: workspaceID,
+      surface_id: surfaceID,
+    });
+    if (terminalRuntimeReady(health, surfaceID)) return;
+    await delay(150);
+  }
+  throw new Error(t("error.createdTerminalNotReady"));
+}
+
 async function readSelectedTerminalForTarget(target: TerminalInputTarget) {
   if (!targetMatchesSelection(target)) return;
   await readSelectedTerminal();
@@ -546,6 +636,61 @@ function handleComposerEnter(event: KeyboardEvent) {
 
 function readSelectedTerminalFromButton() {
   readSelectedTerminal().catch(handleRemoteError);
+}
+
+async function createNewSession() {
+  if (creatingSession.value) return;
+  creatingSession.value = true;
+  setStatus(t("status.creatingSession"));
+  try {
+    await waitForTerminalInputIdle();
+    const result = await rpc("workspace.create");
+    const workspaceID = stringResult(result?.workspace_id);
+    await fetchSnapshot({ showRefreshing: false, updateSelection: false });
+    const terminal = requireCreatedTerminal(workspaceID);
+    await waitForTerminalRuntime(workspaceID, terminal.surface.id);
+    await fetchSnapshot({ showRefreshing: false, updateSelection: false });
+    if (selectCreatedTerminal(workspaceID, terminal.surface.id)) {
+      setStatus(t("status.sessionCreated"));
+    }
+  } catch (error) {
+    handleRemoteError(error);
+  } finally {
+    creatingSession.value = false;
+  }
+}
+
+async function createNewTerminalTab() {
+  if (creatingTab.value) return;
+  const selection = selectedSurface.value;
+  if (!selection) return;
+
+  creatingTab.value = true;
+  setStatus(t("status.creatingTab"));
+  try {
+    await waitForTerminalInputIdle();
+    const params: Record<string, unknown> = {
+      workspace_id: selection.workspace.id,
+      type: "terminal",
+      start: true,
+    };
+    if (selection.pane.id) {
+      params.pane_id = selection.pane.id;
+    }
+
+    const result = await rpc("surface.create", params);
+    const workspaceID = stringResult(result?.workspace_id);
+    const surfaceID = stringResult(result?.surface_id);
+    await waitForTerminalRuntime(workspaceID, surfaceID);
+    await fetchSnapshot({ showRefreshing: false, updateSelection: false });
+    if (selectCreatedTerminal(workspaceID, surfaceID)) {
+      setStatus(t("status.tabCreated"));
+    }
+  } catch (error) {
+    handleRemoteError(error);
+  } finally {
+    creatingTab.value = false;
+  }
 }
 
 function startPolling() {

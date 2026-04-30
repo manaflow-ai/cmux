@@ -8404,6 +8404,24 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func prepareTerminalSurfaceForRemoteAccess(panelId: UUID, inPane paneId: PaneID) -> Bool {
+        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+              let surfaceId = surfaceIdFromPanelId(panelId),
+              bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == surfaceId }) else {
+            return false
+        }
+
+        if owningTabManager?.selectedTabId != id,
+           bonsplitController.selectedTab(inPane: paneId)?.id != surfaceId {
+            bonsplitController.selectTab(surfaceId)
+        }
+        terminalPanel.requestViewReattach()
+        scheduleTerminalGeometryReconcile()
+        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        return true
+    }
+
+    @discardableResult
     func preloadTerminalPanelForDebugStress(
         tabId: TabID,
         inPane paneId: PaneID

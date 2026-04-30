@@ -263,6 +263,58 @@ final class CMUXRemoteAccessTests: XCTestCase {
         XCTAssertEqual(response.eventReason, .remoteMutation)
     }
 
+    func testRPCForwardsRemoteCreationMethodsAndMarksSuccessfulMutations() async throws {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        nonisolated(unsafe) var forwardedLines: [String] = []
+        let handler = CMUXRemoteRPCHandler(
+            loadToken: { token },
+            dispatch: { line in
+                forwardedLines.append(line)
+                return #"{"id":"req-create","ok":true,"result":{"workspace_id":"workspace-1","surface_id":"surface-1"}}"#
+            }
+        )
+
+        let workspaceResponse = await handler.handle(
+            body: Data(#"{"id":"req-create-workspace","method":"workspace.create","params":{}}"#.utf8),
+            authorizationHeader: "Bearer \(token)"
+        )
+        let surfaceResponse = await handler.handle(
+            body: Data(#"{"id":"req-create-surface","method":"surface.create","params":{"workspace_id":"workspace-1","type":"terminal"}}"#.utf8),
+            authorizationHeader: "Bearer \(token)"
+        )
+
+        XCTAssertEqual(workspaceResponse.statusCode, 200)
+        XCTAssertEqual(workspaceResponse.eventReason, .remoteMutation)
+        XCTAssertEqual(surfaceResponse.statusCode, 200)
+        XCTAssertEqual(surfaceResponse.eventReason, .remoteMutation)
+
+        let methods = try forwardedLines.map { line in
+            try XCTUnwrap(jsonObject(from: line)["method"] as? String)
+        }
+        XCTAssertEqual(methods, ["workspace.create", "surface.create"])
+    }
+
+    func testRPCForwardsRemoteSurfaceHealthWithoutMutationEvent() async {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        nonisolated(unsafe) var forwardedLine: String?
+        let handler = CMUXRemoteRPCHandler(
+            loadToken: { token },
+            dispatch: { line in
+                forwardedLine = line
+                return #"{"id":"req-health","ok":true,"result":{"surfaces":[]}}"#
+            }
+        )
+
+        let response = await handler.handle(
+            body: Data(#"{"id":"req-health","method":"surface.health","params":{"workspace_id":"workspace-1","surface_id":"surface-1"}}"#.utf8),
+            authorizationHeader: "Bearer \(token)"
+        )
+
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertNil(response.eventReason)
+        XCTAssertTrue(forwardedLine?.contains(#""method":"surface.health""#) == true)
+    }
+
     func testRPCDoesNotMarkFailedRemoteMutationsForEvents() async {
         let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
         let handler = CMUXRemoteRPCHandler(
@@ -380,6 +432,9 @@ final class CMUXRemoteAccessTests: XCTestCase {
 
         let methods = try XCTUnwrap(result["methods"] as? [String])
         XCTAssertEqual(methods, CMUXRemoteRPCHandler.remoteAllowedMethods)
+        XCTAssertTrue(methods.contains("workspace.create"))
+        XCTAssertTrue(methods.contains("surface.create"))
+        XCTAssertTrue(methods.contains("surface.health"))
         XCTAssertFalse(methods.contains("auth.login"))
         XCTAssertFalse(methods.contains("vm.create"))
         XCTAssertFalse(methods.contains("window.focus"))
