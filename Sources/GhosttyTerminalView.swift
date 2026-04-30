@@ -7077,6 +7077,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               fr === self || fr.isDescendant(of: self) else { return false }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
+        // Allow macOS system window arrangement shortcuts (e.g. Fn+Ctrl+Arrow
+        // for window tiling in macOS Sequoia+) to pass through to the system.
+        // Fn+Arrow produces Home/End/PageUp/PageDown key codes (115/119/121/116)
+        // which differ from plain arrow key codes (123/124/125/126). We only pass
+        // through the Fn-translated key codes with Control, so plain Ctrl+Arrow
+        // (terminal word navigation) continues to work.
+        if Self.fnNavKeyCodes.contains(event.keyCode)
+            && event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control)
+            && !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            return false
+        }
+
         // If the IME is composing (marked text present) and the key has no Cmd
         // modifier, don't intercept — let it flow through to keyDown so the input
         // method can process it normally. Cmd-based shortcuts should still work
@@ -9404,6 +9416,10 @@ final class GhosttySurfaceScrollView: NSView {
             return WorkspaceAttentionCoordinator.flashStyle(for: .notificationArrival)
         }
     }
+
+    // Key codes produced by Fn+Arrow (Home/End/PgUp/PgDn) and Fn+F (F13),
+    // used to detect macOS system window arrangement shortcuts.
+    private static let fnNavKeyCodes: Set<UInt16> = [115, 119, 121, 116, 105]
 
     private enum NotificationRingMetrics {
         static let inset = PanelOverlayRingMetrics.inset
