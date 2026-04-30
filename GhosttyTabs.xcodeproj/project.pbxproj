@@ -136,6 +136,7 @@
 		PERTD00000000000000000007 /* TurnCheckpointManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PERTD00000000000000000008 /* TurnCheckpointManagerTests.swift */; };
 		PERTD00000000000000000009 /* WorktreeWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = PERTD00000000000000000010 /* WorktreeWatcher.swift */; };
 		PERTD00000000000000000011 /* TurnCheckpointRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = PERTD00000000000000000012 /* TurnCheckpointRegistry.swift */; };
+		PERTD00000000000000000013 /* TurnDiffWebViewBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = PERTD00000000000000000014 /* TurnDiffWebViewBundle.swift */; };
 		A5001434A5001434A5001434 /* FilePreviewPDFThumbnailCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001433A5001433A5001433 /* FilePreviewPDFThumbnailCollectionView.swift */; };
 		A5001432A5001432A5001432 /* FilePreviewFocusCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001431A5001431A5001431 /* FilePreviewFocusCoordinator.swift */; };
 		A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001424 /* PDFPreviewChromeDebugWindowController.swift */; };
@@ -464,6 +465,7 @@
 		PERTD00000000000000000008 /* TurnCheckpointManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerTurnDiff/TurnCheckpointManagerTests.swift; sourceTree = "<group>"; };
 		PERTD00000000000000000010 /* WorktreeWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PerTurnDiff/WorktreeWatcher.swift; sourceTree = "<group>"; };
 		PERTD00000000000000000012 /* TurnCheckpointRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PerTurnDiff/TurnCheckpointRegistry.swift; sourceTree = "<group>"; };
+		PERTD00000000000000000014 /* TurnDiffWebViewBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PerTurnDiff/TurnDiffWebViewBundle.swift; sourceTree = "<group>"; };
 		A5001433A5001433A5001433 /* FilePreviewPDFThumbnailCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFThumbnailCollectionView.swift; sourceTree = "<group>"; };
 		A5001431A5001431A5001431 /* FilePreviewFocusCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewFocusCoordinator.swift; sourceTree = "<group>"; };
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
@@ -816,6 +818,7 @@
 				PERTD00000000000000000006 /* TurnCheckpointManager.swift */,
 				PERTD00000000000000000010 /* WorktreeWatcher.swift */,
 				PERTD00000000000000000012 /* TurnCheckpointRegistry.swift */,
+				PERTD00000000000000000014 /* TurnDiffWebViewBundle.swift */,
 				A5001433A5001433A5001433 /* FilePreviewPDFThumbnailCollectionView.swift */,
 				A5001431A5001431A5001431 /* FilePreviewFocusCoordinator.swift */,
 				A5001424 /* PDFPreviewChromeDebugWindowController.swift */,
@@ -1274,6 +1277,7 @@
 				PERTD00000000000000000005 /* TurnCheckpointManager.swift in Sources */,
 				PERTD00000000000000000009 /* WorktreeWatcher.swift in Sources */,
 				PERTD00000000000000000011 /* TurnCheckpointRegistry.swift in Sources */,
+				PERTD00000000000000000013 /* TurnDiffWebViewBundle.swift in Sources */,
 				A5001434A5001434A5001434 /* FilePreviewPDFThumbnailCollectionView.swift in Sources */,
 				A5001432A5001432A5001432 /* FilePreviewFocusCoordinator.swift in Sources */,
 				A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */,

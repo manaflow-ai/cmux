@@ -1,0 +1,15 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  background: #161618;
+  color: #d4d4d4;
+}
+body, html, #root { margin: 0; height: 100%; overflow: hidden; }
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; color: #888; }
+.panel { display: flex; flex-direction: column; height: 100%; }
+.panel header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #2a2a2e; font-size: 13px; font-weight: 600; color: #eee; }
+.status-dot { width: 9px; height: 9px; border-radius: 50%; background: #555; }
+.status-dot[data-status="Idle"] { background: #7ee787; box-shadow: 0 0 6px rgba(126,231,135,0.6); }
+.status-dot[data-status="Running"] { background: #cdb88b; box-shadow: 0 0 6px rgba(205,184,139,0.7); animation: pulse 1.4s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.diff-body { flex: 1; overflow: auto; }
