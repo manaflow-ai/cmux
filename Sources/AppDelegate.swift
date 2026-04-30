@@ -10605,6 +10605,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
+        if matchConfiguredShortcut(event: event, action: .find) {
+            return performFindShortcutInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
+        }
+
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
@@ -10632,7 +10637,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
             return false
         }
-        if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
         // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
         if let delta = commandOmnibarSelectionDelta(
             hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
@@ -11204,10 +11208,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
             return tabManager?.resetZoomFocusedBrowser() ?? false
-        }
-
-        if matchConfiguredShortcut(event: event, action: .find) {
-            return performFindShortcutInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
         }
 
         if matchConfiguredShortcut(event: event, action: .findNext) {
