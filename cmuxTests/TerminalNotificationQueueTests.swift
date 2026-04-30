@@ -307,6 +307,75 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertEqual(deliveredTitles, ["Second"])
     }
 
+    func testScopedDiscardDoesNotSplitUnrelatedNotificationCoalescing() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        var deliveredTitles: [String] = []
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredTitles.append(notification.title)
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let clearedWorkspace = manager.addWorkspace(select: true)
+        let unrelatedWorkspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == clearedWorkspace.id }) {
+                manager.closeWorkspace(clearedWorkspace)
+            }
+            if manager.tabs.contains(where: { $0.id == unrelatedWorkspace.id }) {
+                manager.closeWorkspace(unrelatedWorkspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let clearedPanelId = clearedWorkspace.focusedPanelId,
+              let unrelatedPanelId = unrelatedWorkspace.focusedPanelId else {
+            XCTFail("Expected workspaces with focused panels")
+            return
+        }
+
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+        defer { TerminalMutationBus.shared.setDrainsSuspendedForTesting(false) }
+
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: unrelatedWorkspace.id,
+            surfaceId: unrelatedPanelId,
+            title: "Stale unrelated",
+            subtitle: "Before scoped discard",
+            body: "Body"
+        )
+        TerminalMutationBus.shared.discardPendingNotifications(
+            forTabId: clearedWorkspace.id,
+            surfaceId: clearedPanelId
+        )
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: unrelatedWorkspace.id,
+            surfaceId: unrelatedPanelId,
+            title: "Fresh unrelated",
+            subtitle: "After scoped discard",
+            body: "Body"
+        )
+
+        TerminalMutationBus.shared.drainForTesting()
+
+        let unrelatedNotifications = store.notifications.filter { $0.tabId == unrelatedWorkspace.id }
+        XCTAssertEqual(unrelatedNotifications.map(\.title), ["Fresh unrelated"])
+        XCTAssertEqual(deliveredTitles, ["Fresh unrelated"])
+    }
+
     func testQueuedNotificationResolvesWorkspaceInRegisteredWindowContext() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

@@ -91,13 +91,13 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID) {
-        discardPendingNotifications(advanceGeneration: true) { notification, _ in
+        discardPendingNotifications { notification, _ in
             notification.key.tabId == tabId
         }
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
-        discardPendingNotifications(advanceGeneration: true) { notification, _ in
+        discardPendingNotifications { notification, _ in
             notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
         }
     }

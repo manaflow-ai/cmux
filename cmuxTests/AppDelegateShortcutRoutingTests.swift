@@ -4024,6 +4024,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testShortcutMonitorIgnoresSystemDefinedEvents() {
+        let appDelegate = AppDelegate()
+        guard let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: 8,
+            data1: 0,
+            data2: 0
+        ) else {
+            XCTFail("Failed to construct system-defined event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleShortcutMonitorEvent(event: event))
+#else
+        XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+    }
+
     func testEscapeKeyUpIsConsumedAfterCmdPSwitcherDismiss() {
         assertEscapeKeyUpIsConsumedAfterCommandPaletteOpenRequest { appDelegate, window in
             appDelegate.requestCommandPaletteSwitcher(

@@ -4,14 +4,14 @@
 20473	CLI/cmux.swift
 17254	Sources/TerminalController.swift
 15935	Sources/ContentView.swift
-14192	Sources/AppDelegate.swift
+14199	Sources/AppDelegate.swift
 13705	Sources/Workspace.swift
 13403	Sources/GhosttyTerminalView.swift
 10600	Sources/Panels/BrowserPanel.swift
 8429	Sources/cmuxApp.swift
 7492	Sources/TabManager.swift
 6811	Sources/Panels/BrowserPanelView.swift
-5218	cmuxTests/AppDelegateShortcutRoutingTests.swift
+5242	cmuxTests/AppDelegateShortcutRoutingTests.swift
 4646	cmuxTests/WorkspaceUnitTests.swift
 4639	cmuxTests/TerminalAndGhosttyTests.swift
 4557	cmuxTests/GhosttyConfigTests.swift
@@ -71,6 +71,7 @@
 586	Sources/Update/UpdateViewModel.swift
 582	cmuxTests/TerminalControllerSocketSecurityTests.swift
 573	Sources/Feed/FeedTextEditorDebugWindowController.swift
+568	cmuxTests/TerminalNotificationQueueTests.swift
 546	Sources/Windowing/WindowGlassEffect.swift
 536	Sources/SessionPersistence.swift
 510	Sources/Update/UpdatePopoverView.swift

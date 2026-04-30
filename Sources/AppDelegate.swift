@@ -9956,7 +9956,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             matching: [.keyDown, .keyUp, .flagsChanged, .systemDefined]
         ) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown || event.type == .systemDefined {
+            if event.type == .systemDefined {
+                return event
+            }
+            if event.type == .keyDown {
 #if DEBUG
                 let phaseTotalStart = ProcessInfo.processInfo.systemUptime
                 let preludeStart = ProcessInfo.processInfo.systemUptime
@@ -10267,6 +10270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
         guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
             clearConfiguredShortcutChordState()
             return false
@@ -12020,7 +12024,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
-        if event.type == .keyDown || event.type == .systemDefined {
+        if event.type == .systemDefined {
+            return false
+        }
+        if event.type == .keyDown {
             return handleCustomShortcut(event: event)
         }
         handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
