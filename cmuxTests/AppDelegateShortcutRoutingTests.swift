@@ -1740,9 +1740,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 titlebarPadding: 32,
                 hostingSafeAreaTop: 0
             ),
-            32,
+            WindowChromeMetrics.appTitlebarHeight,
             accuracy: 0.5,
-            "Standard mode should preserve the measured titlebar inset so content stays below the draggable titlebar zone"
+            "Standard mode should align terminal content with cmux's visual titlebar height even when AppKit reports a taller native titlebar zone"
         )
 
         XCTAssertEqual(
@@ -4019,6 +4019,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyUp),
             "Escape keyUp after palette dismiss should be consumed to prevent terminal passthrough"
         )
+#else
+        XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+    }
+
+    func testShortcutMonitorIgnoresSystemDefinedEvents() {
+        let appDelegate = AppDelegate()
+        guard let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: 8,
+            data1: 0,
+            data2: 0
+        ) else {
+            XCTFail("Failed to construct system-defined event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleShortcutMonitorEvent(event: event))
 #else
         XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
 #endif

@@ -45,8 +45,8 @@ struct TmuxOverlayExperimentSettings {
 }
 
 private enum WorkspaceTitlebarInteractionMetrics {
-    // Keep in sync with Bonsplit's tab bar height so the monitor only covers
-    // the minimal-mode titlebar strip.
+    // Keep in sync with the minimal-mode titlebar strip so the monitor only
+    // covers titlebar chrome.
     static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 

@@ -1,4 +1,3 @@
-import AppKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -9,34 +8,12 @@ import XCTest
 
 @MainActor
 final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
-    private func makeMainWindow(id: UUID) -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
-        return window
-    }
-
     func testMoveSurfaceToNewWorkspaceCreatesSinglePanelWorkspaceFromPanelTitle() throws {
-        _ = NSApplication.shared
         let app = AppDelegate()
-
         let windowId = UUID()
-        let window = makeMainWindow(id: windowId)
-        defer { window.close() }
-
         let manager = TabManager()
-        app.registerMainWindow(
-            window,
-            windowId: windowId,
-            tabManager: manager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
@@ -65,22 +42,11 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
     }
 
     func testMoveSurfaceToNewWorkspaceRejectsOnlyPanel() throws {
-        _ = NSApplication.shared
         let app = AppDelegate()
-
         let windowId = UUID()
-        let window = makeMainWindow(id: windowId)
-        defer { window.close() }
-
         let manager = TabManager()
-        app.registerMainWindow(
-            window,
-            windowId: windowId,
-            tabManager: manager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let onlyPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)

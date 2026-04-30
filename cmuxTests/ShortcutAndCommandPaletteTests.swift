@@ -1310,7 +1310,6 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        defer { window.close() }
         let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
         window.contentView = contentView
         let controller = MainWindowFocusController(
@@ -1323,12 +1322,13 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
         XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
 
-        let host = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(host)
-        controller.registerRightSidebarHost(host)
+        let focusHost = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        defer { _ = window.makeFirstResponder(nil); focusHost.removeFromSuperview(); window.contentView = nil; window.close() }
+        contentView.addSubview(focusHost)
+        controller.registerRightSidebarHost(focusHost)
 
         XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
-        XCTAssertTrue(window.firstResponder === host)
+        XCTAssertTrue(window.firstResponder === focusHost)
     }
 
     @MainActor

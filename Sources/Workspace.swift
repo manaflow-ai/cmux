@@ -7292,6 +7292,7 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
+    @Published private(set) var latestSubmittedMessage: String?
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
@@ -7368,6 +7369,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
             sidebarObservationSignal($terminalScrollBarHidden),
+            sidebarObservationSignal($latestSubmittedMessage),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -8739,6 +8741,7 @@ final class Workspace: Identifiable, ObservableObject {
         statusEntries.removeAll()
         agentPIDs.removeAll()
         agentListeningPorts.removeAll()
+        latestSubmittedMessage = nil
         logEntries.removeAll()
         progress = nil
         gitBranch = nil
@@ -9022,6 +9025,14 @@ final class Workspace: Identifiable, ObservableObject {
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
         }
+    }
+
+    @discardableResult
+    func recordSubmittedMessage(_ message: String?) -> Bool {
+        guard let preview = Self.submittedMessagePreview(from: message) else { return false }
+        guard latestSubmittedMessage != preview else { return false }
+        latestSubmittedMessage = preview
+        return true
     }
 
     var isRemoteWorkspace: Bool {

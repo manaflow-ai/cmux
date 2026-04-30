@@ -130,6 +130,35 @@
         }
       }
     },
+    "cli.claude-hook.notification.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        }
+      }
+    },
     "cli.claude-teams.usage": {
       "extractionState": "manual",
       "localizations": {
@@ -53385,6 +53414,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейменування в палітрі команд починає з виділення всього тексту."
+          }
+        }
+      }
+    },
+    "settings.app.iMessageMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessageモード"
+          }
+        }
+      }
+    },
+    "settings.app.iMessageMode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move a workspace to the top and show the submitted message when you send an agent prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのプロンプトを送信したときにワークスペースを一番上へ移動し、送信したメッセージを表示します。"
           }
         }
       }

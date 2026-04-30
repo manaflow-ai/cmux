@@ -90,8 +90,8 @@ extension CMUXCLI {
             ],
             commands: [
                 "cmux codex install-hooks",
-                "cmux opencode install-hooks",
-                "cmux setup-hooks",
+                "cmux hooks opencode install",
+                "cmux hooks setup",
             ]
         ),
     ]
