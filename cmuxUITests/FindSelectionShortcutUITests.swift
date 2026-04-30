@@ -131,13 +131,24 @@ final class FindSelectionShortcutUITests: XCTestCase {
             "Expected \(pane.replacementMessage) field after Cmd+F. data=\(String(describing: loadData()))"
         )
         app.typeText(query)
+        focusPane(pane.opposite, app: app)
         XCTAssertTrue(
             waitForDataMatch(timeout: 6.0) { data in
-                data["focusedPanelKind"] == pane.focusKey &&
+                data["focusedPanelKind"] == pane.opposite.focusKey &&
                     data[pane.visibleKey] == "true" &&
                     data[pane.needleKey] == query
             },
             "Expected \(pane.replacementMessage) before Escape. data=\(String(describing: loadData()))"
+        )
+        focusPane(pane, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { $0["focusedPanelKind"] == pane.focusKey },
+            "Expected \(pane.focusKey) focus before Escape. data=\(String(describing: loadData()))"
+        )
+        let restoredFindField = app.textFields[pane.findFieldId].firstMatch
+        XCTAssertTrue(
+            restoredFindField.waitForExistence(timeout: 6.0),
+            "Expected \(pane.replacementMessage) field before Escape. data=\(String(describing: loadData()))"
         )
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         XCTAssertTrue(
