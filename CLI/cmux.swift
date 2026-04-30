@@ -10692,9 +10692,11 @@ struct CMUXCLI {
                         lines.append("\(topResourceColumns(node: surface))\(workspaceIndent)\(paneIndent)\(surfaceBranch)\(topSurfaceLabel(surface, idFormat: idFormat))")
 
                         let webviews = surface["webviews"] as? [[String: Any]] ?? []
+                        let surfaceProcesses = surface["processes"] as? [[String: Any]] ?? []
+                        let hasSurfaceProcesses = showProcesses && !surfaceProcesses.isEmpty
                         if !webviews.isEmpty {
                             for (webviewIndex, webview) in webviews.enumerated() {
-                                let webviewIsLast = webviewIndex == webviews.count - 1
+                                let webviewIsLast = webviewIndex == webviews.count - 1 && !hasSurfaceProcesses
                                 let webviewBranch = webviewIsLast ? "└── " : "├── "
                                 let webviewIndent = webviewIsLast ? "    " : "│   "
                                 lines.append("\(topResourceColumns(node: webview))\(workspaceIndent)\(paneIndent)\(surfaceIndent)\(webviewBranch)\(topWebViewLabel(webview))")
@@ -10706,13 +10708,8 @@ struct CMUXCLI {
                                     )
                                 }
                             }
-                        } else if showProcesses {
-                            appendTopProcessLines(
-                                surface["processes"] as? [[String: Any]] ?? [],
-                                to: &lines,
-                                indent: workspaceIndent + paneIndent + surfaceIndent
-                            )
                         }
+                        if showProcesses { appendTopProcessLines(surfaceProcesses, to: &lines, indent: workspaceIndent + paneIndent + surfaceIndent) }
                     }
                 }
             }
@@ -10752,7 +10749,7 @@ struct CMUXCLI {
 
     private func topWorkspaceLabel(_ workspace: [String: Any], idFormat: CLIIDFormat) -> String {
         var parts = ["workspace \(textHandle(workspace, idFormat: idFormat))"]
-        let title = (workspace["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = topLabelText(workspace["title"] as? String)
         if !title.isEmpty {
             parts.append("\"\(title)\"")
         }
@@ -10774,33 +10771,33 @@ struct CMUXCLI {
     }
 
     private func topSurfaceLabel(_ surface: [String: Any], idFormat: CLIIDFormat) -> String {
-        let rawType = ((surface["type"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawType = topLabelText(surface["type"] as? String)
         let surfaceType = rawType.isEmpty ? "unknown" : rawType
         var parts = ["surface \(textHandle(surface, idFormat: idFormat))", "[\(surfaceType)]"]
-        let title = (surface["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = topLabelText(surface["title"] as? String)
         if !title.isEmpty {
             parts.append("\"\(title)\"")
         }
         if (surface["selected"] as? Bool) == true {
             parts.append("[selected]")
         }
-        if let tty = surface["tty"] as? String, !tty.isEmpty {
+        let tty = topLabelText(surface["tty"] as? String)
+        if !tty.isEmpty {
             parts.append("tty=\(tty)")
         }
         if let pid = topInt(surface["browser_web_content_pid"]) {
             parts.append("webpid=\(pid)")
         }
-        if surfaceType.lowercased() == "browser",
-           let url = surface["url"] as? String,
-           !url.isEmpty {
+        let url = topLabelText(surface["url"] as? String)
+        if surfaceType.lowercased() == "browser", !url.isEmpty {
             parts.append(url)
         }
         return parts.joined(separator: " ")
     }
 
     private func topTagLabel(_ tag: [String: Any]) -> String {
-        let key = ((tag["key"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let value = ((tag["value"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = topLabelText(tag["key"] as? String)
+        let value = topLabelText(tag["value"] as? String)
         var parts = ["tag \(key.isEmpty ? "unknown" : key)"]
         if !value.isEmpty {
             parts.append("\"\(value)\"")
@@ -10824,11 +10821,12 @@ struct CMUXCLI {
         if let sharedCount = topInt(webview["shared_process_count"]), sharedCount > 1 {
             parts.append("[shared x\(sharedCount)]")
         }
-        let title = (webview["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = topLabelText(webview["title"] as? String)
         if !title.isEmpty {
             parts.append("\"\(title)\"")
         }
-        if let url = webview["url"] as? String, !url.isEmpty {
+        let url = topLabelText(webview["url"] as? String)
+        if !url.isEmpty {
             parts.append(url)
         }
         return parts.joined(separator: " ")
@@ -10836,7 +10834,7 @@ struct CMUXCLI {
 
     private func topProcessLabel(_ process: [String: Any]) -> String {
         let pid = topInt(process["pid"]).map(String.init) ?? "?"
-        let name = ((process["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = topLabelText(process["name"] as? String)
         let label = name.isEmpty ? "process" : name
         return "process \(pid) \(label)"
     }

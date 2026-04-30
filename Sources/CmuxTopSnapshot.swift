@@ -289,14 +289,8 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             path = "/dev/\(trimmed)"
         }
 
-        let fd = Darwin.open(path, O_RDONLY | O_NOCTTY | O_NONBLOCK)
-        guard fd >= 0 else {
-            return nil
-        }
-        defer { Darwin.close(fd) }
-
         var statInfo = stat()
-        guard fstat(fd, &statInfo) == 0 else {
+        guard stat(path, &statInfo) == 0 else {
             return nil
         }
         return Int64(statInfo.st_rdev)

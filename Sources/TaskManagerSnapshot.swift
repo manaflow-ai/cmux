@@ -98,8 +98,9 @@ struct CmuxTaskManagerSnapshot {
         rows.append(row(tag, kind: .tag, level: 2, title: title, detail: detail, isDimmed: bool(tag["visible"]) == false))
 
         let processes = tag["processes"] as? [[String: Any]] ?? []
+        let context = rowID(tag, kind: .tag)
         for process in processes {
-            appendProcess(process, level: 3, to: &rows)
+            appendProcess(process, level: 3, context: context, to: &rows)
         }
     }
 
@@ -141,15 +142,15 @@ struct CmuxTaskManagerSnapshot {
         ))
 
         let webviews = surface["webviews"] as? [[String: Any]] ?? []
-        if webviews.isEmpty {
-            let processes = surface["processes"] as? [[String: Any]] ?? []
-            for process in processes {
-                appendProcess(process, level: 4, to: &rows)
-            }
-        } else {
+        if !webviews.isEmpty {
             for webview in webviews {
                 appendWebView(webview, to: &rows)
             }
+        }
+        let processes = surface["processes"] as? [[String: Any]] ?? []
+        let context = rowID(surface, kind: type == "browser" ? .browserSurface : .terminalSurface)
+        for process in processes {
+            appendProcess(process, level: 4, context: context, to: &rows)
         }
     }
 
@@ -169,12 +170,18 @@ struct CmuxTaskManagerSnapshot {
         rows.append(row(webview, kind: .webview, level: 4, title: title, detail: detailParts.joined(separator: " / ")))
 
         let processes = webview["processes"] as? [[String: Any]] ?? []
+        let context = rowID(webview, kind: .webview)
         for process in processes {
-            appendProcess(process, level: 5, to: &rows)
+            appendProcess(process, level: 5, context: context, to: &rows)
         }
     }
 
-    private static func appendProcess(_ process: [String: Any], level: Int, to rows: inout [CmuxTaskManagerRow]) {
+    private static func appendProcess(
+        _ process: [String: Any],
+        level: Int,
+        context: String,
+        to rows: inout [CmuxTaskManagerRow]
+    ) {
         let pid = int(process["pid"])
         let title = nonEmptyString(process["name"])
             ?? pid.map { String(localized: "taskManager.row.processWithPID", defaultValue: "Process \($0)") }
@@ -182,11 +189,12 @@ struct CmuxTaskManagerSnapshot {
         let detail = pid.map {
             String(localized: "taskManager.row.pid", defaultValue: "PID \($0)")
         } ?? ""
-        rows.append(row(process, kind: .process, level: level, title: title, detail: detail))
+        let processRow = row(process, kind: .process, level: level, title: title, detail: detail, context: context)
+        rows.append(processRow)
 
         let children = process["children"] as? [[String: Any]] ?? []
         for child in children {
-            appendProcess(child, level: level + 1, to: &rows)
+            appendProcess(child, level: level + 1, context: processRow.id, to: &rows)
         }
     }
 
@@ -196,10 +204,11 @@ struct CmuxTaskManagerSnapshot {
         level: Int,
         title: String,
         detail: String,
-        isDimmed: Bool = false
+        isDimmed: Bool = false,
+        context: String? = nil
     ) -> CmuxTaskManagerRow {
         CmuxTaskManagerRow(
-            id: rowID(payload, kind: kind),
+            id: rowID(payload, kind: kind, context: context),
             kind: kind,
             level: level,
             title: title,
@@ -209,7 +218,22 @@ struct CmuxTaskManagerSnapshot {
         )
     }
 
-    private static func rowID(_ payload: [String: Any], kind: CmuxTaskManagerRow.Kind) -> String {
+    private static func rowID(
+        _ payload: [String: Any],
+        kind: CmuxTaskManagerRow.Kind,
+        context: String? = nil
+    ) -> String {
+        if kind == .process, let context {
+            if let id = nonEmptyString(payload["id"]) {
+                return "\(kind.rawValue):\(context):\(id)"
+            }
+            if let ref = nonEmptyString(payload["ref"]) {
+                return "\(kind.rawValue):\(context):\(ref)"
+            }
+            if let pid = int(payload["pid"]) {
+                return "\(kind.rawValue):\(context):pid:\(pid)"
+            }
+        }
         if let id = nonEmptyString(payload["id"]) {
             return "\(kind.rawValue):\(id)"
         }
