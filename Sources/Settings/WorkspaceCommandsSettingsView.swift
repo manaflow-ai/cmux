@@ -91,6 +91,8 @@ struct WorkspaceCommandsSettingsView: View {
                         name: command.name,
                         isRemote: command.remote != nil,
                         isDefault: store.defaultCommandID == command.id
+                            || (store.defaultCommandID == nil
+                                && command.id == WorkspaceCommandsStore.builtInLocalID)
                     )
                     .tag(command.id as WorkspaceCommandConfig.ID?)
                 }

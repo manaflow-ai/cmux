@@ -7605,7 +7605,7 @@ private struct WorkspaceCommandsSettingsRow: View {
     }
 
     private var summary: String {
-        if store.commands.isEmpty {
+        if store.userCommands.isEmpty {
             return String(
                 localized: "settings.workspaces.row.summary.empty",
                 defaultValue: "No commands yet. Add a Local or Remote (SSH) workspace to launch from Cmd-N or the titlebar +."

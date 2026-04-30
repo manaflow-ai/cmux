@@ -447,6 +447,8 @@ struct CmuxConfigExecutor {
             case .recreate:
                 tabManager.closeWorkspace(existing)
             case .always:
+                // Unreachable: the enclosing `if restart != .always` excludes this case.
+                // Required for switch exhaustiveness.
                 break
             case .confirm:
                 let alert = NSAlert()
