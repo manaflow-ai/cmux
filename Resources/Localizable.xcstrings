@@ -70359,7 +70359,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tab colors palette accent badge selected highlight 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 • %@"
+                    "value": "tab colors palette accent badge selected highlight 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 • %@"
                 }
             },
             "nb": {
@@ -71192,7 +71192,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.newWorkspacePlacement new tab insert position order top bottom end 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 새 작업 공간 • %@ 위치 끝 맨 위"
+                    "value": "app.newWorkspacePlacement new tab insert position order top bottom end 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 새 워크스페이스 • %@ 위치 끝 맨 위"
                 }
             },
             "nb": {
@@ -71430,7 +71430,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 편집기 파일 코드 열기 경로 닫기 작업 공간 • %@ 탭을 닫으시겠습니까? 공간을 열림"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 편집기 파일 코드 열기 경로 닫기 워크스페이스 • %@ 탭을 닫으시겠습니까? 공간을 열림"
                 }
             },
             "nb": {
@@ -72025,7 +72025,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.reorderOnNotification notification reorder move workspace top unread sort 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 작업 공간 • %@ 이동 않은 1개 맨 위"
+                    "value": "app.reorderOnNotification notification reorder move workspace top unread sort 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 워크스페이스 • %@ 이동 않은 1개 맨 위"
                 }
             },
             "nb": {
@@ -72144,7 +72144,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "notifications.dockBadge badge dock unread count icon notifications red bubble 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 아이콘"
+                    "value": "notifications.dockBadge badge dock unread count icon notifications red bubble 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 아이콘"
                 }
             },
             "nb": {
@@ -72620,7 +72620,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "notifications.paneFlash flash blink highlight pane notification pulse 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 패인 플래시"
+                    "value": "notifications.paneFlash flash blink highlight pane notification pulse 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 패인 플래시"
                 }
             },
             "nb": {
@@ -73334,7 +73334,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.renameSelectsExistingName rename select all existing title command palette workspace name 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 작업 공간 이름 변경 변경… • %@ 명령어 팔레트… 시 기존 선택 워크스페이스 1…9"
+                    "value": "app.renameSelectsExistingName rename select all existing title command palette workspace name 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 워크스페이스 이름 변경 변경… • %@ 명령어 팔레트… 시 기존 선택 워크스페이스 1…9"
                 }
             },
             "nb": {
@@ -73453,7 +73453,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 터미널 셸 스크롤백 스크롤바 화면 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 작업공간 색상 팔레트 배지 선택됨 강조 표시기 활성 점 검색 제안 자동완성 제공자 엔진 브라우저: %@ 마크다운 • 명령어 팔레트…"
+                    "value": "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 터미널 셸 스크롤백 스크롤바 화면 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 워크스페이스 색상 팔레트 배지 선택됨 강조 표시기 활성 점 검색 제안 자동완성 제공자 엔진 브라우저: %@ 마크다운 • 명령어 팔레트…"
                 }
             },
             "nb": {
@@ -76666,7 +76666,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.enabled enable disable webview embedded browser tabs links 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 작업공간 색상 팔레트 배지 선택됨 강조 표시기 활성 점 비밀번호 비밀 토큰 자격 증명 접근 허용 비활성화 활성화 권한 안전하지 않음 브라우저: %@ •"
+                    "value": "browser.enabled enable disable webview embedded browser tabs links 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 워크스페이스 색상 팔레트 배지 선택됨 강조 표시기 활성 점 비밀번호 비밀 토큰 자격 증명 접근 허용 비활성화 활성화 권한 안전하지 않음 브라우저: %@ •"
                 }
             },
             "nb": {
@@ -77856,7 +77856,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 가져오기 마이그레이션 북마크 방문 기록 쿠키 프로필 작업공간 색상 팔레트 배지 선택됨 강조 표시기 활성 점 브라우저: %@ 가져오기… •"
+                    "value": "browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 가져오기 마이그레이션 북마크 방문 기록 쿠키 프로필 워크스페이스 색상 팔레트 배지 선택됨 강조 표시기 활성 점 브라우저: %@ 가져오기… •"
                 }
             },
             "nb": {
@@ -78808,7 +78808,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 작업 공간 • %@"
+                    "value": "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 워크스페이스 • %@"
                 }
             },
             "nb": {
@@ -78927,7 +78927,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "workspaceColors.selectionColor selected workspace color highlight background active tab 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 작업 공간 • %@"
+                    "value": "workspaceColors.selectionColor selected workspace color highlight background active tab 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 워크스페이스 • %@"
                 }
             },
             "nb": {
@@ -79046,7 +79046,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "workspaceColors.notificationBadgeColor unread notification badge color dot count 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 않은 1개"
+                    "value": "workspaceColors.notificationBadgeColor unread notification badge color dot count 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 않은 1개"
                 }
             },
             "nb": {
@@ -79165,7 +79165,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "workspaceColors.colors workspace palette named colors custom color reset built-in 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 재설정 초기화 기본값 복원 지우기 외관 테마 색 구성표 라이트 다크 시스템 모드 사용자 지정 작업 공간 정의: %@ •"
+                    "value": "workspaceColors.colors workspace palette named colors custom color reset built-in 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 재설정 초기화 기본값 복원 지우기 외관 테마 색 구성표 라이트 다크 시스템 모드 사용자 지정 워크스페이스 정의: %@ •"
                 }
             },
             "nb": {
