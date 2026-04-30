@@ -7222,6 +7222,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if event.keyCode != 53 { endFindEscapeSuppression() }
         if shouldConsumeSuppressedFindEscape(event) { return }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 53, flags.isEmpty, !hasMarkedText(), let terminalSurface, terminalSurface.searchState != nil {
+            terminalSurface.searchState = nil
+            beginFindEscapeSuppression(); return
+        }
 #if DEBUG
         let keyboardCopyModeStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -7257,7 +7262,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // These keys are terminal control input, not text composition, so we bypass
         // AppKit text interpretation and send a single deterministic Ghostty key event.
         // This avoids intermittent drops after rapid split close/reparent transitions.
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
             terminalSurface?.recordExternalFocusState(true)
             ghostty_surface_set_focus(surface, true)
