@@ -24,7 +24,9 @@ final class FeedSidebarUITests: XCTestCase {
         diagnosticsPath = "/tmp/cmux-feed-sidebar-\(UUID().uuidString).json"
         feedResultPath = "/tmp/cmux-feed-sidebar-result-\(UUID().uuidString).json"
         feedTUIReadyPath = "/tmp/cmux-feed-sidebar-tui-ready-\(UUID().uuidString).json"
-        dockConfigPath = "/tmp/cmux-feed-sidebar-dock-\(UUID().uuidString).json"
+        dockConfigPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-sidebar-dock-\(UUID().uuidString).json")
+            .path
         requestId = "uitest-\(UUID().uuidString)"
         removeSocketFile()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
