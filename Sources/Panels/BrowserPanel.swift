@@ -2245,7 +2245,9 @@ final class BrowserPanel: Panel, ObservableObject {
         didSet {
             if let searchState {
                 preferredFocusIntent = .findField
-                NSLog("Find: browser search state created panel=%@", id.uuidString)
+#if DEBUG
+                cmuxDebugLog("browser.find.state.created panel=\(id.uuidString.prefix(5))")
+#endif
                 searchNeedleCancellable = searchState.$needle
                     .removeDuplicates()
                     .map { needle -> AnyPublisher<String, Never> in
@@ -2259,7 +2261,9 @@ final class BrowserPanel: Panel, ObservableObject {
                     .switchToLatest()
                     .sink { [weak self] needle in
                         guard let self else { return }
-                        NSLog("Find: browser needle updated panel=%@ needle=%@", self.id.uuidString, needle)
+#if DEBUG
+                        cmuxDebugLog("browser.find.needle.updated panel=\(self.id.uuidString.prefix(5)) bytes=\(needle.lengthOfBytes(using: .utf8))")
+#endif
                         self.executeFindSearch(needle)
                     }
             } else if let oldValue {
@@ -2267,7 +2271,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 searchNeedleCancellable = nil
                 if preferredFocusIntent == .findField { preferredFocusIntent = .webView }
                 invalidateSearchFocusRequests(reason: "searchStateCleared")
-                NSLog("Find: browser search state cleared panel=%@", id.uuidString)
+#if DEBUG
+                cmuxDebugLog("browser.find.state.cleared panel=\(id.uuidString.prefix(5))")
+#endif
                 executeFindClear()
             }
         }
@@ -5017,26 +5023,17 @@ extension BrowserPanel {
         let created = searchState == nil
         let recoveredNeedle = created ? lastSearchNeedle : ""
         if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
+        let shouldSelectAll = created && !recoveredNeedle.isEmpty
         pendingAddressBarFocusRequestId = nil
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
-#if DEBUG
-        let window = webView.window
-        cmuxDebugLog(
-            "browser.find.start panel=\(id.uuidString.prefix(5)) " +
-            "created=\(created ? 1 : 0) render=\(shouldRenderWebView ? 1 : 0) " +
-            "generation=\(generation) " +
-            "window=\(window?.windowNumber ?? -1) key=\(NSApp.keyWindow === window ? 1 : 0) " +
-            "firstResponder=\(String(describing: window?.firstResponder))"
-        )
-#endif
-        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: created && !recoveredNeedle.isEmpty)
+        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
         // Re-post because portal overlay mount can race first responder focus.
         DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: created && !recoveredNeedle.isEmpty)
+            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: shouldSelectAll)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation, selectAll: false)
+            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation, selectAll: shouldSelectAll)
         }
     }
 

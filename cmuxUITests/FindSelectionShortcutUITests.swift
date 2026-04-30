@@ -263,7 +263,7 @@ final class FindSelectionShortcutUITests: XCTestCase {
         )
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         XCTAssertTrue(
-            waitForDataMatch(timeout: 6.0) { $0[pane.visibleKey] == "false" },
+            waitForDataMatch(timeout: 6.0) { $0[pane.visibleKey] == "false" && $0[pane.needleKey] == "" },
             "Expected Escape to close recovered \(pane.replacementMessage). data=\(String(describing: loadData()))"
         )
     }
