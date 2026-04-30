@@ -6667,7 +6667,7 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\"", with: "\\\"")
         return [
             preferredCLIPath.map { "cmux_reconnect_cli=\(shellQuote($0));" } ?? "cmux_reconnect_cli=\"\";",
-            "cmux_reconnect_socket=\"${CMUX_SOCKET_PATH:-}\";",
+            "cmux_reconnect_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
             "if [ -z \"$cmux_reconnect_cli\" ] && [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]; then cmux_reconnect_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
             "if [ ! -x \"$cmux_reconnect_cli\" ]; then cmux_reconnect_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi;",
             "if [ -n \"${CMUX_WORKSPACE_ID:-}\" ]; then",
@@ -11498,8 +11498,8 @@ struct CMUXCLI {
         let surfaceId: String?
     }
 
-    private func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) -> String {
-        let envSocketPath = try? CLISocketEnvironment.socketPath(in: processEnvironment)
+    private func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) throws -> String {
+        let envSocketPath = try CLISocketEnvironment.socketPath(in: processEnvironment)
 
         let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
         let source: CLISocketPathSource
@@ -11519,8 +11519,8 @@ struct CMUXCLI {
     private func tmuxCompatFocusedContext(
         processEnvironment: [String: String],
         explicitPassword: String?
-    ) -> TmuxCompatFocusedContext? {
-        let socketPath = tmuxCompatResolvedSocketPath(processEnvironment: processEnvironment)
+    ) throws -> TmuxCompatFocusedContext? {
+        let socketPath = try tmuxCompatResolvedSocketPath(processEnvironment: processEnvironment)
         let client = SocketClient(path: socketPath)
 
         do {
@@ -11794,7 +11794,7 @@ struct CMUXCLI {
         }
         let shimDirectory = try createClaudeTeamsShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = tmuxCompatFocusedContext(
+        let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
@@ -12342,7 +12342,7 @@ struct CMUXCLI {
 
         let shimDirectory = try createOMOShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = tmuxCompatFocusedContext(
+        let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
@@ -12464,7 +12464,7 @@ struct CMUXCLI {
 
         let shimDirectory = try createOMXShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = tmuxCompatFocusedContext(
+        let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
@@ -12593,7 +12593,7 @@ struct CMUXCLI {
 
         let shimDirectory = try createOMCShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = tmuxCompatFocusedContext(
+        let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
