@@ -562,7 +562,7 @@ func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
 
 func cmuxFieldEditorOwnerView(_ editor: NSTextView) -> NSView? {
     guard editor.isFieldEditor else { return nil }
-
+    if let owner = cmuxTrackedFindFieldEditorOwner(editor) { return owner }
     var current = editor.nextResponder
     while let next = current {
         if let view = next as? NSView {

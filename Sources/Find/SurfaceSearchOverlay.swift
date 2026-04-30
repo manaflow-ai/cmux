@@ -348,14 +348,15 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> SearchNativeTextField {
-            let field = SearchNativeTextField(frame: .zero)
+        let field = SearchNativeTextField(frame: .zero)
         field.font = .systemFont(ofSize: NSFont.systemFontSize)
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
-            field.setAccessibilityIdentifier("TerminalFindSearchTextField")
-            field.delegate = context.coordinator
-            field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
-            field.stringValue = text
-            context.coordinator.parentField = field
+        field.setAccessibilityIdentifier("TerminalFindSearchTextField")
+        field.delegate = context.coordinator
+        field.cmuxSelectionOwner = selectionOwner
+        field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
+        field.stringValue = text
+        context.coordinator.parentField = field
 
         // Observe .ghosttySearchFocus to immediately focus from AppKit level.
         // This is the primary mechanism for restoring focus after window switches.
@@ -397,6 +398,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
         nsView.delegate = context.coordinator
+        nsView.cmuxSelectionOwner = selectionOwner
         nsView.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
 
         // Sync text from binding to field (skip during active IME composition)
@@ -444,6 +446,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             coordinator.searchFocusObserver = nil
         }
         nsView.delegate = nil
+        nsView.cmuxSelectionOwner = nil
         nsView.cmuxOnEscape = nil
         coordinator.parentField = nil
     }

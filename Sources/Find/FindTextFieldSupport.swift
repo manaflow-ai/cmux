@@ -58,6 +58,7 @@ func cmuxFindCommandMayChangeSelection(_ selector: Selector) -> Bool {
 }
 
 private let cmuxFindSelectionStore = NSMapTable<AnyObject, NSValue>.weakToStrongObjects()
+private let cmuxFindFieldEditorOwners = NSMapTable<NSTextView, FindSelectionTrackingTextField>.weakToWeakObjects()
 
 func cmuxStoredFindSelection(for owner: AnyObject?) -> NSRange? {
     guard let owner else { return nil }
@@ -69,14 +70,35 @@ func cmuxStoreFindSelection(_ range: NSRange, for owner: AnyObject?) {
     cmuxFindSelectionStore.setObject(NSValue(range: range), forKey: owner)
 }
 
+func cmuxTrackedFindFieldEditorOwner(_ editor: NSTextView) -> FindSelectionTrackingTextField? {
+    guard editor.isFieldEditor else { return nil }
+    return cmuxFindFieldEditorOwners.object(forKey: editor)
+}
+
+func cmuxFindTextFieldOwner(for responder: NSResponder?) -> FindSelectionTrackingTextField? {
+    if let field = responder as? FindSelectionTrackingTextField {
+        return field
+    }
+    if let editor = responder as? NSTextView {
+        return cmuxTrackedFindFieldEditorOwner(editor) ?? (cmuxFieldEditorOwnerView(editor) as? FindSelectionTrackingTextField)
+    }
+    return nil
+}
+
 @MainActor
 func cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: TabManager?, window: NSWindow?) {
+    guard let editor = window?.firstResponder as? NSTextView else { return }
+    let selection = cmuxClampedFindSelection(editor.selectedRange(), in: editor.string)
+    if let field = cmuxTrackedFindFieldEditorOwner(editor),
+       let owner = field.cmuxSelectionOwner {
+        _ = field.cmuxRememberSelection(selection, in: editor.string)
+        cmuxStoreFindSelection(selection, for: owner)
+        return
+    }
     guard let workspace = tabManager?.selectedWorkspace,
-          let focusedPanelId = workspace.focusedPanelId,
-          let editor = window?.firstResponder as? NSTextView else { return }
+          let focusedPanelId = workspace.focusedPanelId else { return }
     let owner = (workspace.terminalPanel(for: focusedPanelId)?.searchState as AnyObject?) ?? (workspace.browserPanel(for: focusedPanelId)?.searchState as AnyObject?)
     guard let owner else { return }
-    let selection = cmuxClampedFindSelection(editor.selectedRange(), in: editor.string)
     cmuxStoreFindSelection(selection, for: owner)
 }
 
@@ -132,10 +154,12 @@ func cmuxFindResponderSnapshot() -> [String: String] {
 
 class FindSelectionTrackingTextField: NSTextField {
     var cmuxLastSelectedRange: NSRange?
+    weak var cmuxSelectionOwner: AnyObject?
     var cmuxOnEscape: ((NSTextView) -> Bool)?
     private var cmuxSelectionObserver: NSObjectProtocol?
     private var cmuxKeyMonitor: Any?
     private weak var cmuxObservedEditor: NSTextView?
+    private weak var cmuxPreviousEditorNextResponder: NSResponder?
 
     deinit {
         cmuxDetachSelectionObserver()
@@ -168,9 +192,17 @@ class FindSelectionTrackingTextField: NSTextField {
         super.textDidEndEditing(notification)
     }
 
+    override func cancelOperation(_ sender: Any?) {
+        if let editor = currentEditor() as? NSTextView, !editor.hasMarkedText(), cmuxOnEscape?(editor) == true {
+            return
+        }
+        super.cancelOperation(sender)
+    }
+
     func cmuxRememberSelection(_ range: NSRange, in text: String) -> NSRange {
         let selection = cmuxClampedFindSelection(range, in: text)
         cmuxLastSelectedRange = selection
+        cmuxStoreFindSelection(selection, for: cmuxSelectionOwner)
         return selection
     }
 
@@ -188,8 +220,8 @@ class FindSelectionTrackingTextField: NSTextField {
         if let cmuxObservedEditor, cmuxObservedEditor !== editor {
             cmuxDetachSelectionObserver()
         }
+        cmuxAdoptFieldEditor(editor)
         guard cmuxSelectionObserver == nil else { return }
-        cmuxObservedEditor = editor
         cmuxSelectionObserver = NotificationCenter.default.addObserver(
             forName: NSTextView.didChangeSelectionNotification,
             object: editor,
@@ -206,7 +238,21 @@ class FindSelectionTrackingTextField: NSTextField {
             NotificationCenter.default.removeObserver(cmuxSelectionObserver)
             self.cmuxSelectionObserver = nil
         }
+        if let editor = cmuxObservedEditor, editor.nextResponder === self {
+            editor.nextResponder = cmuxPreviousEditorNextResponder
+        }
+        cmuxPreviousEditorNextResponder = nil
         cmuxObservedEditor = nil
+    }
+
+    private func cmuxAdoptFieldEditor(_ editor: NSTextView) {
+        cmuxObservedEditor = editor
+        cmuxFindFieldEditorOwners.setObject(self, forKey: editor)
+        if editor.nextResponder !== self {
+            cmuxPreviousEditorNextResponder = editor.nextResponder
+            editor.nextResponder = self
+        }
+        cmuxInstallKeyMonitorIfNeeded()
     }
 
     private func cmuxInstallKeyMonitorIfNeeded() {

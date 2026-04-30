@@ -320,6 +320,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.setAccessibilityIdentifier("BrowserFindSearchTextField")
         field.delegate = context.coordinator
+        field.cmuxSelectionOwner = selectionOwner
         field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
         field.target = nil
         field.action = nil
@@ -350,6 +351,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
         nsView.delegate = context.coordinator
+        nsView.cmuxSelectionOwner = selectionOwner
         nsView.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
 
         if let editor = nsView.currentEditor() as? NSTextView {
@@ -395,6 +397,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             coordinator.searchFocusObserver = nil
         }
         nsView.delegate = nil
+        nsView.cmuxSelectionOwner = nil
         nsView.cmuxOnEscape = nil
         coordinator.parentField = nil
     }
