@@ -125,8 +125,18 @@ final class WorkspaceCommandsStore: ObservableObject {
     }
 
     func setDefault(id: WorkspaceCommandConfig.ID?) {
-        guard defaultCommandID != id else { return }
-        defaultCommandID = id
+        let sanitized: WorkspaceCommandConfig.ID?
+        switch id {
+        case nil:
+            sanitized = nil
+        case let id? where id == Self.builtInLocalID
+            || userCommands.contains(where: { $0.id == id }):
+            sanitized = id
+        default:
+            sanitized = nil
+        }
+        guard defaultCommandID != sanitized else { return }
+        defaultCommandID = sanitized
         persist()
     }
 
@@ -135,8 +145,18 @@ final class WorkspaceCommandsStore: ObservableObject {
         let existing = Set(commands.map(\.name))
         if !existing.contains(base) { return base }
         var n = 2
-        while existing.contains("\(base) \(n)") { n += 1 }
-        return "\(base) \(n)"
+        while true {
+            let candidate = String(
+                format: String(
+                    localized: "settings.workspaces.newCommand.numberedName",
+                    defaultValue: "%@ %lld"
+                ),
+                base,
+                Int64(n)
+            )
+            if !existing.contains(candidate) { return candidate }
+            n += 1
+        }
     }
 
     private func applyUserCommands(_ next: [WorkspaceCommandConfig]) {
