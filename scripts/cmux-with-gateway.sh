@@ -49,7 +49,7 @@ resolve_cmux() {
   while IFS= read -r cand; do
     [[ -z "$cand" || "$cand" == "$SCRIPT_PATH" ]] && continue
     [[ -x "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
-  done < <(command -v -a cmux 2>/dev/null || true)
+  done < <(type -aP cmux 2>/dev/null || true)
 
   for cand in \
     "/Applications/cmux.app/Contents/Resources/bin/cmux" \

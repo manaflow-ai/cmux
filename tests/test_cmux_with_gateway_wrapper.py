@@ -4,9 +4,10 @@
 The wrapper pre-exports LLM gateway env vars (e.g. ``ANTHROPIC_BASE_URL``)
 before exec'ing ``cmux``. See ``docs/llm-gateway.md`` for full description.
 
-Run locally — does not require Xcode, the cmux VM, or Bun:
-
-    python3 tests/test_cmux_with_gateway_wrapper.py
+Per repo policy, all tests run via GitHub Actions or on the cmux VM
+(see CONTRIBUTING.md and scripts/run-tests-v1.sh). This file is hermetic and
+intentionally does not depend on Xcode, the cmux VM, or Bun, so it can be
+included in CI alongside the rest of the suite.
 """
 
 from __future__ import annotations
@@ -214,6 +215,30 @@ def test_debug_flag_prints_loaded_keys(tmp: Path) -> None:
     assert "OPENAI_BASE_URL" in result.stderr
 
 
+def test_debug_flag_never_prints_secret_values(tmp: Path) -> None:
+    """Regression: --debug must surface key *names* but never values.
+
+    The env file holds the gateway master key. If the wrapper's --debug output
+    ever leaks values to stderr, a screen recording or a pasted log dump
+    exposes the credential. (Stdout is the child cmux's namespace and is
+    irrelevant here — what cmux does with the env is its own concern.)
+    """
+    fake_cmux = _make_fake_cmux(tmp)
+    gateway_env = tmp / "gateway.env"
+    secret = "sk-litellm-DO-NOT-LEAK-1234567890abcdef"
+    _write_secure(
+        gateway_env,
+        f"ANTHROPIC_BASE_URL=http://localhost:4000\n"
+        f"ANTHROPIC_API_KEY={secret}\n",
+    )
+    result = _run_wrapper(["--debug"], fake_cmux, gateway_env)
+    assert result.returncode == 0, result.stderr
+    # Names must surface so the user can verify what loaded.
+    assert "ANTHROPIC_API_KEY" in result.stderr
+    # The wrapper's own debug output (stderr) must not contain values.
+    assert secret not in result.stderr, "secret value leaked to wrapper stderr"
+
+
 def test_cmux_bin_not_executable_fails_clearly(tmp: Path) -> None:
     not_executable = tmp / "notcmux"
     not_executable.write_text("#!/bin/sh\necho hi\n")
@@ -249,6 +274,7 @@ TESTS = [
     test_refuses_world_readable_env_file,
     test_no_env_file_runs_cmux_anyway,
     test_debug_flag_prints_loaded_keys,
+    test_debug_flag_never_prints_secret_values,
     test_cmux_bin_not_executable_fails_clearly,
 ]
 

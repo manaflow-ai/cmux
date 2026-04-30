@@ -16,7 +16,7 @@ The coding agents that cmux launches (Claude Code, Codex CLI, Gemini CLI) all su
 |---|---|---|
 | Claude Code | `ANTHROPIC_BASE_URL` | `ANTHROPIC_API_KEY` |
 | Codex CLI | `OPENAI_BASE_URL` | `OPENAI_API_KEY` |
-| Gemini CLI | `GOOGLE_GENERATIVE_AI_BASE_URL` | `GOOGLE_API_KEY` |
+| Gemini CLI | `GOOGLE_GENERATIVE_AI_BASE_URL` | `GEMINI_API_KEY` |
 
 If the gateway is reachable from the agent process, all the gateway features above flow through transparently — the agent itself is unchanged.
 
@@ -41,7 +41,7 @@ OPENAI_BASE_URL=http://localhost:4000/v1
 OPENAI_API_KEY=sk-litellm-...
 
 GOOGLE_GENERATIVE_AI_BASE_URL=http://localhost:4000
-GOOGLE_API_KEY=sk-litellm-...
+GEMINI_API_KEY=sk-litellm-...
 ```
 
 Permissions: this file holds your gateway master key. `chmod 600 ~/.cmux/gateway.env`.
