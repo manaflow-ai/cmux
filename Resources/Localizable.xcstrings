@@ -57990,19 +57990,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hooks must be installed with `cmux cursor install-hooks`. They no-op outside cmux terminals."
+            "value": "Hooks must be installed with `cmux hooks cursor install`. They no-op outside cmux terminals."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フックは`cmux cursor install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+            "value": "フックは`cmux hooks cursor install`でインストールする必要があります。cmuxターミナル外では動作しません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "`cmux cursor install-hooks`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
+            "value": "`cmux hooks cursor install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
           }
         }
       }
@@ -58082,19 +58082,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hooks must be installed with `cmux gemini install-hooks`. They no-op outside cmux terminals."
+            "value": "Hooks must be installed with `cmux hooks gemini install`. They no-op outside cmux terminals."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フックは`cmux gemini install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+            "value": "フックは`cmux hooks gemini install`でインストールする必要があります。cmuxターミナル外では動作しません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "`cmux gemini install-hooks`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
+            "value": "`cmux hooks gemini install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
           }
         }
       }
