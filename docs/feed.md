@@ -1,6 +1,6 @@
 # Feed
 
-Feed is cmux's inline surface for AI agent decisions. It stays in the right sidebar on `Ctrl-4`. The keyboard-first OpenTUI Feed can also run in the separate right-sidebar [Dock](dock.md) with `cmux feed tui`. It shows three things that need a human response:
+Feed is cmux's inline surface for AI agent decisions. It stays in the right sidebar on `Ctrl-4`. The keyboard-first OpenTUI Feed can also run in the separate right-sidebar [Dock](dock.md) after you add a Dock control that runs `cmux feed tui`. It shows three things that need a human response:
 
 - **Permission requests:** Agent wants to run a tool, edit a file, or execute a shell command. Pick Once / Always / All tools / Bypass / Deny.
 - **ExitPlanMode:** Agent finished planning and is ready to start editing. Pick Ultraplan / Manual / Auto.

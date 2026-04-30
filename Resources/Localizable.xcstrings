@@ -105309,23 +105309,6 @@
         }
       }
     },
-    "dock.default.feed.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード"
-          }
-        }
-      }
-    },
     "dock.empty.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -105428,19 +105411,19 @@
         }
       }
     },
-    "dock.source.builtIn": {
+    "dock.source.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Built-in Dock"
+            "value": "Dock"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "組み込みDock"
+            "value": "Dock"
           }
         }
       }

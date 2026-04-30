@@ -280,7 +280,7 @@ final class DockControlsStore: ObservableObject {
 
         guard let workspaceId else {
             replaceControls(with: [])
-            sourceLabel = String(localized: "dock.source.builtIn", defaultValue: "Built-in Dock")
+            sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
             return
         }
 
@@ -389,15 +389,6 @@ final class DockControlsStore: ObservableObject {
     }
 
     private static func resolve(rootDirectory: String?) throws -> DockConfigResolution {
-        if shouldUseBuiltInFeedControlForUITest {
-            return DockConfigResolution(
-                controls: [defaultFeedControl()],
-                sourceURL: nil,
-                baseDirectory: rootDirectory.flatMap(Self.existingDirectory) ?? FileManager.default.homeDirectoryForCurrentUser.path,
-                isProjectSource: false
-            )
-        }
-
         if let projectURL = projectConfigURL(rootDirectory: rootDirectory) {
             return try loadConfig(
                 from: projectURL,
@@ -416,20 +407,11 @@ final class DockControlsStore: ObservableObject {
         }
 
         return DockConfigResolution(
-            controls: [defaultFeedControl()],
+            controls: [],
             sourceURL: nil,
             baseDirectory: rootDirectory.flatMap(Self.existingDirectory) ?? FileManager.default.homeDirectoryForCurrentUser.path,
             isProjectSource: false
         )
-    }
-
-    private static var shouldUseBuiltInFeedControlForUITest: Bool {
-        guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1",
-              let readyPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEED_TUI_READY_PATH"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines) else {
-            return false
-        }
-        return !readyPath.isEmpty
     }
 
     private static func loadConfig(
@@ -462,48 +444,9 @@ final class DockControlsStore: ObservableObject {
         )
     }
 
-    private static func defaultFeedControl() -> DockControlDefinition {
-        defaultFeedControl(command: defaultFeedCommand())
-    }
-
-    private static func defaultFeedControl(command: String) -> DockControlDefinition {
-        var env: [String: String] = [:]
-        var forceOpenTUI = false
-        if let readyPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEED_TUI_READY_PATH"],
-           !readyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            env["CMUX_FEED_TUI_READY_PATH"] = readyPath
-            if let bunPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEED_TUI_BUN_PATH"]?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !bunPath.isEmpty {
-                env["CMUX_FEED_TUI_BUN_PATH"] = bunPath
-            }
-            forceOpenTUI = true
-        }
-        let resolvedCommand = command + (forceOpenTUI ? " --opentui" : "")
-        return DockControlDefinition(
-            id: "feed",
-            title: String(localized: "dock.default.feed.title", defaultValue: "Feed"),
-            command: resolvedCommand,
-            env: env
-        )
-    }
-
-    private static func defaultFeedCommand() -> String {
-        if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
-           FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
-            return "\(shellSingleQuoted(bundledCLIURL.path)) feed tui"
-        }
-        return "cmux feed tui"
-    }
-
-    private static func shellSingleQuoted(_ value: String) -> String {
-        if value.isEmpty { return "''" }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-    }
-
     private static func sourceLabel(for resolution: DockConfigResolution) -> String {
         if resolution.sourceURL == nil {
-            return String(localized: "dock.source.builtIn", defaultValue: "Built-in Dock")
+            return String(localized: "dock.source.title", defaultValue: "Dock")
         }
         return resolution.isProjectSource
             ? String(localized: "dock.source.project", defaultValue: "Project Dock")
@@ -535,7 +478,13 @@ final class DockControlsStore: ObservableObject {
     }
 
     private static func globalConfigURL() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1",
+           let testPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_DOCK_CONFIG_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !testPath.isEmpty {
+            return URL(fileURLWithPath: testPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/cmux/dock.json", isDirectory: false)
     }
 
@@ -563,7 +512,6 @@ final class DockControlsStore: ObservableObject {
             withIntermediateDirectories: true
         )
         let file = DockConfigFile(controls: [
-            defaultFeedControl(command: "cmux feed tui"),
             DockControlDefinition(
                 id: "git",
                 title: "Git",
