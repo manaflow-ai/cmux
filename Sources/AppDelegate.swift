@@ -5024,6 +5024,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+#if DEBUG
+    func unregisterMainWindowContextForTesting(windowId: UUID) {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else { return }
+        discardOrphanedMainWindowContext(context)
+    }
+#endif
+
     private func mainWindowId(for window: NSWindow) -> UUID? {
         if let context = mainWindowContexts[ObjectIdentifier(window)] {
             return context.windowId
