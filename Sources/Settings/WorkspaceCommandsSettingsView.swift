@@ -381,7 +381,11 @@ private struct WorkspaceCommandDetailEditor: View {
             get: { command.remote?.port.map(String.init) ?? "" },
             set: { newValue in
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                command.remote?.port = trimmed.isEmpty ? nil : Int(trimmed)
+                if trimmed.isEmpty {
+                    command.remote?.port = nil
+                } else if let port = Int(trimmed), (1...65535).contains(port) {
+                    command.remote?.port = port
+                }
             }
         )
         TextField(

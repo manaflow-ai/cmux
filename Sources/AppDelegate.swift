@@ -5856,7 +5856,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // configured default workspace command so the first window opens with
         // the user's chosen profile (e.g. a remote SSH workspace) instead of a
         // bare local terminal that they'd immediately close.
-        let isFreshLaunch = mainWindowContexts.isEmpty
+        // Treat a launch as "fresh" only when there's no main window yet AND
+        // we aren't about to restore a persisted session. Otherwise the user's
+        // configured default command would replace a restored workspace.
+        let willRestoreStartupSession =
+            startupSessionSnapshot != nil && !didHandleExplicitOpenIntentAtStartup
+        let isFreshLaunch = mainWindowContexts.isEmpty && !willRestoreStartupSession
         let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: shouldActivate)
         if let manager = tabManagerFor(windowId: windowId) {
             startSocketListenerIfEnabled(
@@ -6046,7 +6051,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context = preferredMainWindowContextForWorkspaceCreation(
             event: nil,
             debugSource: debugSource
-        ) ?? mainWindowContexts.values.first else {
+        ) else {
             return false
         }
         let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory

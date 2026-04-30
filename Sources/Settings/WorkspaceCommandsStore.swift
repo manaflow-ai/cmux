@@ -165,8 +165,17 @@ final class WorkspaceCommandsStore: ObservableObject {
         guard let data = defaults.data(forKey: Self.storageKey) else { return }
         guard let snapshot = try? JSONDecoder().decode(StoredSnapshot.self, from: data) else { return }
         suppressPersist = true
-        userCommands = snapshot.userCommands
-        defaultCommandID = snapshot.defaultCommandID
+        // Drop any persisted entry colliding with the built-in Local ID and
+        // any default that no longer points to a real user command.
+        let sanitizedUserCommands = snapshot.userCommands.filter { $0.id != Self.builtInLocalID }
+        userCommands = sanitizedUserCommands
+        if let id = snapshot.defaultCommandID,
+           id != Self.builtInLocalID,
+           sanitizedUserCommands.contains(where: { $0.id == id }) {
+            defaultCommandID = id
+        } else {
+            defaultCommandID = nil
+        }
         suppressPersist = false
     }
 
@@ -262,12 +271,20 @@ extension WorkspaceCommandConfig {
             color: color,
             layout: nil,
             remote: remote.map { remote in
-                CmuxRemoteDefinition(
-                    host: remote.host,
+                let host = remote.host.trimmingCharacters(in: .whitespacesAndNewlines)
+                let identityFile = remote.identityFile?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let startupCommand = remote.startupCommand?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let sshOptions = remote.sshOptions
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                return CmuxRemoteDefinition(
+                    host: host,
                     port: remote.port,
-                    identityFile: remote.identityFile,
-                    sshOptions: remote.sshOptions.isEmpty ? nil : remote.sshOptions,
-                    startupCommand: remote.startupCommand
+                    identityFile: (identityFile?.isEmpty == false) ? identityFile : nil,
+                    sshOptions: sshOptions.isEmpty ? nil : sshOptions,
+                    startupCommand: (startupCommand?.isEmpty == false) ? startupCommand : nil
                 )
             },
             program: (trimmedProgram?.isEmpty == false) ? trimmedProgram : nil

@@ -494,7 +494,10 @@ struct CmuxConfigExecutor {
                 transport: .ssh,
                 destination: remote.host,
                 port: remote.port,
-                identityFile: remote.identityFile.map(expandTildePath),
+                identityFile: remote.identityFile.flatMap {
+                    let path = expandTildePath($0)
+                    return path.isEmpty ? nil : path
+                },
                 sshOptions: remote.sshOptions ?? [],
                 localProxyPort: nil,
                 relayPort: nil,
@@ -532,10 +535,15 @@ struct CmuxConfigExecutor {
             args.append("-o")
             args.append(shellQuoteArgument(trimmed))
         }
-        args.append(shellQuoteArgument(remote.host))
-        if let startupCommand = remote.startupCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !startupCommand.isEmpty {
+        // ssh(1) parses options up to `destination`; anything after is treated
+        // as the remote command. `-t` therefore must precede the host or it
+        // gets passed to the remote shell instead of allocating a TTY.
+        let startupCommand = remote.startupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let startupCommand, !startupCommand.isEmpty {
             args.append("-t")
+        }
+        args.append(shellQuoteArgument(remote.host))
+        if let startupCommand, !startupCommand.isEmpty {
             args.append(shellQuoteArgument(startupCommand))
         }
         return args.joined(separator: " ")

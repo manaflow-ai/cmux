@@ -396,7 +396,13 @@ final class NewWorkspaceSplitButtonView: NSView, NSMenuDelegate {
         primaryButton.translatesAutoresizingMaskIntoConstraints = false
         primaryButton.bezelStyle = .accessoryBarAction
         primaryButton.isBordered = false
-        primaryButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New workspace")
+        primaryButton.image = NSImage(
+            systemSymbolName: "plus",
+            accessibilityDescription: String(
+                localized: "titlebar.newWorkspace.accessibilityLabel",
+                defaultValue: "New Workspace"
+            )
+        )
         primaryButton.imageScaling = .scaleProportionallyDown
         primaryButton.target = self
         primaryButton.action = #selector(primaryTapped)
@@ -409,7 +415,13 @@ final class NewWorkspaceSplitButtonView: NSView, NSMenuDelegate {
         chevronButton.translatesAutoresizingMaskIntoConstraints = false
         chevronButton.bezelStyle = .accessoryBarAction
         chevronButton.isBordered = false
-        chevronButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Pick workspace command")
+        chevronButton.image = NSImage(
+            systemSymbolName: "chevron.down",
+            accessibilityDescription: String(
+                localized: "titlebar.newWorkspace.menu.accessibilityLabel",
+                defaultValue: "Pick Workspace Command"
+            )
+        )
         chevronButton.imageScaling = .scaleProportionallyDown
         chevronButton.target = self
         chevronButton.action = #selector(chevronTapped)
