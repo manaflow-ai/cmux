@@ -75,6 +75,28 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
         XCTAssertEqual(document.index(for: resolvedPage), targetPageIndex)
     }
 
+    func testVisiblePageResolverSelectsLastPageAtDocumentBottom() {
+        let pageIndex = FilePreviewPDFVisiblePageResolver.verticalDocumentEdgePageIndex(
+            pageCount: 8,
+            clipBounds: CGRect(x: 0, y: 1500, width: 500, height: 500),
+            documentBounds: CGRect(x: 0, y: 0, width: 500, height: 2000),
+            isFlipped: true
+        )
+
+        XCTAssertEqual(pageIndex, 7)
+    }
+
+    func testVisiblePageResolverSelectsLastPageAtNonFlippedDocumentBottom() {
+        let pageIndex = FilePreviewPDFVisiblePageResolver.verticalDocumentEdgePageIndex(
+            pageCount: 8,
+            clipBounds: CGRect(x: 0, y: 0, width: 500, height: 500),
+            documentBounds: CGRect(x: 0, y: 0, width: 500, height: 2000),
+            isFlipped: false
+        )
+
+        XCTAssertEqual(pageIndex, 7)
+    }
+
     private func makePDFDocument(pageCount: Int) throws -> PDFDocument {
         let document = PDFDocument()
         for pageIndex in 0..<pageCount {

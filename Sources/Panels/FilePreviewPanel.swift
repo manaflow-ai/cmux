@@ -8,7 +8,7 @@ import Quartz
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum FilePreviewInteraction {
+enum FilePreviewInteraction {
     static let zoomStep: CGFloat = 1.25
 
     static func hasZoomModifier(_ event: NSEvent) -> Bool {
@@ -1966,6 +1966,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var pdfResizeSequence = 0
     private var activePDFResizeID: Int?
     private var activePDFRegion: FilePreviewPanelFocusIntent?
+    private weak var observedPDFClipView: NSClipView?
     private var rotationAccumulator: CGFloat = 0
     private static let documentLoadQueue = DispatchQueue(
         label: "com.cmux.file-preview.pdf-document-load",
@@ -1982,6 +1983,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     deinit {
+        removePDFScrollObserver()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -2057,6 +2059,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         titleLabel.stringValue = url.lastPathComponent
         pdfView.autoScales = true
         applyDisplayMode()
+        updatePDFScrollObserver()
         outlineView.reloadData()
         updateSidebarContent()
         applyPreferredSidebarWidthIfNeeded()
@@ -2096,6 +2099,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         pdfView.onSwipe = { [weak self] event in
             self?.swipePDF(with: event)
         }
+        updatePDFScrollObserver()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(pdfPageChanged),
@@ -2381,6 +2385,14 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         updateChromeRootViews()
     }
 
+    @objc private func pdfClipBoundsChanged(_ notification: Notification) {
+        guard let clipView = notification.object as? NSClipView,
+              clipView === observedPDFClipView,
+              pdfView.document != nil,
+              !suppressPDFPageChangeNotifications else { return }
+        updatePageControls()
+    }
+
     private func updatePageControls(
         pageIndexOverride: Int? = nil,
         scrollThumbnailToVisible: Bool = true
@@ -2413,12 +2425,16 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
     private func visiblePDFPageIndex(for document: PDFDocument) -> Int? {
         let page = displayMode == .continuousScroll
-            ? topVisiblePDFPage()
+            ? selectedVisiblePDFPage()
             : pdfView.currentPage
         guard let page else { return nil }
         let pageIndex = document.index(for: page)
         guard pageIndex >= 0 else { return nil }
         return pageIndex
+    }
+
+    private func selectedVisiblePDFPage() -> PDFPage? {
+        FilePreviewPDFVisiblePageResolver.selectedVisiblePage(in: pdfView, scrollView: pdfScrollView())
     }
 
     private func topVisiblePDFPage() -> PDFPage? {
@@ -2638,6 +2654,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             pdfView.displayDirection = .horizontal
         }
         pdfView.autoScales = true
+        updatePDFScrollObserver()
         refreshPDFSmartFitPreservingVisibleTop()
     }
 
@@ -2649,6 +2666,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         pdfView.autoScales = false
         pdfView.autoScales = true
         pdfView.layoutDocumentView()
+        updatePDFScrollObserver()
         logPDFResizeProbe("smartFit.end \(pdfDebugState())")
     }
 
@@ -2809,6 +2827,31 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
     private func updatePDFThumbnailSelectionFocus() {
         setActivePDFRegion(currentPDFFocusRegion())
+    }
+
+    private func updatePDFScrollObserver() {
+        guard let clipView = pdfScrollView()?.contentView else { return }
+        guard observedPDFClipView !== clipView else { return }
+        removePDFScrollObserver()
+        observedPDFClipView = clipView
+        clipView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(pdfClipBoundsChanged(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: clipView
+        )
+    }
+
+    private func removePDFScrollObserver() {
+        if let observedPDFClipView {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSView.boundsDidChangeNotification,
+                object: observedPDFClipView
+            )
+        }
+        observedPDFClipView = nil
     }
 
     private func currentPDFFocusRegion() -> FilePreviewPanelFocusIntent? {
@@ -2974,81 +3017,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         ])
         return cell
     }
-}
-
-private final class FilePreviewMagnifyingPDFView: PDFView {
-    var onMagnify: ((NSEvent) -> Void)?
-    var onScrollZoom: ((NSEvent) -> Void)?
-    var onScroll: (() -> Void)?
-    var onSmartMagnify: (() -> Void)?
-    var onRotate: ((NSEvent) -> Void)?
-    var onSwipe: ((NSEvent) -> Void)?
-    var onFocusChanged: ((Bool) -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func becomeFirstResponder() -> Bool {
-        let accepted = super.becomeFirstResponder()
-        if accepted {
-            onFocusChanged?(true)
-        }
-        return accepted
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let resigned = super.resignFirstResponder()
-        if resigned {
-            onFocusChanged?(false)
-        }
-        return resigned
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        super.mouseDown(with: event)
-    }
-
-    override func magnify(with event: NSEvent) {
-        if let onMagnify {
-            onMagnify(event)
-        } else {
-            super.magnify(with: event)
-        }
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        if FilePreviewInteraction.hasZoomModifier(event), let onScrollZoom {
-            onScrollZoom(event)
-        } else {
-            super.scrollWheel(with: event)
-            onScroll?()
-        }
-    }
-
-    override func smartMagnify(with event: NSEvent) {
-        if let onSmartMagnify {
-            onSmartMagnify()
-        } else {
-            super.smartMagnify(with: event)
-        }
-    }
-
-    override func rotate(with event: NSEvent) {
-        if let onRotate {
-            onRotate(event)
-        } else {
-            super.rotate(with: event)
-        }
-    }
-
-    override func swipe(with event: NSEvent) {
-        if let onSwipe {
-            onSwipe(event)
-        } else {
-            super.swipe(with: event)
-        }
-    }
-
 }
 
 private struct FilePreviewImageView: NSViewRepresentable {
