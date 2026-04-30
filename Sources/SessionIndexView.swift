@@ -16,7 +16,6 @@ struct SessionIndexView: View {
     @State private var openPopoverSection: SectionKey?
     @State private var previewEntry: SessionEntry?
     let onResume: ((SessionEntry) -> Void)?
-
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
 
@@ -36,7 +35,6 @@ struct SessionIndexView: View {
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            Divider()
             if store.isLoading && store.entries.isEmpty {
                 loadingView
             } else if store.entries.isEmpty {
@@ -77,7 +75,10 @@ struct SessionIndexView: View {
             }
             .toggleStyle(.checkbox)
             .controlSize(.small)
+            .frame(height: RightSidebarChromeMetrics.controlHeight)
+            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
             .disabled(store.currentDirectory == nil)
+            .accessibilityIdentifier("SessionScopeToggle.thisFolder")
 
             Button {
                 store.reload()
@@ -89,9 +90,9 @@ struct SessionIndexView: View {
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload sessions"))
             .disabled(store.isLoading)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .frame(height: 29)
+        .rightSidebarChromeBar()
+        .rightSidebarChromeBottomBorder()
+        .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
     private var loadingView: some View {
@@ -222,19 +223,12 @@ private struct GroupingButton: View {
                 Text(mode.label)
                     .font(.system(size: 11, weight: .medium))
             }
-            .foregroundColor(isSelected ? .primary : .secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(isSelected ? Color.primary.opacity(0.10)
-                          : (isHovered ? Color.primary.opacity(0.05) : Color.clear))
-            )
-            .contentShape(Rectangle())
+            .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .help(mode.label)
+        .accessibilityIdentifier("SessionGroupingButton.\(mode.rawValue)")
     }
 }
 

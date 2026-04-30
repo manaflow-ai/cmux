@@ -770,6 +770,50 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(secondManager.tabs.count, secondCount + 1, "Workspace creation should target key/main window context")
     }
 
+    func testToggleSidebarInActiveMainWindowIgnoresStaleTabManagerPointer() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let firstVisibleBefore = appDelegate.sidebarVisibility(windowId: firstWindowId),
+              let secondVisibleBefore = appDelegate.sidebarVisibility(windowId: secondWindowId) else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        secondWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // Force a stale app-level pointer to another manager. Window-local UI
+        // controls should still target the key/main window, not this stale pointer.
+        appDelegate.tabManager = firstManager
+        XCTAssertTrue(appDelegate.tabManager === firstManager)
+
+        XCTAssertTrue(appDelegate.toggleSidebarInActiveMainWindow())
+
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: firstWindowId),
+            firstVisibleBefore,
+            "Stale active-manager pointer must not receive sidebar toggles"
+        )
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: secondWindowId),
+            !secondVisibleBefore,
+            "Sidebar toggle should target the key/main window context"
+        )
+    }
+
     func testCmdNResolvesEventWindowWhenObjectKeyLookupIsMismatched() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -1698,7 +1742,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             ),
             32,
             accuracy: 0.5,
-            "Standard mode should keep reserving titlebar space above terminal content"
+            "Standard mode should preserve the measured titlebar inset so content stays below the draggable titlebar zone"
         )
 
         XCTAssertEqual(
@@ -1738,7 +1782,36 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testNotificationsPopoverVisibilityIsScopedByWindow() {
+        let state = NotificationsPopoverVisibilityState.shared
+        state.resetForTesting()
+        defer { state.resetForTesting() }
+
+        let firstPopover = NSObject()
+        let secondPopover = NSObject()
+
+        state.setShown(true, source: firstPopover, windowNumber: 101)
+        XCTAssertTrue(state.isShown)
+        XCTAssertTrue(state.isShown(in: 101))
+        XCTAssertFalse(state.isShown(in: 202))
+
+        state.setShown(true, source: secondPopover, windowNumber: 202)
+        XCTAssertTrue(state.isShown(in: 101))
+        XCTAssertTrue(state.isShown(in: 202))
+
+        state.setShown(false, source: firstPopover)
+        XCTAssertTrue(state.isShown)
+        XCTAssertFalse(state.isShown(in: 101))
+        XCTAssertTrue(state.isShown(in: 202))
+
+        state.setShown(false, source: secondPopover)
+        XCTAssertFalse(state.isShown)
+        XCTAssertFalse(state.isShown(in: 101))
+        XCTAssertFalse(state.isShown(in: 202))
+    }
+
     func testWindowChromeTitlebarHeightClampsToSharedRange() {
+        [WindowChromeMetrics.appTitlebarHeight, WindowChromeMetrics.bonsplitTabBarHeight, WindowChromeMetrics.secondaryTitlebarHeight, MinimalModeChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.secondaryBarHeight].forEach { XCTAssertEqual($0, WindowChromeMetrics.sharedChromeBarHeight) }
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(12), 28)
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(32), 32)
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(96), 72)
@@ -1852,7 +1925,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testAttachUpdateAccessoryRemovesTitlebarAccessoryWhenMinimalModeEnabled() {
+    func testAttachUpdateAccessoryHidesTitlebarAccessoryWhenMinimalModeEnabled() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1876,22 +1949,29 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let hasTitlebarAccessory: () -> Bool = {
-            window.titlebarAccessoryViewControllers.contains {
+        let titlebarAccessory: () -> NSTitlebarAccessoryViewController? = {
+            window.titlebarAccessoryViewControllers.first {
                 $0.view.identifier?.rawValue == "cmux.titlebarControls"
             }
         }
 
-        XCTAssertTrue(hasTitlebarAccessory(), "Expected visible-titlebar mode to attach the titlebar accessory")
+        guard let initialAccessory = titlebarAccessory() else {
+            XCTFail("Expected visible-titlebar mode to attach the titlebar accessory")
+            return
+        }
+        XCTAssertFalse(initialAccessory.isHidden, "Expected visible-titlebar mode to show the titlebar accessory")
 
         defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
         appDelegate.attachUpdateAccessory(to: window)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertFalse(
-            hasTitlebarAccessory(),
-            "Minimal mode should remove the titlebar accessory instead of keeping a hidden controller attached"
-        )
+        guard let minimalAccessory = titlebarAccessory() else {
+            XCTFail("Minimal mode should keep a hidden titlebar accessory so shortcut-driven popovers still have a controller")
+            return
+        }
+        XCTAssertTrue(minimalAccessory.isHidden, "Minimal mode should hide titlebar accessories")
+        XCTAssertTrue(minimalAccessory.view.isHidden, "Minimal mode should hide the titlebar accessory view")
+        XCTAssertEqual(minimalAccessory.view.alphaValue, 0, accuracy: 0.01)
     }
 
     func testWorkspaceButtonFadeModeDefaultsOffWhenTitlebarVisible() {

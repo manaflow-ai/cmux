@@ -83,6 +83,7 @@ final class MainWindowFocusController {
     private weak var fileExplorerHost: FileExplorerContainerView?
     private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
+    private weak var dockHost: DockKeyboardFocusView?
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -137,7 +138,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed:
+        case .sessions, .feed, .dock:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -147,6 +148,11 @@ final class MainWindowFocusController {
         feedHost = host
         publishFeedFocusSnapshot(force: true)
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .feed)
+    }
+
+    func registerDockHost(_ host: DockKeyboardFocusView) {
+        dockHost = host
+        focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
     }
 
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
@@ -170,6 +176,9 @@ final class MainWindowFocusController {
     }
 
     func allowsTerminalFocus(workspaceId: UUID, panelId: UUID) -> Bool {
+        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+            return true
+        }
         switch intent {
         case .rightSidebar:
             return false
@@ -202,6 +211,9 @@ final class MainWindowFocusController {
             return true
         }
         if feedHost?.ownsKeyboardFocus(responder) == true {
+            return true
+        }
+        if dockHost?.ownsKeyboardFocus(responder) == true {
             return true
         }
         return false
@@ -624,6 +636,8 @@ final class MainWindowFocusController {
             return .host
         case .feed:
             return focusFirstItem ? .firstItem : .host
+        case .dock:
+            return focusFirstItem ? .firstItem : .host
         }
     }
 
@@ -643,6 +657,11 @@ final class MainWindowFocusController {
                 feedHost?.focusFirstItemFromCoordinator()
             }
             return feedHost?.focusHostFromCoordinator() == true
+        case .dock:
+            if target == .firstItem {
+                dockHost?.focusFirstItemFromCoordinator()
+            }
+            return dockHost?.focusHostFromCoordinator() == true
         }
     }
 
@@ -710,6 +729,9 @@ final class MainWindowFocusController {
         if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
             return .feed
         }
+        if dockHost?.ownsKeyboardFocus(responder) == true {
+            return .dock
+        }
         return nil
     }
 
@@ -722,6 +744,9 @@ final class MainWindowFocusController {
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let workspaceId = ghosttyView.tabId,
               let panelId = ghosttyView.terminalSurface?.id else {
+            return nil
+        }
+        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
             return nil
         }
         return TerminalFocusRequest(workspaceId: workspaceId, panelId: panelId)

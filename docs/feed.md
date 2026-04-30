@@ -1,12 +1,14 @@
 # Feed
 
-Feed is cmux's inline surface for AI agent decisions. It shows three things that need a human response, right in the right sidebar next to Files and Sessions:
+Feed is cmux's inline surface for AI agent decisions. It stays in the right sidebar on `Ctrl-4`. The keyboard-first OpenTUI Feed can also run in the separate right-sidebar [Dock](dock.md) with `cmux feed tui`. It shows three things that need a human response:
 
-- **Permission requests** — Agent wants to run a tool, edit a file, or execute a shell command. Pick Once / Always / All tools / Bypass / Deny.
-- **ExitPlanMode** — Agent finished planning and is ready to start editing. Pick Ultraplan / Manual / Auto.
-- **AskUserQuestion** — Agent is asking a multiple-choice question. Pick one (or several) and hit Submit.
+- **Permission requests:** Agent wants to run a tool, edit a file, or execute a shell command. Pick Once / Always / All tools / Bypass / Deny.
+- **ExitPlanMode:** Agent finished planning and is ready to start editing. Pick Ultraplan / Manual / Auto.
+- **AskUserQuestion:** Agent is asking a multiple-choice question. Pick one (or several) and hit Submit.
 
-Anything else the agent does — tool uses, assistant messages, session starts/stops, `TodoWrite` updates — is stored but hidden under the Feed's Actionable / All toggle. The default view only shows what needs your attention.
+Anything else the agent does, including tool uses, assistant messages, session starts/stops, and `TodoWrite` updates, is stored and shown in the TUI's latest-first timeline as informational activity.
+
+`cmux feed tui` uses OpenTUI through Bun in the terminal alternate screen. The first run creates `~/.cmuxterm/feed-tui-opentui`, writes the bundled Feed app there, and installs `@opentui/core`. The prepared app is launched by absolute path, so the TUI keeps the workspace cwd where you ran the command. Use `cmux feed tui --opentui` to dogfood OpenTUI in isolation and fail loudly if it cannot start. Set `CMUX_FEED_TUI_BUN_PATH` to an explicit Bun executable when your shell does not expose Bun on `PATH`. Set `CMUX_FEED_TUI_LEGACY=1` or run `cmux feed tui --legacy` to force the older built-in TUI.
 
 ## How it works
 

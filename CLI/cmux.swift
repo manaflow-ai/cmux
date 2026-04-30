@@ -314,6 +314,7 @@ private struct ClaudeHookParsedInput {
     let object: [String: Any]?
     let rawFallback: String?
     let sessionId: String?
+    let turnId: String?
     let cwd: String?
     let transcriptPath: String?
 }
@@ -2194,7 +2195,9 @@ struct CMUXCLI {
         // Codex hook handler: gracefully no-op when not inside cmux
         // (before socket connection, so it doesn't fail when no socket exists)
         if command == "codex-hook" {
-            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
+            let env = ProcessInfo.processInfo.environment
+            let hasExplicitTarget = commandArgs.contains("--workspace") || commandArgs.contains("--surface")
+            guard env["CMUX_SURFACE_ID"] != nil || env["CMUX_WORKSPACE_ID"] != nil || hasExplicitTarget else {
                 print("{}")
                 return
             }
@@ -2283,8 +2286,15 @@ struct CMUXCLI {
             case "clear":
                 try runFeedClear()
                 return
+            case "tui":
+                try runFeedTUI(
+                    arguments: Array(commandArgs.dropFirst()),
+                    socketPath: resolvedSocketPath,
+                    socketPassword: socketPasswordArg
+                )
+                return
             case "help", "--help", "-h":
-                print("Usage: cmux feed clear [--yes]")
+                print("Usage: cmux feed tui [--opentui|--legacy]\n       cmux feed clear [--yes]")
                 return
             default:
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
@@ -8951,9 +8961,14 @@ struct CMUXCLI {
             """
         case "feed":
             return """
-            Usage: cmux feed clear [--yes|-y]
+            Usage: cmux feed tui [--opentui|--legacy]
+                   cmux feed clear [--yes|-y]
 
-            Manage persisted Feed workstream history.
+            Open the keyboard-first Feed TUI or manage persisted Feed workstream history.
+
+            TUI options:
+              --opentui        Force the OpenTUI implementation and fail if unavailable
+              --legacy         Force the older built-in Swift TUI
             """
         case "opencode":
             return """
@@ -14475,10 +14490,11 @@ struct CMUXCLI {
                 normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
                 maxLength: 180
             )
-            return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, cwd: nil, transcriptPath: nil)
+            return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, turnId: nil, cwd: nil, transcriptPath: nil)
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
+        let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = firstString(in: object, keys: ["transcript_path", "transcriptPath"])
         let compactObject = compactClaudeHookObject(object)
@@ -14486,6 +14502,7 @@ struct CMUXCLI {
             object: compactObject,
             rawFallback: nil,
             sessionId: sessionId,
+            turnId: turnId,
             cwd: cwd,
             transcriptPath: transcriptPath
         )
@@ -14496,6 +14513,8 @@ struct CMUXCLI {
 
         for key in [
             "tool_name",
+            "turn_id",
+            "turnId",
             "last_assistant_message",
             "lastAssistantMessage",
             "event",
@@ -14511,12 +14530,13 @@ struct CMUXCLI {
             "text",
             "prompt",
             "error",
+            "codex_error_info",
+            "codexErrorInfo",
+            "additional_details",
+            "additionalDetails",
             "description",
         ] {
-            if let value = compactClaudeHookStringValue(
-                object[key],
-                maxLength: claudeHookCompactFieldLimit(for: key)
-            ) {
+            if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
             }
         }
@@ -14572,11 +14592,22 @@ struct CMUXCLI {
         for key in ["notification", "data"] {
             guard let nested = object[key] as? [String: Any] else { continue }
             var compactNested: [String: Any] = [:]
-            for nestedKey in ["type", "kind", "reason", "message", "body", "text", "prompt", "error", "description"] {
-                if let value = compactClaudeHookStringValue(
-                    nested[nestedKey],
-                    maxLength: claudeHookCompactFieldLimit(for: nestedKey)
-                ) {
+            for nestedKey in [
+                "type",
+                "kind",
+                "reason",
+                "message",
+                "body",
+                "text",
+                "prompt",
+                "error",
+                "codex_error_info",
+                "codexErrorInfo",
+                "additional_details",
+                "additionalDetails",
+                "description",
+            ] {
+                if let value = compactClaudeHookValue(nested[nestedKey], key: nestedKey) {
                     compactNested[nestedKey] = value
                 }
             }
@@ -14590,13 +14621,36 @@ struct CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason":
+        case "tool_name", "turn_id", "turnId", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason":
             return 80
-        case "last_assistant_message", "lastAssistantMessage", "message", "body", "text", "prompt", "error", "description":
+        case "last_assistant_message", "lastAssistantMessage", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
             return 240
         default:
             return 160
         }
+    }
+
+    private func compactClaudeHookValue(_ rawValue: Any?, key: String) -> String? {
+        switch key {
+        case "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails":
+            return compactClaudeHookCodexFailureValue(rawValue, key: key)
+        default:
+            return compactClaudeHookStringValue(rawValue, maxLength: claudeHookCompactFieldLimit(for: key))
+        }
+    }
+
+    private func compactClaudeHookCodexFailureValue(_ rawValue: Any?, key: String) -> String? {
+        let maxLength = claudeHookCompactFieldLimit(for: key)
+        if let string = compactClaudeHookStringValue(rawValue, maxLength: maxLength) {
+            return string
+        }
+        guard let rawValue,
+              JSONSerialization.isValidJSONObject(rawValue),
+              let data = try? JSONSerialization.data(withJSONObject: rawValue, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return compactClaudeHookStringValue(string, maxLength: maxLength)
     }
 
     private func compactClaudeHookToolInputValue(_ rawValue: Any?, key: String) -> String? {
@@ -14753,6 +14807,586 @@ struct CMUXCLI {
 
         guard lastAssistantMessage != nil else { return nil }
         return TranscriptSummary(lastAssistantMessage: lastAssistantMessage)
+    }
+
+    private struct CodexHookFailureSummary {
+        let statusValue: String
+        let subtitle: String
+        let body: String
+    }
+
+    private struct CodexHookFailureCandidate {
+        let message: String
+        let codexErrorInfo: String?
+        let additionalDetails: String?
+        let isStreamError: Bool
+    }
+
+    private enum CodexTranscriptFailureReadResult {
+        case unavailable
+        case pending
+        case healthy
+        case failure(CodexHookFailureCandidate)
+    }
+
+    private func summarizeCodexHookFailure(
+        parsedInput: ClaudeHookParsedInput,
+        sessionId: String,
+        env: [String: String]
+    ) -> CodexHookFailureSummary? {
+        if let candidate = codexHookFailureCandidate(from: parsedInput.object) {
+            return summarizeCodexHookFailureCandidate(candidate)
+        }
+
+        let payloadHasAssistantMessage = codexHookStopPayloadHasAssistantMessage(parsedInput.object)
+        let providedTranscriptPath = normalizedHookValue(parsedInput.transcriptPath)
+        var checkedTranscriptPaths: Set<String> = []
+        let readTranscriptFailure: (String) -> CodexTranscriptFailureReadResult = { path in
+            checkedTranscriptPaths.insert(path)
+            return readCodexTranscriptFailure(
+                path: path,
+                turnId: parsedInput.turnId,
+                requireTerminalCompletion: false
+            )
+        }
+
+        if let transcriptPath = providedTranscriptPath
+            ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+            switch readTranscriptFailure(transcriptPath) {
+            case .failure(let failure):
+                return summarizeCodexHookFailureCandidate(failure)
+            case .healthy:
+                return nil
+            case .pending, .unavailable:
+                break
+            }
+        }
+
+        if providedTranscriptPath != nil,
+           let resolvedTranscriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env),
+           !checkedTranscriptPaths.contains(resolvedTranscriptPath) {
+            switch readTranscriptFailure(resolvedTranscriptPath) {
+            case .failure(let failure):
+                return summarizeCodexHookFailureCandidate(failure)
+            case .healthy:
+                return nil
+            case .pending, .unavailable:
+                break
+            }
+        }
+
+        if payloadHasAssistantMessage {
+            return nil
+        }
+        if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
+            return summarizeCodexHookFailureCandidate(
+                CodexHookFailureCandidate(
+                    message: fallback,
+                    codexErrorInfo: nil,
+                    additionalDetails: nil,
+                    isStreamError: false
+                )
+            )
+        }
+        return nil
+    }
+
+    private func readCodexTranscriptFailure(
+        path: String,
+        turnId: String? = nil,
+        requireTerminalCompletion: Bool = false
+    ) -> CodexTranscriptFailureReadResult {
+        guard let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
+            return .unavailable
+        }
+
+        var candidate: CodexHookFailureCandidate?
+        var candidateCanPublishBeforeTerminal = false
+        var sawAssistantMessage = false
+        var sawTerminalTurn = false
+        var sawRelevantTurn = turnId == nil
+        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+                continue
+            }
+
+            if (turnId == nil || sawRelevantTurn) && codexTranscriptLineHasAssistantMessage(object) {
+                sawAssistantMessage = true
+                candidate = nil
+                candidateCanPublishBeforeTerminal = false
+            }
+
+            guard (object["type"] as? String) == "event_msg",
+                  let payload = object["payload"] as? [String: Any],
+                  let eventType = payload["type"] as? String else {
+                continue
+            }
+
+            switch eventType {
+            case "task_started":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    guard payloadTurnId == turnId else {
+                        continue
+                    }
+                }
+                sawRelevantTurn = true
+                candidate = nil
+                candidateCanPublishBeforeTerminal = false
+            case "error":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId, let payloadTurnId {
+                    guard payloadTurnId == turnId else {
+                        continue
+                    }
+                    sawRelevantTurn = true
+                }
+                if let failure = codexHookFailureCandidate(
+                    from: payload,
+                    isStreamError: false,
+                    requireFailureSignal: false
+                ) {
+                    candidate = failure
+                    candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
+                }
+            case "stream_error":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId, let payloadTurnId {
+                    guard payloadTurnId == turnId else {
+                        continue
+                    }
+                    sawRelevantTurn = true
+                }
+                if let failure = codexHookFailureCandidate(
+                    from: payload,
+                    isStreamError: true,
+                    requireFailureSignal: false
+                ) {
+                    candidate = failure
+                    candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
+                }
+            case "task_complete", "turn_complete":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    guard payloadTurnId == turnId else {
+                        continue
+                    }
+                }
+                sawRelevantTurn = true
+                sawTerminalTurn = true
+                if let lastMessage = payload["last_agent_message"] as? String,
+                   !lastMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    sawAssistantMessage = true
+                    candidate = nil
+                    candidateCanPublishBeforeTerminal = false
+                } else if candidate == nil && !sawAssistantMessage {
+                    candidate = CodexHookFailureCandidate(
+                        message: String(
+                            localized: "agent.codex.error.noFinalResponse",
+                            defaultValue: "Codex ended before sending a final response"
+                        ),
+                        codexErrorInfo: nil,
+                        additionalDetails: nil,
+                        isStreamError: false
+                    )
+                    candidateCanPublishBeforeTerminal = false
+                }
+            default:
+                break
+            }
+        }
+
+        if let candidate, candidateCanPublishBeforeTerminal {
+            return .failure(candidate)
+        }
+        if candidate != nil, turnId != nil, !sawRelevantTurn {
+            return .pending
+        }
+        if requireTerminalCompletion, !sawTerminalTurn {
+            return .pending
+        }
+        if let candidate {
+            return .failure(candidate)
+        }
+        if !sawTerminalTurn, !sawAssistantMessage {
+            return .pending
+        }
+        return .healthy
+    }
+
+    private func codexHookStopPayloadHasAssistantMessage(_ object: [String: Any]?) -> Bool {
+        guard let object,
+              let message = firstString(in: object, keys: ["last_assistant_message", "lastAssistantMessage"]) else {
+            return false
+        }
+        return !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func codexTranscriptLineHasAssistantMessage(_ object: [String: Any]) -> Bool {
+        guard (object["type"] as? String) == "response_item",
+              let payload = object["payload"] as? [String: Any],
+              (payload["type"] as? String) == "message",
+              (payload["role"] as? String) == "assistant",
+              let content = payload["content"] as? [[String: Any]] else {
+            return false
+        }
+        return content.contains { block in
+            guard let text = block["text"] as? String else { return false }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private func codexHookFailureCandidate(
+        from object: [String: Any]?,
+        isStreamError: Bool = false,
+        requireFailureSignal: Bool = true
+    ) -> CodexHookFailureCandidate? {
+        guard let object else { return nil }
+        let message = firstString(in: object, keys: ["message", "error", "body", "text", "description"])
+        let additionalDetails = codexHookStringValue(object["additional_details"] ?? object["additionalDetails"])
+        let codexErrorInfo = codexHookStringValue(object["codex_error_info"] ?? object["codexErrorInfo"])
+        let eventType = firstString(in: object, keys: ["type", "kind"])?.lowercased()
+        let typedFailure = eventType == "error" || eventType == "stream_error"
+        let hasExplicitErrorField = object["error"].map { !($0 is NSNull) } ?? false
+        let signal = [message, additionalDetails, codexErrorInfo]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .lowercased()
+        guard !requireFailureSignal ||
+              typedFailure ||
+              hasExplicitErrorField ||
+              codexErrorInfo != nil ||
+              signal.contains("error") ||
+              signal.contains("failed") ||
+              signal.contains("exception") ||
+              signal.contains("usage limit") ||
+              signal.contains("rate limit") ||
+              signal.contains("stream disconnected") ||
+              signal.contains("connection") ||
+              signal.contains("unauthorized") else {
+            return nil
+        }
+        return CodexHookFailureCandidate(
+            message: message ?? additionalDetails ?? codexErrorInfo ?? String(
+                localized: "agent.codex.error.defaultMessage",
+                defaultValue: "Codex reported an error"
+            ),
+            codexErrorInfo: codexErrorInfo,
+            additionalDetails: additionalDetails,
+            isStreamError: isStreamError || eventType == "stream_error"
+        )
+    }
+
+    private func summarizeCodexHookFailureCandidate(_ candidate: CodexHookFailureCandidate) -> CodexHookFailureSummary {
+        let signal = [
+            candidate.message,
+            candidate.codexErrorInfo,
+            candidate.additionalDetails,
+            candidate.isStreamError ? "stream_error" : nil
+        ]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .lowercased()
+
+        let subtitle: String
+        let statusValue: String
+        if signal.contains("usage_limit") ||
+            signal.contains("usage limit") ||
+            signal.contains("rate_limit") ||
+            signal.contains("rate limit") ||
+            signal.contains("credits") {
+            subtitle = String(localized: "agent.codex.error.subtitle.rateLimit", defaultValue: "Rate limit")
+            statusValue = String(localized: "agent.codex.error.status.rateLimit", defaultValue: "Codex rate limit")
+        } else if signal.contains("unauthorized") ||
+                    signal.contains("auth") ||
+                    signal.contains("access token") ||
+                    signal.contains("sign in") ||
+                    signal.contains("login") {
+            subtitle = String(localized: "agent.codex.error.subtitle.auth", defaultValue: "Auth error")
+            statusValue = String(localized: "agent.codex.error.status.auth", defaultValue: "Codex auth error")
+        } else if signal.contains("response_stream") ||
+                    signal.contains("stream disconnected") ||
+                    signal.contains("connection") ||
+                    signal.contains("network") ||
+                    signal.contains("offline") ||
+                    signal.contains("timed out") ||
+                    signal.contains("timeout") {
+            subtitle = String(localized: "agent.codex.error.subtitle.network", defaultValue: "Network error")
+            statusValue = String(localized: "agent.codex.error.status.network", defaultValue: "Codex network error")
+        } else {
+            subtitle = String(localized: "agent.codex.error.subtitle.generic", defaultValue: "Error")
+            statusValue = String(localized: "agent.codex.error.status.generic", defaultValue: "Codex error")
+        }
+
+        let detail = candidate.additionalDetails ?? candidate.message
+        return CodexHookFailureSummary(
+            statusValue: statusValue,
+            subtitle: subtitle,
+            body: truncate(normalizedSingleLine(detail), maxLength: 220)
+        )
+    }
+
+    private func codexHookStringValue(_ rawValue: Any?) -> String? {
+        if let string = rawValue as? String {
+            let trimmed = normalizedSingleLine(string)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard let rawValue,
+              JSONSerialization.isValidJSONObject(rawValue),
+              let data = try? JSONSerialization.data(withJSONObject: rawValue, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = normalizedSingleLine(string)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func readTextFileTail(path: String, maxBytes: UInt64) -> String? {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        let endOffset = (try? handle.seekToEnd()) ?? 0
+        let startOffset = endOffset > maxBytes ? endOffset - maxBytes : 0
+        do {
+            try handle.seek(toOffset: startOffset)
+        } catch {
+            return nil
+        }
+        var data = handle.readDataToEndOfFile()
+        if startOffset > 0, let newline = data.firstIndex(of: 0x0A) {
+            data.removeSubrange(0...newline)
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func findCodexTranscriptPath(sessionId: String, env: [String: String]) -> String? {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty else { return nil }
+
+        let codexHome = normalizedHookValue(env["CODEX_HOME"]) ?? "~/.codex"
+        let sessionsURL = URL(fileURLWithPath: NSString(string: codexHome).expandingTildeInPath, isDirectory: true)
+            .appendingPathComponent("sessions", isDirectory: true)
+        let fileManager = FileManager.default
+        var newest: URL?
+        var newestModificationDate: Date?
+        for directoryURL in recentCodexSessionDirectories(sessionsURL: sessionsURL, fileManager: fileManager) {
+            guard let urls = try? fileManager.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+
+            for url in urls {
+                guard url.pathExtension == "jsonl",
+                      url.lastPathComponent.contains(normalizedSessionId) else {
+                    continue
+                }
+                let modificationDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                if newest == nil || modificationDate > (newestModificationDate ?? .distantPast) {
+                    newest = url
+                    newestModificationDate = modificationDate
+                }
+            }
+        }
+        return newest?.path
+    }
+
+    private func recentCodexSessionDirectories(sessionsURL: URL, fileManager: FileManager) -> [URL] {
+        var directories: [URL] = []
+        var seenPaths = Set<String>()
+
+        func appendIfDirectory(_ url: URL) {
+            guard seenPaths.insert(url.path).inserted else { return }
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return
+            }
+            directories.append(url)
+        }
+
+        appendIfDirectory(sessionsURL)
+
+        var utcCalendar = Calendar(identifier: .gregorian)
+        utcCalendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        for calendar in [Calendar.current, utcCalendar] {
+            for dayOffset in -14...1 {
+                guard let date = calendar.date(byAdding: .day, value: dayOffset, to: Date()) else {
+                    continue
+                }
+                let components = calendar.dateComponents([.year, .month, .day], from: date)
+                guard let year = components.year,
+                      let month = components.month,
+                      let day = components.day else {
+                    continue
+                }
+                appendIfDirectory(
+                    sessionsURL
+                        .appendingPathComponent(String(format: "%04d", year), isDirectory: true)
+                        .appendingPathComponent(String(format: "%02d", month), isDirectory: true)
+                        .appendingPathComponent(String(format: "%02d", day), isDirectory: true)
+                )
+            }
+        }
+
+        return directories
+    }
+
+    private func startCodexTranscriptMonitor(
+        sessionId: String,
+        turnId: String?,
+        transcriptPath: String?,
+        cwd: String?,
+        workspaceId: String,
+        surfaceId: String?,
+        env: [String: String]
+    ) {
+        guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        let executablePath = resolvedExecutableURL()?.path ?? args.first ?? "cmux"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        var monitorArgs = [
+            "codex-hook",
+            "monitor",
+            "--workspace",
+            workspaceId,
+            "--session",
+            sessionId,
+        ]
+        if let surfaceId, !surfaceId.isEmpty {
+            monitorArgs += ["--surface", surfaceId]
+        }
+        if let turnId, !turnId.isEmpty {
+            monitorArgs += ["--turn", turnId]
+        }
+        if let transcriptPath, !transcriptPath.isEmpty {
+            monitorArgs += ["--transcript", transcriptPath]
+        }
+        if let cwd, !cwd.isEmpty {
+            monitorArgs += ["--cwd", cwd]
+        }
+        process.arguments = monitorArgs
+        process.environment = env.merging(["CMUX_CLI_SENTRY_DISABLED": "1"], uniquingKeysWith: { _, new in new })
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+    }
+
+    private func runCodexTranscriptMonitor(commandArgs: [String], client: SocketClient) throws {
+        let env = ProcessInfo.processInfo.environment
+        let workspaceId = optionValue(commandArgs, name: "--workspace") ?? env["CMUX_WORKSPACE_ID"] ?? ""
+        let surfaceId = optionValue(commandArgs, name: "--surface") ?? env["CMUX_SURFACE_ID"]
+        let sessionId = optionValue(commandArgs, name: "--session")
+            ?? env["CMUX_CODEX_SESSION_ID"]
+            ?? env["CODEX_SESSION_ID"]
+            ?? env["CMUX_AGENT_SESSION_ID"]
+            ?? ""
+        let turnId = optionValue(commandArgs, name: "--turn")
+        var transcriptPath = optionValue(commandArgs, name: "--transcript")
+
+        guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(4 * 60 * 60)
+        while Date() < deadline {
+            if transcriptPath == nil {
+                transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
+            }
+
+            if let currentTranscriptPath = transcriptPath {
+                switch readCodexTranscriptFailure(
+                    path: currentTranscriptPath,
+                    turnId: turnId,
+                    requireTerminalCompletion: true
+                ) {
+                case .failure(let failure):
+                    publishCodexMonitorFailure(
+                        failure,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        client: client
+                    )
+                    return
+                case .healthy:
+                    return
+                case .pending:
+                    break
+                case .unavailable:
+                    let unavailableTranscriptPath = currentTranscriptPath
+                    transcriptPath = nil
+                    if let resolvedTranscriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                        transcriptPath = resolvedTranscriptPath
+                        if resolvedTranscriptPath != unavailableTranscriptPath {
+                            continue
+                        }
+                    }
+                }
+            }
+
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return }
+            waitForCodexTranscriptChange(path: transcriptPath, timeout: min(30, remaining))
+        }
+    }
+
+    private func publishCodexMonitorFailure(
+        _ failure: CodexHookFailureCandidate,
+        workspaceId: String,
+        surfaceId: String?,
+        client: SocketClient
+    ) {
+        let summary = summarizeCodexHookFailureCandidate(failure)
+        if let surfaceId, !surfaceId.isEmpty {
+            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
+            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+        }
+        _ = try? sendV1Command("set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)", client: client)
+    }
+
+    private func waitForCodexTranscriptChange(path: String?, timeout: TimeInterval) {
+        guard timeout > 0 else { return }
+        guard let path, !path.isEmpty else {
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            return
+        }
+
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        let fd = open(expandedPath, O_EVTONLY)
+        guard fd >= 0 else {
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            return
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .delete, .rename],
+            queue: DispatchQueue.global(qos: .utility)
+        )
+        source.setEventHandler {
+            semaphore.signal()
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+        _ = semaphore.wait(timeout: .now() + timeout)
+        source.cancel()
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -16446,6 +17080,11 @@ export default CMUXSessionRestore;
         let hookArgs = Array(commandArgs.dropFirst())
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
+        if def.name == "codex", subcommand == "monitor" {
+            try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client)
+            return
+        }
+
         // Workspace/surface resolution: prefer --workspace/--surface flags, then session store, then env
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
@@ -16524,6 +17163,17 @@ export default CMUXSessionRestore;
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             _ = try sendV1Command("set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)", client: client)
+            if def.name == "codex", !sessionId.isEmpty {
+                startCodexTranscriptMonitor(
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    transcriptPath: normalizedHookValue(input.transcriptPath),
+                    cwd: input.cwd ?? mapped?.cwd,
+                    workspaceId: workspaceId,
+                    surfaceId: mapped?.surfaceId ?? surfaceArg,
+                    env: env
+                )
+            }
 
         case .stop:
             do {
@@ -16531,6 +17181,12 @@ export default CMUXSessionRestore;
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: mapped?.workspaceId, fallback: workspaceArg, client: client)
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: mapped?.surfaceId, fallback: surfaceArg, workspaceId: workspaceId, client: client)
                 let pid = mapped?.pid ?? inferredCodexAgentPID()
+                let codexFailure: CodexHookFailureSummary?
+                if def.name == "codex" {
+                    codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
+                } else {
+                    codexFailure = nil
+                }
 
                 let lastMsg = input.object?["last_assistant_message"] as? String
                     ?? input.object?["lastAssistantMessage"] as? String
@@ -16539,6 +17195,28 @@ export default CMUXSessionRestore;
                     guard let cwd, !cwd.isEmpty else { return nil }
                     return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
                 }()
+                var subtitle = codexFailure?.subtitle ?? String(
+                    localized: "agent.codex.completion.subtitle.completed",
+                    defaultValue: "Completed"
+                )
+                if codexFailure == nil, let projectName, !projectName.isEmpty {
+                    subtitle = String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.codex.completion.subtitle.completedInProject",
+                            defaultValue: "Completed in %@"
+                        ),
+                        projectName
+                    )
+                }
+                let body = codexFailure?.body
+                    ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                    ?? String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.codex.completion.body.sessionCompleted",
+                            defaultValue: "%@ session completed"
+                        ),
+                        def.displayName
+                    )
 
                 if !sessionId.isEmpty {
                     let launchCommand = agentLaunchCommandFromEnvironment(
@@ -16549,21 +17227,21 @@ export default CMUXSessionRestore;
                     )
                     try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
                                       launchCommand: launchCommand,
-                                      lastSubtitle: "Completed", lastBody: lastMsg.map { truncate($0, maxLength: 200) })
+                                      lastSubtitle: subtitle,
+                                      lastBody: body)
                 }
                 if let pid {
                     _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)", client: client)
                 }
 
-                var subtitle = "Completed"
-                if let projectName, !projectName.isEmpty { subtitle = "Completed in \(projectName)" }
-                let body = sanitizeNotificationField(
-                    lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
-                        ?? "\(def.displayName) session completed"
-                )
-                let payload = "\(def.displayName)|\(sanitizeNotificationField(subtitle))|\(body)"
+                let payload = "\(def.displayName)|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
                 _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-                _ = try? sendV1Command("set_status \(def.statusKey) Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)", client: client)
+                if let codexFailure {
+                    _ = try? sendV1Command("set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)", client: client)
+                } else {
+                    let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
+                    _ = try? sendV1Command("set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)", client: client)
+                }
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
                     telemetry.breadcrumb("\(def.name)-hook.stop.ignored", data: ["error": String(describing: error)])
@@ -17221,6 +17899,1165 @@ export default CMUXSessionRestore;
     }
 
     // MARK: - Feed history
+
+    private struct FeedTUIOption {
+        let id: String
+        let label: String
+    }
+
+    private struct FeedTUIQuestion {
+        let id: String
+        let prompt: String
+        let multiSelect: Bool
+        let options: [FeedTUIOption]
+    }
+
+    private struct FeedTUIItem {
+        let id: String
+        let requestId: String?
+        let workstreamId: String
+        let source: String
+        let kind: String
+        let status: String
+        let createdAt: Date?
+        let title: String
+        let detail: String
+        let defaultMode: String?
+        let questionMultiSelect: Bool
+        let questionOptions: [FeedTUIOption]
+        let questions: [FeedTUIQuestion]
+
+        var isPending: Bool {
+            status == "pending"
+        }
+
+        var canResolve: Bool {
+            isPending && requestId != nil &&
+                (kind == "permissionRequest" || kind == "exitPlan" || kind == "question")
+        }
+
+        static func parse(_ dict: [String: Any]) -> FeedTUIItem? {
+            guard let id = dict["id"] as? String,
+                  let workstreamId = dict["workstream_id"] as? String,
+                  let source = dict["source"] as? String,
+                  let kind = dict["kind"] as? String,
+                  let status = dict["status"] as? String else {
+                return nil
+            }
+            let title = (dict["title"] as? String)
+                ?? Self.defaultTitle(kind: kind, dict: dict)
+            let detail = Self.detail(kind: kind, dict: dict)
+            let createdAt = Self.dateValue(
+                dict["created_at"]
+                    ?? dict["createdAt"]
+                    ?? dict["timestamp"]
+                    ?? dict["time"]
+            )
+            let options: [FeedTUIOption] = (dict["question_options"] as? [[String: Any]])?.compactMap { option in
+                guard let id = option["id"] as? String,
+                      let label = option["label"] as? String else {
+                    return nil
+                }
+                return FeedTUIOption(id: id, label: label)
+            } ?? []
+            let questions = Self.questions(dict: dict, fallbackOptions: options)
+            return FeedTUIItem(
+                id: id,
+                requestId: dict["request_id"] as? String,
+                workstreamId: workstreamId,
+                source: source,
+                kind: kind,
+                status: status,
+                createdAt: createdAt,
+                title: title,
+                detail: detail,
+                defaultMode: dict["default_mode"] as? String,
+                questionMultiSelect: (dict["question_multi_select"] as? Bool) ?? false,
+                questionOptions: options,
+                questions: questions
+            )
+        }
+
+        private static func questions(dict: [String: Any], fallbackOptions: [FeedTUIOption]) -> [FeedTUIQuestion] {
+            if let rawQuestions = dict["questions"] as? [[String: Any]] {
+                let parsed = rawQuestions.enumerated().compactMap { index, raw -> FeedTUIQuestion? in
+                    let prompt = (raw["prompt"] as? String)
+                        ?? (raw["question"] as? String)
+                        ?? (raw["header"] as? String)
+                        ?? ""
+                    let options = (raw["options"] as? [[String: Any]])?.compactMap { option -> FeedTUIOption? in
+                        guard let id = option["id"] as? String,
+                              let label = option["label"] as? String else {
+                            return nil
+                        }
+                        return FeedTUIOption(id: id, label: label)
+                    } ?? []
+                    guard !prompt.isEmpty || !options.isEmpty else { return nil }
+                    return FeedTUIQuestion(
+                        id: (raw["id"] as? String) ?? "question-\(index + 1)",
+                        prompt: prompt,
+                        multiSelect: (raw["multi_select"] as? Bool) ?? (raw["multiSelect"] as? Bool) ?? false,
+                        options: options
+                    )
+                }
+                if !parsed.isEmpty {
+                    return parsed
+                }
+            }
+            let prompt = (dict["question_prompt"] as? String)
+                ?? (dict["title"] as? String)
+                ?? "Answer the agent question."
+            return [
+                FeedTUIQuestion(
+                    id: "question-1",
+                    prompt: prompt,
+                    multiSelect: (dict["question_multi_select"] as? Bool) ?? false,
+                    options: fallbackOptions
+                )
+            ]
+        }
+
+        private static func defaultTitle(kind: String, dict: [String: Any]) -> String {
+            switch kind {
+            case "permissionRequest":
+                return "Permission: \((dict["tool_name"] as? String) ?? "tool")"
+            case "exitPlan":
+                return "Plan"
+            case "question":
+                return "Question"
+            default:
+                return kind
+            }
+        }
+
+        private static func detail(kind: String, dict: [String: Any]) -> String {
+            switch kind {
+            case "permissionRequest":
+                let tool = (dict["tool_name"] as? String) ?? "tool"
+                let input = (dict["tool_input"] as? String) ?? ""
+                return input.isEmpty ? tool : "\(tool): \(input)"
+            case "exitPlan":
+                return (dict["plan_summary"] as? String)
+                    ?? (dict["plan"] as? String)
+                    ?? "Review the proposed plan"
+            case "question":
+                return (dict["question_prompt"] as? String) ?? "Answer the agent question"
+            default:
+                return (dict["text"] as? String)
+                    ?? (dict["reason"] as? String)
+                    ?? ((dict["cwd"] as? String) ?? "")
+            }
+        }
+
+        private static func dateValue(_ rawValue: Any?) -> Date? {
+            if let date = rawValue as? Date {
+                return date
+            }
+
+            if let number = rawValue as? NSNumber {
+                return dateFromTimeInterval(number.doubleValue)
+            }
+
+            if let value = rawValue as? Double {
+                return dateFromTimeInterval(value)
+            }
+
+            if let value = rawValue as? Int {
+                return dateFromTimeInterval(Double(value))
+            }
+
+            guard let value = rawValue as? String,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+
+            let isoFormatter = ISO8601DateFormatter()
+            if let date = isoFormatter.date(from: value) {
+                return date
+            }
+
+            let fractionalFormatter = ISO8601DateFormatter()
+            fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = fractionalFormatter.date(from: value) {
+                return date
+            }
+
+            if let numericValue = Double(value) {
+                return dateFromTimeInterval(numericValue)
+            }
+
+            return nil
+        }
+
+        private static func dateFromTimeInterval(_ value: Double) -> Date? {
+            guard value.isFinite, value > 0 else { return nil }
+            let seconds = value > 10_000_000_000 ? value / 1_000 : value
+            return Date(timeIntervalSince1970: seconds)
+        }
+    }
+
+    private enum FeedTUIKey: Equatable {
+        case tick
+        case up
+        case down
+        case enter
+        case quit
+        case refresh
+        case deny
+        case feedback
+        case once
+        case always
+        case all
+        case bypass
+        case manual
+        case autoAccept
+        case ultraplan
+        case number(Int)
+        case ignored
+    }
+
+    private static let openTUIFeedCoreVersion = "0.1.106"
+
+    private enum FeedTUIImplementation {
+        case automatic
+        case openTUI
+        case legacy
+        case help
+    }
+
+    private func runFeedTUI(arguments: [String], socketPath: String, socketPassword: String?) throws {
+        let resolvedSocketPassword = SocketPasswordResolver.resolve(
+            explicit: socketPassword,
+            socketPath: socketPath
+        )
+        let implementation = try parseFeedTUIImplementation(arguments: arguments)
+        if implementation == .help { return }
+        if implementation == .legacy || ProcessInfo.processInfo.environment["CMUX_FEED_TUI_LEGACY"] == "1" {
+            try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
+            return
+        }
+        if implementation == .openTUI {
+            try runOpenTUIFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
+            return
+        }
+
+        do {
+            try runOpenTUIFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
+        } catch {
+            fputs(
+                "cmux feed tui: OpenTUI unavailable (\(error)); falling back to legacy TUI.\n",
+                stderr
+            )
+            try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
+        }
+    }
+
+    private func parseFeedTUIImplementation(arguments: [String]) throws -> FeedTUIImplementation {
+        var implementation = FeedTUIImplementation.automatic
+        for argument in arguments {
+            switch argument {
+            case "--opentui":
+                guard implementation != .legacy else {
+                    throw CLIError(message: "cmux feed tui: choose only one TUI implementation")
+                }
+                implementation = .openTUI
+            case "--legacy":
+                guard implementation != .openTUI else {
+                    throw CLIError(message: "cmux feed tui: choose only one TUI implementation")
+                }
+                implementation = .legacy
+            case "--help", "-h":
+                print("Usage: cmux feed tui [--opentui|--legacy]")
+                return .help
+            default:
+                throw CLIError(message: "cmux feed tui: unknown argument \(argument)")
+            }
+        }
+        return implementation
+    }
+
+    private func runOpenTUIFeedTUI(socketPath: String, socketPassword: String?) throws {
+        guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
+            throw CLIError(message: "cmux feed tui requires an interactive terminal")
+        }
+        guard let bunPath = resolveBunExecutable() else {
+            throw CLIError(message: "Bun is required for the OpenTUI Feed")
+        }
+
+        fputs("cmux feed tui: preparing OpenTUI Feed...\n", stderr)
+        fflush(stderr)
+        let appDirectory = try prepareOpenTUIFeedApp(bunPath: bunPath)
+        let sourceURL = appDirectory.appendingPathComponent("index.ts", isDirectory: false)
+        fputs("cmux feed tui: starting OpenTUI Feed.\n", stderr)
+        fflush(stderr)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: bunPath)
+        process.arguments = [sourceURL.path]
+        process.currentDirectoryURL = URL(
+            fileURLWithPath: FileManager.default.currentDirectoryPath,
+            isDirectory: true
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SOCKET"] = socketPath
+        if let socketPassword {
+            environment["CMUX_SOCKET_PASSWORD"] = socketPassword
+        }
+        environment["OTUI_USE_CONSOLE"] = environment["OTUI_USE_CONSOLE"] ?? "0"
+        environment["OTUI_USE_ALTERNATE_SCREEN"] = "1"
+        environment["CMUX_FEED_TUI_PATH"] = "opentui"
+        process.environment = environment
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+
+        let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
+        var didForegroundChild = false
+        try process.run()
+        if originalForegroundProcessGroup > 0 {
+            let childProcessGroup = getpgid(process.processIdentifier)
+            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
+                try setTerminalForegroundProcessGroup(childProcessGroup)
+                _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                didForegroundChild = true
+            }
+        }
+        defer {
+            if didForegroundChild {
+                try? setTerminalForegroundProcessGroup(originalForegroundProcessGroup)
+            }
+        }
+        process.waitUntilExit()
+        if process.terminationStatus == 0 || process.terminationStatus == 130 || (process.terminationReason == .uncaughtSignal && process.terminationStatus == SIGINT) { return }
+        throw CLIError(message: "OpenTUI Feed exited with status \(process.terminationStatus)")
+    }
+
+    private func setTerminalForegroundProcessGroup(_ processGroup: pid_t) throws {
+        let previousHandler = signal(SIGTTOU, SIG_IGN)
+        defer { _ = signal(SIGTTOU, previousHandler) }
+        guard tcsetpgrp(STDIN_FILENO, processGroup) == 0 else {
+            throw CLIError(message: "cmux feed tui: failed to foreground OpenTUI process: \(String(cString: strerror(errno)))")
+        }
+    }
+
+    private func resolveBunExecutable() -> String? {
+        if let path = ProcessInfo.processInfo.environment["CMUX_FEED_TUI_BUN_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty,
+           FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        if let path = resolveExecutableInPath("bun") {
+            return path
+        }
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        for path in [
+            "\(homePath)/.bun/bin/bun",
+            "\(homePath)/.local/bin/bun",
+            "/opt/homebrew/bin/bun",
+            "/usr/local/bin/bun",
+        ] {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
+
+    private func prepareOpenTUIFeedApp(bunPath: String) throws -> URL {
+        let fileManager = FileManager.default
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        let appDirectory = URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("feed-tui-opentui", isDirectory: true)
+        try fileManager.createDirectory(at: appDirectory, withIntermediateDirectories: true)
+
+        let packageURL = appDirectory.appendingPathComponent("package.json", isDirectory: false)
+        let sourceURL = appDirectory.appendingPathComponent("index.ts", isDirectory: false)
+        let packageSource = """
+        {
+          "private": true,
+          "type": "module",
+          "dependencies": {
+            "@opentui/core": "\(Self.openTUIFeedCoreVersion)"
+          }
+        }
+        """
+        try writeFileIfChanged(packageSource, to: packageURL)
+        try writeFileIfChanged(try bundledOpenTUIFeedSource(), to: sourceURL)
+
+        let installedPackageURL = appDirectory
+            .appendingPathComponent("node_modules", isDirectory: true)
+            .appendingPathComponent("@opentui", isDirectory: true)
+            .appendingPathComponent("core", isDirectory: true)
+            .appendingPathComponent("package.json", isDirectory: false)
+        if !fileManager.fileExists(atPath: installedPackageURL.path)
+            || installedOpenTUIVersion(at: installedPackageURL) != Self.openTUIFeedCoreVersion {
+            fputs("cmux feed tui: installing @opentui/core \(Self.openTUIFeedCoreVersion)...\n", stderr)
+            fflush(stderr)
+            try installOpenTUIFeedDependencies(bunPath: bunPath, appDirectory: appDirectory)
+        }
+        return appDirectory
+    }
+
+    private func bundledOpenTUIFeedSource() throws -> String {
+        let fileManager = FileManager.default
+        if let resourceURL = Bundle.main.resourceURL {
+            let url = resourceURL
+                .appendingPathComponent("feed-tui", isDirectory: true)
+                .appendingPathComponent("index.ts", isDirectory: false)
+            if fileManager.fileExists(atPath: url.path),
+               let contents = try? String(contentsOf: url, encoding: .utf8) {
+                return contents
+            }
+        }
+
+        let devURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("feed-tui", isDirectory: true)
+            .appendingPathComponent("index.ts", isDirectory: false)
+        if fileManager.fileExists(atPath: devURL.path),
+           let contents = try? String(contentsOf: devURL, encoding: .utf8) {
+            return contents
+        }
+
+        throw CLIError(message: "bundled OpenTUI Feed source not found")
+    }
+
+    private func writeFileIfChanged(_ contents: String, to url: URL) throws {
+        let existing = try? String(contentsOf: url, encoding: .utf8)
+        guard existing != contents else { return }
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func installedOpenTUIVersion(at url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let version = object["version"] as? String else {
+            return nil
+        }
+        return version
+    }
+
+    private func installOpenTUIFeedDependencies(bunPath: String, appDirectory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: bunPath)
+        process.arguments = ["install", "--silent"]
+        process.currentDirectoryURL = appDirectory
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+        var stdoutData = Data()
+        var stderrData = Data()
+        let drainGroup = DispatchGroup()
+        drainGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            stdoutData = stdoutHandle.readDataToEndOfFile()
+            drainGroup.leave()
+        }
+        drainGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            stderrData = stderrHandle.readDataToEndOfFile()
+            drainGroup.leave()
+        }
+
+        try process.run()
+        process.waitUntilExit()
+        drainGroup.wait()
+        guard process.terminationStatus == 0 else {
+            let stderrText = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let stdoutText = String(data: stdoutData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw CLIError(message: stderrText.isEmpty ? (stdoutText.isEmpty ? "bun install failed" : stdoutText) : stderrText)
+        }
+    }
+
+    private func runLegacyFeedTUI(socketPath: String, socketPassword: String?) throws {
+        guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
+            throw CLIError(message: "cmux feed tui requires an interactive terminal")
+        }
+
+        let client = SocketClient(path: socketPath)
+        try client.connect()
+        try authenticateClientIfNeeded(client, explicitPassword: socketPassword, socketPath: socketPath)
+
+        var rawMode = TerminalRawMode()
+        guard rawMode != nil else {
+            throw CLIError(message: "Failed to enter terminal raw mode")
+        }
+
+        print("\u{001B}[?1049h\u{001B}[?25l", terminator: "")
+        defer {
+            rawMode?.restore()
+            print("\u{001B}[?25h\u{001B}[?1049l", terminator: "")
+            fflush(stdout)
+        }
+
+        var selectedIndex = 0
+        var selectedItemID: String?
+        var scrollOffset = 0
+        var statusLine = ""
+        var selectedQuestionOptions: [String: Set<String>] = [:]
+        var didWriteReadyMarker = false
+        while true {
+            let items = try feedTUIItems(client: client)
+            if let selectedItemID,
+               let updatedIndex = items.firstIndex(where: { $0.id == selectedItemID }) {
+                selectedIndex = updatedIndex
+            } else if selectedIndex >= items.count {
+                selectedIndex = max(items.count - 1, 0)
+            }
+            selectedItemID = feedTUIItem(in: items, at: selectedIndex)?.id
+            scrollOffset = adjustedFeedTUIScrollOffset(
+                itemCount: items.count,
+                selectedIndex: selectedIndex,
+                scrollOffset: scrollOffset
+            )
+            renderFeedTUI(
+                items: items,
+                selectedIndex: selectedIndex,
+                scrollOffset: scrollOffset,
+                statusLine: statusLine
+            )
+            if !didWriteReadyMarker {
+                writeFeedTUIReadyMarker(stage: "legacy-ready")
+                didWriteReadyMarker = true
+            }
+            statusLine = ""
+
+            let key = readFeedTUIKey(timeoutMilliseconds: 1_000)
+            switch key {
+            case .tick:
+                continue
+            case .up:
+                selectedIndex = max(selectedIndex - 1, 0)
+                selectedItemID = feedTUIItem(in: items, at: selectedIndex)?.id
+            case .down:
+                selectedIndex = min(selectedIndex + 1, max(items.count - 1, 0))
+                selectedItemID = feedTUIItem(in: items, at: selectedIndex)?.id
+            case .refresh:
+                continue
+            case .quit:
+                return
+            case .enter:
+                if let item = feedTUIItem(in: items, at: selectedIndex) {
+                    statusLine = try resolveFeedTUIItem(
+                        item,
+                        key: .enter,
+                        client: client,
+                        rawMode: &rawMode,
+                        selectedQuestionOptions: &selectedQuestionOptions
+                    )
+                }
+            case .deny:
+                if let item = feedTUIItem(in: items, at: selectedIndex) {
+                    statusLine = try resolveFeedTUIItem(
+                        item,
+                        key: .deny,
+                        client: client,
+                        rawMode: &rawMode,
+                        selectedQuestionOptions: &selectedQuestionOptions
+                    )
+                }
+            case .feedback:
+                if let item = feedTUIItem(in: items, at: selectedIndex) {
+                    statusLine = try resolveFeedTUIItem(
+                        item,
+                        key: .feedback,
+                        client: client,
+                        rawMode: &rawMode,
+                        selectedQuestionOptions: &selectedQuestionOptions
+                    )
+                }
+            case .once, .always, .all, .bypass, .manual, .autoAccept, .ultraplan, .number(_):
+                if let item = feedTUIItem(in: items, at: selectedIndex) {
+                    statusLine = try resolveFeedTUIItem(
+                        item,
+                        key: key,
+                        client: client,
+                        rawMode: &rawMode,
+                        selectedQuestionOptions: &selectedQuestionOptions
+                    )
+                }
+            case .ignored:
+                continue
+            }
+        }
+    }
+
+    private func writeFeedTUIReadyMarker(stage: String) {
+        guard let path = ProcessInfo.processInfo.environment["CMUX_FEED_TUI_READY_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return
+        }
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let payload = """
+        {"stage":"\(stage)","pid":"\(getpid())","time":"\(Date().timeIntervalSince1970)"}
+        """
+        try? payload.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func feedTUIItems(client: SocketClient) throws -> [FeedTUIItem] {
+        let payload = try client.sendV2(method: "feed.list", params: ["pending_only": true])
+        let rawItems = payload["items"] as? [[String: Any]] ?? []
+        return rawItems.compactMap(FeedTUIItem.parse)
+            .filter(\.canResolve)
+            .sorted { lhs, rhs in
+                switch (lhs.createdAt, rhs.createdAt) {
+                case (.some(let lhsDate), .some(let rhsDate)) where lhsDate != rhsDate:
+                    return lhsDate > rhsDate
+                case (.some, .none):
+                    return true
+                case (.none, .some):
+                    return false
+                default:
+                    return lhs.id > rhs.id
+                }
+            }
+    }
+
+    private func feedTUIItem(in items: [FeedTUIItem], at index: Int) -> FeedTUIItem? {
+        guard index >= 0, index < items.count else { return nil }
+        return items[index]
+    }
+
+    private func feedTUIOption(in options: [FeedTUIOption], at index: Int) -> FeedTUIOption? {
+        guard index >= 0, index < options.count else { return nil }
+        return options[index]
+    }
+
+    private struct FeedTUILayout {
+        let width: Int
+        let rows: Int
+
+        let headerRows = 3
+        let footerRows = 2
+        let cardRows = 5
+
+        var visibleItemCount: Int {
+            max((rows - headerRows - footerRows) / cardRows, 1)
+        }
+    }
+
+    private func adjustedFeedTUIScrollOffset(
+        itemCount: Int,
+        selectedIndex: Int,
+        scrollOffset: Int
+    ) -> Int {
+        guard itemCount > 0 else { return 0 }
+        let size = currentCLITerminalSize()
+        let layout = FeedTUILayout(width: max(size.cols, 1), rows: max(size.rows, 1))
+        let visibleCount = layout.visibleItemCount
+        let maxOffset = max(itemCount - visibleCount, 0)
+        if selectedIndex < scrollOffset {
+            return max(selectedIndex, 0)
+        }
+        if selectedIndex >= scrollOffset + visibleCount {
+            return min(selectedIndex - visibleCount + 1, maxOffset)
+        }
+        return min(max(scrollOffset, 0), maxOffset)
+    }
+
+    private func renderFeedTUI(
+        items: [FeedTUIItem],
+        selectedIndex: Int,
+        scrollOffset: Int,
+        statusLine: String
+    ) {
+        let size = currentCLITerminalSize()
+        let layout = FeedTUILayout(width: max(size.cols, 1), rows: max(size.rows, 1))
+        let width = layout.width
+        let pendingCount = items.filter(\.isPending).count
+        let visibleStart = items.isEmpty ? 0 : min(scrollOffset + 1, items.count)
+        let visibleEnd = min(scrollOffset + layout.visibleItemCount, items.count)
+
+        print("\u{001B}[2J\u{001B}[H", terminator: "")
+        print(feedTUILine(
+            "cmux Dock Feed  latest first  \(pendingCount) pending  \(items.count) total  \(visibleStart)-\(visibleEnd)",
+            width: width
+        ))
+        print(feedTUILine(
+            "j/k arrows move  enter default  d deny  f replan  r refresh  q quit",
+            width: width
+        ))
+        print(feedTUISeparator(width: width))
+
+        if items.isEmpty {
+            print(feedTUILine("No feed items yet.", width: width))
+        } else {
+            for visibleIndex in 0..<layout.visibleItemCount {
+                let itemIndex = scrollOffset + visibleIndex
+                guard itemIndex < items.count else {
+                    for _ in 0..<layout.cardRows {
+                        print(feedTUILine("", width: width))
+                    }
+                    continue
+                }
+                let item = items[itemIndex]
+                let selected = itemIndex == selectedIndex
+                renderFeedTUICard(item, selected: selected, width: width)
+            }
+        }
+
+        let footerTop = max(layout.rows - 1, 1)
+        print("\u{001B}[\(footerTop);1H", terminator: "")
+        print(feedTUISeparator(width: width), terminator: "")
+        print("\u{001B}[\(layout.rows);1H", terminator: "")
+        let footer = statusLine.isEmpty ? selectedHelp(feedTUIItem(in: items, at: selectedIndex)) : statusLine
+        print(feedTUILine(footer, width: width), terminator: "")
+        fflush(stdout)
+    }
+
+    private func renderFeedTUICard(_ item: FeedTUIItem, selected: Bool, width: Int) {
+        let status = item.isPending ? "[PENDING]" : "[\(item.status.uppercased())]"
+        let time = relativeFeedTUITime(since: item.createdAt)
+        let kind = feedTUIKindLabel(item.kind)
+        let source = sanitizedTerminalText(item.source)
+        let marker = selected ? ">" : " "
+        let metaSuffix = time.isEmpty ? kind : "\(kind)  \(time)"
+        let detailLines = wrappedTerminalLines(item.detail, width: max(width - 4, 1), maxLines: 2)
+        let firstDetailLine = detailLines.indices.contains(0) ? detailLines[0] : ""
+        let secondDetailLine = detailLines.indices.contains(1) ? detailLines[1] : ""
+
+        print(feedTUILine("\(marker) \(status) @\(source)  \(metaSuffix)", width: width, highlighted: selected))
+        print(feedTUILine("  \(item.title)", width: width, highlighted: selected))
+        print(feedTUILine("  \(firstDetailLine)", width: width, highlighted: selected))
+        print(feedTUILine("  \(secondDetailLine)", width: width, highlighted: selected))
+        print(feedTUISeparator(width: width))
+    }
+
+    private func feedTUIKindLabel(_ kind: String) -> String {
+        switch kind {
+        case "permissionRequest":
+            return "permission"
+        case "exitPlan":
+            return "plan"
+        case "question":
+            return "question"
+        default:
+            return kind
+        }
+    }
+
+    private func relativeFeedTUITime(since date: Date?) -> String {
+        guard let date else { return "" }
+        let seconds = max(Int(Date().timeIntervalSince(date)), 0)
+        if seconds < 60 {
+            return "\(seconds)s"
+        }
+        let minutes = seconds / 60
+        if minutes < 60 {
+            return "\(minutes)m"
+        }
+        let hours = minutes / 60
+        if hours < 24 {
+            return "\(hours)h"
+        }
+        return "\(hours / 24)d"
+    }
+
+    private func selectedHelp(_ item: FeedTUIItem?) -> String {
+        guard let item else { return "No selection" }
+        guard item.canResolve else { return "Resolved or informational item" }
+        switch item.kind {
+        case "permissionRequest":
+            return "Permission: Enter/o once, a always, l all tools, b bypass, d deny"
+        case "exitPlan":
+            return "Plan: Enter default, a auto, m manual, u ultraplan, b bypass, f replan, d deny"
+        case "question":
+            let questionCount = max(item.questions.count, 1)
+            let firstQuestion = item.questions.first
+            let optionText = (firstQuestion?.options ?? item.questionOptions).enumerated().map { index, option in
+                "\(index + 1)=\(option.label)"
+            }.joined(separator: "  ")
+            if questionCount > 1 {
+                return "Question: Enter sends defaults for \(questionCount) prompts"
+            }
+            if optionText.isEmpty {
+                return "Question: Enter sends an empty answer"
+            }
+            let suffix = (firstQuestion?.multiSelect ?? item.questionMultiSelect) ? "  Enter sends selected options" : ""
+            return "Question: \(optionText)\(suffix)"
+        default:
+            return ""
+        }
+    }
+
+    private func resolveFeedTUIItem(
+        _ item: FeedTUIItem,
+        key: FeedTUIKey,
+        client: SocketClient,
+        rawMode: inout TerminalRawMode?,
+        selectedQuestionOptions: inout [String: Set<String>]
+    ) throws -> String {
+        guard item.canResolve, let requestId = item.requestId else {
+            return "No pending action for selected item"
+        }
+
+        switch item.kind {
+        case "permissionRequest":
+            let mode: String
+            switch key {
+            case .enter, .once:
+                mode = "once"
+            case .always:
+                mode = "always"
+            case .all:
+                mode = "all"
+            case .bypass:
+                mode = "bypass"
+            case .deny:
+                mode = "deny"
+            default:
+                return "Key is not available for permission requests"
+            }
+            _ = try client.sendV2(
+                method: "feed.permission.reply",
+                params: ["request_id": requestId, "mode": mode]
+            )
+            return "Permission \(mode) sent"
+        case "exitPlan":
+            if key == .feedback {
+                let feedback = readFeedTUIFeedbackPrompt(rawMode: &rawMode)
+                guard !feedback.isEmpty else { return "Replan cancelled" }
+                _ = try client.sendV2(
+                    method: "feed.exit_plan.reply",
+                    params: ["request_id": requestId, "mode": "deny", "feedback": feedback]
+                )
+                return "Replan feedback sent"
+            }
+
+            let mode: String
+            switch key {
+            case .enter:
+                mode = item.defaultMode ?? "manual"
+            case .autoAccept, .always:
+                mode = "autoAccept"
+            case .manual:
+                mode = "manual"
+            case .ultraplan:
+                mode = "ultraplan"
+            case .bypass:
+                mode = "bypassPermissions"
+            case .deny:
+                mode = "deny"
+            default:
+                return "Key is not available for plans"
+            }
+            _ = try client.sendV2(
+                method: "feed.exit_plan.reply",
+                params: ["request_id": requestId, "mode": mode]
+            )
+            return "Plan \(mode) sent"
+        case "question":
+            let primaryQuestion = item.questions.first
+            let primaryOptions = primaryQuestion?.options ?? item.questionOptions
+            let primaryMultiSelect = primaryQuestion?.multiSelect ?? item.questionMultiSelect
+            if primaryOptions.isEmpty {
+                guard key == .enter else {
+                    return "Question has no selectable options"
+                }
+                _ = try client.sendV2(
+                    method: "feed.question.reply",
+                    params: ["request_id": requestId, "selections": [] as [String]]
+                )
+                return "Question answer sent"
+            }
+
+            if item.questions.count > 1, key == .enter {
+                let selections = item.questions.map { question in
+                    question.options.first?.label ?? ""
+                }
+                _ = try client.sendV2(
+                    method: "feed.question.reply",
+                    params: ["request_id": requestId, "selections": selections]
+                )
+                return "Question answer sent"
+            }
+
+            if primaryMultiSelect {
+                switch key {
+                case .number(let index):
+                    guard let option = feedTUIOption(in: primaryOptions, at: index - 1) else {
+                        return "No option \(index)"
+                    }
+                    var selections = selectedQuestionOptions[requestId] ?? Set<String>()
+                    if selections.contains(option.id) {
+                        selections.remove(option.id)
+                        selectedQuestionOptions[requestId] = selections
+                        return "Unselected: \(option.label)"
+                    }
+                    selections.insert(option.id)
+                    selectedQuestionOptions[requestId] = selections
+                    return "Selected: \(option.label)"
+                case .enter:
+                    let selected = selectedQuestionOptions[requestId] ?? Set<String>()
+                    let selections = primaryOptions
+                        .filter { selected.contains($0.id) }
+                        .map(\.label)
+                    _ = try client.sendV2(
+                        method: "feed.question.reply",
+                        params: ["request_id": requestId, "selections": selections]
+                    )
+                    selectedQuestionOptions.removeValue(forKey: requestId)
+                    return selections.isEmpty ? "Question answer sent with no selections" : "Question answer sent"
+                default:
+                    return "Key is not available for questions"
+                }
+            }
+
+            let option: FeedTUIOption?
+            switch key {
+            case .number(let index):
+                option = feedTUIOption(in: primaryOptions, at: index - 1)
+            case .enter:
+                option = primaryOptions.first
+            default:
+                return "Key is not available for questions"
+            }
+            guard let option else {
+                return "No question option available"
+            }
+            _ = try client.sendV2(
+                method: "feed.question.reply",
+                params: ["request_id": requestId, "selections": [option.label]]
+            )
+            return "Question answer sent: \(option.label)"
+        default:
+            return "Unsupported feed item"
+        }
+    }
+
+    private func readFeedTUIFeedbackPrompt(rawMode: inout TerminalRawMode?) -> String {
+        rawMode?.restore()
+        print("\u{001B}[2J\u{001B}[H", terminator: "")
+        print("Tell the agent what to change, then press Return.")
+        print("> ", terminator: "")
+        fflush(stdout)
+        let value = readLine() ?? ""
+        guard let restoredRawMode = TerminalRawMode() else {
+            return ""
+        }
+        rawMode = restoredRawMode
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func readFeedTUIKey(timeoutMilliseconds: Int32? = nil) -> FeedTUIKey {
+        if let timeoutMilliseconds {
+            while true {
+                var descriptor = pollfd(
+                    fd: STDIN_FILENO,
+                    events: Int16(POLLIN | POLLHUP | POLLERR),
+                    revents: 0
+                )
+                let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+                if ready < 0 {
+                    if errno == EINTR { continue }
+                    return .ignored
+                }
+                if ready == 0 {
+                    return .tick
+                }
+                if descriptor.revents & Int16(POLLHUP) != 0 {
+                    return .quit
+                }
+                if descriptor.revents & Int16(POLLIN) == 0 {
+                    return .ignored
+                }
+                break
+            }
+        }
+
+        var byte: UInt8 = 0
+        while true {
+            let count = Darwin.read(STDIN_FILENO, &byte, 1)
+            if count < 0 {
+                if errno == EINTR { continue }
+                return .ignored
+            }
+            if count == 0 { return .quit }
+            break
+        }
+
+        switch byte {
+        case 3:
+            return .quit
+        case 10, 13:
+            return .enter
+        case 27:
+            guard let first = readFeedTUIByteIfReady(timeoutMilliseconds: 25),
+                  let second = readFeedTUIByteIfReady(timeoutMilliseconds: 25),
+                  first == 91 else {
+                return .ignored
+            }
+            switch second {
+            case 65: return .up
+            case 66: return .down
+            default: return .ignored
+            }
+        case 106, 74:
+            return .down
+        case 107, 75:
+            return .up
+        case 113, 81:
+            return .quit
+        case 114, 82:
+            return .refresh
+        case 100, 68:
+            return .deny
+        case 102, 70:
+            return .feedback
+        case 111, 79:
+            return .once
+        case 97, 65:
+            return .always
+        case 108, 76:
+            return .all
+        case 98, 66:
+            return .bypass
+        case 109, 77:
+            return .manual
+        case 117, 85:
+            return .ultraplan
+        case 49...57:
+            return .number(Int(byte - 48))
+        case 48:
+            return .number(10)
+        default:
+            return .ignored
+        }
+    }
+
+    private func readFeedTUIByteIfReady(timeoutMilliseconds: Int32) -> UInt8? {
+        while true {
+            var descriptor = pollfd(
+                fd: STDIN_FILENO,
+                events: Int16(POLLIN | POLLHUP | POLLERR),
+                revents: 0
+            )
+            let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            guard ready > 0, descriptor.revents & Int16(POLLIN) != 0 else {
+                return nil
+            }
+            var byte: UInt8 = 0
+            let count = Darwin.read(STDIN_FILENO, &byte, 1)
+            return count == 1 ? byte : nil
+        }
+    }
+
+    private func currentCLITerminalSize() -> (cols: Int, rows: Int) {
+        var size = winsize()
+        if ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0,
+           size.ws_col > 0,
+           size.ws_row > 0 {
+            return (Int(size.ws_col), Int(size.ws_row))
+        }
+        return (80, 24)
+    }
+
+    private func feedTUISeparator(width: Int) -> String {
+        String(repeating: "-", count: max(width, 0))
+    }
+
+    private func feedTUILine(
+        _ value: String,
+        width: Int,
+        highlighted: Bool = false
+    ) -> String {
+        let line = paddedTerminalLine(truncateForTerminal(value, width: width), width: width)
+        guard highlighted else { return line }
+        return "\u{001B}[7m\(line)\u{001B}[0m"
+    }
+
+    private func paddedTerminalLine(_ value: String, width: Int) -> String {
+        guard width > 0 else { return "" }
+        if value.count >= width {
+            return value
+        }
+        return value + String(repeating: " ", count: width - value.count)
+    }
+
+    private func wrappedTerminalLines(_ value: String, width: Int, maxLines: Int) -> [String] {
+        guard maxLines > 0 else { return [] }
+        guard width > 0 else { return Array(repeating: "", count: maxLines) }
+
+        var remainder = sanitizedTerminalText(value)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var lines: [String] = []
+
+        while lines.count < maxLines, !remainder.isEmpty {
+            if remainder.count <= width {
+                lines.append(remainder)
+                remainder = ""
+                break
+            }
+
+            let limitIndex = remainder.index(remainder.startIndex, offsetBy: width)
+            let candidate = remainder[..<limitIndex]
+            if let splitIndex = candidate.lastIndex(of: " ") {
+                let line = String(remainder[..<splitIndex])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                lines.append(line.isEmpty ? String(candidate) : line)
+                remainder = String(remainder[splitIndex...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                lines.append(String(candidate))
+                remainder = String(remainder[limitIndex...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        if !remainder.isEmpty, !lines.isEmpty {
+            lines[lines.count - 1] = truncateForTerminal("\(lines[lines.count - 1]) ...", width: width)
+        }
+
+        while lines.count < maxLines {
+            lines.append("")
+        }
+        return lines
+    }
+
+    private func sanitizedTerminalText(_ value: String) -> String {
+        var output = ""
+        for scalar in value.unicodeScalars {
+            if CharacterSet.controlCharacters.contains(scalar) {
+                output.append(" ")
+            } else {
+                output.unicodeScalars.append(scalar)
+            }
+        }
+        return output
+            .replacingOccurrences(of: "\u{001B}", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+    }
+
+    private func truncateForTerminal(_ value: String, width: Int) -> String {
+        guard width > 0 else { return "" }
+        let sanitized = sanitizedTerminalText(value)
+        if sanitized.count <= width { return sanitized }
+        let suffix = "..."
+        guard width > suffix.count else {
+            let end = sanitized.index(sanitized.startIndex, offsetBy: width)
+            return String(sanitized[..<end])
+        }
+        let end = sanitized.index(sanitized.startIndex, offsetBy: width - suffix.count)
+        return String(sanitized[..<end]) + suffix
+    }
 
     private func runFeedClear() throws {
         let home = FileManager.default.homeDirectoryForCurrentUser

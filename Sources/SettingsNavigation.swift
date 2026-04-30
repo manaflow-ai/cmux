@@ -276,7 +276,7 @@ enum SettingsSearchIndex {
             title: target.title,
             subtitle: nil,
             symbolName: target.symbolName,
-            searchText: target.searchText
+            searchText: "\(target.rawValue) \(target.searchText) \(SettingsSearchAliasIndex.sectionAliases(for: target))"
         )
     }
 
@@ -332,6 +332,7 @@ enum SettingsSearchIndex {
         setting(.automation, "port-base", String(localized: "settings.automation.portBase", defaultValue: "Port Base"), "CMUX_PORT start"),
         setting(.automation, "port-range", String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), "CMUX_PORT_END workspace ports"),
         setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo"),
+        setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
         setting(.browser, "theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
         setting(.browser, "terminal-links", String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"), "click links browser"),
@@ -414,6 +415,7 @@ enum SettingsSearchIndex {
         "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
         "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
         "automation.portRange": settingID(for: .automation, idSuffix: "port-range"),
+        "browser.enabled": settingID(for: .browser, idSuffix: "enable-browser"),
         "browser.defaultSearchEngine": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.showSearchSuggestions": settingID(for: .browser, idSuffix: "search-suggestions"),
         "browser.theme": settingID(for: .browser, idSuffix: "theme"),
@@ -472,7 +474,7 @@ enum SettingsSearchIndex {
             title: title,
             subtitle: target.title,
             symbolName: target.symbolName,
-            searchText: "\(target.searchText) \(searchText)"
+            searchText: "\(target.rawValue) \(idSuffix) \(target.searchText) \(searchText) \(SettingsSearchAliasIndex.aliases(target: target, idSuffix: idSuffix))"
         )
     }
 

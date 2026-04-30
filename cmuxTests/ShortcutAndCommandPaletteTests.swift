@@ -1081,6 +1081,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToFind,
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
+        .switchRightSidebarToDock,
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
@@ -1131,6 +1132,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
+        XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
     }
 
     func testModeShortcutUsesConfiguredBindings() {
@@ -1345,6 +1347,58 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
 
         XCTAssertFalse(controller.toggleRightSidebarOrTerminalFocus())
         XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+}
+
+final class FileExplorerStateModePersistenceTests: XCTestCase {
+    private let modeKey = "rightSidebar.mode"
+    private let migrationKey = "rightSidebar.feedDockMigrationApplied"
+
+    func testLegacyFeedStoredModeMigratesToDock() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.feed.rawValue, forKey: modeKey)
+            defaults.removeObject(forKey: migrationKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .dock)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.dock.rawValue)
+            XCTAssertTrue(defaults.bool(forKey: migrationKey))
+        }
+    }
+
+    func testFeedStoredModeSurvivesAfterDockMigration() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.feed.rawValue, forKey: modeKey)
+            defaults.set(true, forKey: migrationKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .feed)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.feed.rawValue)
+        }
+    }
+
+    private func withSavedRightSidebarModeDefaults(_ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: modeKey)
+        let previousMigration = defaults.object(forKey: migrationKey)
+        defer {
+            restore(previousMode, forKey: modeKey)
+            restore(previousMigration, forKey: migrationKey)
+        }
+        body()
+    }
+
+    private func restore(_ value: Any?, forKey key: String) {
+        let defaults = UserDefaults.standard
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 }
 

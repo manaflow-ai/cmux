@@ -475,8 +475,11 @@ final class WindowDragHandleHitTests: XCTestCase {
 
     private final class HostContainerView: NSView {}
     private final class BlockingTopHitContainerView: NSView {
+        var hitCount = 0
+
         override func hitTest(_ point: NSPoint) -> NSView? {
-            bounds.contains(point) ? self : nil
+            hitCount += 1
+            return bounds.contains(point) ? self : nil
         }
     }
     private final class PassThroughProbeView: NSView {
@@ -492,6 +495,22 @@ final class WindowDragHandleHitTests: XCTestCase {
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(point) else { return nil }
             return super.hitTest(point) ?? self
+        }
+    }
+
+    private final class SidebarActionRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
+        var config = TitlebarControlsStyle.classic.config
+
+        func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
+            minimalModeSidebarControlActionSlot(localPoint: localPoint) != nil
+        }
+
+        func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot? {
+            let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
+            for (index, range) in ranges.enumerated() where range.contains(localPoint.x) {
+                return MinimalModeSidebarControlActionSlot(rawValue: index)
+            }
+            return nil
         }
     }
 
@@ -685,6 +704,340 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(windowDragHandleShouldTreatTopHitAsPassiveHost(NSButton(frame: .zero)))
     }
 
+    func testMinimalModeTitlebarControlRegionRegistryMatchesVisibleRegisteredView() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let controlRegion = NSView(frame: NSRect(x: 72, y: 88, width: 124, height: 28))
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        XCTAssertTrue(isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 100, y: 100)))
+        XCTAssertFalse(isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 20, y: 100)))
+
+        controlRegion.isHidden = true
+        XCTAssertFalse(isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 100, y: 100)))
+    }
+
+    func testMinimalModeTitlebarControlRegionCanLimitHitsInsideRegisteredView() {
+        final class ButtonOnlyRegion: NSView, MinimalModeTitlebarControlHitRegionProviding {
+            func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
+                localPoint.x >= 24 && localPoint.x <= 48
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let controlRegion = ButtonOnlyRegion(frame: NSRect(x: 72, y: 88, width: 124, height: 28))
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        XCTAssertTrue(
+            isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 100, y: 100)),
+            "Expected points inside the provider's button range to suppress titlebar double-click handling."
+        )
+        XCTAssertFalse(
+            isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 136, y: 100)),
+            "Expected gaps inside the registered view to keep behaving like titlebar chrome."
+        )
+    }
+
+    func testMinimalModeSidebarActionSlotUsesRegisteredHostFrame() {
+        let suiteName = "WindowDragHandleHitTests.sidebarHostFrame.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(TitlebarControlsStyle.classic.rawValue, forKey: "titlebarControlsStyle")
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let controlRegion = SidebarActionRegionView(frame: NSRect(x: 88, y: 88, width: 124, height: 28))
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        XCTAssertEqual(
+            minimalModeSidebarControlActionSlot(
+                window: window,
+                locationInWindow: NSPoint(x: controlRegion.frame.minX + 50, y: controlRegion.frame.minY + 14),
+                defaults: defaults
+            ),
+            .showNotifications,
+            "Sidebar control actions should use the actual registered host frame instead of a fixed window x origin."
+        )
+    }
+
+    func testMinimalModeSidebarActionSlotUsesRegisteredHostFrameBelowFallbackBand() {
+        let suiteName = "WindowDragHandleHitTests.sidebarHostFrameBand.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(TitlebarControlsStyle.classic.rawValue, forKey: "titlebarControlsStyle")
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let controlRegion = SidebarActionRegionView(frame: NSRect(x: 88, y: 88, width: 124, height: 28))
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        let point = NSPoint(x: controlRegion.frame.minX + 14, y: controlRegion.frame.minY + 1)
+        XCTAssertFalse(
+            isPointInMinimalModeTitlebarBand(
+                isEnabled: true,
+                point: point,
+                bounds: contentView.bounds,
+                topStripHeight: MinimalModeChromeMetrics.titlebarHeight
+            ),
+            "The regression point should sit inside the visual control host but outside the hard-coded fallback band."
+        )
+        XCTAssertEqual(
+            minimalModeSidebarControlActionSlot(window: window, locationInWindow: point, defaults: defaults),
+            .toggleSidebar
+        )
+        XCTAssertTrue(
+            isMinimalModeSidebarChromeHoverCandidate(window: window, locationInWindow: point, defaults: defaults),
+            "Hover reveal should follow the real control host frame."
+        )
+    }
+
+    func testSuppressedTitlebarDoubleClickConsumesWithoutWindowAction() {
+        XCTAssertEqual(
+            handleTitlebarDoubleClick(window: nil, behavior: .suppress),
+            .suppressed
+        )
+        XCTAssertEqual(
+            handleTitlebarDoubleClick(window: nil, behavior: .standardAction),
+            .ignored
+        )
+        XCTAssertTrue(TitlebarDoubleClickHandlingResult.suppressed.consumesEvent)
+        XCTAssertFalse(TitlebarDoubleClickHandlingResult.ignored.consumesEvent)
+    }
+
+    func testMinimalModeDoubleClickHandlerOnlyHandlesTopStripDoubleClicks() {
+        let bounds = NSRect(x: 0, y: 0, width: 400, height: 300)
+
+        XCTAssertTrue(
+            shouldHandleMinimalModeTitlebarDoubleClick(
+                isEnabled: true,
+                clickCount: 2,
+                point: NSPoint(x: 200, y: 292),
+                bounds: bounds,
+                topStripHeight: 30
+            )
+        )
+        XCTAssertFalse(
+            shouldHandleMinimalModeTitlebarDoubleClick(
+                isEnabled: true,
+                clickCount: 2,
+                point: NSPoint(x: 200, y: 240),
+                bounds: bounds,
+                topStripHeight: 30
+            )
+        )
+        XCTAssertFalse(
+            shouldHandleMinimalModeTitlebarDoubleClick(
+                isEnabled: false,
+                clickCount: 2,
+                point: NSPoint(x: 200, y: 292),
+                bounds: bounds,
+                topStripHeight: 30
+            )
+        )
+        XCTAssertFalse(
+            shouldHandleMinimalModeTitlebarDoubleClick(
+                isEnabled: true,
+                clickCount: 1,
+                point: NSPoint(x: 200, y: 292),
+                bounds: bounds,
+                topStripHeight: 30
+            )
+        )
+    }
+
+    func testMinimalModeWindowDoubleClickRequiresMainTopStrip() {
+        let bounds = NSRect(x: 0, y: 0, width: 400, height: 300)
+
+        XCTAssertTrue(
+            shouldHandleMinimalModeWindowTitlebarDoubleClick(
+                isMinimalMode: true,
+                isFullScreen: false,
+                isMainWindow: true,
+                clickCount: 2,
+                locationInWindow: NSPoint(x: 200, y: 292),
+                contentBounds: bounds,
+                titlebarBandHeight: 30
+            )
+        )
+        XCTAssertFalse(
+            shouldHandleMinimalModeWindowTitlebarDoubleClick(
+                isMinimalMode: false,
+                isFullScreen: false,
+                isMainWindow: true,
+                clickCount: 2,
+                locationInWindow: NSPoint(x: 200, y: 292),
+                contentBounds: bounds,
+                titlebarBandHeight: 30
+            )
+        )
+        XCTAssertFalse(
+            shouldHandleMinimalModeWindowTitlebarDoubleClick(
+                isMinimalMode: true,
+                isFullScreen: true,
+                isMainWindow: true,
+                clickCount: 2,
+                locationInWindow: NSPoint(x: 200, y: 292),
+                contentBounds: bounds,
+                titlebarBandHeight: 30
+            )
+        )
+        XCTAssertFalse(
+            shouldHandleMinimalModeWindowTitlebarDoubleClick(
+                isMinimalMode: true,
+                isFullScreen: false,
+                isMainWindow: false,
+                clickCount: 2,
+                locationInWindow: NSPoint(x: 200, y: 292),
+                contentBounds: bounds,
+                titlebarBandHeight: 30
+            )
+        )
+        XCTAssertFalse(
+            shouldHandleMinimalModeWindowTitlebarDoubleClick(
+                isMinimalMode: true,
+                isFullScreen: false,
+                isMainWindow: true,
+                clickCount: 2,
+                locationInWindow: NSPoint(x: 200, y: 240),
+                contentBounds: bounds,
+                titlebarBandHeight: 30
+            )
+        )
+    }
+
+    func testMinimalModeTitlebarConsecutiveClicksCanFormDoubleClick() {
+        let previous = MinimalModeTitlebarClickRecord(
+            windowNumber: 42,
+            timestamp: 10,
+            locationInWindow: NSPoint(x: 200, y: 292)
+        )
+
+        XCTAssertTrue(
+            minimalModeTitlebarClickFormsDoubleClick(
+                clickCount: 1,
+                timestamp: 10.2,
+                locationInWindow: NSPoint(x: 201, y: 291),
+                windowNumber: 42,
+                previous: previous,
+                doubleClickInterval: 0.5
+            )
+        )
+        XCTAssertFalse(
+            minimalModeTitlebarClickFormsDoubleClick(
+                clickCount: 1,
+                timestamp: 10.65,
+                locationInWindow: NSPoint(x: 201, y: 291),
+                windowNumber: 42,
+                previous: previous,
+                doubleClickInterval: 0.5
+            )
+        )
+        XCTAssertTrue(
+            minimalModeTitlebarClickFormsDoubleClick(
+                clickCount: 1,
+                timestamp: 10.62,
+                locationInWindow: NSPoint(x: 201, y: 291),
+                windowNumber: 42,
+                previous: previous,
+                doubleClickInterval: 0.5,
+                doubleClickIntervalTolerance: 0.15
+            )
+        )
+        XCTAssertTrue(
+            minimalModeTitlebarClickFormsDoubleClick(
+                clickCount: 2,
+                timestamp: 20,
+                locationInWindow: NSPoint(x: 20, y: 20),
+                windowNumber: 99,
+                previous: nil,
+                doubleClickInterval: 0.5
+            )
+        )
+        XCTAssertFalse(
+            minimalModeTitlebarClickFormsDoubleClick(
+                clickCount: 1,
+                timestamp: 10.8,
+                locationInWindow: NSPoint(x: 201, y: 291),
+                windowNumber: 42,
+                previous: previous,
+                doubleClickInterval: 0.5
+            )
+        )
+        XCTAssertFalse(
+            minimalModeTitlebarClickFormsDoubleClick(
+                clickCount: 1,
+                timestamp: 10.2,
+                locationInWindow: NSPoint(x: 240, y: 292),
+                windowNumber: 42,
+                previous: previous,
+                doubleClickInterval: 0.5
+            )
+        )
+        XCTAssertFalse(
+            minimalModeTitlebarClickFormsDoubleClick(
+                clickCount: 1,
+                timestamp: 10.2,
+                locationInWindow: NSPoint(x: 201, y: 291),
+                windowNumber: 43,
+                previous: previous,
+                doubleClickInterval: 0.5
+            )
+        )
+    }
+
     func testDragHandleIgnoresPassiveHostSiblingHit() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
@@ -747,17 +1100,21 @@ final class WindowDragHandleHitTests: XCTestCase {
             XCTFail("Expected nested content view")
             return
         }
-        let nestedContainer = BlockingTopHitContainerView(frame: nestedContentView.bounds)
+        let nestedContainer = NSView(frame: nestedContentView.bounds)
         nestedContainer.autoresizingMask = [.width, .height]
         nestedContentView.addSubview(nestedContainer)
         let nestedDragHandle = NSView(frame: nestedContainer.bounds)
         nestedDragHandle.autoresizingMask = [.width, .height]
         nestedContainer.addSubview(nestedDragHandle)
+        let nestedBlockingOverlay = BlockingTopHitContainerView(frame: nestedContainer.bounds)
+        nestedBlockingOverlay.autoresizingMask = [.width, .height]
+        nestedContainer.addSubview(nestedBlockingOverlay)
 
         XCTAssertFalse(
             windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown, eventWindow: nestedWindow),
             "Nested window drag handle should be blocked by top-hit titlebar container"
         )
+        XCTAssertEqual(nestedBlockingOverlay.hitCount, 1)
 
         var nestedCaptureResult: Bool?
         let probe = PassThroughProbeView(frame: outerContainer.bounds)
@@ -773,6 +1130,11 @@ final class WindowDragHandleHitTests: XCTestCase {
             nestedCaptureResult,
             false,
             "Top-hit recursion in one window must not disable top-hit resolution in another window"
+        )
+        XCTAssertEqual(
+            nestedBlockingOverlay.hitCount,
+            2,
+            "Nested window should resolve its own blocking sibling while another window is resolving hits"
         )
     }
 
