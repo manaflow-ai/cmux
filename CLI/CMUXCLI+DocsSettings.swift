@@ -97,10 +97,12 @@ extension CMUXCLI {
     ]
 
     func runDocsCommand(commandArgs: [String], jsonOutput: Bool) throws {
-        let wantsJSON = jsonOutput || commandArgs.contains("--json")
-        let args = commandArgs.filter { $0 != "--" && $0 != "--json" }
+        let parsedArgs = docsSettingsArguments(commandArgs)
+        let wantsJSON = jsonOutput || parsedArgs.head.contains("--json")
+        let args = parsedArgs.arguments
 
-        if let first = args.first, first == "--help" || first == "-h" || first.lowercased() == "help" {
+        if let first = parsedArgs.head.first,
+           first == "--help" || first == "-h" || first.lowercased() == "help" {
             print(docsUsage())
             return
         }
@@ -240,11 +242,13 @@ extension CMUXCLI {
         explicitPassword: String?,
         jsonOutput: Bool
     ) throws {
-        let wantsJSON = jsonOutput || commandArgs.contains("--json")
-        let args = commandArgs.filter { $0 != "--" && $0 != "--json" }
+        let parsedArgs = docsSettingsArguments(commandArgs)
+        let wantsJSON = jsonOutput || parsedArgs.head.contains("--json")
+        let args = parsedArgs.arguments
         let subcommand = args.first?.lowercased() ?? "open"
 
-        if subcommand == "help" || subcommand == "--help" || subcommand == "-h" {
+        if let first = parsedArgs.head.first,
+           first == "help" || first == "--help" || first == "-h" {
             print(settingsUsage())
             return
         }
@@ -339,6 +343,7 @@ extension CMUXCLI {
             "docs_url": Self.settingsDocsURL,
             "schema_url": Self.settingsSchemaURL,
             "reload_command": "cmux reload-config",
+            "backup": "Back up any existing settings file to a timestamped .bak copy before editing so the user can revert.",
         ]
 
         if jsonOutput {
@@ -453,5 +458,13 @@ extension CMUXCLI {
         } else {
             print("OK")
         }
+    }
+
+    private func docsSettingsArguments(_ commandArgs: [String]) -> (head: [String], arguments: [String]) {
+        let separatorIndex = commandArgs.firstIndex(of: "--")
+        let head = separatorIndex.map { Array(commandArgs[..<$0]) } ?? commandArgs
+        let tail = separatorIndex.map { Array(commandArgs[commandArgs.index(after: $0)...]) } ?? []
+        let headArguments = head.filter { $0 != "--json" }
+        return (head, headArguments + tail)
     }
 }
