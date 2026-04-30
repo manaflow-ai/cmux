@@ -61217,6 +61217,160 @@
         }
       }
     },
+    "settings.automation.remoteAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote Access" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセス" } }
+      }
+    },
+    "settings.automation.remoteAccess.copyToken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy Token" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トークンをコピー" } }
+      }
+    },
+    "settings.automation.remoteAccess.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The remote API requires an Authorization: Bearer token header and currently exposes only a small allowlist of v2 methods." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートAPIにはAuthorization: Bearerトークンヘッダーが必要で、現在はv2メソッドの小さな許可リストのみを公開します。" } }
+      }
+    },
+    "settings.automation.remoteAccess.port": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote Access Port" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセスポート" } }
+      }
+    },
+    "settings.automation.remoteAccess.port.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The first version binds only to 127.0.0.1." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最初のバージョンは127.0.0.1にのみバインドします。" } }
+      }
+    },
+    "settings.automation.remoteAccess.rotateToken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rotate Token" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トークンをローテーション" } }
+      }
+    },
+    "settings.automation.remoteAccess.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Disabled. Enable this only when you need a browser or mobile client to reach this cmux instance." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効です。ブラウザまたはモバイルクライアントからこのcmuxインスタンスに接続する必要がある場合のみ有効にしてください。" } }
+      }
+    },
+    "settings.automation.remoteAccess.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Listening on localhost." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "localhostで待ち受けています。" } }
+      }
+    },
+    "settings.automation.remoteAccess.subtitleFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote access failed to start." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセスの起動に失敗しました。" } }
+      }
+    },
+    "settings.automation.remoteAccess.subtitleStarting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Starting remote access server." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセスサーバーを起動しています。" } }
+      }
+    },
+    "settings.automation.remoteAccess.subtitleStopping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Stopping remote access server." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセスサーバーを停止しています。" } }
+      }
+    },
+    "settings.automation.remoteAccess.subtitleRestarting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restarting remote access server." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセスサーバーを再起動しています。" } }
+      }
+    },
+    "settings.automation.remoteAccess.startFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote access failed to start: %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセスの起動に失敗しました: %@。" } }
+      }
+    },
+    "settings.automation.remoteAccess.tokenRotateFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Failed to rotate token (%@)." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トークンのローテーションに失敗しました（%@）。" } }
+      }
+    },
+    "settings.automation.remoteAccess.tokenCopied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote access token copied." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセストークンをコピーしました。" } }
+      }
+    },
+    "settings.automation.remoteAccess.tokenCopyFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Failed to copy token (%@)." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トークンのコピーに失敗しました（%@）。" } }
+      }
+    },
+    "settings.automation.remoteAccess.tokenRotated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote access token rotated." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセストークンをローテーションしました。" } }
+      }
+    },
+    "settings.automation.remoteAccess.url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote Access URL" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセスURL" } }
+      }
+    },
+    "remoteAccess.token.error.malformed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote access token is empty or malformed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセストークンが空か、形式が正しくありません。" } }
+      }
+    },
+    "remoteAccess.token.error.unresolvedPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to resolve remote access token file path." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセストークンファイルのパスを解決できません。" } }
+      }
+    },
+    "remoteAccess.token.error.generationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Failed to generate remote access token." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートアクセストークンの生成に失敗しました。" } }
+      }
+    },
+    "remoteAccess.server.error.unavailableInBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote access server is unavailable in this build." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このビルドではリモートアクセスサーバーを利用できません。" } }
+      }
+    },
     "settings.blendMode.behindWindow": {
       "extractionState": "manual",
       "localizations": {

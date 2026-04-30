@@ -16,6 +16,8 @@ struct cmuxApp: App {
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage(RemoteAccessSettings.enabledKey) private var remoteAccessEnabled = RemoteAccessSettings.defaultEnabled
+    @AppStorage(RemoteAccessSettings.portKey) private var remoteAccessPort = RemoteAccessSettings.defaultPort
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
@@ -198,12 +200,19 @@ struct cmuxApp: App {
                     }
 #endif
                     bootstrapMainWindowScene()
+                    updateRemoteAccessServer()
                 }
                 .onChange(of: appearanceMode) { _ in
                     applyAppearance()
                 }
                 .onChange(of: socketControlMode) { _ in
                     updateSocketController()
+                }
+                .onChange(of: remoteAccessEnabled) { _ in
+                    updateRemoteAccessServer()
+                }
+                .onChange(of: remoteAccessPort) { _ in
+                    updateRemoteAccessServer()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -798,6 +807,18 @@ struct cmuxApp: App {
             )
         } else {
             TerminalController.shared.stop()
+        }
+    }
+
+    private func updateRemoteAccessServer() {
+        if remoteAccessEnabled {
+            let normalizedPort = RemoteAccessSettings.normalizedPort(remoteAccessPort)
+            if remoteAccessPort != normalizedPort {
+                remoteAccessPort = normalizedPort
+            }
+            CMUXRemoteServer.shared.start(port: normalizedPort)
+        } else {
+            CMUXRemoteServer.shared.stop()
         }
     }
 
@@ -5239,6 +5260,8 @@ struct SettingsView: View {
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(LastSurfaceCloseShortcutSettings.key)
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
+    @AppStorage(RemoteAccessSettings.enabledKey) private var remoteAccessEnabled = RemoteAccessSettings.defaultEnabled
+    @AppStorage(RemoteAccessSettings.portKey) private var remoteAccessPort = RemoteAccessSettings.defaultPort
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
@@ -5277,6 +5300,7 @@ struct SettingsView: View {
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
+    @ObservedObject private var remoteAccessServer = CMUXRemoteServer.shared
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var shortcutResetToken = UUID()
     @State private var showClearBrowserHistoryConfirmation = false
@@ -5288,6 +5312,8 @@ struct SettingsView: View {
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
+    @State private var remoteAccessStatusMessage: String?
+    @State private var remoteAccessStatusIsError = false
     @State private var notificationCustomSoundStatusMessage: String?
     @State private var notificationCustomSoundStatusIsError = false
     @State private var showNotificationCustomSoundErrorAlert = false
@@ -5409,6 +5435,39 @@ struct SettingsView: View {
 
     private var selectedSocketControlMode: SocketControlMode {
         SocketControlSettings.migrateMode(socketControlMode)
+    }
+
+    private var remoteAccessURLString: String {
+        RemoteAccessSettings.urlString(port: remoteAccessPort)
+    }
+
+    private var remoteAccessRuntimeSubtitle: String {
+        switch remoteAccessServer.state {
+        case .stopped:
+            return remoteAccessEnabled
+                ? String(localized: "settings.automation.remoteAccess.subtitleStarting", defaultValue: "Starting remote access server.")
+                : String(localized: "settings.automation.remoteAccess.subtitleOff", defaultValue: "Disabled. Enable to control this Mac from a local HTTP client.")
+        case .starting:
+            return String(localized: "settings.automation.remoteAccess.subtitleStarting", defaultValue: "Starting remote access server.")
+        case .running:
+            return String(localized: "settings.automation.remoteAccess.subtitleOn", defaultValue: "Listening on localhost.")
+        case .stopping:
+            return String(localized: "settings.automation.remoteAccess.subtitleStopping", defaultValue: "Stopping remote access server.")
+        case .restarting:
+            return String(localized: "settings.automation.remoteAccess.subtitleRestarting", defaultValue: "Restarting remote access server.")
+        case .failed:
+            return remoteAccessEnabled
+                ? String(localized: "settings.automation.remoteAccess.subtitleFailed", defaultValue: "Remote access failed to start.")
+                : String(localized: "settings.automation.remoteAccess.subtitleOff", defaultValue: "Disabled. Enable to control this Mac from a local HTTP client.")
+        }
+    }
+
+    private var remoteAccessLifecycleMessage: String? {
+        guard remoteAccessEnabled,
+              case .failed(_, let message) = remoteAccessServer.state else {
+            return nil
+        }
+        return String(localized: "settings.automation.remoteAccess.startFailed", defaultValue: "Remote access failed to start: \(message)")
     }
 
     private var selectedBrowserThemeMode: BrowserThemeMode {
@@ -5813,6 +5872,30 @@ struct SettingsView: View {
         } catch {
             socketPasswordStatusMessage = String(localized: "settings.automation.socketPassword.clearFailed", defaultValue: "Failed to clear password (\(error.localizedDescription)).")
             socketPasswordStatusIsError = true
+        }
+    }
+
+    private func rotateRemoteAccessToken() {
+        do {
+            _ = try RemoteAccessTokenStore.rotateToken()
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.tokenRotated", defaultValue: "Remote access token rotated.")
+            remoteAccessStatusIsError = false
+        } catch {
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.tokenRotateFailed", defaultValue: "Failed to rotate token (\(error.localizedDescription)).")
+            remoteAccessStatusIsError = true
+        }
+    }
+
+    private func copyRemoteAccessToken() {
+        do {
+            let token = try RemoteAccessTokenStore.loadOrCreateToken()
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(token, forType: .string)
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.tokenCopied", defaultValue: "Remote access token copied.")
+            remoteAccessStatusIsError = false
+        } catch {
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.tokenCopyFailed", defaultValue: "Failed to copy token (\(error.localizedDescription)).")
+            remoteAccessStatusIsError = true
         }
     }
 
@@ -6600,6 +6683,74 @@ struct SettingsView: View {
                                 .padding(.vertical, 8)
                         }
                         SettingsCardNote(String(localized: "settings.automation.socketOverrides.note", defaultValue: "Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds)."))
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.automation.remoteAccess", defaultValue: "Remote Access"),
+                            subtitle: remoteAccessRuntimeSubtitle
+                        ) {
+                            Toggle("", isOn: $remoteAccessEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("RemoteAccessEnabledToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.automation.remoteAccess.port", defaultValue: "Remote Access Port"),
+                            subtitle: String(localized: "settings.automation.remoteAccess.port.subtitle", defaultValue: "The first version binds only to 127.0.0.1.")
+                        ) {
+                            Stepper(value: $remoteAccessPort, in: RemoteAccessSettings.minPort...RemoteAccessSettings.maxPort) {
+                                Text("\(RemoteAccessSettings.normalizedPort(remoteAccessPort))")
+                                    .monospacedDigit()
+                                    .frame(minWidth: 52, alignment: .trailing)
+                            }
+                            .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.automation.remoteAccess.url", defaultValue: "Remote Access URL"),
+                            subtitle: remoteAccessURLString
+                        ) {
+                            HStack(spacing: 8) {
+                                Button(String(localized: "settings.automation.remoteAccess.copyToken", defaultValue: "Copy Token")) {
+                                    copyRemoteAccessToken()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+
+                                Button(String(localized: "settings.automation.remoteAccess.rotateToken", defaultValue: "Rotate Token")) {
+                                    rotateRemoteAccessToken()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+
+                        if let message = remoteAccessLifecycleMessage {
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(Color.red)
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 8)
+                        }
+
+                        if let message = remoteAccessStatusMessage {
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(remoteAccessStatusIsError ? Color.red : Color.secondary)
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 8)
+                        }
+
+                        SettingsCardNote(String(localized: "settings.automation.remoteAccess.note", defaultValue: "The remote API requires an Authorization: Bearer token header and currently exposes only a small allowlist of v2 methods."))
                     }
 
                     SettingsCard {
@@ -7407,6 +7558,8 @@ struct SettingsView: View {
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
+        remoteAccessEnabled = RemoteAccessSettings.defaultEnabled
+        remoteAccessPort = RemoteAccessSettings.defaultPort
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
