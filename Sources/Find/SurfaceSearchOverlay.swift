@@ -253,23 +253,12 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         func focusField(_ field: SearchNativeTextField, in window: NSWindow, selectAll: Bool) {
             let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
             guard alreadyFocused || window.makeFirstResponder(field) else { return }
+            let rememberedRange = field.cmuxLastSelectedRange ?? cmuxStoredFindSelection(for: self.parent.selectionOwner) ?? self.lastSelectedRange
+            if let selection = cmuxApplyFindFocusSelection(field: field, selectAll: selectAll, alreadyFocused: alreadyFocused, rememberedRange: rememberedRange) { self.lastSelectedRange = selection; return }
             DispatchQueue.main.async { [weak field, weak self] in
                 guard let field, let self,
-                      let editor = field.currentEditor() as? NSTextView else { return }
-                guard !editor.hasMarkedText() else { return }
-                if selectAll {
-                    let selection = field.cmuxRememberSelection(
-                        NSRange(location: 0, length: editor.string.utf16.count),
-                        in: editor.string
-                    )
-                    editor.setSelectedRange(selection)
-                    self.lastSelectedRange = selection
-                } else if !alreadyFocused,
-                          let rememberedRange = field.cmuxLastSelectedRange ?? cmuxStoredFindSelection(for: self.parent.selectionOwner) ?? self.lastSelectedRange {
-                    let selection = field.cmuxRememberSelection(rememberedRange, in: editor.string)
-                    editor.setSelectedRange(selection)
-                    self.lastSelectedRange = selection
-                }
+                      let selection = cmuxApplyFindFocusSelection(field: field, selectAll: selectAll, alreadyFocused: alreadyFocused, rememberedRange: rememberedRange) else { return }
+                self.lastSelectedRange = selection
             }
         }
 
@@ -407,6 +396,8 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: SearchNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
+        nsView.delegate = context.coordinator
+        nsView.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
 
         // Sync text from binding to field (skip during active IME composition)
         if let editor = nsView.currentEditor() as? NSTextView {

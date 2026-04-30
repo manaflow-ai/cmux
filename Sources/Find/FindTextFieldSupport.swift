@@ -70,6 +70,25 @@ func cmuxStoreFindSelection(_ range: NSRange, for owner: AnyObject?) {
 }
 
 @discardableResult
+func cmuxApplyFindFocusSelection(
+    field: FindSelectionTrackingTextField,
+    selectAll: Bool,
+    alreadyFocused: Bool,
+    rememberedRange: NSRange?
+) -> NSRange? {
+    guard let editor = field.currentEditor() as? NSTextView, !editor.hasMarkedText() else { return nil }
+    if selectAll {
+        let selection = field.cmuxRememberSelection(NSRange(location: 0, length: editor.string.utf16.count), in: editor.string)
+        editor.setSelectedRange(selection)
+        return selection
+    }
+    guard !alreadyFocused, let rememberedRange else { return nil }
+    let selection = field.cmuxRememberSelection(rememberedRange, in: editor.string)
+    editor.setSelectedRange(selection)
+    return selection
+}
+
+@discardableResult
 func cmuxRememberFindSelection(in root: NSView?) -> NSRange? {
     guard let root else { return nil }
     if let field = root as? FindSelectionTrackingTextField,
