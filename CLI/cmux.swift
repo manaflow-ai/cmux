@@ -3906,7 +3906,7 @@ struct CMUXCLI {
     }
 
     private func docsPayload(_ reference: DocsReference) -> [String: Any] {
-        [
+        var payload: [String: Any] = [
             "topic": reference.topic,
             "aliases": reference.aliases,
             "summary": reference.summary,
@@ -3920,6 +3920,15 @@ struct CMUXCLI {
             },
             "commands": reference.commands,
         ]
+        if reference.topic == "settings" {
+            payload["settings_files"] = [
+                "primary": Self.primarySettingsDisplayPath,
+                "fallback": Self.fallbackSettingsDisplayPath,
+            ]
+            payload["backup"] = "Back up any existing settings file to a timestamped .bak copy before editing so the user can revert."
+            payload["reload_command"] = "cmux reload-config"
+        }
+        return payload
     }
 
     private func printDocsIndex() {
@@ -3988,9 +3997,15 @@ struct CMUXCLI {
 
         switch subcommand {
         case "path", "paths":
+            guard args.count == 1 else {
+                throw CLIError(message: "Usage: cmux settings path")
+            }
             printSettingsPaths(jsonOutput: wantsJSON)
             return
         case "docs", "documentation":
+            guard args.count == 1 else {
+                throw CLIError(message: "Usage: cmux settings docs")
+            }
             if wantsJSON, let reference = docsReference(for: "settings") {
                 print(jsonString(docsPayload(reference)))
             } else if let reference = docsReference(for: "settings") {
@@ -4107,21 +4122,21 @@ struct CMUXCLI {
             return "app"
         case "terminal":
             return "terminal"
-        case "sidebar", "sidebar-appearance":
+        case "sidebar", "sidebar-appearance", "sidebarappearance":
             return "sidebarAppearance"
         case "automation":
             return "automation"
         case "browser":
             return "browser"
-        case "browser-import", "import-browser-data":
+        case "browser-import", "browserimport", "import-browser-data":
             return "browserImport"
-        case "global-hotkey", "hotkey":
+        case "global-hotkey", "globalhotkey", "hotkey":
             return "globalHotkey"
-        case "keyboard-shortcuts", "shortcuts", "keys", "keybindings":
+        case "keyboard-shortcuts", "keyboardshortcuts", "shortcuts", "keys", "keybindings":
             return "keyboardShortcuts"
-        case "workspace-colors", "colors":
+        case "workspace-colors", "workspacecolors", "colors":
             return "workspaceColors"
-        case "settings-json", "json", "file", "settings-file":
+        case "settings-json", "settingsjson", "json", "file", "settings-file":
             return "settingsJSON"
         case "reset":
             return "reset"
