@@ -3,7 +3,7 @@
 E2E regression test for Codex hook agent PID registration and sidebar ports.
 
 Validates:
-1) `cmux codex-hook session-start` records the inferred agent root PID.
+1) `cmux hooks codex session-start` records the inferred agent root PID.
 2) a dev server launched under that agent process tree appears in sidebar ports.
 3) the port disappears once the agent process tree exits.
 """
@@ -218,7 +218,7 @@ hook_env["CMUX_SURFACE_ID"] = surface_id
 hook_env["CMUX_CLAUDE_HOOK_STATE_PATH"] = state_path
 payload = json.dumps({"session_id": session_id, "cwd": cwd})
 result = subprocess.run(
-    [cli_path, "--socket", socket_path, "codex-hook", "session-start"],
+    [cli_path, "--socket", socket_path, "hooks", "codex", "session-start"],
     input=payload,
     text=True,
     capture_output=True,
@@ -227,7 +227,7 @@ result = subprocess.run(
 )
 if result.returncode != 0:
     raise SystemExit(
-        f"codex-hook session-start failed: exit={result.returncode} "
+        f"hooks codex session-start failed: exit={result.returncode} "
         f"stdout={result.stdout!r} stderr={result.stderr!r}"
     )
 

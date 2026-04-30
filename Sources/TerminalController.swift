@@ -153,7 +153,7 @@ class TerminalController {
         "feed.jump"
     ]
 
-    private enum V2HandleKind: String, CaseIterable {
+    enum V2HandleKind: String, CaseIterable {
         case window
         case workspace
         case pane
@@ -276,7 +276,7 @@ class TerminalController {
         Self.allowsInAppFocusMutationsForActiveSocketCommand()
     }
 
-    private func v2FocusAllowed(requested: Bool = true) -> Bool {
+    func v2FocusAllowed(requested: Bool = true) -> Bool {
         requested && socketCommandAllowsInAppFocusMutations()
     }
 
@@ -1451,6 +1451,23 @@ class TerminalController {
         }
     }
 
+    private nonisolated func socketWorkerSystemTopResponseIfNeeded(for command: String) -> String? {
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return nil
+        }
+
+        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard method == "system.top" else { return nil }
+
+        let id: Any? = dict["id"]
+        let params = dict["params"] as? [String: Any] ?? [:]
+        return withSocketCommandPolicy(commandKey: method, isV2: true) {
+            v2Result(id: id, v2SystemTop(params: params))
+        }
+    }
+
     private nonisolated func startAcceptSource(listenerSocket: Int32, generation: UInt64) {
         let source = DispatchSource.makeReadSource(fileDescriptor: listenerSocket, queue: socketListenerQueue)
         source.setEventHandler { [weak self] in
@@ -1802,6 +1819,9 @@ class TerminalController {
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
         if let response = socketWorkerCloudVMResponseIfNeeded(for: command) {
+            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        }
+        if let response = socketWorkerSystemTopResponseIfNeeded(for: command) {
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
 
@@ -2222,6 +2242,8 @@ class TerminalController {
             return v2Ok(id: id, result: v2Identify(params: params))
         case "system.tree":
             return v2Result(id: id, self.v2SystemTree(params: params))
+        case "system.top":
+            return v2Result(id: id, self.v2SystemTop(params: params))
         case "auth.login":
             return v2Ok(
                 id: id,
@@ -2791,6 +2813,7 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "system.top",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
@@ -3178,6 +3201,353 @@ class TerminalController {
         ])
     }
 
+    func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
+        v2RefreshKnownRefs()
+
+        let identifyPayload = v2Identify(params: [:])
+        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
+        var windowNodes: [[String: Any]] = []
+
+        if let app = AppDelegate.shared {
+            let summaries = app.listMainWindowSummaries()
+
+            for (windowIndex, summary) in summaries.enumerated() {
+                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                let workspaceNodes = manager.tabs.enumerated().map { workspaceIndex, workspace in
+                    v2TopWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                }
+                windowNodes.append(
+                    v2TopWindowNode(
+                        summary: summary,
+                        index: windowIndex,
+                        workspaceNodes: workspaceNodes
+                    )
+                )
+            }
+        }
+
+        let processSnapshot = await Task.detached(priority: .utility) {
+            CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
+        }.value
+        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
+        var annotatedWindows = windowNodes
+        let totalPIDs = v2AnnotateTopWindows(
+            &annotatedWindows,
+            processSnapshot: processSnapshot,
+            browserPIDOccurrences: browserPIDOccurrences,
+            includeProcesses: includeProcesses
+        )
+
+        return [
+            "active": focused.isEmpty ? (NSNull() as Any) : focused,
+            "caller": NSNull(),
+            "sample": processSnapshot.samplePayload(),
+            "totals": processSnapshot.summaryPayload(for: totalPIDs),
+            "windows": annotatedWindows
+        ]
+    }
+
+    private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
+        let base = v2MainSync {
+            self.v2RefreshKnownRefs()
+            return self.v2SystemTopBasePayload(params: params)
+        }
+        guard case .ok(let value) = base else { return base }
+        guard var payload = value as? [String: Any],
+              let includeProcesses = payload.removeValue(forKey: "include_processes") as? Bool,
+              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
+            return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
+        }
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
+        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
+        let totalPIDs = v2AnnotateTopWindows(
+            &windowNodes,
+            processSnapshot: processSnapshot,
+            browserPIDOccurrences: browserPIDOccurrences,
+            includeProcesses: includeProcesses
+        )
+
+        payload["sample"] = processSnapshot.samplePayload()
+        payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
+        payload["windows"] = windowNodes
+        return .ok(payload)
+    }
+
+    private func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
+        let workspaceFilter = v2UUID(params, "workspace_id")
+        if params["workspace_id"] != nil && workspaceFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        if params["all_windows"] != nil, v2Bool(params, "all_windows") == nil { return .err(code: "invalid_params", message: "Missing or invalid all_windows", data: nil) }
+        let includeAllWindows = v2Bool(params, "all_windows") ?? false
+        if params["include_processes"] != nil, v2Bool(params, "include_processes") == nil { return .err(code: "invalid_params", message: "Missing or invalid include_processes", data: nil) }
+        let includeProcesses = v2Bool(params, "include_processes") ?? false
+
+        var identifyParams: [String: Any] = [:]
+        if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
+            identifyParams["caller"] = caller
+        }
+        let identifyPayload = v2Identify(params: identifyParams)
+        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
+        let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
+        let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
+
+        var windowNodes: [[String: Any]] = []
+        var workspaceFound = (workspaceFilter == nil)
+
+        if let app = AppDelegate.shared {
+            let summaries = app.listMainWindowSummaries()
+            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+
+            for (windowIndex, summary) in summaries.enumerated() {
+                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+
+                if let workspaceFilter {
+                    guard let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspaceFilter }) else {
+                        continue
+                    }
+                    let workspace = manager.tabs[workspaceIndex]
+                    let workspaceNode = v2TopWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                    windowNodes = [
+                        v2TopWindowNode(
+                            summary: summary,
+                            index: windowIndex,
+                            workspaceNodes: [workspaceNode]
+                        )
+                    ]
+                    workspaceFound = true
+                    break
+                }
+
+                if !includeAllWindows && summary.windowId != defaultWindowId {
+                    continue
+                }
+
+                let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
+                    v2TopWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                }
+
+                windowNodes.append(
+                    v2TopWindowNode(
+                        summary: summary,
+                        index: windowIndex,
+                        workspaceNodes: workspaceNodesForWindow
+                    )
+                )
+            }
+        }
+
+        if let workspaceFilter, !workspaceFound {
+            return .err(
+                code: "not_found",
+                message: "Workspace not found",
+                data: [
+                    "workspace_id": workspaceFilter.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceFilter)
+                ]
+            )
+        }
+
+        return .ok([
+            "active": focused.isEmpty ? (NSNull() as Any) : focused,
+            "caller": caller.isEmpty ? (NSNull() as Any) : caller,
+            "include_processes": includeProcesses,
+            "windows": windowNodes
+        ])
+    }
+
+    private func v2TopWindowNode(
+        summary: AppDelegate.MainWindowSummary,
+        index: Int,
+        workspaceNodes: [[String: Any]]
+    ) -> [String: Any] {
+        return [
+            "kind": "window",
+            "id": summary.windowId.uuidString,
+            "ref": v2Ref(kind: .window, uuid: summary.windowId),
+            "index": index,
+            "key": summary.isKeyWindow,
+            "visible": summary.isVisible,
+            "workspace_count": workspaceNodes.count,
+            "selected_workspace_id": v2OrNull(summary.selectedWorkspaceId?.uuidString),
+            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: summary.selectedWorkspaceId),
+            "workspaces": workspaceNodes
+        ]
+    }
+
+    private func v2TopWorkspaceNode(
+        workspace: Workspace,
+        index: Int,
+        selected: Bool
+    ) -> [String: Any] {
+        var paneByPanelId: [UUID: UUID] = [:]
+        var indexInPaneByPanelId: [UUID: Int] = [:]
+        var selectedInPaneByPanelId: [UUID: Bool] = [:]
+
+        let paneIds = workspace.bonsplitController.allPaneIds
+        for paneId in paneIds {
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+            for (tabIndex, tab) in tabs.enumerated() {
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+                paneByPanelId[panelId] = paneId.id
+                indexInPaneByPanelId[panelId] = tabIndex
+                selectedInPaneByPanelId[panelId] = (tab.id == selectedTab?.id)
+            }
+        }
+
+        var surfacesByPane: [UUID: [[String: Any]]] = [:]
+        let focusedSurfaceId = workspace.focusedPanelId
+        for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
+            let paneUUID = paneByPanelId[panel.id]
+            let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
+
+            var item: [String: Any] = [
+                "kind": "surface",
+                "id": panel.id.uuidString,
+                "ref": v2Ref(kind: .surface, uuid: panel.id),
+                "index": surfaceIndex,
+                "type": panel.panelType.rawValue,
+                "title": workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
+                "focused": panel.id == focusedSurfaceId,
+                "selected": selectedInPane,
+                "selected_in_pane": v2OrNull(selectedInPaneByPanelId[panel.id]),
+                "pane_id": v2OrNull(paneUUID?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
+                "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id]),
+                "tty": v2OrNull(workspace.surfaceTTYNames[panel.id]),
+                "webviews": []
+            ]
+
+            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
+                let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
+                let url = browserPanel.currentURL?.absoluteString ?? ""
+                item["url"] = url
+                item["browser_web_content_pid"] = v2OrNull(webContentPID)
+                item["webviews"] = [
+                    [
+                        "kind": "webview",
+                        "id": "\(panel.id.uuidString):webview",
+                        "ref": "\(v2Ref(kind: .surface, uuid: panel.id)):webview",
+                        "index": 0,
+                        "surface_id": panel.id.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+                        "title": browserPanel.displayTitle,
+                        "url": url,
+                        "pid": v2OrNull(webContentPID)
+                    ] as [String: Any]
+                ]
+            } else {
+                item["url"] = NSNull()
+                item["browser_web_content_pid"] = NSNull()
+            }
+            if let paneUUID {
+                surfacesByPane[paneUUID, default: []].append(item)
+            }
+        }
+
+        for paneUUID in surfacesByPane.keys {
+            surfacesByPane[paneUUID]?.sort {
+                let lhs = ($0["index_in_pane"] as? Int) ?? ($0["index"] as? Int) ?? Int.max
+                let rhs = ($1["index_in_pane"] as? Int) ?? ($1["index"] as? Int) ?? Int.max
+                return lhs < rhs
+            }
+        }
+
+        let focusedPaneId = workspace.bonsplitController.focusedPaneId
+        let panes: [[String: Any]] = paneIds.enumerated().map { paneIndex, paneId in
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let surfaceUUIDs: [UUID] = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
+            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+            let selectedSurfaceUUID = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
+
+            return [
+                "kind": "pane",
+                "id": paneId.id.uuidString,
+                "ref": v2Ref(kind: .pane, uuid: paneId.id),
+                "index": paneIndex,
+                "focused": paneId == focusedPaneId,
+                "surface_ids": surfaceUUIDs.map { $0.uuidString },
+                "surface_refs": surfaceUUIDs.map { v2Ref(kind: .surface, uuid: $0) },
+                "selected_surface_id": v2OrNull(selectedSurfaceUUID?.uuidString),
+                "selected_surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceUUID),
+                "surface_count": surfaceUUIDs.count,
+                "surfaces": surfacesByPane[paneId.id] ?? []
+            ]
+        }
+
+        return [
+            "kind": "workspace",
+            "id": workspace.id.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "index": index,
+            "title": workspace.title,
+            "description": v2OrNull(workspace.customDescription),
+            "selected": selected,
+            "pinned": workspace.isPinned,
+            "panes": panes,
+            "tags": v2TopTagNodes(for: workspace)
+        ]
+    }
+
+    private func v2TopTagNodes(for workspace: Workspace) -> [[String: Any]] {
+        var tags: [[String: Any]] = []
+        var seenKeys = Set<String>()
+
+        for (index, entry) in workspace.sidebarStatusEntriesInDisplayOrder().enumerated() {
+            let pid = workspace.agentPIDs[entry.key].flatMap { $0 > 0 ? Int($0) : nil }
+            tags.append([
+                "kind": "tag",
+                "id": v2TopTagIdentifier(workspaceId: workspace.id, key: entry.key),
+                "ref": v2TopTagRef(workspaceId: workspace.id, key: entry.key),
+                "index": index,
+                "key": entry.key,
+                "value": entry.value,
+                "icon": v2OrNull(entry.icon),
+                "color": v2OrNull(entry.color),
+                "url": v2OrNull(entry.url?.absoluteString),
+                "priority": entry.priority,
+                "format": entry.format.rawValue,
+                "visible": true,
+                "pid": v2OrNull(pid)
+            ])
+            seenKeys.insert(entry.key)
+        }
+
+        for key in workspace.agentPIDs.keys.sorted() where !seenKeys.contains(key) {
+            let pid = workspace.agentPIDs[key].flatMap { $0 > 0 ? Int($0) : nil }
+            tags.append([
+                "kind": "tag",
+                "id": v2TopTagIdentifier(workspaceId: workspace.id, key: key),
+                "ref": v2TopTagRef(workspaceId: workspace.id, key: key),
+                "index": tags.count,
+                "key": key,
+                "value": "",
+                "icon": NSNull(),
+                "color": NSNull(),
+                "url": NSNull(),
+                "priority": 0,
+                "format": "plain",
+                "visible": false,
+                "pid": v2OrNull(pid)
+            ])
+        }
+
+        return tags
+    }
+
     private func v2TreeWindowNode(
         summary: AppDelegate.MainWindowSummary,
         index: Int,
@@ -3328,7 +3698,7 @@ class TerminalController {
         return result
     }
 
-    private nonisolated func v2OrNull(_ value: Any?) -> Any {
+    nonisolated func v2OrNull(_ value: Any?) -> Any {
         // Avoid relying on `?? NSNull()` inference (Swift toolchains can disagree).
         if let value { return value }
         return NSNull()
@@ -3416,7 +3786,7 @@ class TerminalController {
         ])
     }
 
-    private enum V2CallResult {
+    enum V2CallResult {
         case ok(Any)
         case err(code: String, message: String, data: Any?)
     }
@@ -3474,7 +3844,7 @@ class TerminalController {
         return nil
     }
 
-    private func v2Ref(kind: V2HandleKind, uuid: UUID?) -> Any {
+    func v2Ref(kind: V2HandleKind, uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         return v2EnsureHandleRef(kind: kind, uuid: uuid)
     }
@@ -3500,7 +3870,7 @@ class TerminalController {
         )
     }
 
-    private func v2TabRef(uuid: UUID?) -> Any {
+    func v2TabRef(uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         let surfaceRef = v2EnsureHandleRef(kind: .surface, uuid: uuid)
         return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
@@ -3571,7 +3941,7 @@ class TerminalController {
 
     // MARK: - V2 Param Parsing
 
-    private func v2String(_ params: [String: Any], _ key: String) -> String? {
+    func v2String(_ params: [String: Any], _ key: String) -> String? {
         guard let raw = params[key] as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -3639,7 +4009,7 @@ class TerminalController {
         }
         return v2ResolveHandleRef(trimmed)
     }
-    private func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
+    func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
         if let b = params[key] as? Bool { return b }
         if let n = params[key] as? NSNumber { return n.boolValue }
         if let s = params[key] as? String {
@@ -4876,7 +5246,6 @@ class TerminalController {
         guard let action = v2ActionKey(params) else {
             return .err(code: "invalid_params", message: "Missing action", data: nil)
         }
-
         let supportedActions = [
             "pin", "unpin", "rename", "clear_name",
             "set_description", "clear_description",
@@ -5075,10 +5444,9 @@ class TerminalController {
             "rename", "clear_name",
             "close_left", "close_right", "close_others",
             "new_terminal_right", "new_browser_right",
-            "reload", "duplicate",
+            "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
             "pin", "unpin", "mark_read", "mark_unread"
         ]
-
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown tab action", data: [
             "action": action,
             "supported_actions": supportedActions
@@ -5198,6 +5566,8 @@ class TerminalController {
                 workspace.markPanelUnread(surfaceId)
                 finish()
 
+            case "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace":
+                result = v2MoveTabToNewWorkspaceActionResult(action: action, params: params, tabManager: tabManager, workspace: workspace, surfaceId: surfaceId)
             case "reload", "reload_tab":
                 guard let browserPanel = workspace.browserPanel(for: surfaceId) else {
                     result = .err(code: "invalid_state", message: "Reload is only available for browser tabs", data: nil)

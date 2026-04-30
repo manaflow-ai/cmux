@@ -564,6 +564,7 @@ struct WorkspaceContentView: View {
         [
             config.backgroundColor.hexString(includeAlpha: true),
             String(format: "%.4f", config.backgroundOpacity),
+            String(describing: config.backgroundBlur),
             String(format: "%.4f", config.surfaceTabBarFontSize),
             String(format: "%.4f", config.unfocusedSplitOpacity),
             config.unfocusedSplitFill?.hexString(includeAlpha: true) ?? "nil",
@@ -630,10 +631,11 @@ struct WorkspaceContentView: View {
         let configChanged = previousSignature != nextSignature
         let backgroundChanged = previousBackgroundHex != next.backgroundColor.hexString()
         let opacityChanged = abs(config.backgroundOpacity - next.backgroundOpacity) > 0.0001
+        let blurChanged = config.backgroundBlur != next.backgroundBlur
         let shouldForceInitialApply = forceInitialApply || reason == "onAppear"
-        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || shouldForceInitialApply
+        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || blurChanged || shouldForceInitialApply
         let shouldApplyChrome = configChanged || shouldForceInitialApply
-        let shouldRefreshWindowBackground = backgroundChanged || opacityChanged || shouldForceInitialApply
+        let shouldRefreshWindowBackground = backgroundChanged || opacityChanged || blurChanged || shouldForceInitialApply
         if !shouldApplyChrome && !shouldRefreshWindowBackground && !shouldRequestTitlebarRefresh {
             logTheme(
                 "theme refresh skip workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel)"

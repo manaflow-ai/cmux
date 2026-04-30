@@ -7,24 +7,6 @@ import Bonsplit
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
-#if DEBUG
-private func portalDebugToken(_ view: NSView?) -> String {
-    guard let view else { return "nil" }
-    let ptr = Unmanaged.passUnretained(view).toOpaque()
-    return String(describing: ptr)
-}
-
-private func portalDebugFrame(_ rect: NSRect) -> String {
-    String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
-}
-
-private func portalDebugFrameInWindow(_ view: NSView?) -> String {
-    guard let view else { return "nil" }
-    guard view.window != nil else { return "no-window" }
-    return portalDebugFrame(view.convert(view.bounds, to: nil))
-}
-#endif
-
 final class WindowTerminalHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
@@ -140,17 +122,9 @@ final class WindowTerminalHostView: NSView {
     // `NSApp.currentEvent`; tests can call this directly with a synthetic
     // pointer event so the typing-latency guard doesn't gate them out.
     func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
-        let isPointerEvent: Bool
-        switch currentEvent?.type {
-        case .mouseMoved, .mouseEntered, .mouseExited,
-             .leftMouseDown, .leftMouseUp, .leftMouseDragged,
-             .rightMouseDown, .rightMouseUp, .rightMouseDragged,
-             .otherMouseDown, .otherMouseUp, .otherMouseDragged,
-             .scrollWheel, .cursorUpdate:
-            isPointerEvent = true
-        default:
-            isPointerEvent = false
-        }
+        let eventType = currentEvent?.type
+        let isPointerEvent = eventType == .scrollWheel
+            || BonsplitTabBarPassThrough.isPassThroughPointerEvent(eventType)
 
         if isPointerEvent {
             if shouldPassThroughToTitlebar(at: point) {
@@ -188,6 +162,18 @@ final class WindowTerminalHostView: NSView {
                 eventType: eventType
             )
             if shouldPassThrough {
+                let hitView = super.hitTest(point)
+                if hitView is TerminalPaneDropTargetView {
+#if DEBUG
+                    logDragRouteDecision(
+                        passThrough: false,
+                        eventType: eventType,
+                        pasteboardTypes: dragPasteboardTypes,
+                        hitView: hitView
+                    )
+#endif
+                    return hitView
+                }
 #if DEBUG
                 logDragRouteDecision(
                     passThrough: true,
@@ -927,14 +913,11 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
-        guard let contentView = window.contentView else { return nil }
-
-        // If NSGlassEffectView wraps the original content view, install inside the glass view
-        // so terminals are above the glass background but below SwiftUI content.
-        if contentView.className == "NSGlassEffectView",
-           let foreground = contentView.subviews.first(where: { $0 !== hostView }) {
-            return (contentView, foreground)
+        if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
+            return glassTarget
         }
+
+        guard let contentView = window.contentView else { return nil }
 
         guard let themeFrame = contentView.superview else { return nil }
         return (themeFrame, contentView)

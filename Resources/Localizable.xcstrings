@@ -10093,6 +10093,23 @@
         }
       }
     },
+    "browser.contextMenu.moveTabToNewWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Tab to New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを新しいワークスペースに移動"
+          }
+        }
+      }
+    },
     "browser.contextMenu.openLinkInNewTab": {
       "extractionState": "manual",
       "localizations": {
@@ -23621,6 +23638,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Попередня робоча область"
+          }
+        }
+      }
+    },
+    "command.moveTabToNewWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Tab to New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを新しいワークスペースに移動"
           }
         }
       }
@@ -57990,19 +58024,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hooks must be installed with `cmux cursor install-hooks`. They no-op outside cmux terminals."
+            "value": "Hooks must be installed with `cmux hooks cursor install`. They no-op outside cmux terminals."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フックは`cmux cursor install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+            "value": "フックは`cmux hooks cursor install`でインストールする必要があります。cmuxターミナル外では動作しません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "`cmux cursor install-hooks`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
+            "value": "`cmux hooks cursor install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
           }
         }
       }
@@ -58082,19 +58116,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hooks must be installed with `cmux gemini install-hooks`. They no-op outside cmux terminals."
+            "value": "Hooks must be installed with `cmux hooks gemini install`. They no-op outside cmux terminals."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フックは`cmux gemini install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+            "value": "フックは`cmux hooks gemini install`でインストールする必要があります。cmuxターミナル外では動作しません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "`cmux gemini install-hooks`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
+            "value": "`cmux hooks gemini install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
           }
         }
       }
@@ -101732,6 +101766,29 @@
         }
       }
     },
+    "terminalContextMenu.moveTabToNewWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Tab to New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを新しいワークスペースに移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭을 새 워크스페이스로 이동"
+          }
+        }
+      }
+    },
     "terminalContextMenu.paste": {
       "extractionState": "manual",
       "localizations": {
@@ -107325,6 +107382,251 @@
             "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
           }
         }
+      }
+    },
+    "menu.window.taskManager": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Task Manager..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクマネージャ..." } }
+      }
+    },
+    "statusMenu.taskManager": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Task Manager..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクマネージャ..." } }
+      }
+    },
+    "taskManager.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Task Manager" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクマネージャ" } }
+      }
+    },
+    "taskManager.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Task Manager" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクマネージャ" } }
+      }
+    },
+    "taskManager.refreshing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refreshing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新中" } }
+      }
+    },
+    "taskManager.showProcesses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Processes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
+      }
+    },
+    "taskManager.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "taskManager.summary.cpu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CPU" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CPU" } }
+      }
+    },
+    "taskManager.summary.memory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Memory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メモリ" } }
+      }
+    },
+    "taskManager.summary.processes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Processes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
+      }
+    },
+    "taskManager.summary.updated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Updated" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新時刻" } }
+      }
+    },
+    "taskManager.column.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Name" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "名前" } }
+      }
+    },
+    "taskManager.column.cpu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CPU" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CPU" } }
+      }
+    },
+    "taskManager.column.memory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Memory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メモリ" } }
+      }
+    },
+    "taskManager.column.processes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Proc" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
+      }
+    },
+    "taskManager.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to load resource usage" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース使用状況を読み込めません" } }
+      }
+    },
+    "taskManager.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No resource usage" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース使用状況はありません" } }
+      }
+    },
+    "taskManager.empty.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open a workspace, terminal, or browser surface to see it here." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース、ターミナル、またはブラウザサーフェスを開くとここに表示されます。" } }
+      }
+    },
+    "taskManager.updated.never": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Never" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未更新" } }
+      }
+    },
+    "taskManager.row.keyWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Key window" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キーウィンドウ" } }
+      }
+    },
+    "taskManager.row.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hidden" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "非表示" } }
+      }
+    },
+    "taskManager.row.window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Window %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウ %@" } }
+      }
+    },
+    "taskManager.row.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中" } }
+      }
+    },
+    "taskManager.row.pinned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pinned" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ピン留め" } }
+      }
+    },
+    "taskManager.row.unknownTag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown tag" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なタグ" } }
+      }
+    },
+    "taskManager.row.pid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PID %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "PID %lld" } }
+      }
+    },
+    "taskManager.row.sharedProcess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Shared x%lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "共有 x%lld" } }
+      }
+    },
+    "taskManager.row.pane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pane %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペイン %@" } }
+      }
+    },
+    "taskManager.row.focused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Focused" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーカス中" } }
+      }
+    },
+    "taskManager.row.surfaceType.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ" } }
+      }
+    },
+    "taskManager.row.surfaceType.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル" } }
+      }
+    },
+    "taskManager.row.surfaceType.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明" } }
+      }
+    },
+    "taskManager.row.webview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "WebView" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "WebView" } }
+      }
+    },
+    "taskManager.row.processWithPID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Process %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセス %lld" } }
+      }
+    },
+    "taskManager.row.process": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Process" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
       }
     }
   }

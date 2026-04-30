@@ -186,6 +186,12 @@ When adding a regression test for a bug fix, use a two-commit structure so CI pr
 
 This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
 
+## Shared behavior policy
+
+- When a behavior is exposed through multiple entrypoints (keyboard shortcut, command palette, context menu, CLI, settings, debug menu), implement one shared action/model path and verify every entrypoint that should invoke it. Do not patch one surface while leaving the others with duplicated logic.
+- For optimistic UI or CLI updates, keep one mutation path, record pending state with a request id or previous snapshot, reconcile from the authoritative result, and handle failure with an explicit rollback or error state. Do not let each entrypoint maintain its own optimistic copy.
+- When a user says tests missed a bug, add or adjust behavior-level coverage around the exact repro path before claiming the fix is complete.
+
 ## Debug menu
 
 The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use it for visual iteration:

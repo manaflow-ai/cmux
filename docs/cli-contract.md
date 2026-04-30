@@ -29,6 +29,7 @@ written around user-visible behavior so the implementation can change behind it.
 | `cmux <path>` | Open a directory or file path in cmux. Relative paths resolve from the current working directory. |
 | `cmux [global-options] <command> [options]` | Run a named command. |
 | `cmux --help`, `cmux -h` | Print top-level usage without a socket. |
+| `cmux help` | Print top-level usage without a socket. |
 | `cmux --version`, `cmux -v`, `cmux version` | Print version summary without a socket. |
 
 Global options:
@@ -57,25 +58,22 @@ Environment:
 | Command | Contract |
 | --- | --- |
 | `welcome` | Print the welcome screen. |
+| `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
+| `settings` | Open Settings, print settings file paths, or print settings docs. |
 | `shortcuts` | Open Settings to Keyboard Shortcuts. |
+| `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
+| `enable-browser` | Re-enable cmux browser creation and link interception. |
+| `browser-status` | Print whether cmux browser creation and link interception are enabled. |
 | `restore-session` | Restore the previously saved cmux session. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
-| `feed` | Manage persisted Feed workstream history. Current public subcommand: `clear`. |
+| `feed` | Open the keyboard-first Feed TUI or manage persisted Feed workstream history. |
 | `themes` | List, set, clear, or interactively pick Ghostty themes. |
 | `claude-teams` | Launch Claude Code with cmux/tmux-style agent team integration. |
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
 | `omx` | Launch Oh My Codex with cmux pane integration. |
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |
-| `codex` | Install or uninstall Codex hooks. |
-| `opencode` | Install or uninstall OpenCode integration hooks. |
-| `cursor` | Install or uninstall Cursor hooks. |
-| `gemini` | Install or uninstall Gemini hooks. |
-| `copilot` | Install or uninstall Copilot hooks. |
-| `codebuddy` | Install or uninstall CodeBuddy hooks. |
-| `factory` | Install or uninstall Factory hooks. |
-| `qoder` | Install or uninstall Qoder hooks. |
-| `setup-hooks` | Install hooks for all supported agents. |
-| `uninstall-hooks` | Remove hooks for all supported agents. |
+| `hooks` | Install, uninstall, and run agent hook integrations under one namespace. |
+| `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
@@ -135,16 +133,7 @@ Environment:
 | `clear-log` | Clear sidebar log entries. |
 | `list-log` | List sidebar log entries. |
 | `sidebar-state` | Dump sidebar metadata state. |
-| `claude-hook` | Handle Claude Code hook events from stdin JSON. |
-| `feed-hook` | Handle Feed hook events from stdin JSON. |
-| `codex-hook` | Handle Codex hook events from stdin JSON. |
-| `opencode-hook` | Handle OpenCode hook events from stdin JSON. |
-| `cursor-hook` | Handle Cursor hook events from stdin JSON. |
-| `gemini-hook` | Handle Gemini hook events from stdin JSON. |
-| `copilot-hook` | Handle Copilot hook events from stdin JSON. |
-| `codebuddy-hook` | Handle CodeBuddy hook events from stdin JSON. |
-| `factory-hook` | Handle Factory hook events from stdin JSON. |
-| `qoder-hook` | Handle Qoder hook events from stdin JSON. |
+| `claude-hook` | Compatibility alias for Claude Code hook events from stdin JSON. |
 | `set-app-focus` | Override app focus state for tests. |
 | `simulate-app-active` | Trigger app-active handling for tests. |
 | `browser` | Run browser automation commands. |
@@ -267,21 +256,39 @@ Browser subcommands:
 | `browser input`, `browser input_mouse`, `browser input_keyboard`, `browser input_touch` | Send low-level input. |
 | `browser identify` | Identify browser surface context. |
 
-Agent hook subcommands:
+Hook subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `claude-hook session-start`, `claude-hook active` | Mark a Claude session active. |
-| `claude-hook stop`, `claude-hook idle` | Mark a Claude session stopped or idle. |
-| `claude-hook notification`, `claude-hook notify` | Forward a Claude notification. |
-| `claude-hook prompt-submit` | Clear notification and set running status. |
-| `claude-hook session-end` | Mark Claude session ended. |
-| `claude-hook pre-tool-use` | Record Claude tool-use context. |
-| `codex-hook session-start` | Register a Codex session. |
-| `codex-hook prompt-submit` | Set Codex running status. |
-| `codex-hook stop` | Send completion notification and set idle. |
-| `feed-hook` | Convert agent hook events into Feed context. |
-| `<agent>-hook` | Generic hook surface for `opencode`, `cursor`, `gemini`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>` and `--yes`. |
+| `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>` and `--yes`. |
+| `hooks <agent> install` | Install hooks for one supported agent. `opencode` also supports `--project` for the project-local Feed plugin. |
+| `hooks <agent> uninstall` | Remove hooks for one supported agent. |
+| `hooks claude <event>` | Handle Claude Code hook events. `claude-hook <event>` remains as the main-compatibility alias. |
+| `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
+| `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
+| `hooks <agent> <event>` | Generic hook surface for `opencode`, `cursor`, `gemini`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+
+Docs topics:
+
+| Command | Contract |
+| --- | --- |
+| `docs` | List docs topics without a socket. |
+| `docs settings` | Print the configuration docs URL, raw schema URL, settings file paths, backup reminder, and reload command. |
+| `docs shortcuts` | Print shortcut docs and raw shortcut data resources. |
+| `docs api` | Print API docs and raw CLI contract resources. |
+| `docs browser` | Print browser automation docs and raw browser skill resources. |
+| `docs agents` | Print agent integration docs and raw integration resources. |
+
+Settings subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `settings` | Open the Settings window, launching cmux if needed. |
+| `settings open [target]` | Open Settings to an optional target section. |
+| `settings path` | Print settings.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
+| `settings docs` | Print the same output as `docs settings` without a socket. |
+| `settings <target>` | Open Settings to a target section. Supported aliases include `shortcuts`, `json`, `settings-json`, `browser`, and `automation`. |
 
 ## No-Socket Help Probes
 
@@ -290,6 +297,7 @@ the expected text without connecting to a cmux socket.
 
 <!-- cli-contract-help-probes:start -->
 - `cmux --help` -> `cmux - control cmux via Unix socket`
+- `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
@@ -297,12 +305,22 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh> [args...]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
+- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents]`
+- `cmux docs` -> `Topics:`
+- `cmux docs settings` -> `Settings files:`
+- `cmux settings --help` -> `Usage: cmux settings [open|path|docs|target]`
+- `cmux settings path` -> `Settings files:`
+- `cmux settings docs` -> `Settings files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
+- `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`
+- `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`
+- `cmux browser-status --help` -> `Usage: cmux browser-status [--json]`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
-- `cmux opencode --help` -> `Usage: cmux opencode <install-hooks|uninstall-hooks>`
+- `cmux hooks --help` -> `Usage: cmux hooks setup [--agent <name>] [--yes|-y]`
+- `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`
 - `cmux omx --help` -> `Usage: cmux omx [omx-args...]`
@@ -387,7 +405,6 @@ the expected text without connecting to a cmux socket.
 - `cmux set-app-focus --help` -> `Usage: cmux set-app-focus`
 - `cmux simulate-app-active --help` -> `Usage: cmux simulate-app-active`
 - `cmux claude-hook --help` -> `Usage: cmux claude-hook`
-- `cmux codex-hook --help` -> `Usage: cmux codex-hook`
 - `cmux browser --help` -> `Usage: cmux browser`
 - `cmux open-browser --help` -> `Legacy alias for 'cmux browser open'`
 - `cmux navigate --help` -> `Legacy alias for 'cmux browser navigate'`
@@ -414,11 +431,8 @@ The following probes must not print help. They protect argument forwarding after
 These are current contracts to preserve until a follow-up PR intentionally
 changes them:
 
-- `cmux help` currently routes through the socket dispatch path. Use
-  `cmux --help` or `cmux help --help` for no-socket help.
 - `cmux version --help` currently prints the version summary because `version`
   is handled before subcommand help dispatch.
-- `cmux codex --help` currently is not a no-socket help probe.
 - `cmux claude-teams --help` is handled by the command launcher, not by the
   pre-socket help dispatcher.
 - `cmux remote-daemon-status --help` currently prints status because the command

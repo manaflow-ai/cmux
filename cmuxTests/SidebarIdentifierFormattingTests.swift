@@ -58,7 +58,20 @@ final class SidebarIdentifierFormattingTests: XCTestCase {
         )
     }
 
-    private func makeHarness() throws -> SidebarHarness {
+    func testWorkspaceRowTooltipUsesWorkspaceTitle() throws {
+        let workspaceTitle = "Tooltip Workspace"
+        let harness = try makeHarness(workspaceTitle: workspaceTitle)
+        defer { harness.tearDown() }
+
+        let tooltips = renderedTooltips(in: harness.window.contentView)
+
+        XCTAssertTrue(
+            tooltips.contains(workspaceTitle),
+            "Expected workspace row tooltip to use the workspace title. Tooltips: \(tooltips)"
+        )
+    }
+
+    private func makeHarness(workspaceTitle: String? = nil) throws -> SidebarHarness {
         _ = NSApplication.shared
 
         let defaults = UserDefaults.standard
@@ -82,6 +95,9 @@ final class SidebarIdentifierFormattingTests: XCTestCase {
         guard let workspace = tabManager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             throw HarnessError.missingWorkspace
+        }
+        if let workspaceTitle {
+            tabManager.setCustomTitle(tabId: workspace.id, title: workspaceTitle)
         }
 
         let pullRequestURL = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/1234"))
