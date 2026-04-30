@@ -4967,6 +4967,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             initialEnvironmentOverrides: initialEnvironmentOverrides
         )
+        env.removeValue(forKey: "CMUX_SOCKET")
 
         if !env.isEmpty {
             envVars.reserveCapacity(env.count)
