@@ -13962,3 +13962,13 @@ extension Workspace: BonsplitDelegate {
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
 }
+
+// MARK: - TurnCheckpointManager support
+extension Workspace: TurnCheckpointManagerWorkspace {
+    var statusEntriesPublisher: Published<[String: SidebarStatusEntry]>.Publisher {
+        $statusEntries
+    }
+    var currentDirectoryPublisher: Published<String>.Publisher {
+        $currentDirectory
+    }
+}
