@@ -23,11 +23,58 @@ protocol AgentTranscriptSource: Sendable {
     /// other than a per-cwd directory and isn't known yet for this anchor.
     func transcriptDirectory(forAnchorPwd anchorPwd: String) -> URL?
 
+    /// Resolve the active transcript file inside `dir`, optionally filtered by
+    /// `minimumActivationDate` so we ignore jsonl files that pre-date the
+    /// workspace's claude launch (which would otherwise belong to OTHER Claude
+    /// Code instances sharing the same anchor pwd, e.g. a Telegram bot at `~`).
+    ///
+    /// Default impl: pick the most-recently-modified `.jsonl` in `dir`. When
+    /// `minimumActivationDate` is non-nil, restrict the candidate set to files
+    /// whose mtime is at or after `(minimumActivationDate - tolerance)`. The
+    /// tolerance handles the launch race (Claude finalizes its first jsonl
+    /// write a few hundred ms after we stamp `Date()` in
+    /// `Workspace.recordClaudeLaunchTime`). Returns `nil` if no candidate
+    /// qualifies; the tailer treats that as "wait, file may not exist yet".
+    func resolveActiveTranscriptFile(in dir: URL, after minimumActivationDate: Date?) -> URL?
+
     /// Extract any absolute file paths or `cd <path>` targets from one transcript
     /// JSONL line. Implementations should return paths in absolute form (the
     /// tailer's emit step handles tilde expansion + relative-to-anchor join,
     /// but absolute is preferred here).
     func extractPaths(fromLine line: Data, anchorPwd: String) -> [String]
+}
+
+extension AgentTranscriptSource {
+    /// Default behavior: walk every `.jsonl` directly in `dir`, sort by mtime
+    /// desc, and pick the first one whose mtime is at or after
+    /// `(minimumActivationDate - tolerance)`. Returns `nil` if none qualify
+    /// (or the dir is empty / unreadable).
+    func resolveActiveTranscriptFile(in dir: URL, after minimumActivationDate: Date?) -> URL? {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(atPath: dir.path) else {
+            return nil
+        }
+        // Tolerance handles the race between `Date()` in cmux and the agent's
+        // first jsonl write. 5s comfortably covers slow disks + nodejs warmup
+        // without re-admitting truly old files (oldest practical claude
+        // jsonl mtime separations between sessions are minutes, not seconds).
+        let tolerance: TimeInterval = 5
+        let cutoff = minimumActivationDate.map { $0.addingTimeInterval(-tolerance).timeIntervalSince1970 }
+
+        var best: (path: String, mtime: TimeInterval)?
+        for entry in entries where entry.hasSuffix(".jsonl") {
+            let full = (dir.path as NSString).appendingPathComponent(entry)
+            guard let attrs = try? fm.attributesOfItem(atPath: full),
+                  let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 else {
+                continue
+            }
+            if let cutoff, mtime < cutoff { continue }
+            if best == nil || mtime > best!.mtime {
+                best = (full, mtime)
+            }
+        }
+        return best.map { URL(fileURLWithPath: $0.path) }
+    }
 }
 
 /// Default impl: tails Claude Code's `~/.claude/projects/<sanitized cwd>/*.jsonl`.

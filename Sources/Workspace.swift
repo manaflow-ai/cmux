@@ -756,6 +756,14 @@ extension Workspace {
                     restoredAgentAutoResumePendingPanelIds.remove(terminalPanel.id)
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
+                // Per-turn diff panel: stamp the launch time for restored claude
+                // sessions too — `restoredAgentResumeInput` may not be visible to
+                // the `initialInputLooksLikeClaudeLaunch` branch in
+                // `newTerminalSurface` (it's threaded directly through here on the
+                // restore path), so cover the kind explicitly.
+                if restorableAgent.kind == .claude {
+                    recordClaudeLaunchTime(forPanel: terminalPanel.id)
+                }
             } else {
                 restoredAgentSnapshotsByPanelId.removeValue(forKey: terminalPanel.id)
                 restoredAgentAutoResumePendingPanelIds.remove(terminalPanel.id)
@@ -7290,6 +7298,88 @@ final class Workspace: Identifiable, ObservableObject {
         return panel
     }
 
+    /// Wall-clock launch timestamp of the focused panel's `claude` process, or
+    /// `nil` if the focused panel never had a recorded launch. Read by the
+    /// per-turn diff panel's `ClaudeTranscriptTailer` to filter stale jsonl
+    /// files belonging to OTHER Claude Code instances.
+    var focusedPanelClaudeLaunchTime: Date? {
+        focusedPanelId.flatMap { claudeLaunchTimesByPanel[$0] }
+    }
+
+    /// Record the wall-clock launch time of `claude` for a given panel. Called
+    /// from `RestorableAgentSession`-style spawn paths (currently the
+    /// `newTerminalSurface(initialInput:)` deliveries) so the per-turn diff
+    /// panel can pick the right jsonl in `~/.claude/projects/<sanitized>/`.
+    /// Idempotent: a later call overwrites the previous timestamp, which is
+    /// what we want when the user `/resume`s into a different session.
+    func recordClaudeLaunchTime(forPanel panelId: UUID, at date: Date = Date()) {
+        claudeLaunchTimesByPanel[panelId] = date
+        #if DEBUG
+        cmuxDebugLog(
+            "turn-diff: recorded claude launch ws=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) at=\(date.timeIntervalSince1970)"
+        )
+        #endif
+    }
+
+    /// Best-effort detector for "this `initialInput` line is going to spawn
+    /// claude in the new PTY". Matches:
+    ///   - bare `claude` / `claude --resume <id>` / etc.
+    ///   - `cd <path> && claude ...`
+    ///   - the cmux `claude-teams` resume wrapper
+    /// We don't try to be exhaustive — false positives are cheap (we just
+    /// stamp a launch time the per-turn diff panel ignores when no jsonl
+    /// matches), but false negatives prevent the panel from working.
+    fileprivate static func initialInputLooksLikeClaudeLaunch(_ raw: String?) -> Bool {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return false }
+        // Strip a single leading `cd <quoted-path> && ` prefix to get to the
+        // actual binary token.
+        var tail = trimmed
+        if tail.hasPrefix("cd "), let andRange = tail.range(of: " && ") {
+            tail = String(tail[andRange.upperBound...])
+        }
+        // Drop a leading `env KEY=VAL ...` chain, which `RestorableAgentSession`
+        // emits for resume commands carrying a sanitized environment.
+        if tail.hasPrefix("env ") {
+            // Walk forward until we see a token that doesn't look like KEY=VAL.
+            var rest = tail.dropFirst(4)
+            while let space = rest.firstIndex(of: " ") {
+                let token = rest[..<space]
+                if token.contains("=") {
+                    rest = rest[rest.index(after: space)...]
+                } else {
+                    break
+                }
+            }
+            tail = String(rest)
+        }
+        // Now `tail` should start with the executable token (potentially quoted).
+        // Pull the first whitespace-delimited token and strip surrounding quotes.
+        let firstToken: String = {
+            let cut = tail.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+            guard let head = cut.first else { return tail }
+            var token = String(head)
+            for quote in ["'", "\""] {
+                if token.hasPrefix(quote) && token.hasSuffix(quote) && token.count >= 2 {
+                    token = String(token.dropFirst().dropLast())
+                }
+            }
+            return token
+        }()
+        // Resolve to last path component (handles absolute paths like `/usr/local/bin/claude`).
+        let basename = (firstToken as NSString).lastPathComponent
+        if basename == "claude" { return true }
+        if basename == "cmux" {
+            // `cmux claude-teams ...` and `cmux omc ...` (claude wrapper)
+            let lowered = tail.lowercased()
+            if lowered.contains("claude-teams") || lowered.contains(" omc ") || lowered.hasSuffix(" omc") {
+                return true
+            }
+        }
+        return false
+    }
+
     func effectiveSelectedPanelId(inPane paneId: PaneID) -> UUID? {
         bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
     }
@@ -7305,6 +7395,17 @@ final class Workspace: Identifiable, ObservableObject {
     /// focus changes via Combine. Updated from `applyTabSelectionNow` after the
     /// effective focused panel has been resolved.
     @Published var focusedPanelIdSignal: UUID?
+    /// Wall-clock launch timestamp of the active `claude` process for each panel.
+    /// Updated when cmux delivers a claude initial input into a fresh terminal
+    /// surface (whether from session restore or a fresh launch) and re-stamped
+    /// whenever a `claude_code` agent PID is registered for the workspace
+    /// (covers user-typed `claude` after the terminal has already been spun up).
+    /// Used by the per-turn diff panel (`ClaudeTranscriptTailer`) to disambiguate
+    /// which jsonl file in `~/.claude/projects/<sanitized>/` belongs to THIS
+    /// workspace's session — the tailer ignores files whose mtime predates this
+    /// timestamp, which avoids picking up another Claude Code instance that
+    /// happens to share an anchor pwd (e.g. a Telegram bot at `~`).
+    @Published var claudeLaunchTimesByPanel: [UUID: Date] = [:]
     @Published var panelTitles: [UUID: String] = [:]
     @Published private(set) var panelCustomTitles: [UUID: String] = [:]
     @Published private(set) var pinnedPanelIds: Set<UUID> = []
@@ -7873,6 +7974,13 @@ final class Workspace: Identifiable, ObservableObject {
         panels[terminalPanel.id] = terminalPanel
         panelTitles[terminalPanel.id] = terminalPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
+
+        // Per-turn diff panel: stamp the wall-clock claude launch time for the
+        // initial workspace panel if the typed-in input looks like a claude
+        // command. See `newTerminalSurface` for the full rationale.
+        if Self.initialInputLooksLikeClaudeLaunch(initialTerminalInput) {
+            recordClaudeLaunchTime(forPanel: terminalPanel.id)
+        }
 
         // Create initial tab in bonsplit and store the mapping
         var initialTabId: TabID?
@@ -10169,6 +10277,14 @@ final class Workspace: Identifiable, ObservableObject {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
+
+        // Per-turn diff panel: stamp the wall-clock claude launch time for this
+        // panel so `ClaudeTranscriptTailer` can pick the *right* jsonl file in
+        // `~/.claude/projects/<sanitized>/` (filtering out files belonging to
+        // other Claude Code instances that share an anchor pwd).
+        if Self.initialInputLooksLikeClaudeLaunch(initialInput) {
+            recordClaudeLaunchTime(forPanel: newPanel.id)
+        }
 
         // Create tab in bonsplit
         guard let newTabId = bonsplitController.createTab(
@@ -12663,6 +12779,13 @@ final class Workspace: Identifiable, ObservableObject {
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
+
+        // Per-turn diff panel: stamp the wall-clock claude launch time for this
+        // panel so `ClaudeTranscriptTailer` can disambiguate transcript files
+        // (see `newTerminalSurface` for the matching call).
+        if Self.initialInputLooksLikeClaudeLaunch(initialInput) {
+            recordClaudeLaunchTime(forPanel: newPanel.id)
+        }
 
         let newTab = Bonsplit.Tab(
             title: newPanel.displayTitle,

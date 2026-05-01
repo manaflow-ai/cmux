@@ -125,6 +125,16 @@ final class TurnCheckpointManager {
         if let root = currentRoot, !root.isEmpty {
             TurnCheckpointStore.deleteLegacySessionRef(workspaceId: session, in: root)
         }
+        // One-shot migration: prior versions of the per-turn diff panel
+        // identified the active claude jsonl by "newest mtime in the project
+        // dir" — which on machines running multiple Claude Code instances
+        // (cmux + Telegram bot, etc.) latched onto the wrong session and
+        // recorded ghost repos under this workspace's diff-state. Wipe the
+        // entire on-disk diff-state for every workspace exactly once so the
+        // launch-timestamp-based identification can rebuild from a clean
+        // slate. The flag below is process-wide (not per-workspace) so the
+        // purge fires even for workspaces that haven't been opened yet.
+        Self.runOneShotV2DiffStatePurgeIfNeeded(forWorkspace: session)
         // Cold start: hydrate per-repo cached diffs persisted from previous
         // sessions so the panel renders each repo's last-modified diff
         // immediately instead of falling through to Tier 2 (HEAD diff). The
@@ -467,5 +477,33 @@ final class TurnCheckpointManager {
     private func stopLiveWatcher() {
         watcher?.stop()
         watcher = nil
+    }
+
+    // MARK: - One-shot v2 migration
+
+    /// Process-wide UserDefaults key that records that we already wiped the
+    /// diff-state directory tree for the launch-timestamp identification
+    /// rollout. The purge runs *per workspace* on first attach after this flag
+    /// is missing, then sets the flag so subsequent workspaces in this install
+    /// don't get blown away too.
+    private static let migrationV2FlagKey = "cmux.perTurnDiff.migration.v2.done"
+
+    /// Run a one-shot purge of THIS workspace's diff-state dir (per spec) so
+    /// any ghost entries captured under the buggy "newest jsonl wins" logic
+    /// are wiped. After the first call, sets a UserDefaults flag so the purge
+    /// won't re-fire for this install. This is intentionally per-install (not
+    /// per-workspace) — the bug affected EVERY workspace identically, so once
+    /// any one workspace has done the rebuild we can trust the rest will
+    /// rebuild cleanly through the normal hydrate-then-detect flow.
+    private static func runOneShotV2DiffStatePurgeIfNeeded(forWorkspace workspaceId: UUID) {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: migrationV2FlagKey) else { return }
+        TurnCheckpointStore.removeDiffStateDirectory(workspaceId: workspaceId)
+        defaults.set(true, forKey: migrationV2FlagKey)
+        #if DEBUG
+        cmuxDebugLog(
+            "turn-diff: v2 migration purged diff-state for workspace=\(workspaceId.uuidString.prefix(5)); flag set"
+        )
+        #endif
     }
 }

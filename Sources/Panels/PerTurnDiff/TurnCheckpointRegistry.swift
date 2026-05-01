@@ -37,9 +37,23 @@ final class TurnCheckpointRegistry {
         // inside TurnCheckpointManager (for live diff updates of already-tracked
         // repos) stays — it only watches one repo and only fires onLiveDiff updates.
         let source = AgentTranscriptSourceFactory.makeFromCurrentSettings()
+        // Closure read by the tailer every ~30s to filter out jsonl files that
+        // pre-date the workspace's claude launch (so e.g. another Claude Code
+        // instance running at the same anchor pwd can't pollute this panel).
+        // The tailer reads it from a background queue but `Workspace` is main-
+        // actor isolated, so hop via `MainActor.assumeIsolated`. The `weak`
+        // capture is intentional — if the workspace went away, returning nil
+        // disables the filter (the tailer falls back to "newest jsonl wins",
+        // which is harmless because no panel can render its output anymore).
+        let launchTimeProvider: @Sendable () -> Date? = { [weak workspace] in
+            MainActor.assumeIsolated {
+                workspace?.focusedPanelClaudeLaunchTime
+            }
+        }
         let tailer = ClaudeTranscriptTailer(
             workspaceCwd: workspace.currentDirectory,
             source: source,
+            minimumDateProvider: launchTimeProvider,
             onPathDetected: { [weak mgr, weak workspace] path in
                 MainActor.assumeIsolated {
                     Self.handleCandidatePath(path, manager: mgr, workspace: workspace)

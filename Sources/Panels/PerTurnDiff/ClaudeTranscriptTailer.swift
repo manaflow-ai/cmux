@@ -29,6 +29,13 @@ final class ClaudeTranscriptTailer {
     /// and to parse each JSONL line for file paths.
     private let source: AgentTranscriptSource
     private let onPathDetected: (String) -> Void
+    /// Returns the wall-clock launch timestamp of the active claude session for
+    /// THIS workspace's focused panel (or nil if none recorded yet). Invoked on
+    /// the tailer's background queue every time we re-resolve the active jsonl,
+    /// so each closure call must be cheap and main-actor-safe (it currently
+    /// hops to MainActor via `MainActor.assumeIsolated` inside the closure
+    /// supplied by `TurnCheckpointRegistry`).
+    private let minimumDateProvider: @Sendable () -> Date?
 
     /// Latest known focused-pane pwd. Updated via `updateFocusedPanePwd(_:)`
     /// from the main actor; read on the tailer's background queue. Guarded by
@@ -39,10 +46,12 @@ final class ClaudeTranscriptTailer {
     init(
         workspaceCwd: String,
         source: AgentTranscriptSource = ClaudeCodeTranscriptSource(),
+        minimumDateProvider: @escaping @Sendable () -> Date? = { nil },
         onPathDetected: @escaping (String) -> Void
     ) {
         self.workspaceCwd = workspaceCwd
         self.source = source
+        self.minimumDateProvider = minimumDateProvider
         self.onPathDetected = onPathDetected
     }
 
@@ -99,29 +108,15 @@ final class ClaudeTranscriptTailer {
         return workspaceCwd
     }
 
-    /// Find the newest `.jsonl` directly inside `dir`, by mtime.
-    private static func newestJSONL(in dir: String) -> String? {
-        let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(atPath: dir) else { return nil }
-        var best: (path: String, mtime: TimeInterval)?
-        for entry in entries where entry.hasSuffix(".jsonl") {
-            let full = (dir as NSString).appendingPathComponent(entry)
-            guard let attrs = try? fm.attributesOfItem(atPath: full),
-                  let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 else {
-                continue
-            }
-            if best == nil || mtime > best!.mtime {
-                best = (full, mtime)
-            }
-        }
-        return best?.path
-    }
-
     // MARK: - Tick / lifecycle
 
     /// Called on `queue`. Looks up the latest transcript and either
     ///   - opens it (or switches to it if it changed),
     ///   - or schedules a wait poll if the dir/file isn't there yet.
+    ///
+    /// The transcript source is queried with the workspace's claude launch
+    /// timestamp so we ignore jsonl files belonging to OTHER Claude Code
+    /// instances that happen to share the anchor pwd.
     private func tickResolve() {
         if stopped { return }
 
@@ -137,12 +132,25 @@ final class ClaudeTranscriptTailer {
             scheduleWaitTimer()
             return
         }
-        guard let latest = Self.newestJSONL(in: dir) else {
+        let minDate = minimumDateProvider()
+        guard let latestURL = source.resolveActiveTranscriptFile(in: dirURL, after: minDate) else {
+            #if DEBUG
+            cmuxDebugLog(
+                "turn-diff: tailer no file matches min=\(minDate.map { String($0.timeIntervalSince1970) } ?? "nil") in \(dir)"
+            )
+            #endif
             scheduleWaitTimer()
             return
         }
+        let latest = latestURL.path
 
         if latest != currentTranscriptPath {
+            #if DEBUG
+            cmuxDebugLog(
+                "turn-diff: tailer resolved file=\(latest) (anchor=\(anchor), " +
+                "min=\(minDate.map { String($0.timeIntervalSince1970) } ?? "nil"))"
+            )
+            #endif
             switchTo(transcript: latest)
         }
         // Always (re)arm the long-period resolve timer.
