@@ -3,6 +3,10 @@ import Combine
 import CryptoKit
 import Foundation
 
+extension CodingUserInfoKey {
+    static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
+}
+
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?
@@ -127,6 +131,7 @@ struct CmuxConfigFile: Codable, Sendable {
 enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Hashable {
     case newTerminal = "cmux.newTerminal"
     case newBrowser = "cmux.newBrowser"
+    case newCodex = "cmux.newCodex"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
 
@@ -136,6 +141,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .newTerminal
         case "cmux.newBrowser", "newBrowser":
             self = .newBrowser
+        case "cmux.newCodex", "newCodex", "codex", "codex-app-server":
+            self = .newCodex
         case "cmux.splitRight", "splitRight":
             self = .splitRight
         case "cmux.splitDown", "splitDown":
@@ -155,6 +162,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "terminal"
         case .newBrowser:
             return "globe"
+        case .newCodex:
+            return "sparkles"
         case .splitRight:
             return "square.split.2x1"
         case .splitDown:
@@ -168,6 +177,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return .newTerminal
         case .newBrowser:
             return .newBrowser
+        case .newCodex:
+            return .custom("codex-app-server")
         case .splitRight:
             return .splitRight
         case .splitDown:
@@ -937,7 +948,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
                 throw DecodingError.dataCorruptedError(
                     forKey: key,
                     in: container,
-                    debugDescription: "shortcut must use modifier+key syntax like 'cmd+shift+t'"
+                    debugDescription: "shortcut must use modifier+key syntax like 'cmd+shift+t' or be empty to unbind"
                 )
             }
             return shortcut
@@ -965,6 +976,10 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         in container: inout KeyedEncodingContainer<CodingKeys>
     ) throws {
         guard let shortcut else { return }
+        if shortcut.isUnbound {
+            try container.encode("", forKey: key)
+            return
+        }
         if let secondStroke = shortcut.secondStroke {
             try container.encode(
                 [shortcut.firstStroke.configString(), secondStroke.configString()],
@@ -1073,12 +1088,17 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
     static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
+    static let newCodex = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.newCodex.configID,
+        tooltip: String(localized: "splitButton.newCodex", defaultValue: "New Codex")
+    )
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
         .newBrowser,
+        .newCodex,
         .splitRight,
         .splitDown
     ]
@@ -1586,40 +1606,6 @@ enum CmuxRestartBehavior: String, Codable, Sendable {
     case confirm
 }
 
-struct CmuxWorkspaceDefinition: Codable, Sendable {
-    var name: String?
-    var cwd: String?
-    var color: String?
-    var layout: CmuxLayoutNode?
-
-    init(name: String? = nil, cwd: String? = nil, color: String? = nil, layout: CmuxLayoutNode? = nil) {
-        self.name = name
-        self.cwd = cwd
-        self.color = color
-        self.layout = layout
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = try container.decodeIfPresent(String.self, forKey: .name)
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
-        layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
-
-        if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(rawColor) else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .color,
-                    in: container,
-                    debugDescription: "Invalid color \"\(rawColor)\". Expected 6-digit hex format: #RRGGBB"
-                )
-            }
-            color = normalized
-        } else {
-            color = nil
-        }
-    }
-}
-
 indirect enum CmuxLayoutNode: Codable, Sendable {
     case pane(CmuxPaneDefinition)
     case split(CmuxSplitDefinition)
@@ -1858,6 +1844,7 @@ final class CmuxConfigStore: ObservableObject {
     private struct ParsedConfigCacheEntry {
         let fileSize: UInt64
         let modificationDate: Date?
+        let workspaceColorPaletteFingerprint: String
         let config: CmuxConfigFile?
         let issue: CmuxConfigIssue?
     }
@@ -2512,10 +2499,12 @@ final class CmuxConfigStore: ObservableObject {
         let attributes = try? fileManager.attributesOfItem(atPath: path)
         let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
         let modificationDate = attributes?[.modificationDate] as? Date
+        let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint()
 
         if let cached = parsedConfigCache[path],
            cached.fileSize == fileSize,
-           cached.modificationDate == modificationDate {
+           cached.modificationDate == modificationDate,
+           cached.workspaceColorPaletteFingerprint == paletteFingerprint {
             return ParsedConfigResult(config: cached.config, issue: cached.issue)
         }
 
@@ -2525,6 +2514,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue
             )
@@ -2535,6 +2525,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: config,
                 issue: nil
             )
@@ -2544,6 +2535,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue
             )

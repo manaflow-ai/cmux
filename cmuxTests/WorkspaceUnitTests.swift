@@ -315,6 +315,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 
+    func testSaveFilePreviewShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.saveFilePreview.label, "Save File Preview")
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.saveFilePreview.defaultsKey,
+            "shortcut.saveFilePreview"
+        )
+
+        let shortcut = KeyboardShortcutSettings.Action.saveFilePreview.defaultShortcut
+        XCTAssertEqual(shortcut.key, "s")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
     func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
         XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
         XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
@@ -430,7 +445,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(ShortcutStroke.isEscapeCancelEvent(event))
         XCTAssertEqual(
             ShortcutStroke.from(event: event, requireModifier: false),
-            ShortcutStroke(key: "[", command: true, shift: false, option: false, control: false)
+            ShortcutStroke(key: "[", command: true, shift: false, option: false, control: false, keyCode: 33)
         )
     }
 
@@ -718,7 +733,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 "switchRightSidebarToFiles": "ctrl+4",
                 "switchRightSidebarToFind": "ctrl+5",
                 "switchRightSidebarToSessions": "ctrl+6",
-                "switchRightSidebarToFeed": "ctrl+7"
+                "switchRightSidebarToFeed": "ctrl+7",
+                "switchRightSidebarToDock": "ctrl+8"
               }
             }
             """,
@@ -750,6 +766,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(
             store.override(for: .switchRightSidebarToFeed),
             StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
+        )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToDock),
+            StoredShortcut(key: "8", command: false, shift: false, option: false, control: true)
         )
     }
 

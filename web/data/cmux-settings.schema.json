@@ -103,6 +103,11 @@
           "default": true,
           "description": "Move workspaces with new notifications toward the top."
         },
+        "iMessageMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Move a workspace to the top and show the submitted message when sending an agent prompt."
+        },
         "sendAnonymousTelemetry": {
           "type": "boolean",
           "default": true,
@@ -510,7 +515,7 @@
         "bindings": {
           "type": "object",
           "default": {},
-          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut or an array for a chord.",
+          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, or an empty string to unbind.",
           "propertyNames": {
             "enum": [
               "openSettings",
@@ -534,6 +539,7 @@
               "switchRightSidebarToFind",
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",
+              "switchRightSidebarToDock",
               "triggerFlash",
               "nextSurface",
               "prevSurface",
@@ -559,6 +565,7 @@
               "toggleSplitZoom",
               "splitBrowserRight",
               "splitBrowserDown",
+              "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",
               "browserBack",
@@ -568,6 +575,7 @@
               "browserZoomOut",
               "browserZoomReset",
               "find",
+              "findInDirectory",
               "findNext",
               "findPrevious",
               "hideFind",
@@ -604,7 +612,7 @@
       "oneOf": [
         {
           "type": "string",
-          "description": "Single-stroke shortcut, for example cmd+n."
+          "description": "Single-stroke shortcut, for example cmd+n. Use an empty string, none, clear, or unbound to unbind."
         },
         {
           "type": "array",

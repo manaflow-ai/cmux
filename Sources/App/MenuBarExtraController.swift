@@ -11,15 +11,17 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let onShowNotifications: () -> Void
     private let onOpenNotification: (TerminalNotification) -> Void
     private let onJumpToLatestUnread: () -> Void
+    private let onOpenTaskManager: () -> Void
     private let onCheckForUpdates: () -> Void
     private let onOpenPreferences: () -> Void
     private let onQuitApp: () -> Void
-    private var notificationsCancellable: AnyCancellable?
+    private var notificationMenuSnapshotCancellable: AnyCancellable?
     private let buildHintTitle: String?
 
     private let stateHintItem = NSMenuItem(title: String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications"), action: nil, keyEquivalent: "")
     private let buildHintItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let showMainWindowItem = NSMenuItem(title: String(localized: "statusMenu.showCmux", defaultValue: "Show cmux"), action: nil, keyEquivalent: "")
+    private let taskManagerItem = NSMenuItem(title: String(localized: "statusMenu.taskManager", defaultValue: "Task Manager..."), action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
     private let showNotificationsItem = NSMenuItem(title: String(localized: "statusMenu.showNotifications", defaultValue: "Show Notifications"), action: nil, keyEquivalent: "")
@@ -31,14 +33,13 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let quitItem = NSMenuItem(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), action: nil, keyEquivalent: "")
 
     private var notificationItems: [NSMenuItem] = []
-    private let maxInlineNotificationItems = 6
-
     init(
         notificationStore: TerminalNotificationStore,
         onShowMainWindow: @escaping () -> Void,
         onShowNotifications: @escaping () -> Void,
         onOpenNotification: @escaping (TerminalNotification) -> Void,
         onJumpToLatestUnread: @escaping () -> Void,
+        onOpenTaskManager: @escaping () -> Void,
         onCheckForUpdates: @escaping () -> Void,
         onOpenPreferences: @escaping () -> Void,
         onQuitApp: @escaping () -> Void
@@ -48,6 +49,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         self.onShowNotifications = onShowNotifications
         self.onOpenNotification = onOpenNotification
         self.onJumpToLatestUnread = onJumpToLatestUnread
+        self.onOpenTaskManager = onOpenTaskManager
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenPreferences = onOpenPreferences
         self.onQuitApp = onQuitApp
@@ -64,10 +66,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             button.toolTip = "cmux"
         }
 
-        notificationsCancellable = notificationStore.$notifications
+        notificationMenuSnapshotCancellable = notificationStore.$notificationMenuSnapshot
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.refreshUI()
+            .sink { [weak self] snapshot in
+                self?.refreshUI(snapshot: snapshot)
             }
 
         refreshUI()
@@ -90,6 +92,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         showMainWindowItem.target = self
         showMainWindowItem.action = #selector(showMainWindowAction)
         menu.addItem(showMainWindowItem)
+
+        taskManagerItem.target = self
+        taskManagerItem.action = #selector(taskManagerAction)
+        menu.addItem(taskManagerItem)
 
         menu.addItem(notificationListSeparator)
         notificationSectionSeparator.isHidden = true
@@ -137,17 +143,17 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
     func removeFromMenuBar() {
-        notificationsCancellable?.cancel()
-        notificationsCancellable = nil
+        notificationMenuSnapshotCancellable?.cancel()
+        notificationMenuSnapshotCancellable = nil
         statusItem.menu = nil
         NSStatusBar.system.removeStatusItem(statusItem)
     }
 
     private func refreshUI() {
-        let snapshot = NotificationMenuSnapshotBuilder.make(
-            notifications: notificationStore.notifications,
-            maxInlineNotificationItems: maxInlineNotificationItems
-        )
+        refreshUI(snapshot: notificationStore.notificationMenuSnapshot)
+    }
+
+    private func refreshUI(snapshot: NotificationMenuSnapshot) {
         let actualUnreadCount = snapshot.unreadCount
 
         let displayedUnreadCount: Int
@@ -236,6 +242,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         onJumpToLatestUnread()
     }
 
+    @objc private func taskManagerAction() {
+        onOpenTaskManager()
+    }
+
     @objc private func markAllReadAction() {
         notificationStore.markAllRead()
     }
@@ -266,7 +276,7 @@ private final class NotificationMenuItemPayload: NSObject {
     }
 }
 
-struct NotificationMenuSnapshot {
+struct NotificationMenuSnapshot: Equatable {
     let unreadCount: Int
     let hasNotifications: Bool
     let recentNotifications: [TerminalNotification]

@@ -38,6 +38,15 @@ jobs:
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
+      - name: Validate Swift warning budget guard
+        run: ./tests/test_ci_swift_warning_budget.sh
+
+      - name: Validate Swift file length budget guard
+        run: ./tests/test_ci_swift_file_length_budget.sh
+
+      - name: Validate Swift file length budget
+        run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
+
   remote-daemon-tests:
     runs-on: ubuntu-latest
     steps:
@@ -279,7 +288,7 @@ jobs:
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
-      - name: Run CLI version memory guard regression
+      - name: Run CLI no-socket regressions
         run: |
           set -euo pipefail
 
@@ -295,6 +304,7 @@ jobs:
           fi
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on WarpBuild.
@@ -405,7 +415,10 @@ jobs:
           xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
-            -destination "platform=macOS" build
+            -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
+
+      - name: Validate Swift warning budget
+        run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
 
       - name: Create virtual display
         run: |

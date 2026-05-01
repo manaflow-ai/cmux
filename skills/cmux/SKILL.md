@@ -36,6 +36,31 @@ cmux reorder-surface --surface surface:7 --before surface:3
 cmux trigger-flash --surface surface:7
 ```
 
+## Settings and Docs
+
+Use `cmux docs settings` before changing cmux-owned settings. It prints the docs URL, schema URL, raw GitHub resources, settings file paths, and reload command.
+
+```bash
+cmux docs settings
+cmux settings path
+```
+
+cmux-owned settings live in `~/.config/cmux/settings.json`, with `~/Library/Application Support/com.cmuxterm.app/settings.json` as the fallback. Before editing, copy any existing settings file to a timestamped `.bak` next to it so the user can revert. Edit the user file, then reload:
+
+```bash
+cmux reload-config
+```
+
+Use cmux settings for app behavior, sidebar, notifications, browser behavior, automation, workspace colors, and cmux-owned shortcuts. Terminal rendering settings such as font, cursor style, theme, and scrollback belong in Ghostty config.
+
+Open the UI when useful:
+
+```bash
+cmux settings
+cmux settings json
+cmux settings shortcuts
+```
+
 ## Handle Model
 
 - Default output uses short refs: `window:N`, `workspace:N`, `pane:N`, `surface:N`.

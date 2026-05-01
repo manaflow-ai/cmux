@@ -66,8 +66,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Focus right sidebar", ja: "右サイドバーにフォーカス" } },
       {
         id: "switchRightSidebarMode",
-        combos: [["⌃", "1 / 2 / 3 / 4"]],
-        description: { en: "Switch Files / Find / Sessions / Feed", ja: "ファイル / 検索 / セッション / フィードを切り替え" },
+        combos: [["⌃", "1 / 2 / 3 / 4 / 5"]],
+        description: { en: "Switch Files / Find / Sessions / Feed / Dock", ja: "ファイル / 検索 / セッション / フィード / Dockを切り替え" },
         note: { en: "when the right sidebar is focused", ja: "右サイドバーにフォーカス中" },
       },
       {
@@ -96,6 +96,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
       { id: "reopenClosedBrowserPanel", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen closed browser panel", ja: "閉じたブラウザパネルを再度開く" } },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
+      {
+        id: "saveFilePreview",
+        combos: [["⌘", "S"]],
+        description: { en: "Save file preview", ja: "ファイルプレビューを保存" },
+        note: { en: "focused text preview", ja: "フォーカス中のテキストプレビュー" },
+      },
     ],
   },
   {
@@ -148,9 +154,10 @@ export const shortcutCategories: ShortcutCategory[] = [
     titleKey: "find",
     shortcuts: [
       { id: "find", combos: [["⌘", "F"]], description: { en: "Find", ja: "検索" } },
+      { id: "findInDirectory", combos: [["⌘", "⇧", "F"]], description: { en: "Find in directory", ja: "ディレクトリ内を検索" } },
       { id: "findNext", combos: [["⌘", "G"]], description: { en: "Find next", ja: "次を検索" } },
       { id: "findPrevious", combos: [["⌥", "⌘", "G"]], description: { en: "Find previous", ja: "前を検索" } },
-      { id: "hideFind", combos: [["⌘", "⇧", "F"]], description: { en: "Hide find bar", ja: "検索バーを隠す" } },
+      { id: "hideFind", combos: [["⌥", "⌘", "⇧", "F"]], description: { en: "Hide find bar", ja: "検索バーを隠す" } },
       { id: "useSelectionForFind", combos: [["⌘", "E"]], description: { en: "Use selection for find", ja: "選択範囲で検索" } },
     ],
   },

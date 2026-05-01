@@ -62,6 +62,16 @@ struct PanelContentView: View {
                     isFocused: isFocused
                 )
             }
+        case .filePreview:
+            if let filePreviewPanel = panel as? FilePreviewPanel {
+                FilePreviewPanelView(
+                    panel: filePreviewPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 }

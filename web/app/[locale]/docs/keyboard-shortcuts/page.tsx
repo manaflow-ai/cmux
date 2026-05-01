@@ -11,7 +11,8 @@ const shortcutChordExample = `{
     "bindings": {
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
-      "toggleSidebar": "cmd+b"
+      "toggleSidebar": "cmd+b",
+      "splitRight": ""
     }
   }
 }`;

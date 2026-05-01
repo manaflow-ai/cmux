@@ -245,6 +245,10 @@ struct SessionCodexAppServerPanelSnapshot: Codable, Sendable {
     var threadId: String?
 }
 
+struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
+    var filePath: String
+}
+
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
@@ -260,6 +264,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
     var codexAppServer: SessionCodexAppServerPanelSnapshot?
+    var filePreview: SessionFilePreviewPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

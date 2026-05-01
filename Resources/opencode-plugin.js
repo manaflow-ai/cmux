@@ -1,6 +1,6 @@
 // cmux-feed-plugin-marker v1
 // Bridges OpenCode's plugin event bus to the cmux socket's feed.* verbs.
-// Installed by `cmux setup-hooks` or `cmux opencode install-hooks`.
+// Installed by `cmux hooks setup` or `cmux hooks opencode install`.
 // DO NOT EDIT MANUALLY — cmux upgrades this file in place.
 
 const net = require("node:net");
@@ -115,6 +115,10 @@ export const CMUXFeed = async (ctx) => {
   const base = (sessionId, extra) => {
     const state = sessionState(sessionId);
     const context = extra?.context || contextForSession(sessionId);
+    const workspaceId =
+      typeof process.env.CMUX_WORKSPACE_ID === "string" && process.env.CMUX_WORKSPACE_ID.trim()
+        ? process.env.CMUX_WORKSPACE_ID.trim()
+        : null;
     const event = {
       session_id: `opencode-${sessionId}`,
       _source: "opencode",
@@ -122,6 +126,7 @@ export const CMUXFeed = async (ctx) => {
       cwd: extra?.cwd || state.cwd || ctx?.directory,
       ...extra,
     };
+    if (workspaceId) event.workspace_id = workspaceId;
     if (context) event.context = context;
     return event;
   };

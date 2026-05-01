@@ -541,12 +541,12 @@ private enum AgentResumeCommandBuilder {
     private static func isHookSettingsOption(_ args: [String], index: Int) -> Bool {
         let arg = args[index]
         if arg.hasPrefix("--settings=") {
-            return arg.contains("claude-hook")
+            return arg.contains("claude-hook") || arg.contains("hooks claude")
         }
         guard arg == "--settings", index + 1 < args.count else {
             return false
         }
-        return args[index + 1].contains("claude-hook")
+        return args[index + 1].contains("claude-hook") || args[index + 1].contains("hooks claude")
     }
 
     private static func isSafeEnvironmentKey(_ key: String) -> Bool {

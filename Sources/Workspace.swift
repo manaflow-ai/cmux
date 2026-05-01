@@ -496,6 +496,7 @@ extension Workspace {
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let codexSnapshot: SessionCodexAppServerPanelSnapshot?
+        let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -521,6 +522,7 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             codexSnapshot = nil
+            filePreviewSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -528,7 +530,7 @@ extension Workspace {
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForOmnibar(),
                 profileID: browserPanel.profileID,
-                shouldRenderWebView: browserPanel.shouldRenderWebView,
+                shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
@@ -536,18 +538,28 @@ extension Workspace {
             )
             markdownSnapshot = nil
             codexSnapshot = nil
+            filePreviewSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             codexSnapshot = nil
+            filePreviewSnapshot = nil
         case .codexAppServer:
             guard let codexPanel = panel as? CodexAppServerPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
             codexSnapshot = SessionCodexAppServerPanelSnapshot(threadId: codexPanel.resumableThreadId)
+            filePreviewSnapshot = nil
+        case .filePreview:
+            guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            codexSnapshot = nil
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
         }
 
         return SessionPanelSnapshot(
@@ -564,7 +576,8 @@ extension Workspace {
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot,
-            codexAppServer: codexSnapshot
+            codexAppServer: codexSnapshot,
+            filePreview: filePreviewSnapshot
         )
     }
 
@@ -768,7 +781,8 @@ extension Workspace {
                 inPane: paneId,
                 url: nil,
                 focus: false,
-                preferredProfileID: snapshot.browser?.profileID
+                preferredProfileID: snapshot.browser?.profileID,
+                creationPolicy: .restoration
             ) else {
                 return nil
             }
@@ -796,6 +810,17 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: codexPanel.id)
             return codexPanel.id
+        case .filePreview:
+            guard let filePath = snapshot.filePreview?.filePath,
+                  let filePreviewPanel = newFilePreviewSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: filePreviewPanel.id)
+            return filePreviewPanel.id
         }
     }
 
@@ -841,7 +866,7 @@ extension Workspace {
 
             browserPanel.restoreSessionSnapshot(browserSnapshot)
 
-            if browserSnapshot.developerToolsVisible {
+            if browserSnapshot.developerToolsVisible && BrowserAvailabilitySettings.isEnabled() {
                 _ = browserPanel.showDeveloperTools()
                 browserPanel.requestDeveloperToolsRefreshAfterNextAttach(reason: "session_restore")
             } else {
@@ -1004,7 +1029,12 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+            if let panel = newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: false,
+                creationPolicy: .restoration
+            ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -1034,7 +1064,12 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+            if let panel = newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: false,
+                creationPolicy: .restoration
+            ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
@@ -7193,55 +7228,17 @@ struct ClosedBrowserPanelRestoreSnapshot {
 
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
-enum WorkspaceSurfaceIdentifierClipboardText {
-    static func make(workspaceId: UUID, workspaceRef: String? = nil) -> String {
-        var lines: [String] = []
-        if let workspaceRef {
-            lines.append("workspace_ref=\(workspaceRef)")
-        }
-        lines.append("workspace_id=\(workspaceId.uuidString)")
-        return lines.joined(separator: "\n")
-    }
-
-    static func make(workspaceIds: [UUID]) -> String {
-        workspaceIds.map { make(workspaceId: $0) }.joined(separator: "\n\n")
-    }
-
-    static func make(workspaces: [(id: UUID, ref: String?)]) -> String {
-        workspaces
-            .map { make(workspaceId: $0.id, workspaceRef: $0.ref) }
-            .joined(separator: "\n\n")
-    }
-
-    static func make(
-        workspaceId: UUID,
-        paneId: UUID? = nil,
-        surfaceId: UUID,
-        workspaceRef: String? = nil,
-        paneRef: String? = nil,
-        surfaceRef: String? = nil
-    ) -> String {
-        var lines: [String] = []
-        if let workspaceRef {
-            lines.append("workspace_ref=\(workspaceRef)")
-        }
-        lines.append("workspace_id=\(workspaceId.uuidString)")
-        if let paneRef {
-            lines.append("pane_ref=\(paneRef)")
-        }
-        if let paneId {
-            lines.append("pane_id=\(paneId.uuidString)")
-        }
-        if let surfaceRef {
-            lines.append("surface_ref=\(surfaceRef)")
-        }
-        lines.append("surface_id=\(surfaceId.uuidString)")
-        return lines.joined(separator: "\n")
-    }
-}
-
 @MainActor
 final class Workspace: Identifiable, ObservableObject {
+    enum BrowserPanelCreationPolicy {
+        case userInitiated
+        case restoration
+
+        var permitsCreationWhenBrowserDisabled: Bool {
+            self == .restoration
+        }
+    }
+
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
@@ -7341,6 +7338,7 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
+    @Published private(set) var latestSubmittedMessage: String?
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
@@ -7418,6 +7416,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
             sidebarObservationSignal($terminalScrollBarHidden),
+            sidebarObservationSignal($latestSubmittedMessage),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -7492,11 +7491,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var processTitle: String
 
-    private enum SurfaceKind {
+    enum SurfaceKind {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
         static let codexAppServer = "codex-app-server"
+        static let filePreview = "filePreview"
     }
 
     enum PanelShellActivityState: String {
@@ -7525,7 +7525,6 @@ final class Workspace: Identifiable, ObservableObject {
         BonsplitConfiguration.SplitButtonTooltips(
             newTerminal: KeyboardShortcutSettings.Action.newSurface.tooltip("New Terminal"),
             newBrowser: KeyboardShortcutSettings.Action.openBrowser.tooltip("New Browser"),
-            newCodex: String(localized: "splitButton.newCodex", defaultValue: "New Codex"),
             splitRight: KeyboardShortcutSettings.Action.splitRight.tooltip("Split Right"),
             splitDown: KeyboardShortcutSettings.Action.splitDown.tooltip("Split Down")
         )
@@ -7700,6 +7699,7 @@ final class Workspace: Identifiable, ObservableObject {
             renderingMode: renderingMode
         )
         return BonsplitConfiguration.Appearance(
+            tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
             tabTitleFontSize: tabTitleFontSize,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
@@ -7916,6 +7916,12 @@ final class Workspace: Identifiable, ObservableObject {
 
         bonsplitController.onExternalTabDrop = { [weak self] request in
             self?.handleExternalTabDrop(request) ?? false
+        }
+        bonsplitController.onExternalFileDrop = { [weak self] request in
+            self?.handleExternalFileDrop(request) ?? false
+        }
+        bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
+            self?.bonsplitTabMoveDestinations(for: tabId) ?? []
         }
         bonsplitController.onTabCloseRequest = { [weak self] tabId, _ in
             self?.markExplicitClose(surfaceId: tabId)
@@ -8328,6 +8334,42 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    private func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
+        let titleAndDirty = Publishers.CombineLatest(
+            filePreviewPanel.$displayTitle.removeDuplicates(),
+            filePreviewPanel.$isDirty.removeDuplicates()
+        )
+        let subscription = Publishers.CombineLatest(
+            titleAndDirty,
+            filePreviewPanel.$displayIcon.removeDuplicates()
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self, weak filePreviewPanel] titleAndDirty, displayIcon in
+            guard let self,
+                  let filePreviewPanel,
+                  let tabId = self.surfaceIdFromPanelId(filePreviewPanel.id) else { return }
+            let (newTitle, isDirty) = titleAndDirty
+            guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+            if self.panelTitles[filePreviewPanel.id] != newTitle {
+                self.panelTitles[filePreviewPanel.id] = newTitle
+            }
+            let resolvedTitle = self.resolvedPanelTitle(panelId: filePreviewPanel.id, fallback: newTitle)
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let iconUpdate: String?? = existing.icon == displayIcon ? nil : .some(displayIcon)
+            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+            guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else { return }
+            self.bonsplitController.updateTab(
+                tabId,
+                title: titleUpdate,
+                icon: iconUpdate,
+                hasCustomTitle: self.panelCustomTitles[filePreviewPanel.id] != nil,
+                isDirty: dirtyUpdate
+            )
+        }
+        panelSubscriptions[filePreviewPanel.id] = subscription
+    }
+
     private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
         guard let target = remoteDisplayTarget else { return nil }
         return BrowserRemoteWorkspaceStatus(
@@ -8369,6 +8411,10 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? CodexAppServerPanel
     }
 
+    func filePreviewPanel(for panelId: UUID) -> FilePreviewPanel? {
+        panels[panelId] as? FilePreviewPanel
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -8379,6 +8425,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.markdown
         case .codexAppServer:
             return SurfaceKind.codexAppServer
+        case .filePreview:
+            return SurfaceKind.filePreview
         }
     }
 
@@ -8763,6 +8811,17 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    func panelNeedsConfirmClose(panelId: UUID) -> Bool {
+        guard let panel = panels[panelId] else { return false }
+        if let terminalPanel = panel as? TerminalPanel {
+            return panelNeedsConfirmClose(
+                panelId: panelId,
+                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+            )
+        }
+        return panel.isDirty
+    }
+
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
         let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
         let existing = panelGitBranches[panelId]
@@ -8857,6 +8916,7 @@ final class Workspace: Identifiable, ObservableObject {
         statusEntries.removeAll()
         agentPIDs.removeAll()
         agentListeningPorts.removeAll()
+        latestSubmittedMessage = nil
         logEntries.removeAll()
         progress = nil
         gitBranch = nil
@@ -9140,6 +9200,14 @@ final class Workspace: Identifiable, ObservableObject {
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
         }
+    }
+
+    @discardableResult
+    func recordSubmittedMessage(_ message: String?) -> Bool {
+        guard let preview = Self.submittedMessagePreview(from: message) else { return false }
+        guard latestSubmittedMessage != preview else { return false }
+        latestSubmittedMessage = preview
+        return true
     }
 
     var isRemoteWorkspace: Bool {
@@ -10255,8 +10323,17 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
+        guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            if let url {
+                _ = NSWorkspace.shared.open(url)
+            }
+            return nil
+        }
+
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -10278,6 +10355,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: panelId
             ),
             initialURL: url,
+            renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
@@ -10343,8 +10421,17 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
+        guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            if let externalURL = url ?? initialRequest?.url {
+                _ = NSWorkspace.shared.open(externalURL)
+            }
+            return nil
+        }
+
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -10358,6 +10445,7 @@ final class Workspace: Identifiable, ObservableObject {
             ),
             initialURL: url,
             initialRequest: initialRequest,
+            renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -10669,6 +10757,117 @@ final class Workspace: Identifiable, ObservableObject {
 
         installCodexAppServerPanelSubscription(codexPanel)
         return codexPanel
+    }
+
+    @discardableResult
+    func openOrFocusFilePreviewSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool = true
+    ) -> FilePreviewPanel? {
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        for (existingId, panel) in panels {
+            guard let preview = panel as? FilePreviewPanel else { continue }
+            if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
+                if focus {
+                    focusPanel(existingId)
+                }
+                return preview
+            }
+        }
+
+        return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+    }
+
+    @discardableResult
+    func newFilePreviewSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> FilePreviewPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        panels[filePreviewPanel.id] = filePreviewPanel
+        panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: filePreviewPanel.displayTitle,
+            icon: filePreviewPanel.displayIcon,
+            kind: SurfaceKind.filePreview,
+            isDirty: filePreviewPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: filePreviewPanel.id)
+            panelTitles.removeValue(forKey: filePreviewPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = filePreviewPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            filePreviewPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: filePreviewPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installFilePreviewPanelSubscription(filePreviewPanel)
+        return filePreviewPanel
+    }
+
+    @discardableResult
+    func splitPaneWithFilePreview(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        filePath: String
+    ) -> FilePreviewPanel? {
+        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        panels[filePreviewPanel.id] = filePreviewPanel
+        panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: filePreviewPanel.displayTitle,
+            icon: filePreviewPanel.displayIcon,
+            kind: SurfaceKind.filePreview,
+            isDirty: filePreviewPanel.isDirty,
+            isLoading: false,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = filePreviewPanel.id
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst
+        ) != nil else {
+            panels.removeValue(forKey: filePreviewPanel.id)
+            panelTitles.removeValue(forKey: filePreviewPanel.id)
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            return nil
+        }
+
+        bonsplitController.selectTab(newTab.id)
+        filePreviewPanel.focus()
+        installFilePreviewPanelSubscription(filePreviewPanel)
+        return filePreviewPanel
     }
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
@@ -11063,6 +11262,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    private func moveSurfaceToAdjacentPane(panelId: UUID, direction: NavigationDirection) -> Bool {
+        guard panels[panelId] != nil,
+              let sourcePaneId = paneId(forPanelId: panelId),
+              let targetPaneId = bonsplitController.adjacentPane(to: sourcePaneId, direction: direction) else {
+            return false
+        }
+        return moveSurface(panelId: panelId, toPane: targetPaneId, focus: true)
+    }
+
+    @discardableResult
     func reorderSurface(panelId: UUID, toIndex index: Int) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
@@ -11234,6 +11443,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = detached.panelId
+        if let filePreviewPanel = detached.panel as? FilePreviewPanel,
+           panelSubscriptions[filePreviewPanel.id] == nil {
+            installFilePreviewPanelSubscription(filePreviewPanel)
+        }
         let didAdoptWorkspaceRemoteTracking =
             detached.isRemoteTerminal
             && detached.remoteRelayPort == remoteConfiguration?.relayPort
@@ -11621,23 +11834,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func copyIdentifiersToPasteboard(surfaceId: UUID) {
         let paneId = paneId(forPanelId: surfaceId)?.id
-        let refs = TerminalController.shared.v2WorkspacePaneAndSurfaceRefs(
-            workspaceId: id,
-            paneId: paneId,
-            surfaceId: surfaceId
-        )
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(
-            WorkspaceSurfaceIdentifierClipboardText.make(
+        WorkspaceSurfaceIdentifierClipboardText.copy(
+            WorkspaceSurfaceIdentifierClipboardText.makeWorkspacePaneSurfaceIdentifiers(
                 workspaceId: id,
                 paneId: paneId,
                 surfaceId: surfaceId,
-                workspaceRef: refs.workspaceRef,
-                paneRef: refs.paneRef,
-                surfaceRef: refs.surfaceRef
-            ),
-            forType: .string
+                includeRefs: true
+            )
         )
     }
 
@@ -11800,9 +12003,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Check if any panel needs close confirmation
     func needsConfirmClose() -> Bool {
-        for (panelId, panel) in panels {
-            if let terminalPanel = panel as? TerminalPanel,
-               panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
+        for (panelId, _) in panels {
+            if panelNeedsConfirmClose(panelId: panelId) {
                 return true
             }
         }
@@ -12500,91 +12702,72 @@ final class Workspace: Identifiable, ObservableObject {
         setPanelCustomTitle(panelId: panelId, title: input.stringValue)
     }
 
-    private enum PanelMoveDestination {
-        case newWorkspaceInCurrentWindow
-        case selectedWorkspaceInNewWindow
-        case existingWorkspace(UUID)
-    }
+    private static let bonsplitMoveNewWorkspaceDestinationId = "new-workspace"
+    private static let bonsplitMoveExistingWorkspacePrefix = "workspace:"
 
-    private func promptMovePanel(tabId: TabID) {
+    private func bonsplitTabMoveDestinations(for tabId: TabID) -> [TabContextMoveDestination] {
         guard let panelId = panelIdFromSurfaceId(tabId),
-              let app = AppDelegate.shared else { return }
+              let app = AppDelegate.shared else { return [] }
 
         let currentWindowId = app.tabManagerFor(tabId: id).flatMap { app.windowId(for: $0) }
         let workspaceTargets = app.workspaceMoveTargets(
             excludingWorkspaceId: id,
             referenceWindowId: currentWindowId
         )
-
-        var options: [(title: String, destination: PanelMoveDestination)] = [
-            (String(localized: "alert.moveTab.newWorkspaceInCurrentWindow", defaultValue: "New Workspace in Current Window"), .newWorkspaceInCurrentWindow),
-            (String(localized: "alert.moveTab.selectedWorkspaceInNewWindow", defaultValue: "Selected Workspace in New Window"), .selectedWorkspaceInNewWindow),
-        ]
-        options.append(contentsOf: workspaceTargets.map { target in
-            (target.label, .existingWorkspace(target.workspaceId))
-        })
-
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.moveTab.title", defaultValue: "Move Tab")
-        alert.informativeText = String(localized: "alert.moveTab.message", defaultValue: "Choose a destination for this tab.")
-        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 26), pullsDown: false)
-        for option in options {
-            popup.addItem(withTitle: option.title)
+        var destinations: [TabContextMoveDestination] = []
+        if app.canMoveSurfaceToNewWorkspace(panelId: panelId) {
+            destinations.append(TabContextMoveDestination(
+                id: Self.bonsplitMoveNewWorkspaceDestinationId,
+                title: String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
+            ))
         }
-        popup.selectItem(at: 0)
-        alert.accessoryView = popup
-        alert.addButton(withTitle: String(localized: "alert.moveTab.move", defaultValue: "Move"))
-        alert.addButton(withTitle: String(localized: "alert.cancel", defaultValue: "Cancel"))
+        destinations.append(contentsOf: workspaceTargets.map { target in
+            TabContextMoveDestination(
+                id: Self.bonsplitMoveExistingWorkspacePrefix + target.workspaceId.uuidString,
+                title: target.label
+            )
+        })
+        return destinations
+    }
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let selectedIndex = max(0, min(popup.indexOfSelectedItem, options.count - 1))
-        let destination = options[selectedIndex].destination
+    @discardableResult
+    private func moveBonsplitTab(_ tabId: TabID, toMoveDestination destinationId: String) -> Bool {
+        guard let panelId = panelIdFromSurfaceId(tabId),
+              let app = AppDelegate.shared else { return false }
 
         let moved: Bool
-        switch destination {
-        case .newWorkspaceInCurrentWindow:
-            guard let manager = app.tabManagerFor(tabId: id) else { return }
-            let workspace = manager.addWorkspace(select: true)
-            moved = app.moveSurface(
+        if destinationId == Self.bonsplitMoveNewWorkspaceDestinationId {
+            moved = app.moveSurfaceToNewWorkspace(
                 panelId: panelId,
-                toWorkspace: workspace.id,
                 focus: true,
                 focusWindow: false
-            )
-
-        case .selectedWorkspaceInNewWindow:
-            let newWindowId = app.createMainWindow()
-            guard let destinationManager = app.tabManagerFor(windowId: newWindowId),
-                  let destinationWorkspaceId = destinationManager.selectedTabId else {
-                return
-            }
-            moved = app.moveSurface(
-                panelId: panelId,
-                toWorkspace: destinationWorkspaceId,
-                focus: true,
-                focusWindow: true
-            )
-            if !moved {
-                _ = app.closeMainWindow(windowId: newWindowId)
-            }
-
-        case .existingWorkspace(let workspaceId):
+            ) != nil
+        } else if destinationId.hasPrefix(Self.bonsplitMoveExistingWorkspacePrefix) {
+            let rawWorkspaceId = destinationId.dropFirst(Self.bonsplitMoveExistingWorkspacePrefix.count)
+            guard let workspaceId = UUID(uuidString: String(rawWorkspaceId)) else { return false }
             moved = app.moveSurface(
                 panelId: panelId,
                 toWorkspace: workspaceId,
                 focus: true,
                 focusWindow: true
             )
+        } else {
+            moved = false
         }
 
         if !moved {
-            let failure = NSAlert()
-            failure.alertStyle = .warning
-            failure.messageText = String(localized: "alert.moveTab.failed.title", defaultValue: "Move Failed")
-            failure.informativeText = String(localized: "alert.moveTab.failed.message", defaultValue: "cmux could not move this tab to the selected destination.")
-            failure.addButton(withTitle: String(localized: "alert.ok", defaultValue: "OK"))
-            _ = failure.runModal()
+            showMoveTabFailureAlert()
         }
+        return moved
+    }
+
+    private func showMoveTabFailureAlert() {
+        let failure = NSAlert()
+        failure.alertStyle = .warning
+        failure.messageText = String(localized: "alert.moveTab.failed.title", defaultValue: "Move Failed")
+        failure.informativeText = String(localized: "alert.moveTab.failed.message", defaultValue: "cmux could not move this tab to the selected destination.")
+        failure.addButton(withTitle: String(localized: "alert.ok", defaultValue: "OK"))
+        _ = failure.runModal()
     }
 
     private func handleSessionDrop(
@@ -12610,6 +12793,71 @@ final class Workspace: Identifiable, ObservableObject {
                 initialInput: inputWithReturn
             )
             return panel != nil
+        }
+    }
+
+    func handleFilePreviewDrop(
+        entry: FilePreviewDragEntry,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        switch destination {
+        case .insert(let paneId, let index):
+            return !openFilePreviewSurfaces(
+                inPane: paneId,
+                filePaths: [entry.filePath],
+                focus: true,
+                targetIndex: index
+            ).isEmpty
+        case .split(let paneId, let orientation, let insertFirst):
+            return splitPaneWithFilePreview(
+                targetPane: paneId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                filePath: entry.filePath
+            ) != nil
+        }
+    }
+
+    private func handleExternalFileDrop(_ request: BonsplitController.ExternalFileDropRequest) -> Bool {
+        let entries = request.urls
+            .filter(\.isFileURL)
+            .map {
+                FilePreviewDragEntry(
+                    filePath: $0.path,
+                    displayTitle: $0.lastPathComponent
+                )
+            }
+        guard !entries.isEmpty else { return false }
+
+        switch request.destination {
+        case .insert(let paneId, let index):
+            return !openFilePreviewSurfaces(
+                inPane: paneId,
+                filePaths: entries.map(\.filePath),
+                focus: true,
+                targetIndex: index
+            ).isEmpty
+
+        case .split(let sourcePaneId, let orientation, let insertFirst):
+            guard let first = entries.first,
+                  let firstPanel = splitPaneWithFilePreview(
+                    targetPane: sourcePaneId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    filePath: first.filePath
+                  ) else {
+                return false
+            }
+
+            let targetPane = paneId(forPanelId: firstPanel.id) ?? sourcePaneId
+            var openedAny = true
+            let rest = openFilePreviewSurfaces(
+                inPane: targetPane,
+                filePaths: entries.dropFirst().map(\.filePath),
+                focus: true
+            )
+            openedAny = openedAny || !rest.isEmpty
+            return openedAny
         }
     }
 
@@ -12668,11 +12916,14 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
-    private func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
+    func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
         // Session-index drag → spawn a brand new terminal at the destination instead
         // of moving an existing tab.
         if let entry = SessionDragRegistry.shared.consume(id: request.tabId.uuid) {
             return handleSessionDrop(entry: entry, destination: request.destination)
+        }
+        if let entry = FilePreviewDragRegistry.shared.consume(id: request.tabId.uuid) {
+            return handleFilePreviewDrop(entry: entry, destination: request.destination)
         }
 
         guard let app = AppDelegate.shared else { return false }
@@ -13129,7 +13380,7 @@ extension Workspace: BonsplitDelegate {
         switch intent {
         case .browser(.addressBar), .browser(.findField), .terminal(.findField):
             return true
-        case .panel, .browser(.webView), .terminal(.surface):
+        case .panel, .browser(.webView), .terminal(.surface), .filePreview:
             return false
         }
     }
@@ -13236,8 +13487,7 @@ extension Workspace: BonsplitDelegate {
         }
 
         // Check if the panel needs close confirmation
-        guard let panelId = panelIdFromSurfaceId(tab.id),
-              let terminalPanel = terminalPanel(for: panelId) else {
+        guard let panelId = panelIdFromSurfaceId(tab.id) else {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
             return true
@@ -13246,7 +13496,7 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        if panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
+        if panelNeedsConfirmClose(panelId: panelId) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
@@ -13284,7 +13534,7 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+        stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
         recordPostCloseSelection()
         return true
     }
@@ -13566,8 +13816,7 @@ extension Workspace: BonsplitDelegate {
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
-               let terminalPanel = terminalPanel(for: panelId),
-               panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
+               panelNeedsConfirmClose(panelId: panelId) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
             }
@@ -13871,6 +14120,10 @@ extension Workspace: BonsplitDelegate {
             "pane=\(pane.id.uuidString.prefix(5)) identifier=\(identifier)"
         )
 #endif
+        if identifier == SurfaceKind.codexAppServer || identifier == "codex" || identifier == "cmux.newCodex" {
+            _ = newCodexAppServerSurface(inPane: pane)
+            return
+        }
         executeSurfaceTabBarCommandButton(identifier: identifier, inPane: pane)
     }
 
@@ -13881,6 +14134,9 @@ extension Workspace: BonsplitDelegate {
         case .clearName:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             setPanelCustomTitle(panelId: panelId, title: nil)
+        case .copyIdentifiers:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            copyIdentifiersToPasteboard(surfaceId: panelId)
         case .closeToLeft:
             closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
         case .closeToRight:
@@ -13888,9 +14144,17 @@ extension Workspace: BonsplitDelegate {
         case .closeOthers:
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
         case .move:
-            promptMovePanel(tabId: tab.id)
-        case .moveToLeftPane, .moveToRightPane:
-            break
+            if let destination = bonsplitTabMoveDestinations(for: tab.id).first {
+                _ = moveBonsplitTab(tab.id, toMoveDestination: destination.id)
+            }
+        case .moveToNewWorkspace:
+            _ = AppDelegate.shared?.moveBonsplitTabToNewWorkspace(tabId: tab.id.uuid, focus: true, focusWindow: false)
+        case .moveToLeftPane:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            _ = moveSurfaceToAdjacentPane(panelId: panelId, direction: .left)
+        case .moveToRightPane:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            _ = moveSurfaceToAdjacentPane(panelId: panelId, direction: .right)
         case .newTerminalToRight:
             createTerminalToRight(of: tab.id, inPane: pane)
         case .newBrowserToRight:
@@ -13917,6 +14181,10 @@ extension Workspace: BonsplitDelegate {
         @unknown default:
             break
         }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didRequestTabMoveToDestination destinationId: String, for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        _ = moveBonsplitTab(tab.id, toMoveDestination: destinationId)
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
