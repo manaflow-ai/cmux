@@ -13091,6 +13091,40 @@ struct CMUXCLI {
         case "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
             return
 
+        case "show-options", "show-option", "showopt", "show-window-options", "show-window-option", "showw":
+            // tmux's show-options is read-only: omx/codex/agents probe it for
+            // capability defaults (e.g. `tmux show-options -sv extended-keys`).
+            // Returning real tmux 3.x defaults keeps clients on the safe path
+            // (extended-keys=off → use legacy key encoding) without requiring
+            // a real tmux server.
+            // tmux accepts clustered short flags like `-sv` (= `-s -v`), so
+            // detect `-v` anywhere in any single-dash cluster.
+            let valueOnly = rawArgs.contains { token in
+                token.hasPrefix("-") && !token.hasPrefix("--") && token.dropFirst().contains("v")
+            }
+            let knownDefaults: [String: String] = [
+                "extended-keys": "off",
+                "focus-events": "off",
+                "mouse": "off",
+                "default-terminal": "tmux-256color",
+                "default-shell": ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
+                "status": "on",
+                "history-limit": "2000"
+            ]
+            let names = rawArgs.filter { !$0.hasPrefix("-") }
+            if names.isEmpty {
+                return
+            }
+            for name in names {
+                let value = knownDefaults[name] ?? ""
+                if valueOnly {
+                    print(value)
+                } else {
+                    print("\(name) \(value)")
+                }
+            }
+            return
+
         case "-V", "-v":
             print("tmux 3.4")
             return
