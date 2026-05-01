@@ -4,6 +4,74 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 
+private enum CmuxHelpResource {
+    case documentation
+    case whatsNew
+    case codexIntegration
+    case customCommands
+    case dock
+    case automationAPI
+    case browserAutomation
+    case configuration
+    case ssh
+    case githubIssues
+    case discord
+
+    var title: String {
+        switch self {
+        case .documentation:
+            return String(localized: "menu.help.cmuxDocumentation", defaultValue: "cmux Documentation")
+        case .whatsNew:
+            return String(localized: "menu.help.whatsNew", defaultValue: "What's New")
+        case .codexIntegration:
+            return String(localized: "menu.help.codexIntegration", defaultValue: "Codex Integration")
+        case .customCommands:
+            return String(localized: "menu.help.customCommands", defaultValue: "Custom Commands")
+        case .dock:
+            return String(localized: "menu.help.dock", defaultValue: "Dock")
+        case .automationAPI:
+            return String(localized: "menu.help.automationAPI", defaultValue: "Automation & API")
+        case .browserAutomation:
+            return String(localized: "menu.help.browserAutomation", defaultValue: "Browser Automation")
+        case .configuration:
+            return String(localized: "menu.help.configuration", defaultValue: "Configuration")
+        case .ssh:
+            return String(localized: "menu.help.ssh", defaultValue: "SSH")
+        case .githubIssues:
+            return String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues")
+        case .discord:
+            return String(localized: "sidebar.help.discord", defaultValue: "Discord")
+        }
+    }
+
+    var url: URL {
+        switch self {
+        case .documentation:
+            return URL(string: "https://cmux.com/docs")!
+        case .whatsNew:
+            return URL(string: "https://cmux.com/docs/changelog")!
+        case .codexIntegration:
+            return URL(string: "https://cmux.com/docs/agent-integrations/oh-my-codex")!
+        case .customCommands:
+            return URL(string: "https://cmux.com/docs/custom-commands")!
+        case .dock:
+            return URL(string: "https://cmux.com/docs/dock")!
+        case .automationAPI:
+            return URL(string: "https://cmux.com/docs/api")!
+        case .browserAutomation:
+            return URL(string: "https://cmux.com/docs/browser-automation")!
+        case .configuration:
+            return URL(string: "https://cmux.com/docs/configuration")!
+        case .ssh:
+            return URL(string: "https://cmux.com/docs/ssh")!
+        case .githubIssues:
+            return URL(string: "https://github.com/manaflow-ai/cmux/issues")!
+        case .discord:
+            return URL(string: "https://discord.gg/xsgFEVrWCZ")!
+        }
+    }
+}
+
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -621,6 +689,7 @@ struct cmuxApp: App {
                 TaskManagerWindowController.shared.show()
             }
         }
+        helpCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
@@ -774,6 +843,48 @@ struct cmuxApp: App {
             splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
                 showNotificationsPopover()
             }
+        }
+    }
+
+    @CommandsBuilder
+    private var helpCommands: some Commands {
+        CommandGroup(replacing: .help) {
+            helpResourceButton(.documentation)
+            helpResourceButton(.whatsNew)
+            helpResourceButton(.codexIntegration)
+            helpResourceButton(.customCommands)
+            helpResourceButton(.dock)
+            helpResourceButton(.automationAPI)
+            helpResourceButton(.browserAutomation)
+            helpResourceButton(.configuration)
+            helpResourceButton(.ssh)
+
+            Divider()
+
+            splitCommandButton(title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"), shortcut: menuShortcut(for: .sendFeedback)) {
+                presentFeedbackFromHelpMenu()
+            }
+
+            Button(String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates")) {
+                appDelegate.checkForUpdates(nil)
+            }
+
+            Divider()
+
+            helpResourceButton(.githubIssues)
+            helpResourceButton(.discord)
+
+            Divider()
+
+            Button(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")) {
+                openKeyboardShortcutsFromHelpMenu()
+            }
+        }
+    }
+
+    private func helpResourceButton(_ resource: CmuxHelpResource) -> some View {
+        Button(resource.title) {
+            NSWorkspace.shared.open(resource.url)
         }
     }
 
@@ -1089,6 +1200,29 @@ struct cmuxApp: App {
 
     private func showNotificationsPopover() {
         AppDelegate.shared?.toggleNotificationsPopover(animated: false)
+    }
+
+    private func openKeyboardShortcutsFromHelpMenu() {
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.openPreferencesWindow(
+                debugSource: "helpMenu.keyboardShortcuts",
+                navigationTarget: .keyboardShortcuts
+            )
+        } else {
+            AppDelegate.presentPreferencesWindow(navigationTarget: .keyboardShortcuts)
+        }
+    }
+
+    private func presentFeedbackFromHelpMenu() {
+        if let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow {
+            FeedbackComposerBridge.openComposer(in: targetWindow)
+            return
+        }
+
+        AppDelegate.shared?.showMainWindowFromMenuBar()
+        Task { @MainActor in
+            FeedbackComposerBridge.openComposer(in: NSApp.keyWindow ?? NSApp.mainWindow)
+        }
     }
 
 #if DEBUG

@@ -47,6 +47,43 @@ final class SidebarHelpMenuUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["ShortcutRecordingHint"].waitForExistence(timeout: 6.0))
     }
 
+    func testMainHelpMenuShowsCmuxResourcesAndOpensKeyboardShortcuts() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchAndActivate(app)
+
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+
+        let helpMenu = requireElement(
+            candidates: [
+                app.menuBars.menuBarItems["Help"],
+                app.menuBars.menuItems["Help"],
+            ],
+            timeout: 4.0,
+            description: "main Help menu"
+        )
+        helpMenu.click()
+
+        XCTAssertTrue(app.menuItems["cmux Documentation"].waitForExistence(timeout: 2.0))
+        XCTAssertTrue(app.menuItems["What's New"].waitForExistence(timeout: 2.0))
+        XCTAssertTrue(app.menuItems["Codex Integration"].waitForExistence(timeout: 2.0))
+        XCTAssertTrue(app.menuItems["Automation & API"].waitForExistence(timeout: 2.0))
+        XCTAssertTrue(app.menuItems["Send Feedback"].waitForExistence(timeout: 2.0))
+
+        let keyboardShortcutsItem = requireElement(
+            candidates: [
+                app.menuItems["Keyboard Shortcuts"],
+                app.buttons["Keyboard Shortcuts"],
+            ],
+            timeout: 2.0,
+            description: "Keyboard Shortcuts Help menu item"
+        )
+        keyboardShortcutsItem.click()
+
+        XCTAssertTrue(app.staticTexts["ShortcutRecordingHint"].waitForExistence(timeout: 6.0))
+    }
+
     func testHelpMenuCheckForUpdatesTriggersSidebarUpdatePill() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
