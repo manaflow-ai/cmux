@@ -305,7 +305,73 @@ jobs:
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_explicit_socket_no_autodiscovery.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_timeout.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_argument_parser_inventory.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_shell_completion.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_themes_contract.py
+
+      - name: Compare CLI golden contract against base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+
+          CANDIDATE_CLI="$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "${CANDIDATE_CLI:-}" ] || [ ! -x "$CANDIDATE_CLI" ]; then
+            echo "candidate cmux CLI binary not found in DerivedData" >&2
+            exit 1
+          fi
+
+          BASELINE_DIR="$(mktemp -d /tmp/cmux-cli-baseline.XXXXXX)"
+          BASELINE_DERIVED_DATA="$(mktemp -d /tmp/cmux-cli-baseline-dd.XXXXXX)"
+          BASELINE_SOURCE_PACKAGES="$PWD/.ci-source-packages-baseline"
+          cleanup() {
+            git worktree remove --force "$BASELINE_DIR" >/dev/null 2>&1 || true
+            rm -rf "$BASELINE_DERIVED_DATA"
+            rm -rf "$BASELINE_SOURCE_PACKAGES"
+          }
+          trap cleanup EXIT
+
+          git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF"
+          git worktree add --detach "$BASELINE_DIR" FETCH_HEAD
+          git -C "$BASELINE_DIR" submodule update --init --recursive
+          mkdir -p "$BASELINE_SOURCE_PACKAGES"
+
+          for attempt in 1 2 3; do
+            if xcodebuild -project "$BASELINE_DIR/GhosttyTabs.xcodeproj" \
+              -scheme cmux-cli \
+              -configuration Debug \
+              -clonedSourcePackagesDirPath "$BASELINE_SOURCE_PACKAGES" \
+              -resolvePackageDependencies; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to resolve baseline Swift packages after 3 attempts" >&2
+              exit 1
+            fi
+            echo "Baseline package resolution failed on attempt $attempt, retrying..."
+            sleep $((attempt * 5))
+          done
+
+          xcodebuild -project "$BASELINE_DIR/GhosttyTabs.xcodeproj" \
+            -scheme cmux-cli \
+            -configuration Debug \
+            -clonedSourcePackagesDirPath "$BASELINE_SOURCE_PACKAGES" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -derivedDataPath "$BASELINE_DERIVED_DATA" \
+            build
+
+          BASELINE_CLI="$BASELINE_DERIVED_DATA/Build/Products/Debug/cmux"
+          CMUX_BASELINE_CLI="$BASELINE_CLI" \
+            CMUX_CANDIDATE_CLI="$CANDIDATE_CLI" \
+            python3 tests/test_cli_golden_contract.py
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on WarpBuild.

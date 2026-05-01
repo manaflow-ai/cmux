@@ -926,6 +926,26 @@ final class SocketClient {
         let relayToken: Data
     }
 
+    private struct SocketDeadline {
+        let end: TimeInterval
+
+        init(timeout: TimeInterval) { end = ProcessInfo.processInfo.systemUptime + Self.sanitized(timeout) }
+
+        static func earlier(_ lhs: SocketDeadline, _ rhs: SocketDeadline) -> SocketDeadline {
+            SocketDeadline(end: min(lhs.end, rhs.end))
+        }
+
+        var remaining: TimeInterval { max(0, end - ProcessInfo.processInfo.systemUptime) }
+        var hasTimeRemaining: Bool { remaining > 0 }
+
+        private static func sanitized(_ timeout: TimeInterval) -> TimeInterval {
+            let timeout = timeout.isFinite ? timeout : SocketClient.defaultResponseTimeoutSeconds
+            return min(max(timeout, 0), SocketClient.maxSocketTimeoutSeconds)
+        }
+
+        private init(end: TimeInterval) { self.end = end }
+    }
+
     private let path: String
     private var socketFD: Int32 = -1
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
@@ -1007,6 +1027,14 @@ final class SocketClient {
         )
     }
 
+    private static func pollTimeoutMilliseconds(forRemaining timeout: TimeInterval) -> Int32 {
+        guard timeout > 0 else { return 0 }
+        let sanitizedTimeout = timeout.isFinite ? timeout : defaultResponseTimeoutSeconds
+        let maxPollTimeout = TimeInterval(Int32.max) / 1_000
+        let clampedTimeout = min(max(sanitizedTimeout, 0.001), maxPollTimeout)
+        return Int32((clampedTimeout * 1_000).rounded(.up))
+    }
+
     private func recordOperation(_ operation: CLISocketOperationTelemetry.State) {
         lastOperationTelemetry = operation
     }
@@ -1053,15 +1081,25 @@ final class SocketClient {
 
         var data = Data()
         var sawNewline = false
+        let responseDeadline = SocketDeadline(timeout: initialResponseTimeout)
+        var multilineIdleDeadline: SocketDeadline?
         var receivedCompleteResponse = false
 
         while true {
-            let currentTimeout = sawNewline ? Self.multilineResponseIdleTimeoutSeconds : initialResponseTimeout
+            let readDeadline = multilineIdleDeadline.map {
+                SocketDeadline.earlier(responseDeadline, $0)
+            } ?? responseDeadline
             operation.phase = sawNewline ? .readMultilineResponse : .waitForResponse
             operation.sawNewline = sawNewline
-            operation.timeout = currentTimeout
+            operation.timeout = readDeadline.remaining
             recordOperation(operation)
-            try configureReceiveTimeout(currentTimeout)
+            guard try waitForReadable(until: readDeadline, failureMessage: "Socket read error") else {
+                if sawNewline {
+                    receivedCompleteResponse = true
+                    break
+                }
+                throw CLIError(message: "Command timed out")
+            }
 
             var buffer = [UInt8](repeating: 0, count: 8192)
             let count = Darwin.read(socketFD, &buffer, buffer.count)
@@ -1098,6 +1136,7 @@ final class SocketClient {
                     receivedCompleteResponse = true
                     break
                 }
+                multilineIdleDeadline = SocketDeadline(timeout: Self.multilineResponseIdleTimeoutSeconds)
             }
         }
 
@@ -1245,7 +1284,6 @@ final class SocketClient {
         }
         do {
             try configureSocketWriteSafety(Self.responseTimeoutSeconds)
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
         } catch {
             close()
             throw error
@@ -1389,9 +1427,12 @@ final class SocketClient {
 
     private func readLine(maxBytes: Int = 16 * 1024) throws -> String {
         var data = Data()
+        let deadline = SocketDeadline(timeout: Self.responseTimeoutSeconds)
 
         while data.count < maxBytes {
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
+            guard try waitForReadable(until: deadline, failureMessage: "Relay socket read error") else {
+                throw CLIError(message: "Relay command timed out")
+            }
 
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
@@ -1422,20 +1463,31 @@ final class SocketClient {
         return line.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func configureReceiveTimeout(_ timeout: TimeInterval) throws {
-        var interval = Self.socketTimeval(for: timeout)
-        let result = withUnsafePointer(to: &interval) { ptr in
-            setsockopt(
-                socketFD,
-                SOL_SOCKET,
-                SO_RCVTIMEO,
-                ptr,
-                socklen_t(MemoryLayout<timeval>.size)
-            )
+    private func waitForReadable(until deadline: SocketDeadline, failureMessage: String) throws -> Bool {
+        var descriptor = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
+
+        while deadline.hasTimeRemaining {
+            descriptor.revents = 0
+            let result = Darwin.poll(&descriptor, 1, Self.pollTimeoutMilliseconds(forRemaining: deadline.remaining))
+            if result > 0 {
+                let revents = Int32(descriptor.revents)
+                if revents & (POLLERR | POLLNVAL) != 0 {
+                    throw CLIError(message: failureMessage)
+                }
+                if revents & (POLLIN | POLLHUP) != 0 {
+                    return true
+                }
+                throw CLIError(message: failureMessage)
+            }
+            if result == 0 {
+                return false
+            }
+            if errno == EINTR {
+                continue
+            }
+            throw CLIError(message: failureMessage)
         }
-        guard result == 0 else {
-            throw CLIError(message: "Failed to configure socket receive timeout")
-        }
+        return false
     }
 
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
@@ -1962,64 +2014,29 @@ struct CMUXCLI {
     }
 
     func run() throws {
-        let processEnv = ProcessInfo.processInfo.environment
-        var explicitSocketPath: String? = nil
-        var jsonOutput = false
-        var idFormatArg: String? = nil
-        var windowId: String? = nil
-        var socketPasswordArg: String? = nil
-
-        var index = 1
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--socket" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--socket requires a path")
-                }
-                explicitSocketPath = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--json" {
-                jsonOutput = true
-                index += 1
-                continue
-            }
-            if arg == "--id-format" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--id-format requires a value (refs|uuids|both)")
-                }
-                idFormatArg = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--window" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--window requires a window id")
-                }
-                windowId = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--password" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--password requires a value")
-                }
-                socketPasswordArg = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "-v" || arg == "--version" {
-                print(versionSummary())
-                return
-            }
-            if arg == "-h" || arg == "--help" {
-                print(usage())
-                return
-            }
-            break
+        if Self.isArgumentParserCompletionRequest(args) {
+            Self.runArgumentParserCompletion(args)
         }
 
+        let processEnv = ProcessInfo.processInfo.environment
+        let root = try parseRootArguments()
+        let rootArguments = root.arguments
+        let explicitSocketPath = rootArguments.socket
+        let jsonOutput = rootArguments.json
+        let idFormatArg = rootArguments.idFormat
+        let windowId = rootArguments.window
+        let socketPasswordArg = rootArguments.password
+
+        if rootArguments.version {
+            print(versionSummary())
+            return
+        }
+        if rootArguments.help {
+            print(usage())
+            return
+        }
+
+        let index = root.commandIndex
         guard index < args.count else {
             print(usage())
             throw CLIError(message: "Missing command")
@@ -2027,6 +2044,7 @@ struct CMUXCLI {
 
         let command = args[index]
         let commandArgs = Array(args[(index + 1)...])
+        _ = parseKnownCommandName(TopLevelCommandName.self, raw: command)
 
         if command == "version" {
             print(versionSummary())
@@ -2051,6 +2069,10 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == Self.argumentParserInventoryCommand {
+            try runArgumentParserInventory(commandArgs: commandArgs)
+            return
+        }
 
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
@@ -2180,6 +2202,7 @@ struct CMUXCLI {
         // Codex hooks management (no socket needed)
         if command == "codex" {
             let sub = commandArgs.first?.lowercased() ?? "help"
+            _ = parseKnownCommandName(AgentInstallerSubcommandName.self, raw: sub)
             if sub == "install-hooks" {
                 try installHooksForAgent(Self.agentDef(named: "codex")!, arguments: Array(commandArgs.dropFirst()))
                 return
@@ -2196,7 +2219,12 @@ struct CMUXCLI {
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
-               !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) {
+               !commandArgs.contains(where: {
+                   $0 == "--workspace"
+                       || $0 == "--surface"
+                       || $0.hasPrefix("--workspace=")
+                       || $0.hasPrefix("--surface=")
+               }) {
                 print("{}")
                 return
             }
@@ -2204,24 +2232,8 @@ struct CMUXCLI {
 
         // Feed helpers: clear the persistent workstream history.
         if command == "feed" {
-            let sub = commandArgs.first?.lowercased() ?? "help"
-            switch sub {
-            case "clear":
-                try runFeedClear()
-                return
-            case "tui":
-                try runFeedTUI(
-                    arguments: Array(commandArgs.dropFirst()),
-                    socketPath: resolvedSocketPath,
-                    socketPassword: socketPasswordArg
-                )
-                return
-            case "help", "--help", "-h":
-                print("Usage: cmux feed tui [--opentui|--legacy]\n       cmux feed clear [--yes]")
-                return
-            default:
-                throw CLIError(message: "Unknown feed subcommand: \(sub)")
-            }
+            try runFeed(commandArgs: commandArgs, socketPath: resolvedSocketPath, socketPassword: socketPasswordArg)
+            return
         }
 
         let browserAvailabilityArgs = commandArgs.filter { $0 != "--json" }
@@ -2298,6 +2310,7 @@ struct CMUXCLI {
 
         case "auth":
             let sub = commandArgs.first?.lowercased() ?? "status"
+            _ = parseKnownCommandName(AuthSubcommandName.self, raw: sub)
             switch sub {
             case "status":
                 let response = try client.sendV2(method: "auth.status")
@@ -2365,6 +2378,7 @@ struct CMUXCLI {
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
             let rest = Array(commandArgs.dropFirst())
+            _ = parseKnownCommandName(VMSubcommandName.self, raw: sub)
             switch sub {
             case "ls", "list":
                 let response = try client.sendV2(method: "vm.list")
@@ -3509,6 +3523,7 @@ struct CMUXCLI {
         // a single positional argument as shorthand path.
         let subArgs: [String]
         if let first = args.first, first.lowercased() == "open" {
+            _ = parseKnownCommandName(MarkdownSubcommandName.self, raw: first.lowercased())
             subArgs = Array(args.dropFirst())
         } else if args.count == 1, let first = args.first, !first.hasPrefix("-") {
             subArgs = [first]
@@ -6957,6 +6972,7 @@ struct CMUXCLI {
         }
         let subcommand = subcommandRaw.lowercased()
         let subArgs = Array(args.dropFirst())
+        _ = parseKnownCommandName(BrowserSubcommandName.self, raw: subcommand)
 
         func requireSurface() throws -> String {
             guard let raw = surfaceRaw else {
@@ -7578,6 +7594,7 @@ struct CMUXCLI {
             guard let getVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser get requires a subcommand")
             }
+            _ = parseKnownCommandName(BrowserGetSubcommandName.self, raw: getVerb)
             let getArgs = Array(subArgs.dropFirst())
 
             switch getVerb {
@@ -7648,6 +7665,7 @@ struct CMUXCLI {
             guard let isVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser is requires a subcommand")
             }
+            _ = parseKnownCommandName(BrowserIsSubcommandName.self, raw: isVerb)
             let isArgs = Array(subArgs.dropFirst())
             let (selectorOpt, rem1) = parseOption(isArgs, name: "--selector")
             let selector = selectorOpt ?? rem1.first
@@ -7680,6 +7698,7 @@ struct CMUXCLI {
             guard let locator = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser find requires a locator (role|text|label|placeholder|alt|title|testid|first|last|nth)")
             }
+            _ = parseKnownCommandName(BrowserFindSubcommandName.self, raw: locator)
             let locatorArgs = Array(subArgs.dropFirst())
 
             var params: [String: Any] = ["surface_id": sid]
@@ -7756,6 +7775,7 @@ struct CMUXCLI {
             guard let frameVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser frame requires <selector|main>")
             }
+            _ = parseKnownCommandName(BrowserFrameSubcommandName.self, raw: frameVerb)
             if frameVerb == "main" {
                 let payload = try client.sendV2(method: "browser.frame.main", params: ["surface_id": sid])
                 output(payload, fallback: "OK")
@@ -7776,6 +7796,7 @@ struct CMUXCLI {
             guard let dialogVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser dialog requires <accept|dismiss> [text]")
             }
+            _ = parseKnownCommandName(BrowserDialogSubcommandName.self, raw: dialogVerb)
             let remainder = Array(subArgs.dropFirst())
             switch dialogVerb {
             case "accept":
@@ -7797,6 +7818,9 @@ struct CMUXCLI {
 
         if subcommand == "download" {
             let sid = try requireSurface()
+            if let firstDownloadArg = subArgs.first?.lowercased() {
+                _ = parseKnownCommandName(BrowserDownloadSubcommandName.self, raw: firstDownloadArg)
+            }
             let argsForDownload: [String]
             if subArgs.first?.lowercased() == "wait" {
                 argsForDownload = Array(subArgs.dropFirst())
@@ -7832,6 +7856,7 @@ struct CMUXCLI {
         if subcommand == "cookies" {
             let sid = try requireSurface()
             let cookieVerb = subArgs.first?.lowercased() ?? "get"
+            _ = parseKnownCommandName(BrowserCookiesSubcommandName.self, raw: cookieVerb)
             let cookieArgs = subArgs.first != nil ? Array(subArgs.dropFirst()) : []
 
             let (nameOpt, rem1) = parseOption(cookieArgs, name: "--name")
@@ -7891,10 +7916,12 @@ struct CMUXCLI {
             let sid = try requireSurface()
             let storageArgs = subArgs
             let storageType = storageArgs.first?.lowercased() ?? "local"
+            _ = parseKnownCommandName(BrowserStorageTypeName.self, raw: storageType)
             guard storageType == "local" || storageType == "session" else {
                 throw CLIError(message: "browser storage requires type: local|session")
             }
             let op = storageArgs.count >= 2 ? storageArgs[1].lowercased() : "get"
+            _ = parseKnownCommandName(BrowserStorageOperationName.self, raw: op)
             let rest = storageArgs.count > 2 ? Array(storageArgs.dropFirst(2)) : []
             let positional = nonFlagArgs(rest)
 
@@ -7938,6 +7965,7 @@ struct CMUXCLI {
                 tabVerb = "list"
                 tabArgs = subArgs
             }
+            _ = parseKnownCommandName(BrowserTabSubcommandName.self, raw: tabVerb)
 
             switch tabVerb {
             case "list":
@@ -7973,6 +8001,7 @@ struct CMUXCLI {
         if subcommand == "console" {
             let sid = try requireSurface()
             let consoleVerb = subArgs.first?.lowercased() ?? "list"
+            _ = parseKnownCommandName(BrowserLogSubcommandName.self, raw: consoleVerb)
             let method = (consoleVerb == "clear") ? "browser.console.clear" : "browser.console.list"
             if consoleVerb != "list" && consoleVerb != "clear" {
                 throw CLIError(message: "Unsupported browser console subcommand: \(consoleVerb)")
@@ -7989,6 +8018,7 @@ struct CMUXCLI {
         if subcommand == "errors" {
             let sid = try requireSurface()
             let errorsVerb = subArgs.first?.lowercased() ?? "list"
+            _ = parseKnownCommandName(BrowserLogSubcommandName.self, raw: errorsVerb)
             var params: [String: Any] = ["surface_id": sid]
             if errorsVerb == "clear" {
                 params["clear"] = true
@@ -8021,6 +8051,7 @@ struct CMUXCLI {
             guard let stateVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser state requires save|load <path>")
             }
+            _ = parseKnownCommandName(BrowserStateSubcommandName.self, raw: stateVerb)
             guard subArgs.count >= 2 else {
                 throw CLIError(message: "browser state \(stateVerb) requires a file path")
             }
@@ -8093,6 +8124,7 @@ struct CMUXCLI {
             guard let traceVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser trace requires start|stop")
             }
+            _ = parseKnownCommandName(BrowserTraceSubcommandName.self, raw: traceVerb)
             let method: String
             switch traceVerb {
             case "start":
@@ -8116,6 +8148,7 @@ struct CMUXCLI {
             guard let networkVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser network requires route|unroute|requests")
             }
+            _ = parseKnownCommandName(BrowserNetworkSubcommandName.self, raw: networkVerb)
             let networkArgs = Array(subArgs.dropFirst())
             switch networkVerb {
             case "route":
@@ -8152,6 +8185,7 @@ struct CMUXCLI {
             guard let castVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser screencast requires start|stop")
             }
+            _ = parseKnownCommandName(BrowserScreencastSubcommandName.self, raw: castVerb)
             let method: String
             switch castVerb {
             case "start":
@@ -8171,6 +8205,7 @@ struct CMUXCLI {
             guard let inputVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser input requires mouse|keyboard|touch")
             }
+            _ = parseKnownCommandName(BrowserInputSubcommandName.self, raw: inputVerb)
             let remainder = Array(subArgs.dropFirst())
             let method: String
             switch inputVerb {
@@ -9798,62 +9833,19 @@ struct CMUXCLI {
         return "\"\(escaped)\""
     }
     func parseOption(_ args: [String], name: String) -> (String?, [String]) {
-        var remaining: [String] = []
-        var value: String?
-        var skipNext = false
-        var pastTerminator = false
-        for (idx, arg) in args.enumerated() {
-            if skipNext {
-                skipNext = false
-                continue
-            }
-            if arg == "--" {
-                pastTerminator = true
-                remaining.append(arg)
-                continue
-            }
-            if !pastTerminator, arg == name, idx + 1 < args.count {
-                value = args[idx + 1]
-                skipNext = true
-                continue
-            }
-            remaining.append(arg)
-        }
-        return (value, remaining)
+        parseCompatibleCommandArguments(args).option(name)
     }
 
     private func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
-        var remaining: [String] = []
-        var values: [String] = []
-        var skipNext = false
-        var pastTerminator = false
-        for (idx, arg) in args.enumerated() {
-            if skipNext {
-                skipNext = false
-                continue
-            }
-            if arg == "--" {
-                pastTerminator = true
-                remaining.append(arg)
-                continue
-            }
-            if !pastTerminator, arg == name, idx + 1 < args.count {
-                values.append(args[idx + 1])
-                skipNext = true
-                continue
-            }
-            remaining.append(arg)
-        }
-        return (values, remaining)
+        parseCompatibleCommandArguments(args).repeatedOption(name)
     }
 
     private func optionValue(_ args: [String], name: String) -> String? {
-        guard let index = args.firstIndex(of: name), index + 1 < args.count else { return nil }
-        return args[index + 1]
+        parseCompatibleCommandArguments(args).value(for: name)
     }
 
     func hasFlag(_ args: [String], name: String) -> Bool {
-        args.contains(name)
+        parseCompatibleCommandArguments(args).hasFlag(name)
     }
 
     private func replaceToken(_ args: [String], from: String, to: String) -> [String] {
@@ -12694,6 +12686,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         let (command, rawArgs) = try splitTmuxCommand(commandArgs)
+        _ = parseKnownCommandName(TmuxShimCommandName.self, raw: command)
 
         switch command {
         case "new-session", "new":
@@ -13388,6 +13381,8 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        _ = parseKnownCommandName(TopLevelTmuxCommandName.self, raw: command)
+
         switch command {
         case "capture-pane":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -13765,6 +13760,7 @@ struct CMUXCLI {
         telemetry: CLISocketSentryTelemetry
     ) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
+        _ = parseKnownCommandName(ClaudeHookSubcommandName.self, raw: subcommand)
         let hookArgs = Array(commandArgs.dropFirst())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
@@ -16999,6 +16995,7 @@ export default CMUXSessionRestore;
     private func runGenericAgentHook(def: AgentHookDef, commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? ""
+        _ = parseKnownCommandName(GenericAgentHookSubcommandName.self, raw: subcommand)
         let hookArgs = Array(commandArgs.dropFirst())
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
@@ -18104,20 +18101,18 @@ export default CMUXSessionRestore;
 
     private static let openTUIFeedCoreVersion = "0.1.106"
 
-    private enum FeedTUIImplementation {
+    enum FeedTUIImplementation {
         case automatic
         case openTUI
         case legacy
         case help
     }
 
-    private func runFeedTUI(arguments: [String], socketPath: String, socketPassword: String?) throws {
+    func runFeedTUI(implementation: FeedTUIImplementation, socketPath: String, socketPassword: String?) throws {
         let resolvedSocketPassword = SocketPasswordResolver.resolve(
             explicit: socketPassword,
             socketPath: socketPath
         )
-        let implementation = try parseFeedTUIImplementation(arguments: arguments)
-        if implementation == .help { return }
         if implementation == .legacy || ProcessInfo.processInfo.environment["CMUX_FEED_TUI_LEGACY"] == "1" {
             try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
             return
@@ -18136,6 +18131,12 @@ export default CMUXSessionRestore;
             )
             try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
         }
+    }
+
+    func runFeedTUI(arguments: [String], socketPath: String, socketPassword: String?) throws {
+        let implementation = try parseFeedTUIImplementation(arguments: arguments)
+        if implementation == .help { return }
+        try runFeedTUI(implementation: implementation, socketPath: socketPath, socketPassword: socketPassword)
     }
 
     private func parseFeedTUIImplementation(arguments: [String]) throws -> FeedTUIImplementation {
@@ -19044,7 +19045,7 @@ export default CMUXSessionRestore;
         return String(sanitized[..<end]) + suffix
     }
 
-    private func runFeedClear() throws {
+    func runFeedClear(skipConfirm: Bool) throws {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let path = home
             .appendingPathComponent(".cmuxterm", isDirectory: true)
@@ -19054,8 +19055,6 @@ export default CMUXSessionRestore;
             print("No Feed history to clear (\(path.path) does not exist).")
             return
         }
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
-            || ProcessInfo.processInfo.arguments.contains("-y")
         if !skipConfirm {
             print("This will permanently delete \(path.path). Proceed? [y/N] ", terminator: "")
             guard readLine()?.lowercased().hasPrefix("y") == true else {

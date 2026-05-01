@@ -1,3 +1,4 @@
+import ArgumentParser
 import Foundation
 import Darwin
 
@@ -23,6 +24,67 @@ extension CMUXCLI {
         case both
         case light
         case dark
+    }
+
+    enum ThemesCommandRequest {
+        case list
+        case clear
+        case set(ThemesSetArguments)
+    }
+
+    struct ThemesArguments: ParsableArguments {
+        @Argument(parsing: .allUnrecognized)
+        var tokens: [String] = []
+
+        func commandRequest(using cli: CMUXCLI) throws -> ThemesCommandRequest? {
+            guard let subcommand = tokens.first else {
+                return nil
+            }
+            _ = cli.parseKnownCommandName(ThemeSubcommandName.self, raw: subcommand.lowercased())
+
+            switch subcommand {
+            case "list":
+                guard tokens.count == 1 else {
+                    throw CLIError(message: "themes list does not take any positional arguments")
+                }
+                return .list
+            case "set":
+                return .set(try cli.parseCLIArguments(ThemesSetArguments.self, Array(tokens.dropFirst())))
+            case "clear":
+                guard tokens.count == 1 else {
+                    throw CLIError(message: "themes clear does not take any positional arguments")
+                }
+                return .clear
+            default:
+                guard !subcommand.hasPrefix("-") else {
+                    throw CLIError(message: "Unknown themes subcommand '\(subcommand)'. Run 'cmux themes --help'.")
+                }
+                return .set(try cli.parseCLIArguments(ThemesSetArguments.self, tokens))
+            }
+        }
+    }
+
+    struct ThemesSetArguments: ParsableArguments {
+        @Option(name: .long, parsing: .unconditionalSingleValue)
+        var light: [String] = []
+
+        @Option(name: .long, parsing: .unconditionalSingleValue)
+        var dark: [String] = []
+
+        @Argument(parsing: .allUnrecognized)
+        var themeParts: [String] = []
+
+        var lightTheme: String? {
+            light.last
+        }
+
+        var darkTheme: String? {
+            dark.last
+        }
+
+        var positionalTheme: String {
+            themeParts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 
     private func shouldUseInteractiveThemePicker(jsonOutput: Bool) -> Bool {
@@ -170,7 +232,8 @@ extension CMUXCLI {
     }
 
     func runThemes(commandArgs: [String], jsonOutput: Bool) throws {
-        if commandArgs.isEmpty {
+        let parsed = try parseCLIArguments(ThemesArguments.self, commandArgs)
+        guard let request = try parsed.commandRequest(using: self) else {
             if shouldUseInteractiveThemePicker(jsonOutput: jsonOutput) {
                 try runInteractiveThemes()
                 return
@@ -179,36 +242,16 @@ extension CMUXCLI {
             return
         }
 
-        guard let subcommand = commandArgs.first else {
+        switch request {
+        case .list:
             try printThemesList(jsonOutput: jsonOutput)
-            return
-        }
-
-        switch subcommand {
-        case "list":
-            if commandArgs.count > 1 {
-                throw CLIError(message: "themes list does not take any positional arguments")
-            }
-            try printThemesList(jsonOutput: jsonOutput)
-        case "set":
+        case .set(let args):
             try runThemesSet(
-                args: Array(commandArgs.dropFirst()),
+                args: args,
                 jsonOutput: jsonOutput
             )
-        case "clear":
-            if commandArgs.count > 1 {
-                throw CLIError(message: "themes clear does not take any positional arguments")
-            }
+        case .clear:
             try runThemesClear(jsonOutput: jsonOutput)
-        default:
-            if subcommand.hasPrefix("-") {
-                throw CLIError(message: "Unknown themes subcommand '\(subcommand)'. Run 'cmux themes --help'.")
-            }
-
-            try runThemesSet(
-                args: commandArgs,
-                jsonOutput: jsonOutput
-            )
         }
     }
 
@@ -265,11 +308,8 @@ extension CMUXCLI {
         }
     }
 
-    private func runThemesSet(args: [String], jsonOutput: Bool) throws {
-        let (lightOpt, rem0) = parseOption(args, name: "--light")
-        let (darkOpt, rem1) = parseOption(rem0, name: "--dark")
-
-        if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
+    private func runThemesSet(args: ThemesSetArguments, jsonOutput: Bool) throws {
+        if let unknown = args.themeParts.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: "themes set: unknown flag '\(unknown)'. Known flags: --light <theme>, --dark <theme>")
         }
 
@@ -279,20 +319,20 @@ extension CMUXCLI {
         let lightTheme: String?
         let darkTheme: String?
 
-        if lightOpt == nil && darkOpt == nil {
-            let joinedTheme = rem1.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !joinedTheme.isEmpty else {
+        if args.lightTheme == nil && args.darkTheme == nil {
+            let positionalTheme = args.positionalTheme
+            guard !positionalTheme.isEmpty else {
                 throw CLIError(message: "themes set requires a theme name or --light/--dark flags")
             }
-            let resolved = try validatedThemeName(joinedTheme, availableThemes: availableThemes)
+            let resolved = try validatedThemeName(positionalTheme, availableThemes: availableThemes)
             lightTheme = resolved
             darkTheme = resolved
         } else {
-            if !rem1.isEmpty {
-                throw CLIError(message: "themes set: unexpected argument '\(rem1.joined(separator: " "))'")
+            if !args.themeParts.isEmpty {
+                throw CLIError(message: "themes set: unexpected argument '\(args.themeParts.joined(separator: " "))'")
             }
-            lightTheme = try lightOpt.map { try validatedThemeName($0, availableThemes: availableThemes) } ?? current.light
-            darkTheme = try darkOpt.map { try validatedThemeName($0, availableThemes: availableThemes) } ?? current.dark
+            lightTheme = try args.lightTheme.map { try validatedThemeName($0, availableThemes: availableThemes) } ?? current.light
+            darkTheme = try args.darkTheme.map { try validatedThemeName($0, availableThemes: availableThemes) } ?? current.dark
         }
 
         guard let rawThemeValue = encodedThemeValue(light: lightTheme, dark: darkTheme) else {

@@ -188,14 +188,20 @@
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
-		B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* cmux_open.swift */; };
+		B9000051A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000050A1B2C3D4E5F60719 /* cmux_open.swift */; };
 		D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
+		B9000035A1B2C3D4E5F60719 /* CMUXCLI+Feed.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000036A1B2C3D4E5F60719 /* CMUXCLI+Feed.swift */; };
+		B9000037A1B2C3D4E5F60719 /* CMUXCLI+CommandInventory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000038A1B2C3D4E5F60719 /* CMUXCLI+CommandInventory.swift */; };
+		B9000039A1B2C3D4E5F60719 /* CMUXCLI+BrowserCommandInventory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000040A1B2C3D4E5F60719 /* CMUXCLI+BrowserCommandInventory.swift */; };
+		B9000043A1B2C3D4E5F60719 /* CMUXCLI+CommandInventoryVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000044A1B2C3D4E5F60719 /* CMUXCLI+CommandInventoryVerification.swift */; };
+		B9000041A1B2C3D4E5F60719 /* CMUXCLI+Completion.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000042A1B2C3D4E5F60719 /* CMUXCLI+Completion.swift */; };
+		B9000045A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000046A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */; };
 		B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */; };
 		B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */; };
-		B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */; };
+		B9000031A1B2C3D4E5F60719 /* CMUXCLI+RootArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* CMUXCLI+RootArguments.swift */; };
+		B9000047A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000048A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */; };
 		D7AB00000000000000000011 /* WorkspaceAdjacentPaneMoveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */; };
-		B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */; };
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 		FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F008 /* FeedSidebarUITests.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
@@ -205,6 +211,7 @@
 		B900001BA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900001CA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift */; };
 		B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */; };
 		F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */; };
+		B9000034A1B2C3D4E5F60719 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = B9000033A1B2C3D4E5F60719 /* ArgumentParser */; };
 		B9000024A1B2C3D4E5F60719 /* Sentry-Dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = A5001253 /* Sentry-Dynamic */; };
 		B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */; };
 		B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
@@ -511,14 +518,20 @@
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
 		B9000001A1B2C3D4E5F60719 /* cmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux.swift; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
-		B9000030A1B2C3D4E5F60719 /* cmux_open.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux_open.swift; sourceTree = "<group>"; };
+		B9000050A1B2C3D4E5F60719 /* cmux_open.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux_open.swift; sourceTree = "<group>"; };
 		D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
 		B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Themes.swift"; sourceTree = "<group>"; };
 		B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ThemeSupport.swift"; sourceTree = "<group>"; };
-		B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DocsSettings.swift"; sourceTree = "<group>"; };
+		B9000030A1B2C3D4E5F60719 /* CMUXCLI+RootArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RootArguments.swift"; sourceTree = "<group>"; };
+		B9000036A1B2C3D4E5F60719 /* CMUXCLI+Feed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Feed.swift"; sourceTree = "<group>"; };
+		B9000038A1B2C3D4E5F60719 /* CMUXCLI+CommandInventory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CommandInventory.swift"; sourceTree = "<group>"; };
+		B9000040A1B2C3D4E5F60719 /* CMUXCLI+BrowserCommandInventory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+BrowserCommandInventory.swift"; sourceTree = "<group>"; };
+		B9000044A1B2C3D4E5F60719 /* CMUXCLI+CommandInventoryVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CommandInventoryVerification.swift"; sourceTree = "<group>"; };
+		B9000042A1B2C3D4E5F60719 /* CMUXCLI+Completion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Completion.swift"; sourceTree = "<group>"; };
+		B9000046A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DocsSettings.swift"; sourceTree = "<group>"; };
+		B9000048A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TopRendering.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAdjacentPaneMoveTests.swift; sourceTree = "<group>"; };
-		B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TopRendering.swift"; sourceTree = "<group>"; };
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F008 /* FeedSidebarUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSidebarUITests.swift; sourceTree = "<group>"; };
 		B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
@@ -608,6 +621,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B9000034A1B2C3D4E5F60719 /* ArgumentParser in Frameworks */,
 				B9000024A1B2C3D4E5F60719 /* Sentry-Dynamic in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -889,14 +903,28 @@
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
-				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
+				B9000050A1B2C3D4E5F60719 /* cmux_open.swift */,
 				D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */,
-				B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */,
+				B9000030A1B2C3D4E5F60719 /* CMUXCLI+RootArguments.swift */,
+				B9000036A1B2C3D4E5F60719 /* CMUXCLI+Feed.swift */,
+				B9000060A1B2C3D4E5F60719 /* CommandInventory */,
+				B9000046A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */,
 				B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */,
 				B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */,
-				B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */,
+				B9000048A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */,
 			);
 			path = CLI;
+			sourceTree = "<group>";
+		};
+		B9000060A1B2C3D4E5F60719 /* CommandInventory */ = {
+			isa = PBXGroup;
+			children = (
+				B9000038A1B2C3D4E5F60719 /* CMUXCLI+CommandInventory.swift */,
+				B9000040A1B2C3D4E5F60719 /* CMUXCLI+BrowserCommandInventory.swift */,
+				B9000044A1B2C3D4E5F60719 /* CMUXCLI+CommandInventoryVerification.swift */,
+				B9000042A1B2C3D4E5F60719 /* CMUXCLI+Completion.swift */,
+			);
+			path = CommandInventory;
 			sourceTree = "<group>";
 		};
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
@@ -1008,6 +1036,7 @@
 			);
 			name = "cmux-cli";
 			packageProductDependencies = (
+				B9000033A1B2C3D4E5F60719 /* ArgumentParser */,
 				A5001253 /* Sentry-Dynamic */,
 			);
 			productName = cmux;
@@ -1108,6 +1137,7 @@
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				B9000032A1B2C3D4E5F60719 /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
 				A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
@@ -1346,12 +1376,18 @@
 			files = (
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
-				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
+				B9000051A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
 				D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */,
-				B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
+				B9000031A1B2C3D4E5F60719 /* CMUXCLI+RootArguments.swift in Sources */,
+				B9000035A1B2C3D4E5F60719 /* CMUXCLI+Feed.swift in Sources */,
+				B9000037A1B2C3D4E5F60719 /* CMUXCLI+CommandInventory.swift in Sources */,
+				B9000039A1B2C3D4E5F60719 /* CMUXCLI+BrowserCommandInventory.swift in Sources */,
+				B9000043A1B2C3D4E5F60719 /* CMUXCLI+CommandInventoryVerification.swift in Sources */,
+				B9000041A1B2C3D4E5F60719 /* CMUXCLI+Completion.swift in Sources */,
+				B9000045A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
 				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
-				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
+				B9000047A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1895,6 +1931,14 @@
 				minimumVersion = 2.4.1;
 			};
 		};
+		B9000032A1B2C3D4E5F60719 /* XCRemoteSwiftPackageReference "swift-argument-parser" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-argument-parser";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.7.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1947,6 +1991,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */;
 			productName = StackAuth;
+		};
+		B9000033A1B2C3D4E5F60719 /* ArgumentParser */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B9000032A1B2C3D4E5F60719 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
+			productName = ArgumentParser;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
