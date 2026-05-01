@@ -61774,7 +61774,7 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Type input" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "入力を入力" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "入力してください" } }
       }
     },
     "remoteAccess.web.terminal.outputLabel": {

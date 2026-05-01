@@ -24,6 +24,7 @@ test("skips automatic terminal focus on coarse touch devices", () => {
 test("suppresses compatibility mouse focus shortly after touch", () => {
   expect(shouldSuppressMouseFocusAfterTouch(100, 100)).toBe(true);
   expect(shouldSuppressMouseFocusAfterTouch(100, 899)).toBe(true);
+  expect(shouldSuppressMouseFocusAfterTouch(100, 900)).toBe(true);
 });
 
 test("allows normal mouse focus outside the touch suppression window", () => {

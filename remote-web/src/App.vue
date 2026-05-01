@@ -363,6 +363,7 @@ function deleteEventSession() {
   clearEventSessionRefresh();
   fetch("/events/session", {
     method: "DELETE",
+    headers: token.value ? authHeaders() : undefined,
     credentials: "same-origin",
   }).catch(() => {
     // The cookie is server-owned; failures are harmless when disconnecting.
@@ -402,9 +403,9 @@ function tokenRejectedError() {
 function handleRemoteError(error: unknown) {
   const remoteError = error as Error & { authFailed?: boolean };
   if (remoteError.authFailed) {
-    stopEvents();
-    stopPolling();
-    deleteEventSession();
+    forget();
+    setStatus(remoteError.message || String(error), true);
+    return;
   }
   setStatus(remoteError.message || String(error), true);
 }

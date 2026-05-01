@@ -893,7 +893,11 @@ class TabManager: ObservableObject {
 
     @Published var tabs: [Workspace] = [] {
         didSet {
-            guard tabs.map(\.id) != oldValue.map(\.id) else { return }
+            let unchanged = tabs.count == oldValue.count &&
+                zip(tabs, oldValue).allSatisfy { newWorkspace, oldWorkspace in
+                    newWorkspace.id == oldWorkspace.id && newWorkspace === oldWorkspace
+                }
+            guard !unchanged else { return }
             CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
         }
     }
@@ -976,6 +980,7 @@ class TabManager: ObservableObject {
                 if let selectedTabId = self.selectedTabId {
                     self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
                 }
+                CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
                     ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000

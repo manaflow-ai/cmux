@@ -17,8 +17,9 @@
   --red: #ff756f;
   --purple: #d58cff;
   --shadow: 0 24px 84px rgba(0, 0, 0, 0.48);
-  --mono: "SF Mono", Menlo, Monaco, Consolas, monospace;
+  --mono: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
   --remote-visual-height: 100dvh;
+
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
 
@@ -521,21 +522,21 @@ p {
   gap: 7px;
 }
 
-.window-controls span {
+.window-controls > div {
   width: 9px;
   height: 9px;
   border-radius: 999px;
 }
 
-.window-controls span:nth-child(1) {
+.window-controls > div:nth-child(1) {
   background: var(--red);
 }
 
-.window-controls span:nth-child(2) {
+.window-controls > div:nth-child(2) {
   background: var(--yellow);
 }
 
-.window-controls span:nth-child(3) {
+.window-controls > div:nth-child(3) {
   background: var(--green);
 }
 
@@ -912,7 +913,7 @@ p {
     width: 1px;
     height: 1px;
     overflow: hidden;
-    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
     white-space: nowrap;
   }
 

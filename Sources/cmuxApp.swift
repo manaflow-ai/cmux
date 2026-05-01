@@ -5483,7 +5483,9 @@ struct SettingsView: View {
     }
 
     private var remoteAccessPairingURLString: String? {
-        guard selectedRemoteAccessBindMode == .lan,
+        guard remoteAccessEnabled,
+              case .running = remoteAccessServer.state,
+              selectedRemoteAccessBindMode == .lan,
               let host = remoteAccessSelectedLANHost,
               let token = remoteAccessPairingToken else {
             return nil
@@ -7806,6 +7808,9 @@ struct SettingsView: View {
         remoteAccessBindMode = RemoteAccessSettings.defaultBindMode.rawValue
         remoteAccessLANPairingHost = ""
         remoteAccessPairingToken = nil
+        remoteAccessStatusMessage = nil
+        remoteAccessStatusIsError = false
+        try? RemoteAccessTokenStore.deleteToken()
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled

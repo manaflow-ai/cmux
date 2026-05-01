@@ -76,6 +76,9 @@ final class CMUXRemoteAccessTests: XCTestCase {
         let rotated = try RemoteAccessTokenStore.rotateToken(fileURL: fileURL)
         XCTAssertNotEqual(rotated, first)
         XCTAssertEqual(try RemoteAccessTokenStore.loadToken(fileURL: fileURL), rotated)
+
+        try RemoteAccessTokenStore.deleteToken(fileURL: fileURL)
+        XCTAssertNil(try RemoteAccessTokenStore.loadToken(fileURL: fileURL))
     }
 
     #if canImport(Hummingbird)
@@ -587,21 +590,9 @@ final class CMUXRemoteAccessTests: XCTestCase {
                 let body = String(buffer: response.body)
                 let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])
 
-                assertStringDictionary(
-                    object,
-                    containsAnyKey: ["appTitle", "app.title", "app_title"],
-                    named: "app title"
-                )
-                assertStringDictionary(
-                    object,
-                    containsAnyKey: ["connectButton", "connect.button", "connect_button"],
-                    named: "connect button"
-                )
-                assertStringDictionary(
-                    object,
-                    containsAnyKey: ["noTerminalSelected", "terminal.noTerminalSelected", "no_terminal_selected"],
-                    named: "no terminal selected"
-                )
+                XCTAssertFalse((object["appTitle"] as? String)?.isEmpty ?? true)
+                XCTAssertFalse((object["connectButton"] as? String)?.isEmpty ?? true)
+                XCTAssertFalse((object["noTerminalSelected"] as? String)?.isEmpty ?? true)
             }
         }
 
@@ -771,6 +762,14 @@ final class CMUXRemoteAccessTests: XCTestCase {
             }
 
             try await client.execute(uri: "/events/session", method: .delete) { response in
+                XCTAssertEqual(response.status, .unauthorized)
+            }
+
+            try await client.execute(
+                uri: "/events/session",
+                method: .delete,
+                headers: [.cookie: cookieHeader]
+            ) { response in
                 XCTAssertEqual(response.status, .ok)
                 XCTAssertTrue((response.headers[setCookieName] ?? "").contains("Max-Age=0"))
             }
@@ -911,6 +910,67 @@ final class CMUXRemoteAccessTests: XCTestCase {
                 XCTAssertEqual(response.headers[.accessControlAllowOrigin], "http://localhost:5173")
                 XCTAssertEqual(response.headers[.accessControlAllowCredentials], "true")
                 XCTAssertFalse(didDispatchOverlongToken)
+            }
+        }
+    }
+
+    func testRPCRejectsOversizedBodyBeforeParsingOrAuth() async throws {
+        nonisolated(unsafe) var didLoadToken = false
+        nonisolated(unsafe) var didDispatch = false
+        let handler = CMUXRemoteRPCHandler(
+            loadToken: {
+                didLoadToken = true
+                return "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+            },
+            dispatch: { _ in
+                didDispatch = true
+                return #"{"ok":false}"#
+            }
+        )
+        let body = Data(repeating: 123, count: CMUXRemoteRPCHandler.maxBodyBytes + 1)
+
+        let response = await handler.handle(body: body, authorizationHeader: nil)
+        XCTAssertEqual(response.statusCode, 413)
+        XCTAssertTrue(response.body.contains(#""code":"content_too_large""#))
+        XCTAssertTrue(response.body.contains(#""id":null"#))
+        XCTAssertFalse(didLoadToken)
+        XCTAssertFalse(didDispatch)
+    }
+
+    func testCORSRejectsUnexpectedOrigins() async throws {
+        let token = "abcdefghijklmnopqrstuvwxyzABCDEF1234567890"
+        let handler = CMUXRemoteRPCHandler(
+            loadToken: { token },
+            dispatch: { _ in
+                #"{"id":"req-cors","ok":true,"result":{"pong":true}}"#
+            }
+        )
+        let app = CMUXRemoteServer.makeApplication(port: RemoteAccessSettings.defaultPort, handler: handler)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/rpc",
+                method: .options,
+                headers: [.origin: "https://evil.example"]
+            ) { response in
+                XCTAssertEqual(response.status, .noContent)
+                XCTAssertNil(response.headers[.accessControlAllowOrigin])
+                XCTAssertNil(response.headers[.accessControlAllowCredentials])
+            }
+
+            try await client.execute(
+                uri: "/rpc",
+                method: .post,
+                headers: [
+                    .origin: "https://evil.example",
+                    .authorization: "Bearer \(token)",
+                    .contentType: "application/json",
+                ],
+                body: ByteBuffer(string: #"{"id":"req-cors","method":"system.ping","params":{}}"#)
+            ) { response in
+                XCTAssertEqual(response.status, .ok)
+                XCTAssertNil(response.headers[.accessControlAllowOrigin])
+                XCTAssertNil(response.headers[.accessControlAllowCredentials])
             }
         }
     }

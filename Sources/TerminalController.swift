@@ -6041,8 +6041,11 @@ class TerminalController {
                 return
             }
             if shouldStart, newTerminalPanel != nil {
+                guard ws.prepareTerminalSurfaceForRemoteAccess(panelId: newPanelId, inPane: paneId) else {
+                    result = .err(code: "internal_error", message: "Failed to start terminal surface", data: nil)
+                    return
+                }
                 tabManager.requestBackgroundWorkspaceLoad(for: ws.id)
-                _ = ws.prepareTerminalSurfaceForRemoteAccess(panelId: newPanelId, inPane: paneId)
             }
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -6857,9 +6860,17 @@ class TerminalController {
         if lineLimit != nil {
             includeScrollback = true
         }
-        let formatName = (params["format"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? TerminalTextReadFormat.plain.rawValue
-        guard let format = TerminalTextReadFormat(rawValue: formatName) else {
-            return .err(code: "invalid_params", message: "format must be plain or vt", data: nil)
+        let format: TerminalTextReadFormat
+        if let rawFormat = params["format"] {
+            guard let formatName = (rawFormat as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+                let parsedFormat = TerminalTextReadFormat(rawValue: formatName) else {
+                return .err(code: "invalid_params", message: "format must be plain or vt", data: nil)
+            }
+            format = parsedFormat
+        } else {
+            format = .plain
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to read terminal text", data: nil)

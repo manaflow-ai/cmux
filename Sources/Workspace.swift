@@ -8821,6 +8821,7 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         var didMutate = false
+        var didMutateWorkspaceTitle = false
 
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
@@ -8845,14 +8846,19 @@ final class Workspace: Identifiable, ObservableObject {
             if self.title != trimmed {
                 self.title = trimmed
                 didMutate = true
+                didMutateWorkspaceTitle = true
             }
             if processTitle != trimmed {
                 processTitle = trimmed
+                didMutateWorkspaceTitle = true
             }
         }
 
         if didMutate {
             CMUXRemoteEvents.publishSnapshotChanged(reason: .surface)
+        }
+        if didMutateWorkspaceTitle {
+            CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
         }
         return didMutate
     }

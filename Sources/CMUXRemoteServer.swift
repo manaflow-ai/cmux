@@ -214,6 +214,14 @@ enum RemoteAccessTokenStore {
         return token
     }
 
+    static func deleteToken(fileURL: URL? = nil) throws {
+        guard let fileURL = fileURL ?? defaultTokenFileURL() else {
+            throw RemoteAccessTokenStoreError.unresolvedTokenFilePath
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        try FileManager.default.removeItem(at: fileURL)
+    }
+
     static func saveToken(_ token: String, fileURL: URL? = nil) throws {
         guard let normalized = normalizedToken(token) else {
             throw RemoteAccessTokenStoreError.malformedToken
@@ -516,11 +524,11 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
     }
 
     func handle(body: Data, authorizationHeader: String?) async -> CMUXRemoteHTTPResponse {
-        let parsedId = Self.extractIdIfPossible(from: body)
-
         guard body.count <= Self.maxBodyBytes else {
-            return Self.jsonError(statusCode: 413, id: parsedId, code: "content_too_large", message: "Request body is too large.")
+            return Self.jsonError(statusCode: 413, id: nil, code: "content_too_large", message: "Request body is too large.")
         }
+
+        let parsedId = Self.extractIdIfPossible(from: body)
 
         if let authError = authenticationError(id: parsedId, authorizationHeader: authorizationHeader) {
             return authError
@@ -622,8 +630,15 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
         )
     }
 
-    func handleEventSessionDelete() -> CMUXRemoteHTTPResponse {
-        Self.jsonResponse(
+    func handleEventSessionDelete(authorizationHeader: String?, cookieHeader: String?) -> CMUXRemoteHTTPResponse {
+        if let authError = authenticationError(
+            id: nil,
+            authorizationHeader: authorizationHeader,
+            cookieToken: Self.eventCookieToken(from: cookieHeader)
+        ) {
+            return authError
+        }
+        return Self.jsonResponse(
             statusCode: 200,
             payload: ["ok": true],
             headers: ["Set-Cookie": Self.expiredEventCookieHeader()]
@@ -745,6 +760,82 @@ final class CMUXRemoteRPCHandler: @unchecked Sendable {
 }
 
 #if canImport(Hummingbird)
+struct CMUXRemoteCORSMiddleware<Context: RequestContext>: RouterMiddleware {
+    let port: Int
+    let bindMode: RemoteAccessBindMode
+
+    func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
+        guard request.headers.contains(.origin) else {
+            return try await next(request, context)
+        }
+
+        let allowedOrigin = Self.allowedOrigin(
+            request.headers[.origin],
+            port: port,
+            bindMode: bindMode
+        )
+
+        if request.method == .options {
+            return Response(
+                status: .noContent,
+                headers: corsHeaders(allowedOrigin: allowedOrigin, preflight: true),
+                body: .init()
+            )
+        }
+
+        var response = try await next(request, context)
+        response.headers.append(contentsOf: corsHeaders(allowedOrigin: allowedOrigin, preflight: false))
+        return response
+    }
+
+    private func corsHeaders(allowedOrigin: String?, preflight: Bool) -> HTTPFields {
+        var headers = HTTPFields()
+        headers[.vary] = "Origin"
+        guard let allowedOrigin else { return headers }
+        headers[.accessControlAllowOrigin] = allowedOrigin
+        headers[.accessControlAllowCredentials] = "true"
+        if preflight {
+            headers[.accessControlAllowHeaders] = "Authorization, Content-Type, Accept, Origin"
+            headers[.accessControlAllowMethods] = "GET, POST, DELETE, OPTIONS"
+            headers[.accessControlMaxAge] = "600"
+        }
+        return headers
+    }
+
+    private static func allowedOrigin(_ origin: String?, port: Int, bindMode: RemoteAccessBindMode) -> String? {
+        guard let origin,
+              let components = URLComponents(string: origin),
+              components.scheme == "http",
+              components.path.isEmpty || components.path == "/",
+              components.query == nil,
+              components.fragment == nil,
+              let host = components.host,
+              components.port == RemoteAccessSettings.normalizedPort(port) || isDebugDevOrigin(host: host, port: components.port) else {
+            return nil
+        }
+
+        if isDebugDevOrigin(host: host, port: components.port) {
+            return origin
+        }
+        if host == "127.0.0.1" || host == "localhost" || host == "::1" {
+            return origin
+        }
+        if bindMode == .lan, RemoteAccessSettings.lanIPv4Addresses().contains(host) {
+            return origin
+        }
+        return nil
+    }
+
+    private static func isDebugDevOrigin(host: String, port: Int?) -> Bool {
+        #if DEBUG
+        guard let port, port == 5173 || port == 9140 else { return false }
+        return host == "127.0.0.1" || host == "localhost"
+        #else
+        return false
+        #endif
+    }
+}
+
 @MainActor
 final class CMUXRemoteServer: ObservableObject {
     typealias TokenBootstrap = @MainActor @Sendable () throws -> Void
@@ -985,13 +1076,7 @@ final class CMUXRemoteServer: ObservableObject {
     ) -> Application<Router<BasicRequestContext>.Responder> {
         let router = Router()
         router.add(
-            middleware: CORSMiddleware(
-                allowOrigin: .originBased,
-                allowHeaders: [.authorization, .contentType, .accept, .origin],
-                allowMethods: [.get, .post, .delete, .options],
-                allowCredentials: true,
-                maxAge: .seconds(600)
-            )
+            middleware: CMUXRemoteCORSMiddleware<BasicRequestContext>(port: port, bindMode: bindMode)
         )
         router.post("rpc") { request, _ -> Response in
             var request = request
@@ -1011,8 +1096,11 @@ final class CMUXRemoteServer: ObservableObject {
             let result = handler.handleEventSessionCreate(authorizationHeader: request.headers[.authorization])
             return Self.response(statusCode: result.statusCode, body: result.body, extraHeaders: result.headers)
         }
-        router.delete("events/session") { _, _ -> Response in
-            let result = handler.handleEventSessionDelete()
+        router.delete("events/session") { request, _ -> Response in
+            let result = handler.handleEventSessionDelete(
+                authorizationHeader: request.headers[.authorization],
+                cookieHeader: request.headers[.cookie]
+            )
             return Self.response(statusCode: result.statusCode, body: result.body, extraHeaders: result.headers)
         }
         router.get("events") { request, _ -> Response in
@@ -1064,7 +1152,9 @@ final class CMUXRemoteServer: ObservableObject {
         headers[.contentType] = "application/json; charset=utf-8"
         headers[.contentLength] = buffer.readableBytes.description
         for (name, value) in extraHeaders {
-            headers[HTTPField.Name(name)!] = value
+            if let fieldName = HTTPField.Name(name) {
+                headers[fieldName] = value
+            }
         }
         return Response(
             status: status,

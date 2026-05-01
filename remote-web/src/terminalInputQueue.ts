@@ -114,13 +114,13 @@ export class TerminalInputQueue {
 
   private enqueueMutation(target: TerminalInputTarget, kind: TerminalInputMutationKind, operation: () => Promise<void>) {
     const generation = this.generation;
-    this.mutationChain = this.mutationChain
-      .then(async () => {
-        if (this.generation !== generation) return;
-        await operation();
-      })
-      .catch(this.handleError);
-    this.scheduleAfterMutation(target, kind, generation, this.mutationChain);
+    const chain = this.mutationChain.then(async () => {
+      if (this.generation !== generation) return;
+      await operation();
+    });
+    const handledChain = chain.catch(this.handleError);
+    this.mutationChain = handledChain;
+    this.scheduleAfterMutation(target, kind, generation, chain, handledChain);
   }
 
   private scheduleAfterMutation(
@@ -128,15 +128,16 @@ export class TerminalInputQueue {
     kind: TerminalInputMutationKind,
     generation: number,
     chainSnapshot: Promise<void>,
+    handledChainSnapshot: Promise<void>,
   ) {
     if (!this.afterMutation) return;
     queueMicrotask(() => {
       chainSnapshot
         .then(async () => {
-          if (this.mutationChain !== chainSnapshot) return;
+          if (this.mutationChain !== handledChainSnapshot) return;
           if (this.generation !== generation) return;
           await this.afterMutation?.(target, kind);
-        })
+        }, () => {})
         .catch(this.handleError);
     });
   }

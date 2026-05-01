@@ -5,7 +5,7 @@ class ManualScheduler implements TerminalInputQueueScheduler {
   private nextID = 1;
   private timers = new Map<number, () => void>();
 
-  setTimeout(callback: () => void) {
+  setTimeout(callback: () => void, _delay: number) {
     const id = this.nextID;
     this.nextID += 1;
     this.timers.set(id, callback);
@@ -326,4 +326,33 @@ test("dispose prevents stale afterMutation callbacks", async () => {
   await queue.waitForIdle();
 
   expect(calls).toEqual(["text:surface-a:first"]);
+});
+
+test("does not call afterMutation after failed sends", async () => {
+  const calls: string[] = [];
+  const scheduler = new ManualScheduler();
+  const queue = new TerminalInputQueue({
+    scheduler,
+    targetEquals,
+    sendText: async () => {
+      calls.push("send");
+      throw new Error("send failed");
+    },
+    sendKey: async (target, key) => {
+      calls.push(`key:${target.surfaceID}:${key}`);
+    },
+    afterMutation: async (target) => {
+      calls.push(`after:${target.surfaceID}`);
+    },
+    handleError: (error) => {
+      calls.push(`error:${(error as Error).message}`);
+    },
+  });
+
+  queue.appendText(targetA, "broken");
+  scheduler.runAll();
+  await queue.waitForIdle();
+  await Promise.resolve();
+
+  expect(calls).toEqual(["send", "error:send failed"]);
 });
