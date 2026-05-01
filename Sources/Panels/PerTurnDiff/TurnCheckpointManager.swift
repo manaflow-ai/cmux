@@ -270,6 +270,79 @@ final class TurnCheckpointManager {
         thisTurnDetectedPaths.insert(trimmed)
     }
 
+    /// Called by the registry from the Claude Code PreToolUse hook handler.
+    /// This fires BEFORE the agent has modified the file, so we can capture a
+    /// genuine pre-edit baseline tree for the file's containing repo. This is
+    /// the only signal that beats Claude's tool execution — the transcript
+    /// tailer in `recordDetectedPath` always lags the actual file write.
+    ///
+    /// Behavior:
+    ///   - Walk up from `path` to find `.git`. If none, no-op.
+    ///   - If `pendingPreTurnBaselines[repo]` is already set, no-op (we already
+    ///     have a pre-edit tree for this repo this turn).
+    ///   - Otherwise snapshot the current tree NOW and store it as the baseline.
+    ///   - Append `repo` to `visitedRoots` if not already present (preserves the
+    ///     append-only invariant the React panel relies on).
+    ///
+    /// Future agents (Codex/etc.) that gain a PreToolUse-equivalent hook
+    /// should plumb their hook handler to call into this method through the
+    /// registry as well; the manager itself is agent-agnostic.
+    func recordPreEditPath(_ path: String) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // Walk up to the containing git root. For files (which may not exist
+        // yet for a Write tool to a brand-new path), walk from the parent dir.
+        let probe: String = {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDir) {
+                return isDir.boolValue ? trimmed : (trimmed as NSString).deletingLastPathComponent
+            }
+            return (trimmed as NSString).deletingLastPathComponent
+        }()
+        guard let repo = TurnCheckpointStore.gitRoot(containing: probe) else {
+            #if DEBUG
+            cmuxDebugLog("turn-diff: pre-edit hook ignored (no git root) path=\(trimmed)")
+            #endif
+            return
+        }
+
+        // Also feed the per-turn detected-paths set so the scoped first-fetch
+        // diff path has the same information the transcript tailer would
+        // eventually have provided. Faster signal, same downstream consumer.
+        thisTurnDetectedPaths.insert(trimmed)
+
+        // Maintain the append-only visitedRoots invariant.
+        if !visitedRoots.contains(repo) {
+            visitedRoots.append(repo)
+            #if DEBUG
+            cmuxDebugLog("turn-diff: pre-edit hook added new repo to visitedRoots repo=\(repo)")
+            #endif
+        }
+
+        // If we already snapshotted a baseline this turn (either via captureStart
+        // or an earlier pre-edit hook for the same repo), don't re-snapshot — the
+        // earliest snapshot is the most-pre-edit-est one we can get.
+        if pendingPreTurnBaselines[repo] != nil {
+            #if DEBUG
+            cmuxDebugLog("turn-diff: pre-edit hook had baseline already repo=\(repo)")
+            #endif
+            return
+        }
+
+        do {
+            let tree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: repo)
+            pendingPreTurnBaselines[repo] = tree
+            #if DEBUG
+            cmuxDebugLog("turn-diff: pre-edit hook baseline snapshotted repo=\(repo) tree=\(tree.prefix(7))")
+            #endif
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("turn-diff: pre-edit hook snapshot failed repo=\(repo): \(error)")
+            #endif
+        }
+    }
+
     private func captureStart() {
         // We don't know which repo the agent will touch this turn. Snapshot
         // EVERY visited repo's current state as a pre-turn baseline so the
@@ -277,13 +350,25 @@ final class TurnCheckpointManager {
         // repos) ends up modified. Per-repo write-tree failures (e.g., dir
         // vanished, permissions) are silently skipped — the running→idle path
         // will fall through to Tier 2 (HEAD diff) for those.
-        pendingPreTurnBaselines.removeAll()
-        // Clear the per-turn detected-paths set; the tailer's onPathDetected
-        // callback fills it during the Running window.
-        thisTurnDetectedPaths.removeAll()
+        //
+        // Race-aware: PreToolUse hook may have already populated baselines
+        // for one or more repos before this status transition propagated
+        // through Combine. Don't overwrite those — they were captured at the
+        // earliest possible moment (BEFORE the agent's first tool call) and
+        // are strictly more accurate than what we'd snapshot here. captureEnd
+        // wiped pendingPreTurnBaselines at the end of the previous turn, so
+        // anything present at captureStart time MUST be from this turn.
+        // Same logic applies to thisTurnDetectedPaths: if the hook fired
+        // first and seeded the path, preserve it.
         for repo in visitedRoots {
             guard !repo.isEmpty,
                   FileManager.default.fileExists(atPath: repo) else { continue }
+            if pendingPreTurnBaselines[repo] != nil {
+                #if DEBUG
+                cmuxDebugLog("turn-diff: captureStart preserved hook-supplied baseline repo=\(repo)")
+                #endif
+                continue
+            }
             do {
                 let tree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: repo)
                 pendingPreTurnBaselines[repo] = tree
@@ -295,7 +380,7 @@ final class TurnCheckpointManager {
             }
         }
         #if DEBUG
-        cmuxDebugLog("turn-diff: idle->running workspace=\(session.uuidString) snapshotted=\(pendingPreTurnBaselines.count)/\(visitedRoots.count)")
+        cmuxDebugLog("turn-diff: idle->running workspace=\(session.uuidString) snapshotted=\(pendingPreTurnBaselines.count)/\(visitedRoots.count) preservedDetectedPaths=\(thisTurnDetectedPaths.count)")
         #endif
     }
 
@@ -337,12 +422,17 @@ final class TurnCheckpointManager {
                         if !scoped.isEmpty {
                             cachedDiffByRoot[repo] = scoped
                             TurnCheckpointStore.writeCachedDiff(scoped, workspaceId: session, repoRoot: repo)
+                            continue
                         }
-                        // Whether scoped was empty or non-empty, we did the
-                        // best-effort scoped read. Don't fall through to the
-                        // unscoped HEAD diff (which would re-introduce the
-                        // pre-existing dirty state we're trying to avoid).
-                        continue
+                        // Empty scoped diff (e.g. HEAD-less new repo, or HEAD
+                        // already matches the touched paths). Fall through to
+                        // bestEffortDiff so the user still sees SOMETHING — the
+                        // earlier "no fall-through" rule was the cause of Bug 2
+                        // in fresh second-repo scenarios where HEAD-less repos
+                        // returned "" from scopedDiff and the panel rendered blank.
+                        // Tier 2/3 will produce the correct "everything-as-added"
+                        // view for HEAD-less repos and the broader HEAD diff
+                        // otherwise.
                     } catch {
                         #if DEBUG
                         cmuxDebugLog("turn-diff: scoped diff failed in \(repo): \(error); falling through")

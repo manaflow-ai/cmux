@@ -7365,6 +7365,7 @@ extension TabManager {
             workspace.owningTabManager = self
             workspace.restoreSessionSnapshot(workspaceSnapshot)
             wireClosedBrowserTracking(for: workspace)
+            TurnCheckpointRegistry.shared.attach(workspace: workspace)
             newTabs.append(workspace)
         }
 
@@ -7374,6 +7375,7 @@ extension TabManager {
             let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal)
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
+            TurnCheckpointRegistry.shared.attach(workspace: fallback)
             newTabs.append(fallback)
         }
 

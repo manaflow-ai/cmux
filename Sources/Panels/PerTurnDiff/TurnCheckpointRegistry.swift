@@ -37,23 +37,9 @@ final class TurnCheckpointRegistry {
         // inside TurnCheckpointManager (for live diff updates of already-tracked
         // repos) stays — it only watches one repo and only fires onLiveDiff updates.
         let source = AgentTranscriptSourceFactory.makeFromCurrentSettings()
-        // Closure read by the tailer every ~30s to filter out jsonl files that
-        // pre-date the workspace's claude launch (so e.g. another Claude Code
-        // instance running at the same anchor pwd can't pollute this panel).
-        // The tailer reads it from a background queue but `Workspace` is main-
-        // actor isolated, so hop via `MainActor.assumeIsolated`. The `weak`
-        // capture is intentional — if the workspace went away, returning nil
-        // disables the filter (the tailer falls back to "newest jsonl wins",
-        // which is harmless because no panel can render its output anymore).
-        let launchTimeProvider: @Sendable () -> Date? = { [weak workspace] in
-            MainActor.assumeIsolated {
-                workspace?.focusedPanelClaudeLaunchTime
-            }
-        }
         let tailer = ClaudeTranscriptTailer(
             workspaceCwd: workspace.currentDirectory,
             source: source,
-            minimumDateProvider: launchTimeProvider,
             onPathDetected: { [weak mgr, weak workspace] path in
                 MainActor.assumeIsolated {
                     Self.handleCandidatePath(path, manager: mgr, workspace: workspace)
@@ -61,13 +47,18 @@ final class TurnCheckpointRegistry {
                 }
             }
         )
-        // Seed the tailer with the workspace's current focused-pane pwd.
+        // Seed the tailer with the workspace's current focused-pane pwd and
+        // the active claude launch timestamp. Both are pushed in (not pulled)
+        // so the tailer can read them on its background queue without crossing
+        // into MainActor isolation.
         tailer.updateFocusedPanePwd(workspace.focusedPanePwd)
+        tailer.updateClaudeLaunchTime(workspace.focusedPanelClaudeLaunchTime)
 
         // Subscribe to focused-pane pwd changes so the tailer always knows
         // which `~/.claude/projects/<sanitized>/` to look at, and so we
         // re-probe `gitRoot(containing:)` whenever the user focuses a
-        // terminal in a different repo.
+        // terminal in a different repo. Also push launch-time updates whenever
+        // the panel's mapping changes.
         var cancellables: Set<AnyCancellable> = []
         workspace.$panelDirectories
             .combineLatest(workspace.$focusedPanelIdSignal)
@@ -77,9 +68,16 @@ final class TurnCheckpointRegistry {
                     return nil
                 }()
                 tailer?.updateFocusedPanePwd(pwd)
+                tailer?.updateClaudeLaunchTime(workspace?.focusedPanelClaudeLaunchTime)
                 if let pwd, let mgr {
                     Self.handleCandidatePath(pwd, manager: mgr, workspace: workspace)
                 }
+            }
+            .store(in: &cancellables)
+        // Also push launch-time updates whenever the dict itself changes.
+        workspace.$claudeLaunchTimesByPanel
+            .sink { [weak tailer, weak workspace] _ in
+                tailer?.updateClaudeLaunchTime(workspace?.focusedPanelClaudeLaunchTime)
             }
             .store(in: &cancellables)
 
@@ -107,6 +105,35 @@ final class TurnCheckpointRegistry {
 
     func manager(for workspaceId: UUID) -> TurnCheckpointManager? {
         entries[workspaceId]?.manager
+    }
+
+    /// Entry point for the Claude Code PreToolUse socket command. Routes the
+    /// pre-edit file path to the right workspace's TurnCheckpointManager so it
+    /// can snapshot the containing repo's tree BEFORE Claude executes the
+    /// tool call. Safe to call from any actor; trampolines onto MainActor.
+    ///
+    /// If `workspaceId`'s manager isn't attached (workspace not loaded yet,
+    /// or the hook fired during teardown), this is a no-op — the socket
+    /// command handler should still return OK so the hook doesn't block Claude.
+    nonisolated func recordPreEditPath(workspaceId: UUID, path: String) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        Task { @MainActor in
+            guard let mgr = self.entries[workspaceId]?.manager else {
+                #if DEBUG
+                cmuxDebugLog(
+                    "turn-diff: pre-edit hook for unattached workspace=\(workspaceId.uuidString.prefix(5)) path=\(trimmed)"
+                )
+                #endif
+                return
+            }
+            // Make sure the manager's currentRoot is updated to this path's
+            // git root if it differs — otherwise the live watcher and the
+            // active-repo flag won't follow the agent into the new repo.
+            // handleCandidatePath does the gitRoot walk + diff/no-diff branch.
+            Self.handleCandidatePath(trimmed, manager: mgr, workspace: nil)
+            mgr.recordPreEditPath(trimmed)
+        }
     }
 
     // MARK: - Candidate path → git root

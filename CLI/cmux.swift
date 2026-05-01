@@ -13960,6 +13960,29 @@ struct CMUXCLI {
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = mappedSession?.pid
 
+            // Per-turn diff panel signal: BEFORE Claude executes a file-modifying
+            // tool, report the file path to cmux so it can snapshot the
+            // containing repo's tree NOW (the only opportunity we have to capture
+            // a real pre-edit baseline). This is fire-and-forget — failures here
+            // never block the agent. The handler in TerminalController is async
+            // (Task { @MainActor in ... }) so this returns immediately even if
+            // the registry takes time to actually do the snapshot.
+            //
+            // Future agents: codex/opencode/cursor PreToolUse-equivalent hooks
+            // should call the same socket command (or a per-agent variant) to
+            // benefit from the pre-edit snapshot path.
+            if let toolName = parsedInput.object?["tool_name"] as? String,
+               sendsPreEditFilePath(toolName: toolName),
+               let filePath = extractClaudeHookFilePath(parsedInput.object) {
+                // Quote the path so embedded spaces survive the socket
+                // tokenizer; escape `\` and `"` in the path itself.
+                let escaped = filePath
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                let cmd = "report_pre_tool_use \"\(escaped)\" --workspace-id=\(workspaceId)"
+                _ = try? sendV1Command(cmd, client: client)
+            }
+
             // AskUserQuestion means Claude is about to ask the user something.
             // Save question text in session so the Notification handler can use it
             // instead of the generic "Claude Code needs your attention".
@@ -14122,6 +14145,31 @@ struct CMUXCLI {
 
         if parts.isEmpty { return "Asking a question" }
         return parts.joined(separator: "\n")
+    }
+
+    /// Tools whose PreToolUse hook should send a `report_pre_tool_use` socket
+    /// command so the per-turn diff panel can snapshot a pre-edit baseline of
+    /// the file's containing repo. Only tools that mutate the working tree
+    /// qualify; pure-read tools (Read/Glob/Grep) and `Bash` (which can do
+    /// anything but isn't a structured file edit) are intentionally excluded.
+    private func sendsPreEditFilePath(toolName: String) -> Bool {
+        switch toolName {
+        case "Edit", "Write", "MultiEdit", "NotebookEdit":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Extract the file path from a Claude Code PreToolUse hook payload.
+    /// Edit/Write/MultiEdit use `tool_input.file_path`; NotebookEdit uses
+    /// `tool_input.notebook_path`. Returns nil for tool calls with no path.
+    private func extractClaudeHookFilePath(_ object: [String: Any]?) -> String? {
+        guard let object,
+              let input = object["tool_input"] as? [String: Any] else { return nil }
+        if let p = input["file_path"] as? String, !p.isEmpty { return p }
+        if let p = input["notebook_path"] as? String, !p.isEmpty { return p }
+        return nil
     }
 
     private func describeToolUse(_ object: [String: Any]?) -> String? {
@@ -14375,7 +14423,7 @@ struct CMUXCLI {
 
         if let toolInput = object["tool_input"] as? [String: Any] {
             var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
+            for key in ["file_path", "notebook_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
                     compactToolInput[key] = value
                 }
@@ -14487,7 +14535,7 @@ struct CMUXCLI {
 
     private func compactClaudeHookToolInputValue(_ rawValue: Any?, key: String) -> String? {
         switch key {
-        case "file_path":
+        case "file_path", "notebook_path":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
         case "planFilePath":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)

@@ -29,29 +29,22 @@ final class ClaudeTranscriptTailer {
     /// and to parse each JSONL line for file paths.
     private let source: AgentTranscriptSource
     private let onPathDetected: (String) -> Void
-    /// Returns the wall-clock launch timestamp of the active claude session for
-    /// THIS workspace's focused panel (or nil if none recorded yet). Invoked on
-    /// the tailer's background queue every time we re-resolve the active jsonl,
-    /// so each closure call must be cheap and main-actor-safe (it currently
-    /// hops to MainActor via `MainActor.assumeIsolated` inside the closure
-    /// supplied by `TurnCheckpointRegistry`).
-    private let minimumDateProvider: @Sendable () -> Date?
-
-    /// Latest known focused-pane pwd. Updated via `updateFocusedPanePwd(_:)`
-    /// from the main actor; read on the tailer's background queue. Guarded by
-    /// `anchorLock`. May be nil if no pane has been focused yet.
+    /// Latest known focused-pane pwd AND active claude launch timestamp. Both
+    /// are pushed in from the main actor (via `updateFocusedPanePwd` and
+    /// `updateClaudeLaunchTime`) and read on the tailer's background queue.
+    /// Guarded by `anchorLock`. Pull-based MainActor.assumeIsolated from a
+    /// background queue would crash with a libdispatch precondition.
     private var latestFocusedPanePwd: String?
+    private var latestClaudeLaunchTime: Date?
     private let anchorLock = NSLock()
 
     init(
         workspaceCwd: String,
         source: AgentTranscriptSource = ClaudeCodeTranscriptSource(),
-        minimumDateProvider: @escaping @Sendable () -> Date? = { nil },
         onPathDetected: @escaping (String) -> Void
     ) {
         self.workspaceCwd = workspaceCwd
         self.source = source
-        self.minimumDateProvider = minimumDateProvider
         self.onPathDetected = onPathDetected
     }
 
@@ -60,6 +53,15 @@ final class ClaudeTranscriptTailer {
     func updateFocusedPanePwd(_ pwd: String?) {
         anchorLock.lock()
         latestFocusedPanePwd = pwd
+        anchorLock.unlock()
+    }
+
+    /// Push the latest claude launch timestamp into the tailer. Used by
+    /// `resolveActiveTranscriptFile` to filter out other Claude instances'
+    /// transcripts that pre-date THIS workspace's session.
+    func updateClaudeLaunchTime(_ date: Date?) {
+        anchorLock.lock()
+        latestClaudeLaunchTime = date
         anchorLock.unlock()
     }
 
@@ -132,7 +134,9 @@ final class ClaudeTranscriptTailer {
             scheduleWaitTimer()
             return
         }
-        let minDate = minimumDateProvider()
+        anchorLock.lock()
+        let minDate = latestClaudeLaunchTime
+        anchorLock.unlock()
         guard let latestURL = source.resolveActiveTranscriptFile(in: dirURL, after: minDate) else {
             #if DEBUG
             cmuxDebugLog(
