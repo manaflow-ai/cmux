@@ -12,7 +12,9 @@
     "toggleTheme": "تبديل المظهر",
     "backToBlog": "العودة إلى المدونة",
     "readTheDocs": "اقرأ الوثائق",
-    "viewChangelog": "عرض سجل التغييرات"
+    "viewChangelog": "عرض سجل التغييرات",
+    "copyCode": "نسخ الكود",
+    "copiedCode": "تم النسخ"
   },
   "nav": {
     "docs": "الوثائق",

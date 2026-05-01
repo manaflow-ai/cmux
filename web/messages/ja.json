@@ -12,7 +12,9 @@
     "toggleTheme": "テーマを切り替え",
     "backToBlog": "ブログに戻る",
     "readTheDocs": "ドキュメントを読む",
-    "viewChangelog": "変更履歴を見る"
+    "viewChangelog": "変更履歴を見る",
+    "copyCode": "コードをコピー",
+    "copiedCode": "コピーしました"
   },
   "nav": {
     "docs": "ドキュメント",

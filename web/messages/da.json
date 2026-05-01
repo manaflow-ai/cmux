@@ -12,7 +12,9 @@
     "toggleTheme": "Skift tema",
     "backToBlog": "Tilbage til blog",
     "readTheDocs": "Læs dokumentationen",
-    "viewChangelog": "Se ændringslog"
+    "viewChangelog": "Se ændringslog",
+    "copyCode": "Kopier kode",
+    "copiedCode": "Kopieret"
   },
   "nav": {
     "docs": "Dokumentation",

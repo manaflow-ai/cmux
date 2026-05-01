@@ -12,7 +12,9 @@
     "toggleTheme": "Cambiar tema",
     "backToBlog": "Volver al blog",
     "readTheDocs": "Leer la documentación",
-    "viewChangelog": "Ver Changelog"
+    "viewChangelog": "Ver Changelog",
+    "copyCode": "Copiar código",
+    "copiedCode": "Copiado"
   },
   "nav": {
     "docs": "Documentación",

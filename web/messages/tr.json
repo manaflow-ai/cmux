@@ -12,7 +12,9 @@
     "toggleTheme": "Temayı değiştir",
     "backToBlog": "Bloga dön",
     "readTheDocs": "Belgeleri Oku",
-    "viewChangelog": "Değişiklik Günlüğünü Görüntüle"
+    "viewChangelog": "Değişiklik Günlüğünü Görüntüle",
+    "copyCode": "Kodu kopyala",
+    "copiedCode": "Kopyalandı"
   },
   "nav": {
     "docs": "Belgeler",

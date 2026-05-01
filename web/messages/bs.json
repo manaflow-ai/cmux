@@ -12,7 +12,9 @@
     "toggleTheme": "Promijeni temu",
     "backToBlog": "Nazad na blog",
     "readTheDocs": "Pročitaj dokumentaciju",
-    "viewChangelog": "Pogledaj zapisnik promjena"
+    "viewChangelog": "Pogledaj zapisnik promjena",
+    "copyCode": "Kopiraj kod",
+    "copiedCode": "Kopirano"
   },
   "nav": {
     "docs": "Dokumentacija",

@@ -12,7 +12,9 @@
     "toggleTheme": "테마 전환",
     "backToBlog": "블로그로 돌아가기",
     "readTheDocs": "문서 읽기",
-    "viewChangelog": "변경 로그 보기"
+    "viewChangelog": "변경 로그 보기",
+    "copyCode": "코드 복사",
+    "copiedCode": "복사됨"
   },
   "nav": {
     "docs": "문서",

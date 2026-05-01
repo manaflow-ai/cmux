@@ -12,7 +12,9 @@
     "toggleTheme": "Przełącz motyw",
     "backToBlog": "Powrót do bloga",
     "readTheDocs": "Przeczytaj dokumentację",
-    "viewChangelog": "Zobacz dziennik zmian"
+    "viewChangelog": "Zobacz dziennik zmian",
+    "copyCode": "Kopiuj kod",
+    "copiedCode": "Skopiowano"
   },
   "nav": {
     "docs": "Dokumentacja",

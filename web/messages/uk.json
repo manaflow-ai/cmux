@@ -12,7 +12,9 @@
     "toggleTheme": "Перемкнути тему",
     "backToBlog": "Назад до блогу",
     "readTheDocs": "Читати документацію",
-    "viewChangelog": "Переглянути журнал змін"
+    "viewChangelog": "Переглянути журнал змін",
+    "copyCode": "Скопіювати код",
+    "copiedCode": "Скопійовано"
   },
   "nav": {
     "docs": "Документація",

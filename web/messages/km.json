@@ -12,7 +12,9 @@
     "toggleTheme": "ប្ដូរស្បែក",
     "backToBlog": "ត្រឡប់ទៅប្លក់",
     "readTheDocs": "អានឯកសារ",
-    "viewChangelog": "មើលកំណត់ត្រាផ្លាស់ប្ដូរ"
+    "viewChangelog": "មើលកំណត់ត្រាផ្លាស់ប្ដូរ",
+    "copyCode": "ចម្លងកូដ",
+    "copiedCode": "បានចម្លង"
   },
   "nav": {
     "docs": "ឯកសារ",

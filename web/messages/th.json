@@ -12,7 +12,9 @@
     "toggleTheme": "สลับธีม",
     "backToBlog": "กลับไปบล็อก",
     "readTheDocs": "อ่านเอกสาร",
-    "viewChangelog": "ดู Changelog"
+    "viewChangelog": "ดู Changelog",
+    "copyCode": "คัดลอกโค้ด",
+    "copiedCode": "คัดลอกแล้ว"
   },
   "nav": {
     "docs": "เอกสาร",

@@ -12,7 +12,9 @@
     "toggleTheme": "切換主題",
     "backToBlog": "返回部落格",
     "readTheDocs": "閱讀文件",
-    "viewChangelog": "查看更新日誌"
+    "viewChangelog": "查看更新日誌",
+    "copyCode": "複製程式碼",
+    "copiedCode": "已複製"
   },
   "nav": {
     "docs": "文件",

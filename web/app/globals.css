@@ -194,6 +194,11 @@ body {
   color: var(--shiki-dark) !important;
 }
 
+.docs-code-block:hover .docs-code-copy,
+.docs-code-block:focus-within .docs-code-copy {
+  opacity: 1;
+}
+
 @layer base {
   .docs-content table {
     width: 100%;

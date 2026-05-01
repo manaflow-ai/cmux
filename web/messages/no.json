@@ -12,7 +12,9 @@
     "toggleTheme": "Bytt tema",
     "backToBlog": "Tilbake til bloggen",
     "readTheDocs": "Les dokumentasjonen",
-    "viewChangelog": "Se endringslogg"
+    "viewChangelog": "Se endringslogg",
+    "copyCode": "Kopier kode",
+    "copiedCode": "Kopiert"
   },
   "nav": {
     "docs": "Dokumentasjon",

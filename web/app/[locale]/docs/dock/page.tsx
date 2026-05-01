@@ -123,7 +123,7 @@ export default function DockPage() {
       <h2>{t("agentPromptTitle")}</h2>
       <p>{t("agentPromptIntro")}</p>
       <CodeBlock title={t("agentPromptCodeTitle")} lang="text">
-        {t("agentPrompt")}
+        {t.raw("agentPrompt")}
       </CodeBlock>
     </>
   );
