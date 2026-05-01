@@ -2837,7 +2837,7 @@ private struct SidebarDebugView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Sidebar Appearance")
+                Text(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
                     .font(.headline)
 
                 Toggle(String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), isOn: $matchTerminalBackground)
@@ -6281,6 +6281,42 @@ struct SettingsView: View {
                                 )
                         }
 
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .terminal))
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.showScrollBar"),
+                            String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
+                            subtitle: showTerminalScrollBar
+                                ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
+                                : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
+                        ) {
+                            Toggle("", isOn: showTerminalScrollBarBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
+                                )
+                        }
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
+                            String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
+                            subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
+                        ) {
+                            Toggle("", isOn: $sidebarMatchTerminalBackground)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                        }
+
                         SettingsCardDivider()
 
                         SettingsCardRow(
@@ -6443,122 +6479,6 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
-                    }
-
-                    SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .terminal))
-                    SettingsCard {
-                        SettingsCardRow(
-                            configurationReview: .json("terminal.showScrollBar"),
-                            String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
-                            subtitle: showTerminalScrollBar
-                                ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
-                                : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
-                        ) {
-                            Toggle("", isOn: showTerminalScrollBarBinding)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
-                                .accessibilityLabel(
-                                    String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
-                                )
-                        }
-                    }
-
-                    SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
-                    SettingsCard {
-                        SettingsCardRow(
-                            configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
-                            String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
-                            subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
-                        ) {
-                            Toggle("", isOn: $sidebarMatchTerminalBackground)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
-                                .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .json("sidebarAppearance.lightModeTintColor"),
-                            String(localized: "settings.sidebarAppearance.tintColorLight", defaultValue: "Light Mode Tint"),
-                            subtitle: String(localized: "settings.sidebarAppearance.tintColorLight.subtitle", defaultValue: "Sidebar tint color when using light appearance.")
-                        ) {
-                            HStack(spacing: 8) {
-                                ColorPicker(
-                                    String(localized: "settings.sidebarAppearance.tintColorLight.picker", defaultValue: "Light tint"),
-                                    selection: settingsSidebarTintLightBinding,
-                                    supportsOpacity: false
-                                )
-                                .labelsHidden()
-                                .frame(width: 38)
-
-                                Text(sidebarTintHexLight ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 76, alignment: .trailing)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .json("sidebarAppearance.darkModeTintColor"),
-                            String(localized: "settings.sidebarAppearance.tintColorDark", defaultValue: "Dark Mode Tint"),
-                            subtitle: String(localized: "settings.sidebarAppearance.tintColorDark.subtitle", defaultValue: "Sidebar tint color when using dark appearance.")
-                        ) {
-                            HStack(spacing: 8) {
-                                ColorPicker(
-                                    String(localized: "settings.sidebarAppearance.tintColorDark.picker", defaultValue: "Dark tint"),
-                                    selection: settingsSidebarTintDarkBinding,
-                                    supportsOpacity: false
-                                )
-                                .labelsHidden()
-                                .frame(width: 38)
-
-                                Text(sidebarTintHexDark ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 76, alignment: .trailing)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .json("sidebarAppearance.tintOpacity"),
-                            String(localized: "settings.sidebarAppearance.tintOpacity", defaultValue: "Tint Opacity"),
-                            subtitle: String(localized: "settings.sidebarAppearance.tintOpacity.subtitle", defaultValue: "How strongly the tint color shows over the sidebar material.")
-                        ) {
-                            HStack(spacing: 8) {
-                                Slider(value: $sidebarTintOpacity, in: 0...1)
-                                    .frame(width: 140)
-                                Text(String(format: "%.0f%%", sidebarTintOpacity * 100))
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 36, alignment: .trailing)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .action,
-                            String(localized: "settings.sidebarAppearance.reset", defaultValue: "Reset Sidebar Tint"),
-                            subtitle: String(localized: "settings.sidebarAppearance.reset.subtitle", defaultValue: "Restore default sidebar appearance."),
-                            searchAnchorID: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "reset-tint")
-                        ) {
-                            Button(String(localized: "settings.sidebarAppearance.reset.button", defaultValue: "Reset")) {
-                                sidebarTintHexLight = nil
-                                sidebarTintHexDark = nil
-                                sidebarTintHex = SidebarTintDefaults.hex
-                                sidebarTintOpacity = SidebarTintDefaults.opacity
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))

@@ -20054,13 +20054,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebar Appearance"
+            "value": "Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーの外観"
+            "value": "サイドバー"
           }
         }
       }
@@ -69501,13 +69501,13 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry 一般 環境設定 設定 動作 外観 ドック メニューバー 通知 サイドバー テレメトリ"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry 一般 環境設定 設定 動作 外観 ドック メニューバー 通知 テレメトリ"
                 }
             },
             "ar": {
@@ -69739,13 +69739,13 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color"
+                    "value": "sidebar left rail navigation details branches badges material terminal background"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color 左サイドバー ナビゲーション 色 透明度 不透明度 マテリアル"
+                    "value": "sidebar left rail navigation details branches badges material terminal background サイドバー 左 ナビゲーション 詳細 ブランチ バッジ マテリアル ターミナル 背景"
                 }
             },
             "ar": {
@@ -100325,115 +100325,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebar Appearance"
+            "value": "Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーの外観"
+            "value": "サイドバー"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏外观"
+            "value": "侧边栏"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄外觀"
+            "value": "側邊欄"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 모양"
+            "value": "사이드바"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seitenleisten-Erscheinungsbild"
+            "value": "Seitenleiste"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apariencia de la barra lateral"
+            "value": "Barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apparence de la barre latérale"
+            "value": "Barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aspetto barra laterale"
+            "value": "Barra laterale"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebjælkeudseende"
+            "value": "Sidebjælke"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wygląd paska bocznego"
+            "value": "Pasek boczny"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Внешний вид боковой панели"
+            "value": "Боковая панель"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Izgled bočne trake"
+            "value": "Bočna traka"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مظهر الشريط الجانبي"
+            "value": "الشريط الجانبي"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidefelts utseende"
+            "value": "Sidefelt"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aparência da Barra Lateral"
+            "value": "Barra lateral"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "รูปลักษณ์แถบด้านข้าง"
+            "value": "แถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kenar Çubuğu Görünümü"
+            "value": "Kenar Çubuğu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Зовнішній вигляд бічної панелі"
+            "value": "Бічна панель"
           }
         }
       }

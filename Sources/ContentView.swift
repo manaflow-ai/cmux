@@ -7088,7 +7088,7 @@ struct ContentView: View {
                         ? String(localized: "command.disableMatchTerminalBackground.title", defaultValue: "Disable Match Terminal Background")
                         : String(localized: "command.enableMatchTerminalBackground.title", defaultValue: "Enable Match Terminal Background")
                 },
-                subtitle: constant(String(localized: "command.matchTerminalBackground.subtitle", defaultValue: "Sidebar Appearance")),
+                subtitle: constant(String(localized: "command.matchTerminalBackground.subtitle", defaultValue: "Sidebar")),
                 keywords: ["match", "terminal", "background", "transparency", "sidebar", "surface", "chrome"]
             )
         )
