@@ -46,6 +46,7 @@ export const agentReadablePages = [
   { path: "/blog/zen-of-cmux", title: "The Zen of cmux" },
   { path: "/blog/show-hn-launch", title: "Launching cmux on Show HN" },
   { path: "/blog/introducing-cmux", title: "Introducing cmux" },
+  { path: "/docs", title: "Docs" },
   { path: "/docs/getting-started", title: "Getting Started" },
   { path: "/docs/concepts", title: "Concepts" },
   { path: "/docs/configuration", title: "Configuration" },
@@ -114,7 +115,7 @@ export function resolveAgentPageVariant(
   const canonicalPath = normalizeCanonicalPagePath(
     requestedPath.slice(0, -extension.length - 1),
   );
-  if (!canonicalPath) {
+  if (!canonicalPath || !isKnownAgentReadablePage(canonicalPath)) {
     return null;
   }
 
@@ -169,7 +170,12 @@ function normalizeRequestedPath(rawPath: string): string | null {
 
   try {
     const decodedPath = decodeURI(rawPath);
-    if (decodedPath.includes("..") || decodedPath.includes("//")) {
+    if (
+      decodedPath.includes("\\") ||
+      decodedPath.includes("\0") ||
+      decodedPath.includes("..") ||
+      decodedPath.includes("//")
+    ) {
       return null;
     }
     return decodedPath;
@@ -217,4 +223,24 @@ function normalizeEnglishOnlyPage(path: string): string {
     }
   }
   return path;
+}
+
+const agentReadablePagePathSet: Set<string> = new Set(
+  agentReadablePages.map(({ path }) => path),
+);
+
+function isKnownAgentReadablePage(canonicalPath: string): boolean {
+  return agentReadablePagePathSet.has(basePagePath(canonicalPath));
+}
+
+function basePagePath(canonicalPath: string): string {
+  for (const locale of locales) {
+    if (canonicalPath === `/${locale}`) {
+      return "/";
+    }
+    if (canonicalPath.startsWith(`/${locale}/`)) {
+      return canonicalPath.slice(locale.length + 1) || "/";
+    }
+  }
+  return canonicalPath;
 }

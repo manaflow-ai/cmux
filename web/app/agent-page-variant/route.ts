@@ -9,6 +9,7 @@ import {
   headersForLlmsTxt,
   localeFromCanonicalPath,
   markdownFromHtml,
+  plainTextFromMarkdown,
 } from "../lib/agent-page-markdown";
 
 export const runtime = "nodejs";
@@ -35,12 +36,14 @@ export async function GET(request: NextRequest) {
   htmlUrl.pathname = variant.canonicalPath;
   htmlUrl.search = "";
 
+  const canonicalFetchHeaders = headersForCanonicalFetch({
+    requestHeaders: request.headers,
+    searchParams: request.nextUrl.searchParams,
+  });
+
   const htmlResponse = await fetch(htmlUrl, {
     cache: "no-store",
-    headers: headersForCanonicalFetch({
-      requestHeaders: request.headers,
-      searchParams: request.nextUrl.searchParams,
-    }),
+    headers: canonicalFetchHeaders,
     redirect: "follow",
   });
 
@@ -57,12 +60,18 @@ export async function GET(request: NextRequest) {
     origin,
     sourceUrl,
   });
+  const body =
+    variant.format === "txt" ? plainTextFromMarkdown(markdown) : markdown;
 
-  return new NextResponse(markdown, {
+  return new NextResponse(body, {
     headers: headersForAgentPage({
       canonicalUrl: sourceUrl,
       contentLanguage: localeFromCanonicalPath(new URL(sourceUrl).pathname),
       format: variant.format,
+      privateResponse:
+        canonicalFetchHeaders.has("authorization") ||
+        canonicalFetchHeaders.has("cookie"),
+      varyAcceptLanguage: canonicalFetchHeaders.has("accept-language"),
     }),
   });
 }

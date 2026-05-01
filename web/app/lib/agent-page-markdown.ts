@@ -31,6 +31,51 @@ turndown.addRule("ariaHidden", {
   },
   replacement: () => "",
 });
+turndown.addRule("blockLink", {
+  filter: (node) =>
+    node.nodeName.toLowerCase() === "a" &&
+    Array.from(node.childNodes).some((child) =>
+      blockMarkdownElementNames.has(child.nodeName.toLowerCase()),
+    ),
+  replacement: (content, node) => {
+    const href = (node as Element).getAttribute?.("href");
+    const text = content.trim();
+    if (!href) {
+      return text ? `\n\n${text}\n\n` : "";
+    }
+    if (!text) {
+      return href;
+    }
+    return `\n\n${text}\n\nLink: ${href}\n\n`;
+  },
+});
+
+const blockMarkdownElementNames = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "div",
+  "dl",
+  "figure",
+  "footer",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hr",
+  "li",
+  "main",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "table",
+  "ul",
+]);
 
 export function markdownFromHtml({
   html,
@@ -42,13 +87,12 @@ export function markdownFromHtml({
   sourceUrl: string;
 }): string {
   const title = extractTitle(html);
-  const readableHtml = absolutizeUrls(extractReadableHtml(html), origin);
-  const body = cleanMarkdown(turndown.turndown(readableHtml));
+  const readableHtml = prepareReadableHtml(extractReadableHtml(html), origin);
+  const body = title
+    ? ensureMarkdownTitle(cleanMarkdown(turndown.turndown(readableHtml)), title)
+    : cleanMarkdown(turndown.turndown(readableHtml));
   const parts: string[] = [];
 
-  if (title && !body.match(/^#\s+/m)) {
-    parts.push(`# ${title}`);
-  }
   if (body) {
     parts.push(body);
   }
@@ -57,17 +101,57 @@ export function markdownFromHtml({
   return `${parts.join("\n\n")}\n`;
 }
 
+export function plainTextFromMarkdown(markdown: string): string {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const plainLines: string[] = [];
+  let inFence = false;
+
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+
+    if (inFence) {
+      plainLines.push(line);
+      continue;
+    }
+
+    const tableCells = tableCellsFromMarkdownLine(line);
+    const text =
+      tableCells?.map(markdownInlineToText).join("\t") ??
+      markdownInlineToText(
+        line
+          .replace(/^\s{0,3}#{1,6}\s+/, "")
+          .replace(/^\s{0,3}>\s?/, "")
+          .replace(/^\s*[-*+]\s+/, "- "),
+      );
+
+    if (!isMarkdownTableDivider(line)) {
+      plainLines.push(text);
+    }
+  }
+
+  return cleanPlainTextBlock(plainLines.join("\n"));
+}
+
 export function headersForAgentPage({
   format,
   canonicalUrl,
   contentLanguage,
+  privateResponse = false,
+  varyAcceptLanguage = false,
 }: {
   format: AgentPageFormat;
   canonicalUrl: string;
   contentLanguage: string;
+  privateResponse?: boolean;
+  varyAcceptLanguage?: boolean;
 }): Headers {
-  return new Headers({
-    "cache-control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+  const headers = new Headers({
+    "cache-control": privateResponse
+      ? "private, no-store"
+      : "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
     "content-language": contentLanguage,
     "content-type":
       format === "md"
@@ -76,6 +160,12 @@ export function headersForAgentPage({
     link: `<${canonicalUrl}>; rel="canonical"`,
     "x-robots-tag": "noindex, follow",
   });
+
+  if (varyAcceptLanguage) {
+    headers.set("vary", "Accept-Language");
+  }
+
+  return headers;
 }
 
 export function headersForLlmsTxt(): Headers {
@@ -114,20 +204,150 @@ function extractTitle(html: string): string | null {
   }
 
   const title = firstElementInnerHtml(html, "title");
-  return title ? cleanPlainText(title) : null;
+  return title ? cleanDocumentTitle(title) : null;
 }
 
 function cleanPlainText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function cleanMarkdown(markdown: string): string {
-  return markdown
+function cleanPlainTextBlock(text: string): string {
+  return text
     .replace(/\r\n/g, "\n")
-    .replace(/\)\[/g, ") [")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .concat("\n");
+}
+
+function cleanDocumentTitle(text: string): string {
+  return cleanPlainText(text)
+    .replace(/\s+(?:\||-|\u2013|\u2014)\s+cmux$/i, "")
+    .trim();
+}
+
+function cleanMarkdown(markdown: string): string {
+  return spaceAdjacentMarkdownLinks(markdown)
+    .replace(/\r\n/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function spaceAdjacentMarkdownLinks(markdown: string): string {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  let inFence = false;
+
+  return lines
+    .map((line) => {
+      if (/^\s*```/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) {
+        return line;
+      }
+      return rewriteOutsideInlineCode(line, (text) =>
+        text.replace(/(\]\([^)]+\))(?=\[)/g, "$1 "),
+      );
+    })
+    .join("\n");
+}
+
+function rewriteOutsideInlineCode(
+  markdown: string,
+  rewrite: (text: string) => string,
+): string {
+  const parts = markdown.split(/(`[^`]*`)/g);
+  return parts
+    .map((part) => (part.startsWith("`") ? part : rewrite(part)))
+    .join("");
+}
+
+function markdownInlineToText(markdown: string): string {
+  const codeSpans: string[] = [];
+  const withoutCode = markdown.replace(/`([^`]+)`/g, (_match, code: string) => {
+    const token = `CMUXCODESPAN${codeSpans.length}TOKEN`;
+    codeSpans.push(code);
+    return token;
+  });
+
+  const text = withoutCode
+    .replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_match, label: string, url: string) =>
+      label ? `${label} (${url})` : url,
+    )
+    .replace(/\[([^\]]+)]\(([^)]+)\)/g, (_match, label: string, url: string) =>
+      `${label} (${url})`,
+    )
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_([^_]+)_/g, "$1");
+
+  return codeSpans.reduce(
+    (current, code, index) =>
+      current.replace(`CMUXCODESPAN${index}TOKEN`, code),
+    text,
+  );
+}
+
+function tableCellsFromMarkdownLine(line: string): string[] | null {
+  if (!line.includes("|") || isMarkdownTableDivider(line)) {
+    return null;
+  }
+
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") && !trimmed.endsWith("|")) {
+    return null;
+  }
+
+  return trimmed
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function isMarkdownTableDivider(line: string): boolean {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+}
+
+function ensureMarkdownTitle(markdown: string, title: string): string {
+  const titleHeading = `# ${title}`;
+  if (!markdown) {
+    return titleHeading;
+  }
+
+  const lines = markdown.split("\n");
+  const firstContentIndex = lines.findIndex((line) => line.trim() !== "");
+  const firstContentLine =
+    firstContentIndex === -1 ? "" : lines[firstContentIndex].trim();
+  if (isMatchingTopLevelHeading(firstContentLine, title)) {
+    return markdown;
+  }
+
+  const matchingHeadingIndex = lines.findIndex((line) =>
+    isMatchingTopLevelHeading(line.trim(), title),
+  );
+  if (matchingHeadingIndex !== -1) {
+    lines.splice(matchingHeadingIndex, 1);
+  }
+
+  const remaining = lines.join("\n").trim();
+  return remaining ? `${titleHeading}\n\n${remaining}` : titleHeading;
+}
+
+function isMatchingTopLevelHeading(line: string, title: string): boolean {
+  const match = line.match(/^#\s+(.+)$/);
+  return match ? normalizeTitle(match[1]) === normalizeTitle(title) : false;
+}
+
+function normalizeTitle(title: string): string {
+  return markdownInlineToText(title).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function prepareReadableHtml(html: string, origin: string): string {
+  return spaceAdjacentAnchors(absolutizeUrls(html, origin));
 }
 
 function absolutizeUrls(html: string, origin: string): string {
@@ -136,4 +356,8 @@ function absolutizeUrls(html: string, origin: string): string {
     (_match, attribute: string, quote: string, path: string) =>
       ` ${attribute}=${quote}${origin}${path}${quote}`,
   );
+}
+
+function spaceAdjacentAnchors(html: string): string {
+  return html.replace(/<\/a>(\s*)<a\b/g, "</a> <a");
 }
