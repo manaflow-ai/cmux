@@ -114,6 +114,68 @@ def main() -> int:
         cli_text_scrollback = _run_cli(cli, ["read-screen", "--workspace", ws_target, "--surface", surface_target, "--scrollback", "--lines", "80"])
         _must(token in cli_text_scrollback, f"cmux read-screen --scrollback output missing token {token!r}: {cli_text_scrollback!r}")
 
+        color_token = f"CMUX_VT_READ_{int(time.time() * 1000)}"
+        c._call("surface.send_text", {
+            "workspace_id": ws_target,
+            "surface_id": surface_target,
+            "text": f"printf '\\033[31m%s\\033[0m\\n' {color_token}\n",
+        })
+
+        def has_color_token() -> bool:
+            payload = c._call("surface.read_text", {
+                "workspace_id": ws_target,
+                "surface_id": surface_target,
+                "lines": 80,
+            }) or {}
+            return color_token in str(payload.get("text") or "")
+
+        _wait_for(has_color_token, timeout_s=5.0)
+
+        vt_payload = c._call("surface.read_text", {
+            "workspace_id": ws_target,
+            "surface_id": surface_target,
+            "format": "vt",
+            "lines": 80,
+        }) or {}
+        vt_text = str(vt_payload.get("text") or "")
+        _must(vt_payload.get("format") == "vt", f"surface.read_text format=vt lines=80 did not return vt format: {vt_payload}")
+        _must(color_token in vt_text, f"surface.read_text format=vt lines=80 missing token {color_token!r}: {vt_payload}")
+        _must("\x1b[" in vt_text, f"surface.read_text format=vt lines=80 missing ANSI escapes: {vt_payload}")
+
+        history_token = f"CMUX_VT_HISTORY_{int(time.time() * 1000)}"
+        screen_token = f"CMUX_VT_SCREEN_{int(time.time() * 1000)}"
+        c._call("surface.send_text", {
+            "workspace_id": ws_target,
+            "surface_id": surface_target,
+            "text": (
+                f"printf '\\033[32m%s\\033[0m\\n' {history_token}; "
+                "i=0; while [ $i -lt 160 ]; do echo CMUX_VT_FILLER_$i; i=$((i + 1)); done; "
+                f"printf '\\033[34m%s\\033[0m\\n' {screen_token}\n"
+            ),
+        })
+
+        def has_screen_token() -> bool:
+            payload = c._call("surface.read_text", {
+                "workspace_id": ws_target,
+                "surface_id": surface_target,
+                "lines": 80,
+            }) or {}
+            return screen_token in str(payload.get("text") or "")
+
+        _wait_for(has_screen_token, timeout_s=5.0)
+
+        vt_scrollback_payload = c._call("surface.read_text", {
+            "workspace_id": ws_target,
+            "surface_id": surface_target,
+            "format": "vt",
+            "scrollback": True,
+        }) or {}
+        vt_scrollback_text = str(vt_scrollback_payload.get("text") or "")
+        _must(vt_scrollback_payload.get("format") == "vt", f"surface.read_text format=vt scrollback did not return vt format: {vt_scrollback_payload}")
+        _must(history_token in vt_scrollback_text, f"surface.read_text format=vt scrollback missing history token {history_token!r}: {vt_scrollback_payload}")
+        _must(screen_token in vt_scrollback_text, f"surface.read_text format=vt scrollback missing active screen token {screen_token!r}: {vt_scrollback_payload}")
+        _must("\x1b[" in vt_scrollback_text, f"surface.read_text format=vt scrollback missing ANSI escapes: {vt_scrollback_payload}")
+
         cli_json = _run_cli(cli, ["--json", "read-screen", "--workspace", ws_target, "--surface", surface_target])
         payload = json.loads(cli_json or "{}")
         _must(token in str(payload.get("text") or ""), f"cmux --json read-screen missing token {token!r}: {payload}")

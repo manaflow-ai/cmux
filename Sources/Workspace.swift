@@ -8420,6 +8420,7 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
+        CMUXRemoteEvents.publishSnapshotChanged(reason: .surface)
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -8435,6 +8436,24 @@ final class Workspace: Identifiable, ObservableObject {
         for terminalPanel in panels.values.compactMap({ $0 as? TerminalPanel }) {
             terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
         }
+    }
+
+    @discardableResult
+    func prepareTerminalSurfaceForRemoteAccess(panelId: UUID, inPane paneId: PaneID) -> Bool {
+        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+              let surfaceId = surfaceIdFromPanelId(panelId),
+              bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == surfaceId }) else {
+            return false
+        }
+
+        if owningTabManager?.selectedTabId != id,
+           bonsplitController.selectedTab(inPane: paneId)?.id != surfaceId {
+            bonsplitController.selectTab(surfaceId)
+        }
+        terminalPanel.requestViewReattach()
+        scheduleTerminalGeometryReconcile()
+        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        return true
     }
 
     @discardableResult
@@ -8552,6 +8571,7 @@ final class Workspace: Identifiable, ObservableObject {
         processTitle = title
         guard customTitle == nil else { return }
         self.title = title
+        CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
     }
 
     func setCustomColor(_ hex: String?) {
@@ -8582,12 +8602,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     func setCustomTitle(_ title: String?) {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let previousTitle = self.title
+        let previousCustomTitle = customTitle
         if trimmed.isEmpty {
             customTitle = nil
             self.title = processTitle
         } else {
             customTitle = trimmed
             self.title = trimmed
+        }
+        if previousTitle != self.title || previousCustomTitle != customTitle {
+            CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
         }
     }
 
@@ -8842,6 +8867,7 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         var didMutate = false
+        var didMutateWorkspaceTitle = false
 
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
@@ -8866,12 +8892,20 @@ final class Workspace: Identifiable, ObservableObject {
             if self.title != trimmed {
                 self.title = trimmed
                 didMutate = true
+                didMutateWorkspaceTitle = true
             }
             if processTitle != trimmed {
                 processTitle = trimmed
+                didMutateWorkspaceTitle = true
             }
         }
 
+        if didMutate {
+            CMUXRemoteEvents.publishSnapshotChanged(reason: .surface)
+        }
+        if didMutateWorkspaceTitle {
+            CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
+        }
         return didMutate
     }
 

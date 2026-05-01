@@ -3,6 +3,7 @@ import SwiftUI
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+import CoreImage
 
 @main
 struct cmuxApp: App {
@@ -16,6 +17,9 @@ struct cmuxApp: App {
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage(RemoteAccessSettings.enabledKey) private var remoteAccessEnabled = RemoteAccessSettings.defaultEnabled
+    @AppStorage(RemoteAccessSettings.portKey) private var remoteAccessPort = RemoteAccessSettings.defaultPort
+    @AppStorage(RemoteAccessSettings.bindModeKey) private var remoteAccessBindMode = RemoteAccessSettings.defaultBindMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
@@ -198,12 +202,22 @@ struct cmuxApp: App {
                     }
 #endif
                     bootstrapMainWindowScene()
+                    updateRemoteAccessServer()
                 }
                 .onChange(of: appearanceMode) { _ in
                     applyAppearance()
                 }
                 .onChange(of: socketControlMode) { _ in
                     updateSocketController()
+                }
+                .onChange(of: remoteAccessEnabled) { _ in
+                    updateRemoteAccessServer()
+                }
+                .onChange(of: remoteAccessPort) { _ in
+                    updateRemoteAccessServer()
+                }
+                .onChange(of: remoteAccessBindMode) { _ in
+                    updateRemoteAccessServer()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -812,6 +826,22 @@ struct cmuxApp: App {
             )
         } else {
             TerminalController.shared.stop()
+        }
+    }
+
+    private func updateRemoteAccessServer() {
+        if remoteAccessEnabled {
+            let normalizedPort = RemoteAccessSettings.normalizedPort(remoteAccessPort)
+            if remoteAccessPort != normalizedPort {
+                remoteAccessPort = normalizedPort
+            }
+            let bindMode = RemoteAccessSettings.normalizedBindMode(remoteAccessBindMode)
+            if remoteAccessBindMode != bindMode.rawValue {
+                remoteAccessBindMode = bindMode.rawValue
+            }
+            CMUXRemoteServer.shared.start(port: normalizedPort, bindMode: bindMode)
+        } else {
+            CMUXRemoteServer.shared.stop()
         }
     }
 
@@ -5264,6 +5294,10 @@ struct SettingsView: View {
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(LastSurfaceCloseShortcutSettings.key)
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
+    @AppStorage(RemoteAccessSettings.enabledKey) private var remoteAccessEnabled = RemoteAccessSettings.defaultEnabled
+    @AppStorage(RemoteAccessSettings.portKey) private var remoteAccessPort = RemoteAccessSettings.defaultPort
+    @AppStorage(RemoteAccessSettings.bindModeKey) private var remoteAccessBindMode = RemoteAccessSettings.defaultBindMode.rawValue
+    @AppStorage(RemoteAccessSettings.lanPairingHostKey) private var remoteAccessLANPairingHost = ""
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
@@ -5302,6 +5336,7 @@ struct SettingsView: View {
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
+    @ObservedObject private var remoteAccessServer = CMUXRemoteServer.shared
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var shortcutResetToken = UUID()
     @State private var showClearBrowserHistoryConfirmation = false
@@ -5313,6 +5348,9 @@ struct SettingsView: View {
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
+    @State private var remoteAccessStatusMessage: String?
+    @State private var remoteAccessStatusIsError = false
+    @State private var remoteAccessPairingToken: String?
     @State private var notificationCustomSoundStatusMessage: String?
     @State private var notificationCustomSoundStatusIsError = false
     @State private var showNotificationCustomSoundErrorAlert = false
@@ -5434,6 +5472,105 @@ struct SettingsView: View {
 
     private var selectedSocketControlMode: SocketControlMode {
         SocketControlSettings.migrateMode(socketControlMode)
+    }
+
+    private var remoteAccessURLString: String {
+        RemoteAccessSettings.localhostURLString(port: remoteAccessPort)
+    }
+
+    private var selectedRemoteAccessBindMode: RemoteAccessBindMode {
+        RemoteAccessSettings.normalizedBindMode(remoteAccessBindMode)
+    }
+
+    private var remoteAccessLANURLStrings: [String] {
+        RemoteAccessSettings.lanURLStrings(port: remoteAccessPort)
+    }
+
+    private var remoteAccessLANHosts: [String] {
+        RemoteAccessSettings.lanIPv4Addresses()
+    }
+
+    private var remoteAccessLANURLSummary: String {
+        let urls = remoteAccessLANURLStrings
+        guard !urls.isEmpty else {
+            return String(localized: "settings.automation.remoteAccess.lan.noAddress", defaultValue: "No LAN address found.")
+        }
+        return urls.joined(separator: "\n")
+    }
+
+    private var remoteAccessSelectedLANHost: String? {
+        let hosts = remoteAccessLANHosts
+        guard !hosts.isEmpty else { return nil }
+        if hosts.contains(remoteAccessLANPairingHost) {
+            return remoteAccessLANPairingHost
+        }
+        return hosts.first
+    }
+
+    private var remoteAccessPairingURLString: String? {
+        guard remoteAccessEnabled,
+              case .running = remoteAccessServer.state,
+              selectedRemoteAccessBindMode == .lan,
+              let host = remoteAccessSelectedLANHost,
+              let token = remoteAccessPairingToken else {
+            return nil
+        }
+        return RemoteAccessSettings.pairingURLString(host: host, port: remoteAccessPort, token: token)
+    }
+
+    private var remoteAccessLANPairingHostSelection: Binding<String> {
+        Binding(
+            get: { remoteAccessSelectedLANHost ?? "" },
+            set: { remoteAccessLANPairingHost = $0 }
+        )
+    }
+
+    private var remoteAccessBindModeSelection: Binding<String> {
+        Binding(
+            get: { selectedRemoteAccessBindMode.rawValue },
+            set: { remoteAccessBindMode = RemoteAccessSettings.normalizedBindMode($0).rawValue }
+        )
+    }
+
+    private func remoteAccessBindModeDisplayName(_ mode: RemoteAccessBindMode) -> String {
+        switch mode {
+        case .localhost:
+            return String(localized: "settings.automation.remoteAccess.bindMode.localhost", defaultValue: "Localhost")
+        case .lan:
+            return String(localized: "settings.automation.remoteAccess.bindMode.lan", defaultValue: "LAN")
+        }
+    }
+
+    private var remoteAccessRuntimeSubtitle: String {
+        switch remoteAccessServer.state {
+        case .stopped:
+            return remoteAccessEnabled
+                ? String(localized: "settings.automation.remoteAccess.subtitleStarting", defaultValue: "Starting remote access server.")
+                : String(localized: "settings.automation.remoteAccess.subtitleOff", defaultValue: "Disabled. Enable to control this Mac from a local HTTP client.")
+        case .starting:
+            return String(localized: "settings.automation.remoteAccess.subtitleStarting", defaultValue: "Starting remote access server.")
+        case .running:
+            if selectedRemoteAccessBindMode == .lan {
+                return String(localized: "settings.automation.remoteAccess.subtitleOnLAN", defaultValue: "Listening on this network.")
+            }
+            return String(localized: "settings.automation.remoteAccess.subtitleOn", defaultValue: "Listening on localhost.")
+        case .stopping:
+            return String(localized: "settings.automation.remoteAccess.subtitleStopping", defaultValue: "Stopping remote access server.")
+        case .restarting:
+            return String(localized: "settings.automation.remoteAccess.subtitleRestarting", defaultValue: "Restarting remote access server.")
+        case .failed:
+            return remoteAccessEnabled
+                ? String(localized: "settings.automation.remoteAccess.subtitleFailed", defaultValue: "Remote access failed to start.")
+                : String(localized: "settings.automation.remoteAccess.subtitleOff", defaultValue: "Disabled. Enable to control this Mac from a local HTTP client.")
+        }
+    }
+
+    private var remoteAccessLifecycleMessage: String? {
+        guard remoteAccessEnabled,
+              case .failed(_, let message) = remoteAccessServer.state else {
+            return nil
+        }
+        return String(localized: "settings.automation.remoteAccess.startFailed", defaultValue: "Remote access failed to start: \(message)")
     }
 
     private var selectedBrowserThemeMode: BrowserThemeMode {
@@ -5839,6 +5976,84 @@ struct SettingsView: View {
             socketPasswordStatusMessage = String(localized: "settings.automation.socketPassword.clearFailed", defaultValue: "Failed to clear password (\(error.localizedDescription)).")
             socketPasswordStatusIsError = true
         }
+    }
+
+    private func rotateRemoteAccessToken() {
+        do {
+            remoteAccessPairingToken = try RemoteAccessTokenStore.rotateToken()
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.tokenRotated", defaultValue: "Remote access token rotated.")
+            remoteAccessStatusIsError = false
+        } catch {
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.tokenRotateFailed", defaultValue: "Failed to rotate token (\(error.localizedDescription)).")
+            remoteAccessStatusIsError = true
+        }
+    }
+
+    private func copyRemoteAccessToken() {
+        do {
+            let token = try ensureRemoteAccessPairingToken()
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(token, forType: .string)
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.tokenCopied", defaultValue: "Remote access token copied.")
+            remoteAccessStatusIsError = false
+        } catch {
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.tokenCopyFailed", defaultValue: "Failed to copy token (\(error.localizedDescription)).")
+            remoteAccessStatusIsError = true
+        }
+    }
+
+    private func copyRemoteAccessPairingURL() {
+        do {
+            _ = try ensureRemoteAccessPairingToken()
+        } catch {
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.tokenCopyFailed", defaultValue: "Failed to copy token (\(error.localizedDescription)).")
+            remoteAccessStatusIsError = true
+            return
+        }
+        guard let url = remoteAccessPairingURLString else {
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.pairingURLUnavailable", defaultValue: "No LAN pairing URL is available.")
+            remoteAccessStatusIsError = true
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url, forType: .string)
+        remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.pairingURLCopied", defaultValue: "Pairing URL copied.")
+        remoteAccessStatusIsError = false
+    }
+
+    private func generateRemoteAccessPairingLink() {
+        do {
+            _ = try ensureRemoteAccessPairingToken()
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.pairingLinkReady", defaultValue: "Pairing link ready.")
+            remoteAccessStatusIsError = false
+        } catch {
+            remoteAccessStatusMessage = String(localized: "settings.automation.remoteAccess.tokenCopyFailed", defaultValue: "Failed to copy token (\(error.localizedDescription)).")
+            remoteAccessStatusIsError = true
+        }
+    }
+
+    private func loadExistingRemoteAccessPairingToken() {
+        remoteAccessPairingToken = try? RemoteAccessTokenStore.loadToken()
+    }
+
+    @discardableResult
+    private func ensureRemoteAccessPairingToken() throws -> String {
+        let token = try RemoteAccessTokenStore.loadOrCreateToken()
+        remoteAccessPairingToken = token
+        return token
+    }
+
+    private func remoteAccessQRCodeImage(for string: String) -> NSImage? {
+        guard let data = string.data(using: .utf8),
+              let filter = CIFilter(name: "CIQRCodeGenerator") else {
+            return nil
+        }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let outputImage = filter.outputImage else { return nil }
+        let scaled = outputImage.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
+        guard let cgImage = CIContext().createCGImage(scaled, from: scaled.extent) else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: 180, height: 180))
     }
 
     var body: some View {
@@ -6549,6 +6764,177 @@ struct SettingsView: View {
 
                     SettingsCard {
                         SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.automation.remoteAccess", defaultValue: "Remote Access"),
+                            subtitle: remoteAccessRuntimeSubtitle
+                        ) {
+                            Toggle("", isOn: $remoteAccessEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("RemoteAccessEnabledToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.automation.remoteAccess.bindMode", defaultValue: "Remote Access Mode"),
+                            subtitle: selectedRemoteAccessBindMode == .lan
+                                ? String(localized: "settings.automation.remoteAccess.bindMode.subtitleLAN", defaultValue: "LAN mode allows devices on this network to reach cmux with the token.")
+                                : String(localized: "settings.automation.remoteAccess.bindMode.subtitleLocalhost", defaultValue: "Localhost mode only accepts connections from this Mac."),
+                            controlWidth: pickerColumnWidth,
+                            selection: remoteAccessBindModeSelection
+                        ) {
+                            ForEach(RemoteAccessBindMode.allCases) { mode in
+                                Text(remoteAccessBindModeDisplayName(mode)).tag(mode.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.automation.remoteAccess.port", defaultValue: "Remote Access Port"),
+                            subtitle: selectedRemoteAccessBindMode == .lan
+                                ? String(localized: "settings.automation.remoteAccess.port.subtitleLAN", defaultValue: "LAN mode listens on all network interfaces.")
+                                : String(localized: "settings.automation.remoteAccess.port.subtitle", defaultValue: "Localhost mode binds only to 127.0.0.1.")
+                        ) {
+                            Stepper(value: $remoteAccessPort, in: RemoteAccessSettings.minPort...RemoteAccessSettings.maxPort) {
+                                Text("\(RemoteAccessSettings.normalizedPort(remoteAccessPort))")
+                                    .monospacedDigit()
+                                    .frame(minWidth: 52, alignment: .trailing)
+                            }
+                            .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.automation.remoteAccess.url", defaultValue: "Remote Access URL"),
+                            subtitle: remoteAccessURLString
+                        ) {
+                            HStack(spacing: 8) {
+                                Button(String(localized: "settings.automation.remoteAccess.copyToken", defaultValue: "Copy Token")) {
+                                    copyRemoteAccessToken()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+
+                                Button(String(localized: "settings.automation.remoteAccess.rotateToken", defaultValue: "Rotate Token")) {
+                                    rotateRemoteAccessToken()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+
+                        if selectedRemoteAccessBindMode == .lan {
+                            SettingsCardDivider()
+
+                            SettingsCardRow(
+                                configurationReview: .settingsOnly,
+                                String(localized: "settings.automation.remoteAccess.lanURLs", defaultValue: "LAN URLs"),
+                                subtitle: remoteAccessLANURLSummary
+                            ) {
+                                if remoteAccessSelectedLANHost != nil {
+                                    Button(String(localized: "settings.automation.remoteAccess.copyPairingURL", defaultValue: "Copy Pairing URL")) {
+                                        copyRemoteAccessPairingURL()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .help(remoteAccessPairingURLString ?? "")
+                                }
+                            }
+
+                            if remoteAccessLANHosts.count > 1 {
+                                SettingsCardDivider()
+
+                                SettingsPickerRow(
+                                    configurationReview: .settingsOnly,
+                                    String(localized: "settings.automation.remoteAccess.pairingAddress", defaultValue: "Pairing Address"),
+                                    subtitle: String(localized: "settings.automation.remoteAccess.pairingAddress.subtitle", defaultValue: "Used for the QR code and Copy Pairing URL."),
+                                    controlWidth: pickerColumnWidth,
+                                    selection: remoteAccessLANPairingHostSelection
+                                ) {
+                                    ForEach(remoteAccessLANHosts, id: \.self) { host in
+                                        Text(host).tag(host)
+                                    }
+                                }
+                            }
+
+                            SettingsCardDivider()
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(String(localized: "settings.automation.remoteAccess.pairWithPhone", defaultValue: "Pair with Phone"))
+                                    .font(.subheadline.weight(.semibold))
+                                if let pairingURL = remoteAccessPairingURLString,
+                                   let image = remoteAccessQRCodeImage(for: pairingURL) {
+                                    HStack(alignment: .center, spacing: 14) {
+                                        Image(nsImage: image)
+                                            .interpolation(.none)
+                                            .resizable()
+                                            .frame(width: 180, height: 180)
+                                            .background(Color.white)
+                                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                                        Text(String(localized: "settings.automation.remoteAccess.qrHint", defaultValue: "Scan this QR code from a phone on the same network. The token is embedded in the link."))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.bottom, 8)
+                                } else if remoteAccessSelectedLANHost != nil {
+                                    HStack(alignment: .center, spacing: 12) {
+                                        Text(String(localized: "settings.automation.remoteAccess.qrGenerateHint", defaultValue: "Generate a pairing link to show a QR code for the selected LAN address."))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Button(String(localized: "settings.automation.remoteAccess.generatePairingLink", defaultValue: "Generate Pairing Link")) {
+                                            generateRemoteAccessPairingLink()
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.bottom, 8)
+                                } else {
+                                    Text(String(localized: "settings.automation.remoteAccess.lan.noAddress", defaultValue: "No LAN address found."))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 14)
+                                        .padding(.bottom, 8)
+                                }
+                            }
+
+                            SettingsCardDivider()
+
+                            Text(String(localized: "settings.automation.remoteAccess.lanWarning", defaultValue: "Warning: LAN mode exposes cmux remote control to this network. Anyone with the pairing URL or token can operate cmux."))
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                        }
+
+                        if let message = remoteAccessLifecycleMessage {
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(Color.red)
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 8)
+                        }
+
+                        if let message = remoteAccessStatusMessage {
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(remoteAccessStatusIsError ? Color.red : Color.secondary)
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 8)
+                        }
+
+                        SettingsCardNote(String(localized: "settings.automation.remoteAccess.note", defaultValue: "The remote API requires an Authorization: Bearer token header and currently exposes only a small allowlist of v2 methods."))
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
                             configurationReview: .json("automation.claudeCodeIntegration"),
                             String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"),
                             subtitle: claudeCodeHooksEnabled
@@ -7252,6 +7638,16 @@ struct SettingsView: View {
             refreshDetectedImportBrowsers()
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
+            loadExistingRemoteAccessPairingToken()
+        }
+        .onChange(of: remoteAccessBindMode) { _, _ in
+            loadExistingRemoteAccessPairingToken()
+        }
+        .onChange(of: remoteAccessEnabled) { _, _ in
+            loadExistingRemoteAccessPairingToken()
+        }
+        .onChange(of: remoteAccessServer.state) { _, _ in
+            loadExistingRemoteAccessPairingToken()
         }
         .onChange(of: notificationSound) { _, _ in
             refreshNotificationCustomSoundStatus()
@@ -7373,6 +7769,14 @@ struct SettingsView: View {
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
+        remoteAccessEnabled = RemoteAccessSettings.defaultEnabled
+        remoteAccessPort = RemoteAccessSettings.defaultPort
+        remoteAccessBindMode = RemoteAccessSettings.defaultBindMode.rawValue
+        remoteAccessLANPairingHost = ""
+        remoteAccessPairingToken = nil
+        remoteAccessStatusMessage = nil
+        remoteAccessStatusIsError = false
+        try? RemoteAccessTokenStore.deleteToken()
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled

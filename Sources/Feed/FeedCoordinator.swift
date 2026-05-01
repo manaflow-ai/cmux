@@ -89,6 +89,7 @@ final class FeedCoordinator: @unchecked Sendable {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     FeedCoordinator.shared.store.ingest(event)
+                    CMUXRemoteEvents.publishSnapshotChanged(reason: .feed)
                     if let ppid = event.ppid, ppid > 0 {
                         FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                     }
@@ -114,6 +115,7 @@ final class FeedCoordinator: @unchecked Sendable {
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store.ingest(event)
+                CMUXRemoteEvents.publishSnapshotChanged(reason: .feed)
                 itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
                 if let ppid = event.ppid, ppid > 0 {
                     FeedCoordinator.shared.armPidWatcher(ppid: ppid)

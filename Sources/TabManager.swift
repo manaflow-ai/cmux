@@ -891,7 +891,16 @@ class TabManager: ObservableObject {
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
-    @Published var tabs: [Workspace] = []
+    @Published var tabs: [Workspace] = [] {
+        didSet {
+            let unchanged = tabs.count == oldValue.count &&
+                zip(tabs, oldValue).allSatisfy { newWorkspace, oldWorkspace in
+                    newWorkspace.id == oldWorkspace.id && newWorkspace === oldWorkspace
+                }
+            guard !unchanged else { return }
+            CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
+        }
+    }
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
@@ -940,6 +949,7 @@ class TabManager: ObservableObject {
         }
         didSet {
             guard selectedTabId != oldValue else { return }
+            CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
             sentryBreadcrumb("workspace.switch", data: [
                 "tabCount": tabs.count
             ])
@@ -970,6 +980,7 @@ class TabManager: ObservableObject {
                 if let selectedTabId = self.selectedTabId {
                     self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
                 }
+                CMUXRemoteEvents.publishSnapshotChanged(reason: .workspace)
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
                     ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
