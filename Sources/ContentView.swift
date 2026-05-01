@@ -6753,11 +6753,13 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
 
         if let workspace = tabManager.selectedWorkspace {
+            let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
+            let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
-            snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, !workspace.isPinned)
+            snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, pinState?.pinned ?? !workspace.isPinned)
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
@@ -7982,7 +7984,11 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            tabManager.setPinned(workspace, pinned: !workspace.isPinned)
+            let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
+            guard WorkspaceActionDispatcher.performPinAction(in: tabManager, target: pinTarget) != nil else {
+                NSSound.beep()
+                return
+            }
         }
         registry.register(commandId: "palette.resetWorkspaceColor") {
             guard let workspace = tabManager.selectedWorkspace else {
@@ -13335,7 +13341,12 @@ private struct TabItemView: View, Equatable {
         let targetIds = contextMenuWorkspaceIds
         let isMulti = targetIds.count > 1
         let tabColorPalette = WorkspaceTabColorSettings.palette()
-        let shouldPin = !tab.isPinned
+        let pinTarget = WorkspaceActionDispatcher.Target(
+            workspaceIds: targetIds,
+            anchorWorkspaceId: tab.id
+        )
+        let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
+        let shouldPin = pinState?.pinned ?? !tab.isPinned
         let reconnectLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
             single: String(localized: "contextMenu.reconnectWorkspace", defaultValue: "Reconnect Workspace"),
@@ -13377,13 +13388,14 @@ private struct TabItemView: View, Equatable {
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
         Button(pinLabel) {
-            for id in targetIds {
-                if let tab = tabManager.tabs.first(where: { $0.id == id }) {
-                    tabManager.setPinned(tab, pinned: shouldPin)
-                }
+            if let pinState {
+                WorkspaceActionDispatcher.performPinAction(pinState, in: tabManager)
+            } else {
+                NSSound.beep()
             }
             syncSelectionAfterMutation()
         }
+        .disabled(pinState == nil)
 
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {

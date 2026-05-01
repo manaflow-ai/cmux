@@ -885,7 +885,10 @@ struct cmuxApp: App {
 
     private func toggleSelectedWorkspacePinned(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
-        manager.setPinned(workspace, pinned: !workspace.isPinned)
+        _ = WorkspaceActionDispatcher.performPinAction(
+            in: manager,
+            target: .single(workspace.id)
+        )
     }
 
     private func clearSelectedWorkspaceCustomName(in manager: TabManager) {
@@ -971,11 +974,17 @@ struct cmuxApp: App {
         let workspace = manager.selectedWorkspace
         let workspaceIndex = workspace.flatMap { selectedWorkspaceIndex(in: manager, workspaceId: $0.id) }
         let windowMoveTargets = selectedWorkspaceWindowMoveTargets(in: manager)
+        let pinState = workspace.flatMap { workspace in
+            WorkspaceActionDispatcher.pinState(
+                in: manager,
+                target: .single(workspace.id)
+            )
+        }
 
         Button(
-            workspace?.isPinned == true
-                ? String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace")
-                : String(localized: "contextMenu.pinWorkspace", defaultValue: "Pin Workspace")
+            (pinState?.pinned ?? true)
+                ? String(localized: "contextMenu.pinWorkspace", defaultValue: "Pin Workspace")
+                : String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace")
         ) {
             toggleSelectedWorkspacePinned(in: manager)
         }
