@@ -11,6 +11,7 @@ const path = require("node:path");
 const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
 const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
 const REPLY_TIMEOUT_MS = 120_000;
+const MAX_PLAN_BYTES = 128 * 1024;
 
 export const CMUXFeed = async (ctx) => {
   let client = null;
@@ -87,6 +88,11 @@ export const CMUXFeed = async (ctx) => {
     return true;
   };
 
+  const legacyPermissionBody = (reply) => ({
+    response: reply === "reject" ? "deny" : "approve",
+    remember: reply === "always",
+  });
+
   const replyPermission = async ({ sessionId, requestId, reply, message }) => {
     if (
       await tryRawClientRequest("post", {
@@ -105,7 +111,7 @@ export const CMUXFeed = async (ctx) => {
     if (sessionId) {
       await callClientMethod(ctx?.client, "postSessionIdPermissionsPermissionId", {
         path: { id: sessionId, permissionID: requestId },
-        body: { response: reply },
+        body: legacyPermissionBody(reply),
       });
     }
   };
@@ -139,7 +145,7 @@ export const CMUXFeed = async (ctx) => {
   };
 
   const updateSessionPermission = async (sessionId, permission) => {
-    if (!sessionId || !permission.length) return;
+    if (!sessionId || !permission.length) return true;
     if (
       await tryRawClientRequest("patch", {
         url: "/session/{sessionID}",
@@ -147,10 +153,10 @@ export const CMUXFeed = async (ctx) => {
         body: { permission },
       })
     ) {
-      return;
+      return true;
     }
 
-    await callClientMethod(ctx?.client?.session, "update", { path: { id: sessionId }, body: { permission } });
+    return await callClientMethod(ctx?.client?.session, "update", { path: { id: sessionId }, body: { permission } });
   };
 
   const sendPlanFeedback = async (sessionId, text) => {
@@ -222,6 +228,35 @@ export const CMUXFeed = async (ctx) => {
     return selections.map((selection) => [String(selection)]);
   };
 
+  const resolveSessionPlanPath = (sid, rawPlanPath) => {
+    if (!rawPlanPath) return null;
+    const root = path.resolve(sessionState(sid).cwd || ctx?.worktree || ctx?.directory || process.cwd());
+    const raw = String(rawPlanPath);
+    const relativeInput = path.isAbsolute(raw)
+      ? path.relative(root, path.resolve(raw))
+      : raw;
+    const candidate = path.resolve(root, relativeInput);
+    const relative = path.relative(root, candidate);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return null;
+    return candidate;
+  };
+
+  const readPlanFile = (planFilePath) => {
+    const stat = fs.statSync(planFilePath);
+    if (!stat.isFile()) return null;
+    const fd = fs.openSync(planFilePath, "r");
+    try {
+      const length = Math.min(stat.size, MAX_PLAN_BYTES);
+      const buffer = Buffer.alloc(length);
+      const bytes = fs.readSync(fd, buffer, 0, length, 0);
+      const text = buffer.subarray(0, bytes).toString("utf8");
+      if (stat.size <= bytes) return text;
+      return `${text}\n\n[cmux truncated plan file at ${bytes} bytes.]`;
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+
   const planExitInfo = (sid, questions) => {
     const first = Array.isArray(questions) ? questions[0] : null;
     if (!first) return null;
@@ -238,14 +273,11 @@ export const CMUXFeed = async (ctx) => {
 
     const match = prompt.match(/Plan at (.+?) is complete\./);
     const rawPlanPath = match?.[1]?.trim();
-    const baseDir = ctx?.worktree || ctx?.directory || process.cwd();
-    const planFilePath = rawPlanPath
-      ? (path.isAbsolute(rawPlanPath) ? rawPlanPath : path.resolve(baseDir, rawPlanPath))
-      : null;
+    const planFilePath = resolveSessionPlanPath(sid, rawPlanPath);
     let plan = null;
     if (planFilePath) {
       try {
-        plan = fs.readFileSync(planFilePath, "utf8");
+        plan = readPlanFile(planFilePath);
       } catch (_) {}
     }
     return {
@@ -258,7 +290,7 @@ export const CMUXFeed = async (ctx) => {
 
   const handleExitPlanDecision = async (sid, requestId, decision) => {
     const mode = decision?.mode || "manual";
-    const feedback = normalizeText(decision?.feedback, 2000);
+    const feedback = normalizeText(decision?.feedback, 1800);
 
     if (feedback) {
       await replyQuestion(requestId, [["No"]]);
@@ -283,7 +315,21 @@ export const CMUXFeed = async (ctx) => {
       return;
     }
 
-    await updateSessionPermission(sid, permissionRulesForExitPlanMode(mode));
+    const rules = permissionRulesForExitPlanMode(mode);
+    let permissionsApplied = true;
+    try {
+      permissionsApplied = await updateSessionPermission(sid, rules);
+    } catch (_) {
+      permissionsApplied = false;
+    }
+    if (!permissionsApplied) {
+      await replyQuestion(requestId, [["No"]]);
+      await sendPlanFeedback(
+        sid,
+        "cmux could not apply the selected permission mode. Ask the user to approve the plan again before switching to build mode."
+      );
+      return;
+    }
     await replyQuestion(requestId, [["Yes"]]);
   };
 
@@ -513,6 +559,8 @@ export const CMUXFeed = async (ctx) => {
             const mode = result.decision.mode;
             try {
               await updateSessionPermission(sid, permissionSessionRulesForMode(permission, mode));
+            } catch (_) {}
+            try {
               await replyPermission({
                 sessionId: sid,
                 requestId,
