@@ -1,4 +1,5 @@
 import Foundation
+import QuartzCore
 import Testing
 import UIKit
 @testable import ComeupSimulatorHarnessFeature
@@ -30,12 +31,62 @@ func fullGhosttySurfaceRendersOutputAndProducesInput() throws {
     surfaceView.layoutIfNeeded()
 
     surfaceView.processOutput(Data((terminal.rows.joined(separator: "\r\n") + "\r\n").utf8))
-    let rendered = try #require(surfaceView.renderedTextForTesting())
+    let rendered = try waitForRenderedText(in: surfaceView, containing: "SIM_SENTINEL_FROM_IOS")
     #expect(rendered.contains("CMX_SENTINEL_TO_SIM"))
-    #expect(rendered.contains("SIM_SENTINEL_FROM_IOS"))
 
     surfaceView.simulateTextInputForTesting("hello from ios\n")
     #expect(delegate.inputs.contains(Data("hello from ios\r".utf8)))
+}
+
+@MainActor
+@Test
+func fullGhosttySurfaceUsesMetalLayerAndThemeConfig() throws {
+    let delegate = GhosttySurfaceTestDelegate()
+    let surfaceView = GhosttyTerminalSurfaceView(
+        runtime: try GhosttyRuntime.shared(),
+        delegate: delegate
+    )
+    surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+    surfaceView.layoutIfNeeded()
+
+    #expect(surfaceView.layer is CAMetalLayer)
+    #expect(surfaceView.surface != nil)
+    let background = try #require(surfaceView.backgroundColor)
+    #expect(background.cmuxRGBAComponents == UIColor(red: 0x27 / 255, green: 0x28 / 255, blue: 0x22 / 255, alpha: 1).cmuxRGBAComponents)
+}
+
+@MainActor
+@Test
+func fullGhosttySurfaceProducesTerminalControlInput() throws {
+    let delegate = GhosttySurfaceTestDelegate()
+    let surfaceView = GhosttyTerminalSurfaceView(
+        runtime: try GhosttyRuntime.shared(),
+        delegate: delegate
+    )
+
+    #expect(surfaceView.simulateHardwareKeyForTesting(input: UIKeyCommand.inputUpArrow, modifierFlags: []))
+    #expect(surfaceView.simulateHardwareKeyForTesting(input: "c", modifierFlags: [.control]))
+    surfaceView.simulateAccessoryActionForTesting(.ctrlL)
+
+    #expect(delegate.inputs.contains(Data([0x1B, 0x5B, 0x41])))
+    #expect(delegate.inputs.contains(Data([0x03])))
+    #expect(delegate.inputs.contains(Data([0x0C])))
+}
+
+@Test
+func ghosttyRuntimeConfigURLsUseReadableOverride() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("cmux-ghostty-config-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let config = directory.appendingPathComponent("config.ghostty")
+    try "background = #010203\n".write(to: config, atomically: true, encoding: .utf8)
+
+    let urls = GhosttyRuntime.configURLs(
+        environment: ["CMUX_GHOSTTY_CONFIG_PATH": config.path],
+        fileManager: .default
+    )
+    #expect(urls.first == config)
 }
 
 @Test
@@ -70,6 +121,23 @@ func simulatorTextHarnessSyncsWithComeupDaemon() throws {
 }
 
 @MainActor
+private func waitForRenderedText(
+    in surfaceView: GhosttyTerminalSurfaceView,
+    containing expected: String,
+    timeout: TimeInterval = 5
+) throws -> String {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        let rendered = surfaceView.renderedTextForTesting() ?? ""
+        if rendered.contains(expected) {
+            return rendered
+        }
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+    }
+    return surfaceView.renderedTextForTesting() ?? ""
+}
+
+@MainActor
 private final class GhosttySurfaceTestDelegate: GhosttyTerminalSurfaceViewDelegate {
     var inputs: [Data] = []
     var sizes: [TerminalGridSize] = []
@@ -80,6 +148,17 @@ private final class GhosttySurfaceTestDelegate: GhosttyTerminalSurfaceViewDelega
 
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didResize size: TerminalGridSize) {
         sizes.append(size)
+    }
+}
+
+private extension UIColor {
+    var cmuxRGBAComponents: [Int] {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        return [red, green, blue, alpha].map { Int(($0 * 255).rounded()) }
     }
 }
 

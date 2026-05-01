@@ -23,6 +23,222 @@ public protocol GhosttyTerminalSurfaceViewDelegate: AnyObject {
     func ghosttyTerminalSurfaceView(_ surfaceView: GhosttyTerminalSurfaceView, didResize size: TerminalGridSize)
 }
 
+public enum TerminalFontZoomDirection: Equatable {
+    case decrease
+    case increase
+
+    var bindingAction: String {
+        switch self {
+        case .decrease:
+            "decrease_font_size:1"
+        case .increase:
+            "increase_font_size:1"
+        }
+    }
+}
+
+public enum TerminalInputAccessoryAction: Int, CaseIterable {
+    case zoomOut
+    case zoomIn
+    case escape
+    case tab
+    case upArrow
+    case downArrow
+    case leftArrow
+    case rightArrow
+    case ctrlC
+    case ctrlD
+    case ctrlL
+
+    var title: String {
+        switch self {
+        case .zoomOut, .zoomIn:
+            ""
+        case .escape:
+            String(localized: "ios.terminal.inputAccessory.escape", defaultValue: "Esc")
+        case .tab:
+            String(localized: "ios.terminal.inputAccessory.tab", defaultValue: "Tab")
+        case .upArrow:
+            "↑"
+        case .downArrow:
+            "↓"
+        case .leftArrow:
+            "←"
+        case .rightArrow:
+            "→"
+        case .ctrlC:
+            String(localized: "ios.terminal.inputAccessory.ctrlC", defaultValue: "^C")
+        case .ctrlD:
+            String(localized: "ios.terminal.inputAccessory.ctrlD", defaultValue: "^D")
+        case .ctrlL:
+            String(localized: "ios.terminal.inputAccessory.ctrlL", defaultValue: "^L")
+        }
+    }
+
+    var accessibilityIdentifier: String {
+        switch self {
+        case .zoomOut: "terminal.inputAccessory.zoomOut"
+        case .zoomIn: "terminal.inputAccessory.zoomIn"
+        case .escape: "terminal.inputAccessory.escape"
+        case .tab: "terminal.inputAccessory.tab"
+        case .upArrow: "terminal.inputAccessory.up"
+        case .downArrow: "terminal.inputAccessory.down"
+        case .leftArrow: "terminal.inputAccessory.left"
+        case .rightArrow: "terminal.inputAccessory.right"
+        case .ctrlC: "terminal.inputAccessory.ctrlC"
+        case .ctrlD: "terminal.inputAccessory.ctrlD"
+        case .ctrlL: "terminal.inputAccessory.ctrlL"
+        }
+    }
+
+    var symbolName: String? {
+        switch self {
+        case .zoomOut:
+            "minus.magnifyingglass"
+        case .zoomIn:
+            "plus.magnifyingglass"
+        default:
+            nil
+        }
+    }
+
+    var zoomDirection: TerminalFontZoomDirection? {
+        switch self {
+        case .zoomOut:
+            .decrease
+        case .zoomIn:
+            .increase
+        default:
+            nil
+        }
+    }
+
+    var output: Data? {
+        switch self {
+        case .zoomOut, .zoomIn:
+            nil
+        case .escape:
+            Data([0x1B])
+        case .tab:
+            Data([0x09])
+        case .upArrow:
+            Data([0x1B, 0x5B, 0x41])
+        case .downArrow:
+            Data([0x1B, 0x5B, 0x42])
+        case .leftArrow:
+            Data([0x1B, 0x5B, 0x44])
+        case .rightArrow:
+            Data([0x1B, 0x5B, 0x43])
+        case .ctrlC:
+            Data([0x03])
+        case .ctrlD:
+            Data([0x04])
+        case .ctrlL:
+            Data([0x0C])
+        }
+    }
+}
+
+@MainActor
+private enum TerminalHardwareKeyResolver {
+    private static let supportedModifierFlags: UIKeyModifierFlags = [.shift, .control, .alternate]
+
+    static func makeKeyCommands(target: Any, action: Selector) -> [UIKeyCommand] {
+        let navigationInputs = [
+            UIKeyCommand.inputUpArrow,
+            UIKeyCommand.inputDownArrow,
+            UIKeyCommand.inputLeftArrow,
+            UIKeyCommand.inputRightArrow,
+            UIKeyCommand.inputHome,
+            UIKeyCommand.inputEnd,
+            UIKeyCommand.inputPageUp,
+            UIKeyCommand.inputPageDown,
+            UIKeyCommand.inputDelete,
+            UIKeyCommand.inputEscape,
+            "\t",
+        ]
+        let navigation = navigationInputs.map {
+            UIKeyCommand(input: $0, modifierFlags: [], action: action)
+        }
+        let altNavigation = [
+            UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [.alternate], action: action),
+            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [.alternate], action: action),
+            UIKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: [.alternate], action: action),
+        ]
+        let controlInputs = Array("abcdefghijklmnopqrstuvwxyz[]\\ 234567/").map(String.init)
+            .map { UIKeyCommand(input: $0, modifierFlags: [.control], action: action) }
+        let shiftedControlInputs = Array("@^_?").map(String.init)
+            .map { UIKeyCommand(input: $0, modifierFlags: [.control, .shift], action: action) }
+        return navigation + altNavigation + controlInputs + shiftedControlInputs
+    }
+
+    static func data(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
+        let normalizedFlags = modifierFlags.intersection(supportedModifierFlags)
+        return switch (input, normalizedFlags) {
+        case (UIKeyCommand.inputLeftArrow, [.alternate]):
+            Data([0x1B, 0x62])
+        case (UIKeyCommand.inputRightArrow, [.alternate]):
+            Data([0x1B, 0x66])
+        case (UIKeyCommand.inputDelete, [.alternate]):
+            Data([0x1B, 0x7F])
+        case (UIKeyCommand.inputUpArrow, []):
+            Data([0x1B, 0x5B, 0x41])
+        case (UIKeyCommand.inputDownArrow, []):
+            Data([0x1B, 0x5B, 0x42])
+        case (UIKeyCommand.inputRightArrow, []):
+            Data([0x1B, 0x5B, 0x43])
+        case (UIKeyCommand.inputLeftArrow, []):
+            Data([0x1B, 0x5B, 0x44])
+        case (UIKeyCommand.inputHome, []):
+            Data([0x1B, 0x5B, 0x48])
+        case (UIKeyCommand.inputEnd, []):
+            Data([0x1B, 0x5B, 0x46])
+        case (UIKeyCommand.inputPageUp, []):
+            Data([0x1B, 0x5B, 0x35, 0x7E])
+        case (UIKeyCommand.inputPageDown, []):
+            Data([0x1B, 0x5B, 0x36, 0x7E])
+        case (UIKeyCommand.inputDelete, []):
+            Data([0x1B, 0x5B, 0x33, 0x7E])
+        case (UIKeyCommand.inputEscape, []):
+            Data([0x1B])
+        case ("\t", []):
+            Data([0x09])
+        case ("\t", [.shift]):
+            Data([0x1B, 0x5B, 0x5A])
+        case let (input, flags) where flags == [.control] || flags == [.control, .shift]:
+            controlCharacter(for: input)
+        default:
+            nil
+        }
+    }
+
+    private static func controlCharacter(for input: String) -> Data? {
+        switch input {
+        case " ", "2":
+            return Data([0x00])
+        case "3":
+            return Data([0x1B])
+        case "4":
+            return Data([0x1C])
+        case "5":
+            return Data([0x1D])
+        case "6":
+            return Data([0x1E])
+        case "7", "/":
+            return Data([0x1F])
+        case "?":
+            return Data([0x7F])
+        default:
+            break
+        }
+
+        guard let scalar = input.uppercased().unicodeScalars.first,
+              input.unicodeScalars.count == 1,
+              (0x40...0x5F).contains(scalar.value) else { return nil }
+        return Data([UInt8(scalar.value & 0x1F)])
+    }
+}
+
 private func cmuxHarnessReadClipboardCallback(
     _ userdata: UnsafeMutableRawPointer?,
     _ location: ghostty_clipboard_e,
@@ -58,6 +274,8 @@ public final class GhosttyRuntime {
 
     private static var backendInitialized = false
     private static var sharedResult: Result<GhosttyRuntime, Error>?
+    private static var clipboardReader: @MainActor @Sendable () -> String? = { UIPasteboard.general.string }
+    private static var clipboardWriter: @MainActor @Sendable (String?) -> Void = { UIPasteboard.general.string = $0 }
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
@@ -98,16 +316,14 @@ public final class GhosttyRuntime {
         }
         runtimeConfig.read_clipboard_cb = cmuxHarnessReadClipboardCallback
         runtimeConfig.confirm_read_clipboard_cb = { _, _, _, _ in }
-        runtimeConfig.write_clipboard_cb = { _, _, content, len, _ in
-            guard let content, len > 0 else { return }
-            for index in 0..<len {
-                let item = content[index]
-                guard let mime = item.mime,
-                      String(cString: mime) == "text/plain",
-                      let data = item.data else { continue }
-                UIPasteboard.general.string = String(cString: data)
-                return
-            }
+        runtimeConfig.write_clipboard_cb = { userdata, location, content, len, confirm in
+            GhosttyRuntime.handleWriteClipboard(
+                userdata,
+                location: location,
+                content: content,
+                len: len,
+                confirm: confirm
+            )
         }
         runtimeConfig.close_surface_cb = { userdata, _ in
             GhosttySurfaceBridge.fromOpaque(userdata)?.detach()
@@ -148,7 +364,7 @@ public final class GhosttyRuntime {
     private static func loadConfig(_ config: ghostty_config_t?) {
         guard let config else { return }
         Self.setupRuntimeEnvironment()
-        let theme = """
+        let defaults = """
         font-family = Menlo
         font-size = 10
         window-padding-balance = false
@@ -177,9 +393,15 @@ public final class GhosttyRuntime {
         palette = 14=#66d9ef
         palette = 15=#fdfff1
         """
-        theme.withCString { themePointer in
+        defaults.withCString { themePointer in
             "cmux-ios-defaults".withCString { namePointer in
-                ghostty_config_load_string(config, themePointer, UInt(theme.utf8.count), namePointer)
+                ghostty_config_load_string(config, themePointer, UInt(defaults.utf8.count), namePointer)
+            }
+        }
+        ghostty_config_load_default_files(config)
+        for url in configURLs() {
+            url.path.withCString { path in
+                ghostty_config_load_file(config, path)
             }
         }
     }
@@ -192,6 +414,41 @@ public final class GhosttyRuntime {
         setenv("XDG_CONFIG_HOME", appSupport.path, 1)
         setenv("XDG_CACHE_HOME", appSupport.path, 1)
         setenv("XDG_STATE_HOME", appSupport.path, 1)
+    }
+
+    nonisolated static func configURLs(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> [URL] {
+        var urls: [URL] = []
+        if let overridePath = environment["CMUX_GHOSTTY_CONFIG_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridePath.isEmpty {
+            let overrideURL = URL(fileURLWithPath: overridePath)
+            if isReadableConfigFile(at: overrideURL, fileManager: fileManager) {
+                urls.append(overrideURL)
+            }
+        }
+
+        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let candidates = [
+                appSupport.appendingPathComponent("ghostty/config.ghostty", isDirectory: false),
+                appSupport.appendingPathComponent("ghostty/config", isDirectory: false),
+            ]
+            for url in candidates where isReadableConfigFile(at: url, fileManager: fileManager) {
+                urls.append(url)
+            }
+        }
+        return urls
+    }
+
+    nonisolated private static func isReadableConfigFile(at url: URL, fileManager: FileManager) -> Bool {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+              let type = attributes[.type] as? FileAttributeType,
+              type == .typeRegular,
+              let size = attributes[.size] as? NSNumber else {
+            return false
+        }
+        return size.intValue > 0
     }
 
     nonisolated fileprivate static func handleAction(
@@ -235,6 +492,13 @@ public final class GhosttyRuntime {
             return true
         }
 
+        if action.tag == GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD {
+            Task { @MainActor in
+                GhosttyRuntime.clipboardWriter(GhosttyTerminalSurfaceView.view(for: surface)?.title)
+            }
+            return true
+        }
+
         return false
     }
 
@@ -243,7 +507,56 @@ public final class GhosttyRuntime {
         location: ghostty_clipboard_e,
         state: UnsafeMutableRawPointer?
     ) -> Bool {
-        false
+        let userdataBits = userdata.map { UInt(bitPattern: $0) }
+        let stateBits = state.map { UInt(bitPattern: $0) }
+        Task { @MainActor in
+            guard let userdataBits,
+                  let userdata = UnsafeMutableRawPointer(bitPattern: userdataBits),
+                  let state = stateBits.flatMap(UnsafeMutableRawPointer.init(bitPattern:)) else { return }
+            guard let bridge = GhosttySurfaceBridge.fromOpaque(userdata),
+                  let surface = bridge.surfaceView?.surface else { return }
+            let value = GhosttyRuntime.clipboardReader() ?? ""
+            value.withCString { pointer in
+                ghostty_surface_complete_clipboard_request(surface, pointer, state, false)
+            }
+        }
+        return true
+    }
+
+    nonisolated private static func handleWriteClipboard(
+        _ userdata: UnsafeMutableRawPointer?,
+        location: ghostty_clipboard_e,
+        content: UnsafePointer<ghostty_clipboard_content_s>?,
+        len: Int,
+        confirm: Bool
+    ) {
+        guard let content, len > 0 else { return }
+        for index in 0..<len {
+            let item = content[index]
+            guard let mime = item.mime,
+                  String(cString: mime) == "text/plain",
+                  let data = item.data else { continue }
+            let value = String(cString: data)
+            Task { @MainActor in
+                GhosttyRuntime.clipboardWriter(value)
+            }
+            return
+        }
+    }
+
+    @MainActor
+    static func setClipboardHandlersForTesting(
+        reader: @escaping @MainActor @Sendable () -> String?,
+        writer: @escaping @MainActor @Sendable (String?) -> Void
+    ) {
+        clipboardReader = reader
+        clipboardWriter = writer
+    }
+
+    @MainActor
+    static func resetClipboardHandlersForTesting() {
+        clipboardReader = { UIPasteboard.general.string }
+        clipboardWriter = { UIPasteboard.general.string = $0 }
     }
 }
 
@@ -290,6 +603,12 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private var displayLink: CADisplayLink?
     private var lastReportedSize: TerminalGridSize?
     private var hasFedInitialOutput = false
+    private var needsDraw = false
+    private var pinchAccumulatedScale: CGFloat = 1
+    private static let outputQueue = DispatchQueue(
+        label: "ai.manaflow.cmux.comeup.ghostty.output",
+        qos: .userInitiated
+    )
     public private(set) var surface: ghostty_surface_t?
     public var title: String?
 
@@ -303,6 +622,16 @@ public final class GhosttyTerminalSurfaceView: UIView {
         textView.onBackspace = { [weak self] in
             guard let self else { return }
             self.delegate?.ghosttyTerminalSurfaceView(self, didProduceInput: Data([0x7f]))
+        }
+        textView.onEscapeSequence = { [weak self] data in
+            guard let self else { return }
+            self.delegate?.ghosttyTerminalSurfaceView(self, didProduceInput: data)
+        }
+        textView.onZoom = { [weak self] direction in
+            self?.performFontZoom(direction)
+        }
+        textView.onHideKeyboard = { [weak self] in
+            self?.inputProxy.resignFirstResponder()
         }
         return textView
     }()
@@ -319,6 +648,11 @@ public final class GhosttyTerminalSurfaceView: UIView {
         addSubview(inputProxy)
         initializeSurface()
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(focusInput)))
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan(_:)))
+        pan.minimumNumberOfTouches = 1
+        pan.maximumNumberOfTouches = 1
+        addGestureRecognizer(pan)
+        addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:))))
     }
 
     required init?(coder: NSCoder) {
@@ -355,17 +689,26 @@ public final class GhosttyTerminalSurfaceView: UIView {
 
     public func processOutput(_ data: Data) {
         guard let surface else { return }
-        data.withUnsafeBytes { buffer in
-            guard let baseAddress = buffer.baseAddress else { return }
-            ghostty_surface_process_output(
-                surface,
-                baseAddress.assumingMemoryBound(to: CChar.self),
-                UInt(buffer.count)
-            )
+        let forwarded = data
+        let surfaceBits = UInt(bitPattern: UnsafeRawPointer(surface))
+        Self.outputQueue.async { [weak self] in
+            guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else { return }
+            forwarded.withUnsafeBytes { buffer in
+                guard let baseAddress = buffer.baseAddress else { return }
+                ghostty_surface_process_output(
+                    surface,
+                    baseAddress.assumingMemoryBound(to: CChar.self),
+                    UInt(buffer.count)
+                )
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.hasFedInitialOutput = true
+                self.needsDraw = true
+                ghostty_surface_render_now(surface)
+                self.accessibilityValue = self.accessibilityRenderedTextForTesting()
+            }
         }
-        hasFedInitialOutput = true
-        ghostty_surface_render_now(surface)
-        accessibilityValue = accessibilityRenderedTextForTesting()
     }
 
     public func applyViewSize(cols: Int, rows: Int) {
@@ -385,6 +728,14 @@ public final class GhosttyTerminalSurfaceView: UIView {
 
     public func simulateTextInputForTesting(_ text: String) {
         inputProxy.insertText(text)
+    }
+
+    public func simulateHardwareKeyForTesting(input: String, modifierFlags: UIKeyModifierFlags) -> Bool {
+        inputProxy.simulateHardwareKeyForTesting(input: input, modifierFlags: modifierFlags)
+    }
+
+    public func simulateAccessoryActionForTesting(_ action: TerminalInputAccessoryAction) {
+        inputProxy.simulateAccessoryActionForTesting(action)
     }
 
     public func renderedTextForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
@@ -510,6 +861,44 @@ public final class GhosttyTerminalSurfaceView: UIView {
         }
     }
 
+    @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
+        guard let surface, gesture.state == .changed else { return }
+        let translation = gesture.translation(in: self)
+        ghostty_surface_mouse_scroll(surface, 0, Double(translation.y / 10), 0)
+        gesture.setTranslation(.zero, in: self)
+        needsDraw = true
+    }
+
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            pinchAccumulatedScale = 1
+        case .changed:
+            let delta = gesture.scale - pinchAccumulatedScale
+            guard abs(delta) >= 0.15 else { return }
+            if performFontZoom(delta > 0 ? .increase : .decrease) {
+                pinchAccumulatedScale = gesture.scale
+            }
+        case .ended, .cancelled:
+            syncSurfaceGeometry()
+        default:
+            break
+        }
+    }
+
+    @discardableResult
+    private func performFontZoom(_ direction: TerminalFontZoomDirection) -> Bool {
+        guard let surface else { return false }
+        let action = direction.bindingAction
+        let handled = action.withCString { pointer in
+            ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+        }
+        guard handled else { return false }
+        syncSurfaceGeometry()
+        needsDraw = true
+        return true
+    }
+
     private func startDisplayLink() {
         guard displayLink == nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(handleDisplayLink))
@@ -525,7 +914,10 @@ public final class GhosttyTerminalSurfaceView: UIView {
 
     @objc private func handleDisplayLink() {
         guard let surface else { return }
-        ghostty_surface_render_now(surface)
+        if needsDraw || hasFedInitialOutput {
+            needsDraw = false
+            ghostty_surface_render_now(surface)
+        }
     }
 
     @MainActor
@@ -575,8 +967,75 @@ private extension GhosttyTerminalSurfaceView {
 private final class GhosttyInputTextView: UITextView {
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
+    var onEscapeSequence: ((Data) -> Void)?
+    var onZoom: ((TerminalFontZoomDirection) -> Void)?
+    var onHideKeyboard: (() -> Void)?
 
     override var canBecomeFirstResponder: Bool { true }
+
+    override var keyCommands: [UIKeyCommand]? {
+        TerminalHardwareKeyResolver.makeKeyCommands(
+            target: self,
+            action: #selector(handleHardwareKeyCommand(_:))
+        )
+    }
+
+    private static let accessoryBackground = UIColor(red: 0x27 / 255, green: 0x28 / 255, blue: 0x22 / 255, alpha: 1)
+    private static let accessoryButtonBackground = UIColor(white: 0.35, alpha: 1)
+    private static let accessoryButtonHeight: CGFloat = 28
+    private static let accessoryButtonMinWidth: CGFloat = 42
+
+    private lazy var terminalAccessoryToolbar: UIView = {
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 44))
+        container.backgroundColor = Self.accessoryBackground
+
+        let dismissButton = UIButton(type: .system)
+        dismissButton.translatesAutoresizingMaskIntoConstraints = false
+        dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down"), for: .normal)
+        dismissButton.tintColor = UIColor(white: 0.75, alpha: 1)
+        dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
+        dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
+
+        let scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.alwaysBounceHorizontal = true
+
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .horizontal
+        stack.spacing = 6
+        stack.alignment = .center
+
+        for action in TerminalInputAccessoryAction.allCases {
+            stack.addArrangedSubview(makeAccessoryButton(for: action))
+        }
+
+        scrollView.addSubview(stack)
+        container.addSubview(dismissButton)
+        container.addSubview(scrollView)
+
+        NSLayoutConstraint.activate([
+            dismissButton.leadingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            dismissButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            dismissButton.widthAnchor.constraint(equalToConstant: 32),
+            dismissButton.heightAnchor.constraint(equalToConstant: 32),
+
+            scrollView.leadingAnchor.constraint(equalTo: dismissButton.trailingAnchor, constant: 8),
+            scrollView.trailingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -8),
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 4),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -4),
+            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor, constant: -8),
+        ])
+
+        return container
+    }()
 
     init() {
         super.init(frame: .zero, textContainer: nil)
@@ -591,6 +1050,7 @@ private final class GhosttyInputTextView: UITextView {
         spellCheckingType = .no
         keyboardType = .default
         textContainerInset = .zero
+        inputAccessoryView = terminalAccessoryToolbar
     }
 
     required init?(coder: NSCoder) {
@@ -604,6 +1064,68 @@ private final class GhosttyInputTextView: UITextView {
 
     override func deleteBackward() {
         onBackspace?()
+    }
+
+    func simulateHardwareKeyForTesting(input: String, modifierFlags: UIKeyModifierFlags) -> Bool {
+        handleHardwareKeyInput(input: input, modifierFlags: modifierFlags)
+    }
+
+    func simulateAccessoryActionForTesting(_ action: TerminalInputAccessoryAction) {
+        handleAccessoryAction(action)
+    }
+
+    @objc private func handleHardwareKeyCommand(_ sender: UIKeyCommand) {
+        guard let input = sender.input else { return }
+        _ = handleHardwareKeyInput(input: input, modifierFlags: sender.modifierFlags)
+    }
+
+    @objc private func handleHideKeyboard() {
+        onHideKeyboard?()
+    }
+
+    @objc private func handleAccessoryButton(_ sender: UIButton) {
+        guard let action = TerminalInputAccessoryAction(rawValue: sender.tag) else { return }
+        handleAccessoryAction(action)
+    }
+
+    @discardableResult
+    private func handleHardwareKeyInput(input: String, modifierFlags: UIKeyModifierFlags) -> Bool {
+        guard let data = TerminalHardwareKeyResolver.data(input: input, modifierFlags: modifierFlags) else {
+            return false
+        }
+        onEscapeSequence?(data)
+        return true
+    }
+
+    private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
+        if let zoomDirection = action.zoomDirection {
+            onZoom?(zoomDirection)
+            return
+        }
+        if let output = action.output {
+            onEscapeSequence?(output)
+        }
+    }
+
+    private func makeAccessoryButton(for action: TerminalInputAccessoryAction) -> UIButton {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.tag = action.rawValue
+        button.accessibilityIdentifier = action.accessibilityIdentifier
+        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        button.tintColor = .white
+        button.backgroundColor = Self.accessoryButtonBackground
+        button.layer.cornerRadius = 6
+        if let symbolName = action.symbolName {
+            button.setImage(UIImage(systemName: symbolName), for: .normal)
+        } else {
+            button.setTitle(action.title, for: .normal)
+        }
+        button.setTitleColor(.white, for: .normal)
+        button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.accessoryButtonMinWidth).isActive = true
+        button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
+        return button
     }
 }
 
