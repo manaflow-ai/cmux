@@ -204,7 +204,7 @@ function extractTitle(html: string): string | null {
   }
 
   const title = firstElementInnerHtml(html, "title");
-  return title ? cleanDocumentTitle(title) : null;
+  return title ? cleanDocumentTitle(decodeHtmlEntities(title)) : null;
 }
 
 function cleanPlainText(text: string): string {
@@ -224,6 +224,43 @@ function cleanDocumentTitle(text: string): string {
   return cleanPlainText(text)
     .replace(/\s+(?:\||-|\u2013|\u2014)\s+cmux$/i, "")
     .trim();
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text.replace(
+    /&(#\d+|#x[\da-f]+|amp|lt|gt|quot|apos);/gi,
+    (entity, value: string) => {
+      const lowerValue = value.toLowerCase();
+      if (lowerValue.startsWith("#x")) {
+        return htmlEntityCodePoint(
+          Number.parseInt(lowerValue.slice(2), 16),
+          entity,
+        );
+      }
+      if (lowerValue.startsWith("#")) {
+        return htmlEntityCodePoint(
+          Number.parseInt(lowerValue.slice(1), 10),
+          entity,
+        );
+      }
+      return (
+        {
+          amp: "&",
+          apos: "'",
+          gt: ">",
+          lt: "<",
+          quot: '"',
+        }[lowerValue] ?? entity
+      );
+    },
+  );
+}
+
+function htmlEntityCodePoint(codePoint: number, fallback: string): string {
+  if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 0x10ffff) {
+    return fallback;
+  }
+  return String.fromCodePoint(codePoint);
 }
 
 function cleanMarkdown(markdown: string): string {

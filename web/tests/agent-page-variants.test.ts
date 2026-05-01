@@ -88,7 +88,7 @@ describe("agent page variants", () => {
     const markdown = markdownFromHtml({
       html: `
         <html>
-          <head><title>Settings \u2014 cmux</title></head>
+          <head><title>Settings &amp; Docs &#39;Guide&#39; \u2014 cmux</title></head>
           <body>
             <main><p>Configure cmux.</p></main>
           </body>
@@ -97,7 +97,7 @@ describe("agent page variants", () => {
       sourceUrl: "https://cmux.com/docs/configuration",
     });
 
-    expect(markdown).toStartWith("# Settings\n\nConfigure cmux.");
+    expect(markdown).toStartWith("# Settings & Docs 'Guide'\n\nConfigure cmux.");
   });
 
   test("moves the page title before backlinks and media", () => {
