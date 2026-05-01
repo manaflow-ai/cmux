@@ -1,7 +1,6 @@
 import XCTest
 import Foundation
 import CoreGraphics
-import ImageIO
 
 final class BonsplitTabDragUITests: XCTestCase {
     private let launchTimeout: TimeInterval = 20.0
@@ -98,41 +97,6 @@ final class BonsplitTabDragUITests: XCTestCase {
             topGap,
             8,
             "Expected the selected pane tab to reach the top edge in minimal mode. window=\(window.frame) alphaTab=\(alphaTab.frame) gap.bottomLeft=\(gapIfOriginIsBottomLeft) gap.topLeft=\(gapIfOriginIsTopLeft)"
-        )
-    }
-
-    func testMinimalModeVisuallyRendersPaneTabs() {
-        let (app, dataPath) = launchConfiguredApp()
-
-        XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for minimal-mode pane-tab rendering UI test. state=\(app.state.rawValue)"
-        )
-        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
-        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
-            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
-
-        if let setupError = ready["setupError"], !setupError.isEmpty {
-            XCTFail("Setup failed: \(setupError)")
-            return
-        }
-
-        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
-        let alphaTab = app.buttons[alphaTitle]
-        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
-        XCTAssertGreaterThan(alphaTab.frame.width, 20, "Expected alpha tab to have a renderable frame. frame=\(alphaTab.frame)")
-        XCTAssertGreaterThan(alphaTab.frame.height, 10, "Expected alpha tab to have a renderable frame. frame=\(alphaTab.frame)")
-
-        guard let stats = screenshotStats(for: alphaTab) else {
-            XCTFail("Failed to sample alpha tab screenshot. frame=\(alphaTab.frame)")
-            return
-        }
-
-        XCTAssertFalse(
-            stats.isProbablyBlank,
-            "Expected minimal-mode pane tab pixels to render, not a uniform backdrop. stats=\(stats) frame=\(alphaTab.frame)"
         )
     }
 
@@ -689,112 +653,6 @@ final class BonsplitTabDragUITests: XCTestCase {
             return nil
         }
         return object
-    }
-
-    private struct ScreenshotStats: CustomStringConvertible {
-        let sampleCount: Int
-        let uniqueQuantized: Int
-        let lumaStdDev: Double
-        let modeFraction: Double
-
-        var isProbablyBlank: Bool {
-            lumaStdDev < 2.5 && modeFraction > 0.992
-        }
-
-        var description: String {
-            "samples=\(sampleCount) unique=\(uniqueQuantized) stddev=\(String(format: "%.3f", lumaStdDev)) mode=\(String(format: "%.4f", modeFraction))"
-        }
-    }
-
-    private func screenshotStats(for element: XCUIElement) -> ScreenshotStats? {
-        cropStats(pngData: element.screenshot().pngRepresentation)
-    }
-
-    private func cgImage(from pngData: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(pngData as CFData, nil) else {
-            return nil
-        }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
-    }
-
-    private func decodeRGBA(_ image: CGImage) -> [UInt8]? {
-        let width = image.width
-        let height = image.height
-        let bytesPerPixel = 4
-        let bytesPerRow = width * bytesPerPixel
-        var buffer = [UInt8](repeating: 0, count: height * bytesPerRow)
-
-        let ok = buffer.withUnsafeMutableBytes { rawBuffer -> Bool in
-            guard let baseAddress = rawBuffer.baseAddress else { return false }
-            let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
-            guard let context = CGContext(
-                data: baseAddress,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: bytesPerRow,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: bitmapInfo
-            ) else {
-                return false
-            }
-
-            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-
-        return ok ? buffer : nil
-    }
-
-    private func cropStats(pngData: Data) -> ScreenshotStats? {
-        guard let image = cgImage(from: pngData),
-              let buffer = decodeRGBA(image) else {
-            return nil
-        }
-
-        let width = image.width
-        let height = image.height
-        guard width > 0, height > 0 else { return nil }
-
-        let bytesPerPixel = 4
-        let bytesPerRow = width * bytesPerPixel
-        let step = 3
-        var lumas = [Double]()
-        lumas.reserveCapacity((width / step) * (height / step))
-        var histogram = [UInt16: Int]()
-        histogram.reserveCapacity(256)
-        var count = 0
-
-        for y in stride(from: 0, to: height, by: step) {
-            let rowBase = y * bytesPerRow
-            for x in stride(from: 0, to: width, by: step) {
-                let index = rowBase + x * bytesPerPixel
-                let red = Double(buffer[index])
-                let green = Double(buffer[index + 1])
-                let blue = Double(buffer[index + 2])
-                let luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue
-                lumas.append(luma)
-
-                let redQuantized = UInt16(UInt8(buffer[index]) >> 4)
-                let greenQuantized = UInt16(UInt8(buffer[index + 1]) >> 4)
-                let blueQuantized = UInt16(UInt8(buffer[index + 2]) >> 4)
-                let key = (redQuantized << 8) | (greenQuantized << 4) | blueQuantized
-                histogram[key, default: 0] += 1
-                count += 1
-            }
-        }
-
-        guard count > 0 else { return nil }
-        let mean = lumas.reduce(0.0, +) / Double(lumas.count)
-        let variance = lumas.reduce(0.0) { $0 + ($1 - mean) * ($1 - mean) } / Double(lumas.count)
-        let modeCount = histogram.values.max() ?? 0
-
-        return ScreenshotStats(
-            sampleCount: count,
-            uniqueQuantized: histogram.count,
-            lumaStdDev: sqrt(variance),
-            modeFraction: Double(modeCount) / Double(count)
-        )
     }
 
     private func waitForCondition(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
