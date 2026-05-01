@@ -4718,6 +4718,38 @@ struct CMUXCLI {
         return merged
     }
 
+    /// Reads CMUX_RESTORE_SCROLLBACK_FILE (set by Workspace.swift's
+    /// SessionScrollbackReplayStore.replayEnvironment for restored panes) and
+    /// returns shell snippets that ship the bytes inline to the remote and
+    /// re-export the env var pointing at a remote path. Existing
+    /// cmux-{bash,zsh,fish}-integration scripts already cat+rm
+    /// $CMUX_RESTORE_SCROLLBACK_FILE on shell startup, so no client change is needed.
+    private func remoteScrollbackInjection(
+        remoteRelayPort: Int
+    ) -> (writeFile: [String], exportLine: String?) {
+        guard remoteRelayPort > 0,
+              let localPath = ProcessInfo.processInfo.environment["CMUX_RESTORE_SCROLLBACK_FILE"],
+              !localPath.isEmpty,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: localPath)),
+              !data.isEmpty
+        else {
+            return ([], nil)
+        }
+        let b64 = data.base64EncodedString()
+        let remotePath = "$HOME/.cmux/relay/\(remoteRelayPort).scrollback"
+        let b64Tmp = "$HOME/.cmux/relay/\(remoteRelayPort).scrollback.b64"
+        let writeFile: [String] = [
+            "cat > \"\(b64Tmp)\" <<'CMUXSCROLLBACKB64'",
+            b64,
+            "CMUXSCROLLBACKB64",
+            "(base64 -d 2>/dev/null < \"\(b64Tmp)\" || base64 -D 2>/dev/null < \"\(b64Tmp)\") > \"\(remotePath)\" 2>/dev/null || true",
+            "rm -f \"\(b64Tmp)\" >/dev/null 2>&1 || true",
+            "chmod 600 \"\(remotePath)\" >/dev/null 2>&1 || true",
+        ]
+        let exportLine = "export CMUX_RESTORE_SCROLLBACK_FILE=\"\(remotePath)\""
+        return (writeFile, exportLine)
+    }
+
     func buildInteractiveRemoteShellScript(
         remoteRelayPort: Int,
         shellFeatures: String,
@@ -4742,6 +4774,10 @@ struct CMUXCLI {
             commonShellExportLines.append("export CMUX_SOCKET=\(relaySocket)")
         }
         commonShellExportLines.append(contentsOf: remoteCallerExportLines)
+        let scrollbackInjection = remoteScrollbackInjection(remoteRelayPort: remoteRelayPort)
+        if let scrollbackExport = scrollbackInjection.exportLine {
+            commonShellExportLines.append(scrollbackExport)
+        }
         commonShellExportLines.append(contentsOf: [
             "hash -r >/dev/null 2>&1 || true",
             "rehash >/dev/null 2>&1 || true",
@@ -4786,6 +4822,10 @@ struct CMUXCLI {
                 "CMUXCMUXBASH",
             ]
         }
+        // Write scrollback bytes (if any) to a remote file before any shell
+        // launches, so the per-shell integration's cat-and-rm on
+        // $CMUX_RESTORE_SCROLLBACK_FILE has something to replay.
+        outerLines.append(contentsOf: scrollbackInjection.writeFile)
         outerLines.append(contentsOf: commonShellExportLines)
         outerLines += [
             "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
