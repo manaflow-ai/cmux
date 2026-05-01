@@ -1,25 +1,26 @@
-import React, { useState, useMemo } from "react"
+import React, { useMemo } from "react"
 import type { DiffFile, DiffRow, WordPart } from "./diffModel"
 import { detectLanguage, tokenizeLine } from "./highlighter"
 
 interface Props {
   file: DiffFile
+  expanded: boolean
+  onToggle: (path: string) => void
 }
 
-export function DiffFileView({ file }: Props) {
-  const [collapsed, setCollapsed] = useState(false)
+export function DiffFileView({ file, expanded, onToggle }: Props) {
   const lang = useMemo(() => detectLanguage(file.path), [file.path])
 
   const status = file.isNew ? "added" : file.isDeleted ? "deleted" : "modified"
 
   return (
-    <section className="file" data-status={status}>
+    <section className="file" data-status={status} data-expanded={expanded}>
       <button
         className="file-header"
-        onClick={() => setCollapsed((c) => !c)}
-        aria-expanded={!collapsed}
+        onClick={() => onToggle(file.path)}
+        aria-expanded={expanded}
       >
-        <span className={`twisty ${collapsed ? "closed" : "open"}`} aria-hidden>
+        <span className={`twisty ${expanded ? "open" : "closed"}`} aria-hidden>
           ▾
         </span>
         <span className="file-path">
@@ -38,13 +39,13 @@ export function DiffFileView({ file }: Props) {
           <span className="del-badge">−{file.deletions}</span>
         </span>
       </button>
-      {collapsed ? null : (
+      {expanded ? (
         <div className="file-body" role="table">
           {file.rows.map((row, idx) => (
             <DiffRowView key={idx} row={row} lang={lang} />
           ))}
         </div>
-      )}
+      ) : null}
     </section>
   )
 }

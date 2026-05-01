@@ -89,6 +89,30 @@ body, html, #root {
 .panel header .totals { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 11px; }
 .panel header .file-count { color: #8b949e; }
 
+.bulk-toggle {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: #adbac7;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.bulk-toggle:hover {
+  background: #22272e;
+  border-color: #30363d;
+  color: #f0f6fc;
+}
+.bulk-toggle:active { background: #2d333b; }
+.bulk-toggle:focus-visible {
+  outline: 1px solid #388bfd;
+  outline-offset: 1px;
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
@@ -134,24 +158,31 @@ body, html, #root {
   padding: 8px 12px;
   background: var(--file-header-bg);
   border: none;
-  border-bottom: 1px solid var(--border);
   color: #c9d1d9;
   font-family: var(--mono-font);
   font-size: 12px;
   text-align: left;
   cursor: pointer;
   user-select: text;
+  transition: background 120ms;
 }
+.file[data-expanded="true"] .file-header { border-bottom: 1px solid var(--border); }
 .file-header:hover { background: #22272e; }
+.file-header:focus-visible {
+  outline: 1px solid #388bfd;
+  outline-offset: -1px;
+}
 
 .twisty {
   display: inline-block;
   width: 12px;
   text-align: center;
   color: #8b949e;
-  transition: transform 120ms;
+  transition: transform 150ms ease;
   flex-shrink: 0;
+  transform: rotate(-90deg);
 }
+.twisty.open { transform: rotate(0deg); }
 .twisty.closed { transform: rotate(-90deg); }
 
 .file-path {

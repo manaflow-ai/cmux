@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { parseUnifiedDiff, type DiffFile } from "./diffModel"
 import { DiffFileView } from "./DiffFileView"
 
@@ -12,6 +12,7 @@ export function App() {
   const [diffText, setDiffText] = useState<string>("")
   const [status, setStatus] = useState<Status>("Unknown")
   const [rootState, setRootState] = useState<RootState>({ kind: "unknown" })
+  const [expandedSet, setExpandedSet] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     const onDiff = (e: Event) => {
@@ -65,6 +66,39 @@ export function App() {
     }
   }, [diffText])
 
+  // Drop expansion state for files that are no longer in the diff so the set
+  // doesn't grow unbounded across turns.
+  useEffect(() => {
+    setExpandedSet((prev) => {
+      if (prev.size === 0) return prev
+      const live = new Set(files.map((f) => f.path))
+      let changed = false
+      const next = new Set<string>()
+      for (const p of prev) {
+        if (live.has(p)) next.add(p)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [files])
+
+  const onToggleFile = useCallback((path: string) => {
+    setExpandedSet((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
+
+  const expandAll = useCallback(() => {
+    setExpandedSet(new Set(files.map((f) => f.path)))
+  }, [files])
+
+  const collapseAll = useCallback(() => {
+    setExpandedSet(new Set())
+  }, [])
+
   if (rootState.kind === "missing") {
     return (
       <div className="empty">
@@ -89,6 +123,8 @@ export function App() {
 
   const totalAdds = files.reduce((s, f) => s + f.additions, 0)
   const totalDels = files.reduce((s, f) => s + f.deletions, 0)
+  const allExpanded = expandedSet.size === files.length
+  const anyExpanded = expandedSet.size > 0
 
   return (
     <div className="panel">
@@ -99,6 +135,15 @@ export function App() {
           <span className="add-badge">+{totalAdds}</span>
           <span className="del-badge">−{totalDels}</span>
           <span className="file-count">{files.length} file{files.length === 1 ? "" : "s"}</span>
+          <button
+            type="button"
+            className="bulk-toggle"
+            onClick={allExpanded ? collapseAll : expandAll}
+            aria-pressed={allExpanded}
+            title={allExpanded ? "Collapse all files" : "Expand all files"}
+          >
+            {allExpanded ? "Collapse all" : anyExpanded ? "Expand all" : "Expand all"}
+          </button>
         </span>
       </header>
       {repoLabel && (
@@ -106,7 +151,12 @@ export function App() {
       )}
       <div className="diff-body">
         {files.map((f) => (
-          <DiffFileView key={f.path} file={f} />
+          <DiffFileView
+            key={f.path}
+            file={f}
+            expanded={expandedSet.has(f.path)}
+            onToggle={onToggleFile}
+          />
         ))}
       </div>
     </div>
