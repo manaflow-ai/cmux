@@ -2601,7 +2601,8 @@ final class CmuxConfigStore: ObservableObject {
             return ParsedConfigResult(config: nil, issue: issue)
         }
         do {
-            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: data)
+            let sanitized = try JSONCParser.preprocess(data: data)
+            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,

@@ -8420,7 +8420,7 @@ struct CMUXCLI {
             Usage: cmux disable-browser [--json]
 
             Disable cmux browser creation and link interception. This overrides
-            browser settings from settings.json until re-enabled.
+            browser settings from cmux.json until re-enabled.
             """
         case "enable-browser":
             return """
@@ -9094,7 +9094,7 @@ struct CMUXCLI {
             Usage: cmux reload-config
 
             Run the same configuration reload as the Reload Configuration shortcut.
-            This reloads Ghostty config, re-reads ~/.config/cmux/settings.json, and refreshes terminals.
+            This reloads Ghostty config, re-reads ~/.config/cmux/cmux.json, and refreshes terminals.
 
             Example:
               cmux reload-config
@@ -20343,7 +20343,7 @@ export default CMUXSessionRestore;
 
         Agent Help:
           To change cmux settings, run `cmux docs settings` and `cmux settings path`; to add Dock controls, run `cmux docs dock`.
-          Back up any existing settings file to a timestamped .bak copy before editing.
+          Back up any existing cmux.json file to a timestamped .bak copy before editing.
           Use printed curl commands to fetch the latest docs/schema, and prefer Ghostty config for terminal behavior Ghostty already supports.
 
         Commands:

@@ -1,15 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
-  "title": "cmux settings.json",
-  "description": "User-level cmux settings. cmux accepts JSON with comments (JSONC) and trailing commas, but the underlying data model matches this schema.",
+  "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+  "title": "cmux.json",
+  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, and workspace layouts. Project-local .cmux/cmux.json supports actions, commands, and UI action wiring.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "$schema": {
       "type": "string",
       "format": "uri",
-      "default": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
+      "default": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
       "description": "Optional schema URL for editor completion and validation."
     },
     "schemaVersion": {
@@ -17,6 +17,45 @@
       "minimum": 1,
       "default": 1,
       "description": "Schema version for forward-compatible migrations. Newer versions are parsed on a best-effort basis."
+    },
+    "actions": {
+      "title": "actions",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ui": {
+      "title": "ui",
+      "description": "UI action wiring, including surface tab bar buttons and plus-button behavior.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "commands": {
+      "title": "commands",
+      "description": "Custom shell commands and workspace layout definitions.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "newWorkspaceCommand": {
+      "type": "string",
+      "description": "Legacy name of a workspace command to run when creating a new workspace. Prefer ui.newWorkspace.action for new configs."
+    },
+    "surfaceTabBarButtons": {
+      "title": "surfaceTabBarButtons",
+      "description": "Legacy root-level surface tab bar buttons. Prefer ui.surfaceTabBar.buttons for new configs.",
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "additionalProperties": true
+          }
+        ]
+      }
     },
     "app": {
       "title": "app",

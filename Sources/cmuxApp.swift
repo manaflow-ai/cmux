@@ -212,7 +212,7 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
-                Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open settings.json")) {
+                Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux.json")) {
                     openCmuxSettingsFileInEditor()
                 }
                 Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
@@ -5203,7 +5203,7 @@ struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
-    private let settingsJSONDocsURL = URL(string: "https://cmux.com/docs/configuration#settings-json")!
+    private let settingsJSONDocsURL = URL(string: "https://cmux.com/docs/configuration#cmux-json")!
     @Environment(\.openWindow) private var openWindow
     @State private var highlightedSearchAnchorID: String?
     @State private var searchHighlightToken = 0
@@ -6937,7 +6937,7 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .action,
                             String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"),
-                            subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in settings.json, for example [\"ctrl+b\", \"c\"]."),
+                            subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in cmux.json, for example [\"ctrl+b\", \"c\"]."),
                             searchAnchorID: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords")
                         ) {
                             HStack(spacing: 8) {
@@ -6945,7 +6945,7 @@ struct SettingsView: View {
                                     .font(.caption)
                                     .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
 
-                                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
+                                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open cmux.json")) {
                                     openCmuxSettingsFileInEditor()
                                 }
                                 .buttonStyle(.bordered)
@@ -7102,7 +7102,7 @@ struct SettingsView: View {
                         SettingsCardNote(
                             String(
                                 localized: "settings.workspaceColors.dictionaryNote",
-                                defaultValue: "Edit settings.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries."
+                                defaultValue: "Edit cmux.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries."
                             )
                         )
 
@@ -7110,7 +7110,7 @@ struct SettingsView: View {
                             SettingsCardNote(
                                 String(
                                     localized: "settings.workspaceColors.emptyPalette",
-                                    defaultValue: "No palette entries. Add colors in settings.json or use \"Choose Custom Color...\" from a workspace context menu."
+                                    defaultValue: "No palette entries. Add colors in cmux.json or use \"Choose Custom Color...\" from a workspace context menu."
                                 )
                             )
                         } else {
@@ -7173,13 +7173,13 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.settingsJSON", defaultValue: "settings.json"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .settingsJSON))
                         .accessibilityIdentifier("SettingsJSONSection")
                     SettingsCard {
                         SettingsCardRow(
                             configurationReview: .action,
-                            String(localized: "settings.settingsJSON.file", defaultValue: "User settings file"),
+                            String(localized: "settings.settingsJSON.file", defaultValue: "User config file"),
                             subtitle: String(localized: "settings.settingsJSON.file.subtitle", defaultValue: "Edit cmux-owned app settings, shortcuts, automation, sidebar, notifications, and browser behavior."),
                             controlWidth: 330,
                             searchAnchorID: SettingsSearchIndex.settingID(for: .settingsJSON, idSuffix: "open-file")
@@ -7771,7 +7771,7 @@ private enum SettingsConfigurationReview: Equatable {
         let unknownPaths = paths.filter { !CmuxSettingsFileStore.supportedSettingsJSONPaths.contains($0) }
         precondition(
             unknownPaths.isEmpty,
-            "Unknown settings.json path(s): \(unknownPaths.joined(separator: ", "))",
+            "Unknown cmux.json settings path(s): \(unknownPaths.joined(separator: ", "))",
             file: file,
             line: line
         )

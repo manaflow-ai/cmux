@@ -7,7 +7,7 @@ import SwiftUI
 enum KeyboardShortcutSettings {
     static let didChangeNotification = Notification.Name("cmux.keyboardShortcutSettingsDidChange")
     static let actionUserInfoKey = "action"
-    static let settingsFileDisplayPath = "~/.config/cmux/settings.json"
+    static let settingsFileDisplayPath = "~/.config/cmux/cmux.json"
     static var settingsFileStore: KeyboardShortcutSettingsFileStore = .shared {
         didSet {
             notifySettingsFileDidChange()
@@ -677,7 +677,7 @@ enum KeyboardShortcutSettings {
 
     static func settingsFileManagedSubtitle(for action: Action) -> String? {
         guard isManagedBySettingsFile(action) else { return nil }
-        return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in settings.json")
+        return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in cmux.json")
     }
 
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {

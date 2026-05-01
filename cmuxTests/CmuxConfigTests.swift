@@ -694,6 +694,38 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testConfigStoreParsesJSONCAndIgnoresGlobalSettingsSections() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          // cmux-owned app settings share the global cmux.json file.
+          "app": {
+            "appearance": "dark",
+          },
+          "actions": {
+            "first": {
+              "type": "command",
+              "command": "echo first",
+            },
+          },
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.loadAll()
+
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+    }
+
+    @MainActor
     func testLocalWatcherDetectsFirstCanonicalConfigAfterDirectoryCreation() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
