@@ -103,9 +103,10 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
             capturedOpenPath(at: capturePath, timeout: 3.0),
             "Expected the palette action to attempt opening a file"
         )
-        let expectedPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux/cmux.json", isDirectory: false)
-            .path
+        let userHome = NSHomeDirectoryForUser(NSUserName())
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let expectedPath = (userHome as NSString)
+            .appendingPathComponent(".config/cmux/cmux.json")
         XCTAssertEqual(openedPath, expectedPath)
     }
 
