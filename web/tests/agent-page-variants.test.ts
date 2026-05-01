@@ -70,7 +70,6 @@ describe("agent page variants", () => {
             </main>
           </body>
         </html>`,
-      origin: "https://cmux.com",
       sourceUrl: "https://cmux.com/docs",
     });
 
@@ -95,7 +94,6 @@ describe("agent page variants", () => {
             <main><p>Configure cmux.</p></main>
           </body>
         </html>`,
-      origin: "https://cmux.com",
       sourceUrl: "https://cmux.com/docs/configuration",
     });
 
@@ -115,7 +113,6 @@ describe("agent page variants", () => {
       </html>`;
     const markdown = markdownFromHtml({
       html,
-      origin: "https://cmux.com",
       sourceUrl: "https://cmux.com/docs",
     });
 
@@ -137,7 +134,6 @@ describe("agent page variants", () => {
             </main>
           </body>
         </html>`,
-      origin: "https://cmux.com",
       sourceUrl: "https://cmux.com/blog/post",
     });
 
@@ -157,12 +153,46 @@ describe("agent page variants", () => {
             </main>
           </body>
         </html>`,
-      origin: "https://cmux.com",
       sourceUrl: "https://cmux.com/docs/code",
     });
 
     expect(markdown).toContain("arr.map(fn)[0]");
     expect(markdown).not.toContain("arr.map(fn) [0]");
+  });
+
+  test("resolves relative URLs against the canonical page URL", () => {
+    const markdown = markdownFromHtml({
+      html: `
+        <html>
+          <body>
+            <main>
+              <h1>Links</h1>
+              <p>
+                <a href="./api">Relative API</a>
+                <a href="../blog">Blog</a>
+                <a href="?tab=cli">CLI tab</a>
+                <a href="#install">Install</a>
+                <a href="/download">Download</a>
+                <a href="https://github.com/manaflow-ai/cmux">GitHub</a>
+                <img src="images/logo.png" alt="Logo" />
+              </p>
+            </main>
+          </body>
+        </html>`,
+      sourceUrl: "https://cmux.com/docs/getting-started",
+    });
+
+    expect(markdown).toContain("[Relative API](https://cmux.com/docs/api)");
+    expect(markdown).toContain("[Blog](https://cmux.com/blog)");
+    expect(markdown).toContain(
+      "[CLI tab](https://cmux.com/docs/getting-started?tab=cli)",
+    );
+    expect(markdown).toContain(
+      "[Install](https://cmux.com/docs/getting-started#install)",
+    );
+    expect(markdown).toContain("[Download](https://cmux.com/download)");
+    expect(markdown).toContain("[GitHub](https://github.com/manaflow-ai/cmux)");
+    expect(markdown).toContain("![Logo](https://cmux.com/docs/images/logo.png)");
   });
 
   test("converts Markdown variants to readable plain text", () => {

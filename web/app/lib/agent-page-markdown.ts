@@ -79,15 +79,13 @@ const blockMarkdownElementNames = new Set([
 
 export function markdownFromHtml({
   html,
-  origin,
   sourceUrl,
 }: {
   html: string;
-  origin: string;
   sourceUrl: string;
 }): string {
   const title = extractTitle(html);
-  const readableHtml = prepareReadableHtml(extractReadableHtml(html), origin);
+  const readableHtml = prepareReadableHtml(extractReadableHtml(html), sourceUrl);
   const body = title
     ? ensureMarkdownTitle(cleanMarkdown(turndown.turndown(readableHtml)), title)
     : cleanMarkdown(turndown.turndown(readableHtml));
@@ -391,15 +389,24 @@ function normalizeTitle(title: string): string {
   return markdownInlineToText(title).replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function prepareReadableHtml(html: string, origin: string): string {
-  return spaceAdjacentAnchors(absolutizeUrls(html, origin));
+function prepareReadableHtml(html: string, baseUrl: string): string {
+  return spaceAdjacentAnchors(absolutizeUrls(html, baseUrl));
 }
 
-function absolutizeUrls(html: string, origin: string): string {
+function absolutizeUrls(html: string, baseUrl: string): string {
   return html.replace(
-    /\s(href|src)=(["'])(\/(?!\/)[^"']*)\2/g,
-    (_match, attribute: string, quote: string, path: string) =>
-      ` ${attribute}=${quote}${origin}${path}${quote}`,
+    /\s(href|src)=(["'])([^"']*)\2/g,
+    (match, attribute: string, quote: string, value: string) => {
+      if (!value || /^(?:[a-z][a-z\d+\-.]*:|\/\/)/i.test(value)) {
+        return match;
+      }
+
+      try {
+        return ` ${attribute}=${quote}${new URL(value, baseUrl).toString()}${quote}`;
+      } catch {
+        return match;
+      }
+    },
   );
 }
 

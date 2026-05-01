@@ -16,6 +16,8 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const CANONICAL_FETCH_TIMEOUT_MS = 5_000;
+
 export async function GET(request: NextRequest) {
   const variant = resolveAgentPageVariant(
     request.headers.get("x-cmux-agent-page-path") ??
@@ -55,7 +57,6 @@ export async function GET(request: NextRequest) {
   const sourceUrl = canonicalUrlFromResponse(htmlResponse, htmlUrl);
   const markdown = markdownFromHtml({
     html: await htmlResponse.text(),
-    origin,
     sourceUrl,
   });
   const body =
@@ -81,11 +82,24 @@ async function fetchCanonicalHtml(
   let currentUrl = new URL(htmlUrl);
 
   for (let redirectCount = 0; redirectCount < 6; redirectCount += 1) {
-    const response = await fetch(currentUrl, {
-      cache: "no-store",
-      headers,
-      redirect: "manual",
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      CANONICAL_FETCH_TIMEOUT_MS,
+    );
+    let response: Response;
+    try {
+      response = await fetch(currentUrl, {
+        cache: "no-store",
+        headers,
+        redirect: "manual",
+        signal: controller.signal,
+      });
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!isRedirectStatus(response.status)) {
       return response;
