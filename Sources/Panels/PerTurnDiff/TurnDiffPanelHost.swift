@@ -64,11 +64,11 @@ private struct TurnDiffWebViewWrapper: NSViewRepresentable {
 
         func attachManagerCallbacks() {
             guard let mgr = TurnCheckpointRegistry.shared.manager(for: workspaceId) else { return }
-            mgr.onDiffChanged = { [weak self] diff in
-                self?.webView?.cmuxDispatchTurnDiff(eventName: "cmux:diff-changed", detail: diff)
+            mgr.onMultiDiffChanged = { [weak self] repos in
+                self?.dispatchMultiDiff(repos)
             }
-            mgr.onLiveDiffChanged = { [weak self] diff in
-                self?.webView?.cmuxDispatchTurnDiff(eventName: "cmux:diff-changed", detail: diff)
+            mgr.onLiveMultiDiffChanged = { [weak self] repos in
+                self?.dispatchMultiDiff(repos)
             }
             mgr.onStatusChanged = { [weak self] status in
                 self?.webView?.cmuxDispatchTurnDiff(eventName: "cmux:status-changed", detail: status)
@@ -88,9 +88,9 @@ private struct TurnDiffWebViewWrapper: NSViewRepresentable {
                 }
             }
 
-            // Push the current root immediately so a freshly-mounted panel knows
-            // whether to render the empty/no-repo state without waiting for the
-            // next pwd change.
+            // Push the current root + initial multi-diff immediately so a
+            // freshly-mounted panel renders the right state without waiting
+            // for the next pwd change or turn boundary.
             if let root = mgr.currentRoot {
                 webView?.cmuxDispatchTurnDiff(
                     eventName: "turnDiff:rootChanged",
@@ -102,12 +102,13 @@ private struct TurnDiffWebViewWrapper: NSViewRepresentable {
                     detail: ["cwd": "(none)"]
                 )
             }
+            dispatchMultiDiff(mgr.computeMultiDiff())
         }
 
         func detachManagerCallbacks() {
             if let mgr = TurnCheckpointRegistry.shared.manager(for: workspaceId) {
-                mgr.onDiffChanged = nil
-                mgr.onLiveDiffChanged = nil
+                mgr.onMultiDiffChanged = nil
+                mgr.onLiveMultiDiffChanged = nil
                 mgr.onStatusChanged = nil
                 mgr.onRootChanged = nil
             }
@@ -116,24 +117,44 @@ private struct TurnDiffWebViewWrapper: NSViewRepresentable {
         func handle(message: TurnDiffBridgeMessage) {
             switch message {
             case .ready, .diffRequest:
-                guard let mgr = TurnCheckpointRegistry.shared.manager(for: workspaceId),
-                      let root = mgr.currentRoot, !root.isEmpty else {
-                    // No manager / no git root → leave empty state visible.
+                guard let mgr = TurnCheckpointRegistry.shared.manager(for: workspaceId) else {
                     webView?.cmuxDispatchTurnDiff(
                         eventName: "turnDiff:noGitRoot",
                         detail: ["cwd": "(none)"]
                     )
+                    dispatchMultiDiff([])
                     return
                 }
-                webView?.cmuxDispatchTurnDiff(
-                    eventName: "turnDiff:rootChanged",
-                    detail: ["root": root]
-                )
-                let (diff, _) = TurnCheckpointStore.bestEffortDiff(
-                    session: workspaceId, in: root
-                )
-                webView?.cmuxDispatchTurnDiff(eventName: "cmux:diff-changed", detail: diff)
+                if let root = mgr.currentRoot, !root.isEmpty {
+                    webView?.cmuxDispatchTurnDiff(
+                        eventName: "turnDiff:rootChanged",
+                        detail: ["root": root]
+                    )
+                } else {
+                    webView?.cmuxDispatchTurnDiff(
+                        eventName: "turnDiff:noGitRoot",
+                        detail: ["cwd": "(none)"]
+                    )
+                }
+                dispatchMultiDiff(mgr.computeMultiDiff())
             }
+        }
+
+        /// Serialize one RepoDiff per visited root and ship it as the new
+        /// `cmux:diff-changed` payload `{ repos: [...] }`. The React side
+        /// uses this to render one collapsible group per repo.
+        private func dispatchMultiDiff(_ repos: [TurnCheckpointManager.RepoDiff]) {
+            let payload: [[String: Any]] = repos.map { repo in
+                [
+                    "root": repo.root,
+                    "diff": repo.diff,
+                    "isActive": repo.isActive
+                ]
+            }
+            webView?.cmuxDispatchTurnDiff(
+                eventName: "cmux:diff-changed",
+                detail: ["repos": payload]
+            )
         }
     }
 }

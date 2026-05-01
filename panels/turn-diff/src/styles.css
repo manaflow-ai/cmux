@@ -48,24 +48,7 @@ body, html, #root {
   padding: 2px 6px;
   border-radius: 4px;
 }
-.empty .muted, .repo-header .muted { color: #6e7681; font-size: 11px; }
-
-.repo-header {
-  font-size: 11px;
-  color: #8b949e;
-  padding: 6px 14px;
-  border-bottom: 1px solid var(--border);
-  background: #161618;
-  font-family: var(--mono-font);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.repo-header code {
-  background: transparent;
-  color: #adbac7;
-  padding: 0;
-}
+.empty .muted { color: #6e7681; font-size: 11px; }
 
 .panel {
   display: flex;
@@ -138,6 +121,90 @@ body, html, #root {
   flex: 1;
   overflow: auto;
   padding: 8px;
+}
+
+/* ---------- repo group (multi-repo layout) ---------- */
+
+.repo-group {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  background: #0d1117;
+}
+.repo-group[data-active="true"] {
+  border-color: #30363d;
+}
+
+.repo-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: #1c2128;
+  border: none;
+  color: #c9d1d9;
+  font-family: var(--mono-font);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  user-select: text;
+  transition: background 120ms;
+}
+.repo-group[data-expanded="true"] .repo-group-header {
+  border-bottom: 1px solid var(--border);
+}
+.repo-group-header:hover { background: #22272e; }
+.repo-group-header:focus-visible {
+  outline: 1px solid #388bfd;
+  outline-offset: -1px;
+}
+
+.repo-group-path {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #adbac7;
+}
+
+.repo-group-active {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: rgba(56, 139, 253, 0.18);
+  color: #79c0ff;
+  flex-shrink: 0;
+}
+
+.repo-group-totals {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.repo-group-totals .file-count { color: #8b949e; }
+
+.repo-group-body {
+  padding: 8px;
+  background: #0d1117;
+}
+/* Last file inside a repo body shouldn't add trailing whitespace before the
+   group's bottom border. */
+.repo-group-body .file:last-child { margin-bottom: 0; }
+
+.repo-empty {
+  padding: 12px;
+  color: #8b949e;
+  font-size: 12px;
+  text-align: center;
+  font-style: italic;
 }
 
 /* ---------- file ---------- */
