@@ -609,6 +609,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private final class MainWindowController: NSWindowController, NSWindowDelegate {
         var onClose: (() -> Void)?
+        var shouldClose: ((NSWindow) -> Bool)?
+
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            shouldClose?(sender) ?? true
+        }
 
         func windowWillClose(_ notification: Notification) {
             onClose?()
@@ -835,6 +840,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Set to true when the user has already confirmed quit via the warning dialog,
     // so applicationShouldTerminate does not show a second alert.
     private var isQuitWarningConfirmed = false
+    private struct PendingTerminationRequest {
+        let source: String
+        let details: [String: String]
+    }
+    private var pendingTerminationRequest: PendingTerminationRequest?
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
@@ -1430,51 +1440,227 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
     }
 
+    private func lifecycleLogData(
+        source: String,
+        details: [String: String] = [:],
+        extra: [String: Any] = [:]
+    ) -> [String: Any] {
+        var data = extra
+        data["source"] = source
+        for (key, value) in details {
+            data[key] = value
+        }
+        return data
+    }
+
+    private func logLifecycleEvent(
+        _ message: String,
+        source: String,
+        details: [String: String] = [:],
+        extra: [String: Any] = [:]
+    ) {
+        let data = lifecycleLogData(source: source, details: details, extra: extra)
+#if DEBUG
+        let fields = data.keys.sorted().compactMap { key -> String? in
+            guard let value = data[key] else { return nil }
+            return "\(key)=\(String(describing: value))"
+        }.joined(separator: " ")
+        if fields.isEmpty {
+            cmuxDebugLog(message)
+        } else {
+            cmuxDebugLog("\(message) \(fields)")
+        }
+#endif
+        sentryBreadcrumb(message, category: "lifecycle", data: data.isEmpty ? nil : data)
+    }
+
+    private func presentQuitWarningAlert() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
+        alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
+        alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
+
+        let response = alert.runModal()
+        if alert.suppressionButton?.state == .on {
+            QuitWarningSettings.setEnabled(false)
+        }
+        return response == .alertFirstButtonReturn
+    }
+
+    func requestApplicationTermination(
+        source: String,
+        sender: Any? = nil,
+        details: [String: String] = [:]
+    ) {
+        pendingTerminationRequest = PendingTerminationRequest(source: source, details: details)
+        logLifecycleEvent(
+            "app.terminate.request",
+            source: source,
+            details: details,
+            extra: [
+                "taggedDevBuild": SocketControlSettings.isTaggedDevBuild() ? 1 : 0
+            ]
+        )
+        NSApp.terminate(sender)
+    }
+
+    private func shouldEscalateMainWindowCloseToAppTermination(_ window: NSWindow) -> Bool {
+        guard isMainTerminalWindow(window),
+              mainWindowContexts.count <= 1,
+              !isTerminatingApp,
+              !isQuitWarningConfirmed,
+              !SocketControlSettings.isTaggedDevBuild(),
+              QuitWarningSettings.isEnabled() else {
+            return false
+        }
+
+        let hasOtherVisibleMainCapableWindows = NSApp.windows.contains { candidate in
+            candidate !== window &&
+            candidate.isVisible &&
+            !candidate.isMiniaturized &&
+            candidate.canBecomeMain
+        }
+        return !hasOtherVisibleMainCapableWindows
+    }
+
+    private func requestMainWindowCloseTermination(_ window: NSWindow, source: String, details: [String: String]) {
+        var terminationDetails = details
+        terminationDetails["windowSource"] = source
+        terminationDetails["windowNumber"] = String(window.windowNumber)
+        terminationDetails["windowIdentifier"] = window.identifier?.rawValue ?? "nil"
+        logLifecycleEvent(
+            "window.close.escalate_to_quit",
+            source: source,
+            details: details,
+            extra: [
+                "windowNumber": window.windowNumber,
+                "windowIdentifier": window.identifier?.rawValue ?? "nil"
+            ]
+        )
+        requestApplicationTermination(
+            source: "window.close.last_main_window",
+            details: terminationDetails
+        )
+    }
+
+    func requestMainWindowClose(
+        _ window: NSWindow,
+        source: String,
+        details: [String: String] = [:]
+    ) {
+        let escalatesToQuit = shouldEscalateMainWindowCloseToAppTermination(window)
+        logLifecycleEvent(
+            "window.close.request",
+            source: source,
+            details: details,
+            extra: [
+                "windowNumber": window.windowNumber,
+                "windowIdentifier": window.identifier?.rawValue ?? "nil",
+                "mainWindowCount": mainWindowContexts.count,
+                "escalatesToQuit": escalatesToQuit ? 1 : 0
+            ]
+        )
+        if escalatesToQuit {
+            requestMainWindowCloseTermination(window, source: source, details: details)
+            return
+        }
+        window.performClose(nil)
+    }
+
+    private func shouldCloseMainWindow(_ window: NSWindow) -> Bool {
+        guard isMainTerminalWindow(window) else { return true }
+        let escalatesToQuit = shouldEscalateMainWindowCloseToAppTermination(window)
+        logLifecycleEvent(
+            "window.close.shouldClose",
+            source: "window.shouldClose",
+            extra: [
+                "windowNumber": window.windowNumber,
+                "windowIdentifier": window.identifier?.rawValue ?? "nil",
+                "mainWindowCount": mainWindowContexts.count,
+                "escalatesToQuit": escalatesToQuit ? 1 : 0
+            ]
+        )
+        guard escalatesToQuit else { return true }
+        requestMainWindowCloseTermination(window, source: "window.shouldClose", details: [:])
+        return false
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        let request = pendingTerminationRequest
+        let requestSource = request?.source ?? "system.terminate"
+        let requestDetails = request?.details ?? [:]
+        logLifecycleEvent(
+            "app.terminate.shouldTerminate",
+            source: requestSource,
+            details: requestDetails,
+            extra: [
+                "taggedDevBuild": SocketControlSettings.isTaggedDevBuild() ? 1 : 0,
+                "warnBeforeQuit": QuitWarningSettings.isEnabled() ? 1 : 0,
+                "quitWarningConfirmed": isQuitWarningConfirmed ? 1 : 0
+            ]
+        )
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
+            logLifecycleEvent(
+                "app.terminate.decision",
+                source: requestSource,
+                details: requestDetails,
+                extra: ["reply": "terminateNow", "reason": "taggedDevBuild"]
+            )
             return .terminateNow
         }
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog
         // (handleQuitShortcutWarning), skip the check to avoid a second alert.
         if isQuitWarningConfirmed {
+            logLifecycleEvent(
+                "app.terminate.decision",
+                source: requestSource,
+                details: requestDetails,
+                extra: ["reply": "terminateNow", "reason": "warningAlreadyConfirmed"]
+            )
             return .terminateNow
         }
 
         // Respect the "Warn Before Quit" setting even when Cmd+Q arrives via
         // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
         guard QuitWarningSettings.isEnabled() else {
+            logLifecycleEvent(
+                "app.terminate.decision",
+                source: requestSource,
+                details: requestDetails,
+                extra: ["reply": "terminateNow", "reason": "warningDisabled"]
+            )
             return .terminateNow
         }
 
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
         // then reply asynchronously so we can return .terminateLater now.
         DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
-            alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
-            alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
-            alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-            alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
-
-            let response = alert.runModal()
-            if alert.suppressionButton?.state == .on {
-                QuitWarningSettings.setEnabled(false)
-            }
-
-            let shouldQuit = response == .alertFirstButtonReturn
+            let shouldQuit = self.presentQuitWarningAlert()
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
+                self.pendingTerminationRequest = nil
             }
+            self.logLifecycleEvent(
+                "app.terminate.warning.result",
+                source: requestSource,
+                details: requestDetails,
+                extra: [
+                    "confirmed": shouldQuit ? 1 : 0,
+                    "warnBeforeQuit": QuitWarningSettings.isEnabled() ? 1 : 0
+                ]
+            )
             NSApp.reply(toApplicationShouldTerminate: shouldQuit)
         }
         return .terminateLater
@@ -1482,6 +1668,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
+        let request = pendingTerminationRequest
+        logLifecycleEvent(
+            "app.terminate.willTerminate",
+            source: request?.source ?? "system.terminate",
+            details: request?.details ?? [:],
+            extra: [
+                "mainWindowCount": mainWindowContexts.count,
+                "tabCount": tabManager?.tabs.count ?? 0
+            ]
+        )
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
         TerminalController.shared.stop()
@@ -4775,7 +4971,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func closeMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
-        window.performClose(nil)
+        requestMainWindowClose(
+            window,
+            source: "window.close.api",
+            details: ["windowId": windowId.uuidString]
+        )
         return true
     }
 
@@ -4815,7 +5015,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard confirmCloseMainWindow(window) else { return true }
-        window.performClose(nil)
+        requestMainWindowClose(window, source: "window.close.confirmed")
         return true
     }
 
@@ -6871,6 +7071,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self, let controller else { return }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
+        controller.shouldClose = { [weak self] closingWindow in
+            self?.shouldCloseMainWindow(closingWindow) ?? true
+        }
         window.delegate = controller
         mainWindowControllers.append(controller)
 
@@ -7064,8 +7267,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             onOpenPreferences: { [weak self] in
                 self?.openPreferencesWindow(debugSource: "menuBarExtra")
             },
-            onQuitApp: {
-                NSApp.terminate(nil)
+            onQuitApp: { [weak self] in
+                self?.requestApplicationTermination(source: "menuBarExtra.quit")
             }
         )
     }
@@ -10348,34 +10551,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func handleQuitShortcutWarning() -> Bool {
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
-            NSApp.terminate(nil)
+            requestApplicationTermination(source: "shortcut.quit.taggedDevBuild")
             return true
         }
 
         if !QuitWarningSettings.isEnabled() {
-            NSApp.terminate(nil)
+            requestApplicationTermination(source: "shortcut.quit.warningDisabled")
             return true
         }
 
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
-        alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
-        alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
-
-        let response = alert.runModal()
-        if alert.suppressionButton?.state == .on {
-            QuitWarningSettings.setEnabled(false)
-        }
-
-        if response == .alertFirstButtonReturn {
+        if presentQuitWarningAlert() {
             // Mark as confirmed so applicationShouldTerminate does not show a
             // second alert when NSApp.terminate re-enters the delegate callback.
             isQuitWarningConfirmed = true
-            NSApp.terminate(nil)
+            requestApplicationTermination(source: "shortcut.quit.warningConfirmed")
         }
         return true
     }
@@ -13230,11 +13419,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspaceForMainActor(tabId: tabId)
     }
 
-    func closeMainWindowContainingTabId(_ tabId: UUID) {
+    func closeMainWindowContainingTabId(_ tabId: UUID, source: String = "window.close.containing_tab") {
         guard let context = contextContainingTabId(tabId) else { return }
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
-        window?.performClose(nil)
+        guard let window else { return }
+        requestMainWindowClose(
+            window,
+            source: source,
+            details: [
+                "workspaceId": tabId.uuidString,
+                "windowId": context.windowId.uuidString
+            ]
+        )
     }
 
     @discardableResult

@@ -8026,8 +8026,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingCloseConfirmTabIds: Set<TabID> = []
 
     /// Tab IDs whose next close attempt should be treated as an explicit
-    /// workspace-close gesture from the user (the tab-strip X button, or Cmd+W when
-    /// the shortcut preference is set to close the workspace on the last surface),
+    /// user-driven surface close (for example the tab-strip X button, or Cmd+W when
+    /// the last-surface preference is configured to collapse the workspace),
     /// rather than an internal close/move flow.
     private var explicitUserCloseTabIds: Set<TabID> = []
 
@@ -12728,7 +12728,8 @@ extension Workspace: BonsplitDelegate {
     @MainActor
     private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
         let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
-        guard panels.count <= 1,
+        guard LastSurfaceCloseShortcutSettings.closesWorkspace(),
+              panels.count <= 1,
               panelIdFromSurfaceId(tabId) != nil,
               let manager,
               manager.tabs.contains(where: { $0.id == id }) else {
@@ -13221,7 +13222,30 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
+        let closesWorkspaceOnLastSurface = explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id)
+#if DEBUG
+        if explicitUserClose && panels.count <= 1 {
+            cmuxDebugLog(
+                "surface.close.explicit tab=\(tab.id.uuid.uuidString.prefix(5)) " +
+                "workspace=\(id.uuidString.prefix(5)) closeWorkspace=\(closesWorkspaceOnLastSurface ? 1 : 0) " +
+                "preference=\(LastSurfaceCloseShortcutSettings.closesWorkspace() ? 1 : 0)"
+            )
+        }
+#endif
+        if explicitUserClose && panels.count <= 1 {
+            sentryBreadcrumb(
+                "surface.close.explicit.last_surface",
+                category: "workspace",
+                data: [
+                    "workspaceId": id.uuidString,
+                    "surfaceId": String(describing: tab.id),
+                    "closeWorkspace": closesWorkspaceOnLastSurface ? 1 : 0,
+                    "closeWorkspaceOnLastSurface": LastSurfaceCloseShortcutSettings.closesWorkspace() ? 1 : 0
+                ]
+            )
+        }
+
+        if closesWorkspaceOnLastSurface {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             owningTabManager?.closeWorkspaceWithConfirmation(self)
             return false

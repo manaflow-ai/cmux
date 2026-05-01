@@ -3282,6 +3282,21 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
+#if DEBUG
+        cmuxDebugLog(
+            "browser.webcontent.terminated panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(currentURL?.absoluteString ?? "nil")"
+        )
+#endif
+        sentryBreadcrumb(
+            "browser.webcontent.terminated",
+            category: "browser",
+            data: [
+                "panelId": id.uuidString,
+                "workspaceId": workspaceId.uuidString,
+                "url": currentURL?.absoluteString ?? ""
+            ]
+        )
         replaceWebViewPreservingState(
             from: terminatedWebView,
             websiteDataStore: websiteDataStore,

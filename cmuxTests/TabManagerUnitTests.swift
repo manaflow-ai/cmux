@@ -171,6 +171,39 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
+    func testChildExitOnLastPanelKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        defaults.set(false, forKey: lastSurfaceCloseShortcutDefaultsKey)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: lastSurfaceCloseShortcutDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
+            }
+        }
+
+        let manager = TabManager()
+        let firstWorkspace = manager.tabs[0]
+        let secondWorkspace = manager.addWorkspace()
+        manager.selectWorkspace(secondWorkspace)
+
+        guard let secondPanelId = secondWorkspace.focusedPanelId else {
+            XCTFail("Expected focused panel in selected workspace")
+            return
+        }
+
+        manager.closePanelAfterChildExited(tabId: secondWorkspace.id, surfaceId: secondPanelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id, secondWorkspace.id])
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+        XCTAssertNil(secondWorkspace.panels[secondPanelId])
+        XCTAssertEqual(secondWorkspace.panels.count, 1)
+        XCTAssertNotEqual(secondWorkspace.focusedPanelId, secondPanelId)
+    }
+
     func testChildExitOnLastRemotePanelKeepsWorkspaceAndDemotesToLocal() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -1203,7 +1236,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertTrue(secondWorkspace.panels.isEmpty)
     }
 
-    func testClosePanelButtonStillClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsEnabled() {
+    func testClosePanelButtonKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() {
         let defaults = UserDefaults.standard
         let originalSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
         defaults.set(false, forKey: lastSurfaceCloseShortcutDefaultsKey)
@@ -1235,10 +1268,11 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         drainMainQueue()
         drainMainQueue()
 
-        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
-        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id, secondWorkspace.id])
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
         XCTAssertNil(secondWorkspace.panels[secondPanelId])
-        XCTAssertTrue(secondWorkspace.panels.isEmpty)
+        XCTAssertEqual(secondWorkspace.panels.count, 1)
+        XCTAssertNotEqual(secondWorkspace.focusedPanelId, secondPanelId)
     }
 
     func testGenericClosePanelKeepsWorkspaceOpenWithoutExplicitCloseMarker() {

@@ -235,7 +235,7 @@ struct cmuxApp: App {
 
             CommandGroup(replacing: .appTermination) {
                 splitCommandButton(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), shortcut: menuShortcut(for: .quit)) {
-                    NSApp.terminate(nil)
+                    appDelegate.requestApplicationTermination(source: "menu.quit")
                 }
             }
 
@@ -5358,12 +5358,12 @@ struct SettingsView: View {
         if keepWorkspaceOpenOnLastSurfaceShortcut {
             return String(
                 localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn",
-                defaultValue: "When the focused surface is the last one in its workspace, the close-surface shortcut closes only the surface and keeps the workspace open. Use the close-workspace shortcut to close the workspace explicitly."
+                defaultValue: "When the focused surface is the last one in its workspace, closing that surface keeps the workspace open. Use Close Workspace to close the workspace explicitly."
             )
         }
         return String(
             localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff",
-            defaultValue: "When the focused surface is the last one in its workspace, the close-surface shortcut also closes the workspace."
+            defaultValue: "When the focused surface is the last one in its workspace, closing that surface also closes the workspace."
         )
     }
 
@@ -7359,7 +7359,10 @@ struct SettingsView: View {
         } catch {
             return
         }
-        NSApplication.shared.terminate(nil)
+        AppDelegate.shared?.requestApplicationTermination(
+            source: "app.relaunch",
+            details: ["reason": "settings_reset"]
+        )
     }
 
     private func resetAllSettings() {

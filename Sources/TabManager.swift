@@ -4505,9 +4505,20 @@ class TabManager: ObservableObject {
         if tabs.count <= 1 {
             // Last workspace in this window: close the window (Cmd+Shift+W behavior).
             if let window {
-                window.performClose(nil)
+                if let appDelegate = AppDelegate.shared {
+                    appDelegate.requestMainWindowClose(
+                        window,
+                        source: "workspace.close.last_workspace",
+                        details: ["workspaceId": workspace.id.uuidString]
+                    )
+                } else {
+                    window.performClose(nil)
+                }
             } else {
-                AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
+                AppDelegate.shared?.closeMainWindowContainingTabId(
+                    workspace.id,
+                    source: "workspace.close.last_workspace"
+                )
             }
         } else {
             closeWorkspace(workspace)
@@ -4550,8 +4561,8 @@ class TabManager: ObservableObject {
         )
 #endif
 
-        // The last-surface shortcut preference only affects Cmd+W. The tab close button
-        // continues to use Workspace's explicit-close path when it closes the last surface.
+        // Route last-surface shortcut closes through Workspace's explicit-close path so
+        // the workspace-level keep-open preference is honored consistently.
         if closesWorkspaceOnLastSurfaceShortcut,
            let surfaceId = tab.surfaceIdFromPanelId(panelId) {
             tab.markExplicitClose(surfaceId: surfaceId)
@@ -4646,14 +4657,18 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
+        let closesWorkspaceOnLastSurface = LastSurfaceCloseShortcutSettings.closesWorkspace()
         let keepsRemoteWorkspaceOpen =
             tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
+        let keepsWorkspaceOpenOnLastSurface =
+            tab.panels.count <= 1 && !closesWorkspaceOnLastSurface
 
 #if DEBUG
         cmuxDebugLog(
             "surface.close.childExited tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count) " +
-            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(keepsRemoteWorkspaceOpen ? 1 : 0)"
+            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(keepsRemoteWorkspaceOpen ? 1 : 0) " +
+            "closeWorkspaceOnLastSurface=\(closesWorkspaceOnLastSurface ? 1 : 0)"
         )
 #endif
 
@@ -4662,18 +4677,18 @@ class TabManager: ObservableObject {
         // logic run before TabManager considers removing the workspace itself, including
         // session-end paths where remote configuration was cleared before Ghostty delivered
         // the child-exit callback.
-        if keepsRemoteWorkspaceOpen {
+        if keepsRemoteWorkspaceOpen || keepsWorkspaceOpenOnLastSurface {
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return
         }
 
-        // Child-exit on the last panel should collapse the workspace, matching explicit close
-        // semantics (and close the window when it was the last workspace).
+        // Child-exit on the last panel collapses the workspace only when the
+        // keep-workspace-open preference is disabled.
         if tab.panels.count <= 1 {
             if tabs.count <= 1 {
                 if let app = AppDelegate.shared {
                     app.notificationStore?.clearNotifications(forTabId: tabId)
-                    app.closeMainWindowContainingTabId(tabId)
+                    app.closeMainWindowContainingTabId(tabId, source: "surface.close.childExited.last_workspace")
                 } else {
                     // Headless/test fallback when no AppDelegate window context exists.
                     closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
