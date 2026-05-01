@@ -845,7 +845,12 @@ final class CmuxSettingsFileStore {
         }()
 
         guard let shortcut else { return nil }
-        if let normalized = action.normalizedRecordedShortcut(shortcut) {
+        // Skip conflict validation for showHideAllWindows: its resolution path re-enters
+        // CmuxSettingsFileStore.shared via settingsFileStore.override, deadlocking dispatch_once.
+        if action == .showHideAllWindows {
+            return shortcut
+        }
+        if case let .accepted(normalized) = action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
             return normalized
         }
         return action.usesNumberedDigitMatching ? nil : shortcut
