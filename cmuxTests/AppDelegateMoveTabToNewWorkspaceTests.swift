@@ -41,6 +41,37 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         XCTAssertEqual(result.paneId, destinationWorkspace.paneId(forPanelId: movedPanel.id)?.id)
     }
 
+    func testMoveBrowserBonsplitTabToNewWorkspaceRequestsAddressBarFocus() throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let browserPanel = try XCTUnwrap(
+            sourceWorkspace.newBrowserSurface(
+                inPane: sourcePaneId,
+                url: try XCTUnwrap(URL(string: "https://example.com")),
+                focus: false
+            )
+        )
+        let browserTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(browserPanel.id)?.uuid)
+
+        let result = try XCTUnwrap(app.moveBonsplitTabToNewWorkspace(
+            tabId: browserTabId,
+            focus: true,
+            focusWindow: false
+        ))
+
+        let destinationWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+        XCTAssertEqual(destinationWorkspace.panels.count, 1)
+        XCTAssertTrue(destinationWorkspace.panels[browserPanel.id] is BrowserPanel)
+        XCTAssertFalse(destinationWorkspace.panels.values.contains { $0 is TerminalPanel })
+        XCTAssertEqual(browserPanel.preferredFocusIntentForActivation(), .browser(.addressBar))
+    }
+
     func testMoveSurfaceToNewWorkspaceRejectsOnlyPanel() throws {
         let app = AppDelegate()
         let windowId = UUID()
