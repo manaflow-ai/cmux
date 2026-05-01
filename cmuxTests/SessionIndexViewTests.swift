@@ -104,7 +104,10 @@ final class SessionIndexViewTests: XCTestCase {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let rolloutURL = tempDir.appendingPathComponent("rollout-codex-transcript-match.jsonl")
+        let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
+
+        let rolloutURL = sessionsRoot.appendingPathComponent("rollout-codex-transcript-match.jsonl")
         let transcript = """
         {"timestamp":"2026-05-01T09:00:00.000Z","type":"session_meta","payload":{"id":"codex-transcript-match","cwd":"/tmp/project"}}
         {"timestamp":"2026-05-01T09:01:00.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\\"cmd\\":\\"tail -n 80 /tmp/cmux-debug-task-activation-performance-harness.log\\"}","call_id":"call_1"}}
@@ -122,7 +125,8 @@ final class SessionIndexViewTests: XCTestCase {
             stateDBPath: stateDB.path,
             needle: "/tmp/cmux-debug-task-activation-performance-harness.log",
             offset: 0,
-            limit: 10
+            limit: 10,
+            sessionsRoot: sessionsRoot.path
         )
 
         XCTAssertEqual(outcome.errors, [])

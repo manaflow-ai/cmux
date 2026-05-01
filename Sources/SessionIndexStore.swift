@@ -1629,7 +1629,8 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func loadCodexEntriesViaSQL(
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag,
-        dbPath: String = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath
+        dbPath: String = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath,
+        sessionsRoot: String = defaultCodexSessionsRoot()
     ) async -> [SessionEntry]? {
         let fm = FileManager.default
         guard fm.fileExists(atPath: dbPath) else { return nil }
@@ -1709,12 +1710,29 @@ final class SessionIndexStore: ObservableObject {
             return records.map(codexEntry(from:))
         }
 
-        let rgMatchedPaths = await codexRolloutPathsMatchingNeedle(needle)
-        let matched = records.filter { record in
-            codexRecordMatchesMetadata(record, needle: needle)
-                || codexRecordMatchesRolloutContent(record, needle: needle, rgMatchedPaths: rgMatchedPaths)
+        guard limit > 0 else { return [] }
+        let normalizedSessionsRoot = (sessionsRoot as NSString).standardizingPath
+        let rgMatchedPaths = await codexRolloutPathsMatchingNeedle(needle, sessionsRoot: normalizedSessionsRoot)
+        var matchedCount = 0
+        var entries: [SessionEntry] = []
+        entries.reserveCapacity(min(limit, records.count))
+        for record in records {
+            if Task.isCancelled { break }
+            let matches = codexRecordMatchesMetadata(record, needle: needle)
+                || codexRecordMatchesRolloutContent(
+                    record,
+                    needle: needle,
+                    rgMatchedPaths: rgMatchedPaths,
+                    normalizedSessionsRoot: normalizedSessionsRoot
+                )
+            guard matches else { continue }
+            if matchedCount >= offset {
+                entries.append(codexEntry(from: record))
+                if entries.count >= limit { break }
+            }
+            matchedCount += 1
         }
-        return Array(matched.dropFirst(offset).prefix(limit).map(codexEntry(from:)))
+        return entries
     }
 
     #if DEBUG
@@ -1723,7 +1741,8 @@ final class SessionIndexStore: ObservableObject {
         needle: String,
         cwdFilter: String? = nil,
         offset: Int = 0,
-        limit: Int = 100
+        limit: Int = 100,
+        sessionsRoot: String = defaultCodexSessionsRoot()
     ) async -> SearchOutcome {
         let bag = ErrorBag()
         let entries = await loadCodexEntriesViaSQL(
@@ -1732,7 +1751,8 @@ final class SessionIndexStore: ObservableObject {
             offset: offset,
             limit: limit,
             errorBag: bag,
-            dbPath: stateDBPath
+            dbPath: stateDBPath,
+            sessionsRoot: sessionsRoot
         ) ?? []
         return SearchOutcome(entries: entries, errors: bag.snapshot())
     }
@@ -1792,10 +1812,20 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    nonisolated private static func codexRolloutPathsMatchingNeedle(_ needle: String) async -> Set<String>? {
-        guard !needle.isEmpty else { return [] }
+    nonisolated private static func defaultCodexSessionsRoot() -> String {
         let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
-        guard let matches = await ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") else {
+        return (root as NSString).standardizingPath
+    }
+
+    nonisolated private static func codexRolloutPathsMatchingNeedle(
+        _ needle: String,
+        sessionsRoot: String
+    ) async -> Set<String>? {
+        guard let matches = await ripgrepMatchingPaths(
+            needle: needle,
+            root: sessionsRoot,
+            fileGlob: "*.jsonl"
+        ) else {
             return nil
         }
         return Set(matches.map { ($0.path as NSString).standardizingPath })
@@ -1804,12 +1834,12 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func codexRecordMatchesRolloutContent(
         _ record: CodexThreadRecord,
         needle: String,
-        rgMatchedPaths: Set<String>?
+        rgMatchedPaths: Set<String>?,
+        normalizedSessionsRoot: String
     ) -> Bool {
         guard let path = record.normalizedRolloutPath else { return false }
-        let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
-        let normalizedRoot = (root as NSString).standardizingPath
-        let isUnderDefaultRoot = path == normalizedRoot || path.hasPrefix(normalizedRoot + "/")
+        let isUnderDefaultRoot = path == normalizedSessionsRoot
+            || path.hasPrefix(normalizedSessionsRoot + "/")
         if let rgMatchedPaths, isUnderDefaultRoot {
             return rgMatchedPaths.contains(path)
         }
