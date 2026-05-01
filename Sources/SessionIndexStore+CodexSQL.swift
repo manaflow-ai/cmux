@@ -191,19 +191,21 @@ extension SessionIndexStore {
     }
 
     nonisolated private static func codexRecordMatchesMetadata(_ record: CodexThreadRecord, needle: String) -> Bool {
-        [
-            record.sessionId,
-            record.rolloutPath,
-            record.cwd ?? "",
-            record.titleField,
-            record.firstUserMessage,
-            record.gitBranch ?? "",
-            record.model ?? "",
-            record.approvalMode ?? "",
-            record.reasoningEffort ?? "",
-        ].contains { field in
-            field.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+        func fieldMatches(_ field: String?) -> Bool {
+            guard let field else { return false }
+            return field.range(of: needle, options: [.caseInsensitive, .literal]) != nil
         }
+
+        if fieldMatches(record.sessionId) { return true }
+        if fieldMatches(record.rolloutPath) { return true }
+        if fieldMatches(record.cwd) { return true }
+        if fieldMatches(record.titleField) { return true }
+        if fieldMatches(record.firstUserMessage) { return true }
+        if fieldMatches(record.gitBranch) { return true }
+        if fieldMatches(record.model) { return true }
+        if fieldMatches(record.approvalMode) { return true }
+        if fieldMatches(record.reasoningEffort) { return true }
+        return false
     }
 
     nonisolated private static func defaultCodexSessionsRoot() -> String {
