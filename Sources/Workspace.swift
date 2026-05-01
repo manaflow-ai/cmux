@@ -877,10 +877,45 @@ extension Workspace {
 extension Workspace {
 
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) {
-        guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
+        // Legacy best-effort path used by the cmux.json executor. Build
+        // failures are NSLog'd by `buildCustomLayoutTree` and a partial
+        // layout is rendered for whatever leaves succeeded. The transactional
+        // counterpart is `applyCustomLayoutChecked` below.
+        _ = applyCustomLayoutImpl(layout, baseCwd: baseCwd, shortCircuitOnFailure: false)
+    }
+
+    /// Applies a layout and reports any structural failures encountered while
+    /// building the split tree. Short-circuits before any pane is populated
+    /// when build failures are present so a transactional caller (the V2
+    /// socket `workspace.create` path) can roll back without first having
+    /// spawned terminal processes.
+    @discardableResult
+    func applyCustomLayoutChecked(_ layout: CmuxLayoutNode, baseCwd: String) -> [String] {
+        return applyCustomLayoutImpl(layout, baseCwd: baseCwd, shortCircuitOnFailure: true)
+    }
+
+    private func applyCustomLayoutImpl(
+        _ layout: CmuxLayoutNode,
+        baseCwd: String,
+        shortCircuitOnFailure: Bool
+    ) -> [String] {
+        guard let rootPaneId = bonsplitController.allPaneIds.first else {
+            return ["no root pane available to apply layout into"]
+        }
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
-        buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
+        var failures: [String] = []
+        buildCustomLayoutTree(
+            layout,
+            inPane: rootPaneId,
+            leaves: &leaves,
+            failures: &failures,
+            shortCircuitOnFailure: shortCircuitOnFailure
+        )
+
+        if shortCircuitOnFailure, !failures.isEmpty {
+            return failures
+        }
 
         // First leaf reuses the initial terminal created by addWorkspace;
         // subsequent leaves were created via newTerminalSplit which also seeds
@@ -896,20 +931,36 @@ extension Workspace {
         if let focusPanelId {
             focusPanel(focusPanelId)
         }
+
+        return failures
     }
 
     private func buildCustomLayoutTree(
         _ node: CmuxLayoutNode,
         inPane paneId: PaneID,
-        leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])]
+        leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])],
+        failures: inout [String],
+        shortCircuitOnFailure: Bool
     ) {
+        // Stop descending on the transactional path the moment a failure is
+        // recorded so the recursion does not keep calling newTerminalSplit /
+        // newTerminalSurface on sibling branches. Those calls mutate
+        // bonsplitController state that the outer rollback (closeWorkspace)
+        // would then need to unwind; short-circuiting here keeps the
+        // rollback cheap and side-effect-free.
+        if shortCircuitOnFailure, !failures.isEmpty {
+            return
+        }
+
         switch node {
         case .pane(let pane):
             leaves.append((paneId: paneId, surfaces: pane.surfaces))
 
         case .split(let split):
             guard split.children.count == 2 else {
-                NSLog("[CmuxConfig] split node requires exactly 2 children, got %d", split.children.count)
+                let message = "split node requires exactly 2 children, got \(split.children.count)"
+                NSLog("[CmuxConfig] %@", message)
+                failures.append(message)
                 leaves.append((paneId: paneId, surfaces: []))
                 return
             }
@@ -931,12 +982,25 @@ extension Workspace {
                       focus: false
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
+                failures.append("could not create split for pane \(paneId)")
                 leaves.append((paneId: paneId, surfaces: []))
                 return
             }
 
-            buildCustomLayoutTree(split.children[0], inPane: paneId, leaves: &leaves)
-            buildCustomLayoutTree(split.children[1], inPane: secondPaneId, leaves: &leaves)
+            buildCustomLayoutTree(
+                split.children[0],
+                inPane: paneId,
+                leaves: &leaves,
+                failures: &failures,
+                shortCircuitOnFailure: shortCircuitOnFailure
+            )
+            buildCustomLayoutTree(
+                split.children[1],
+                inPane: secondPaneId,
+                leaves: &leaves,
+                failures: &failures,
+                shortCircuitOnFailure: shortCircuitOnFailure
+            )
         }
     }
 

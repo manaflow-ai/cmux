@@ -4285,6 +4285,7 @@ class TerminalController {
         }
 
         var newId: UUID?
+        var layoutFailureMessage: String?
         let shouldFocus = v2FocusAllowed()
         v2MainSync {
             let ws = tabManager.addWorkspace(
@@ -4297,9 +4298,25 @@ class TerminalController {
             )
             ws.setCustomDescription(description)
             if let layoutNode {
-                ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
+                let failures = ws.applyCustomLayoutChecked(
+                    layoutNode,
+                    baseCwd: cwd ?? ws.currentDirectory
+                )
+                if !failures.isEmpty {
+                    // Roll back the workspace so scripted callers do not see a
+                    // partial success — the layout is the contract for this
+                    // call, and a half-built workspace is worse than none
+                    // (#2951).
+                    layoutFailureMessage = failures.joined(separator: "; ")
+                    tabManager.closeWorkspace(ws)
+                    return
+                }
             }
             newId = ws.id
+        }
+
+        if let layoutFailureMessage {
+            return .err(code: "invalid_layout", message: "Invalid layout: \(layoutFailureMessage)", data: nil)
         }
 
         guard let newId else {
