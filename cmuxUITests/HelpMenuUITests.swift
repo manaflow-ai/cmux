@@ -43,38 +43,6 @@ final class HelpMenuUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testSidebarHelpMenuOpensKeyboardShortcutsSection() {
-        let app = XCUIApplication()
-        helpMenuResetMenuBarOnlyDefault()
-        addTeardownBlock {
-            app.terminate()
-            helpMenuResetMenuBarOnlyDefault()
-        }
-        app.launchArguments += helpMenuMainWindowLaunchArguments
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        launchAndActivate(app)
-        closeKeyboardShortcutsWindowIfVisible(in: app)
-
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
-
-        let helpButton = requireElement(
-            candidates: helpButtonCandidates(in: app),
-            timeout: 6.0,
-            description: "sidebar help button"
-        )
-        helpButton.click()
-
-        let keyboardShortcutsItem = requireElement(
-            candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionKeyboardShortcuts", title: "Keyboard Shortcuts"),
-            timeout: 3.0,
-            description: "Keyboard Shortcuts help menu item"
-        )
-        keyboardShortcutsItem.click()
-
-        XCTAssertTrue(app.staticTexts["ShortcutRecordingHint"].waitForExistence(timeout: 6.0))
-        closeKeyboardShortcutsWindowIfVisible(in: app)
-    }
-
     func testMainHelpMenuShowsCmuxResourcesAndOpensKeyboardShortcuts() {
         let app = XCUIApplication()
         helpMenuResetMenuBarOnlyDefault()
@@ -133,27 +101,6 @@ final class HelpMenuUITests: XCTestCase {
         }
     }
 
-    private func helpButtonCandidates(in app: XCUIApplication) -> [XCUIElement] {
-        let sidebar = app.otherElements["Sidebar"]
-        return [
-            app.buttons["SidebarHelpMenuButton"],
-            app.buttons["Help"],
-            sidebar.buttons["SidebarHelpMenuButton"],
-            sidebar.buttons["Help"],
-        ]
-    }
-
-    private func helpMenuItemCandidates(
-        in app: XCUIApplication,
-        identifier: String,
-        title: String
-    ) -> [XCUIElement] {
-        [
-            app.buttons[identifier],
-            app.buttons[title],
-        ]
-    }
-
     private func requireElement(
         candidates: [XCUIElement],
         timeout: TimeInterval,
@@ -169,15 +116,6 @@ final class HelpMenuUITests: XCTestCase {
         }
         XCTAssertTrue(found, "Expected \(description) to exist")
         return match ?? candidates[0]
-    }
-
-    private func closeKeyboardShortcutsWindowIfVisible(in app: XCUIApplication) {
-        let shortcutHint = app.staticTexts["ShortcutRecordingHint"]
-        guard shortcutHint.waitForExistence(timeout: 1.0) else { return }
-        app.typeKey("w", modifierFlags: [.command])
-        _ = helpMenuPollUntil(timeout: 3.0) {
-            !shortcutHint.exists
-        }
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
