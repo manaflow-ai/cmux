@@ -463,6 +463,51 @@ enum TurnCheckpointStore {
         return (synth, .syntheticAdded)
     }
 
+    /// Scoped first-fetch helper. Runs `git diff HEAD -- <paths>` from `worktree`
+    /// using the same `cmuxObjectEnv` env as the rest of the diff plumbing
+    /// (so HEAD-relative reads still work via the user's `.git/objects`
+    /// alternate). Used by `TurnCheckpointManager.captureEnd` for the very
+    /// first turn in a repo when the only thing we know is the set of paths
+    /// the agent transcript reported — narrows the diff to those paths instead
+    /// of falling through to the full Tier 2 diff (which would also include
+    /// any pre-existing dirty state in the repo).
+    ///
+    /// Returns "" when HEAD doesn't exist (fresh repo, no commits) — caller
+    /// can then fall through to Tier 3 if it wants. Throws on git invocation
+    /// failure (so the caller knows to fall through to bestEffortDiff).
+    static func scopedDiff(
+        workspaceId: UUID,
+        in worktree: String,
+        paths: [String]
+    ) throws -> String {
+        let trimmedRoot = worktree.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRoot.isEmpty,
+              FileManager.default.fileExists(atPath: trimmedRoot),
+              !paths.isEmpty else {
+            return ""
+        }
+        // No HEAD → no fallback (the caller's existing flow handles Tier 3).
+        guard refExists("HEAD", in: trimmedRoot) else {
+            return ""
+        }
+        let env = cmuxObjectEnv(workspaceId: workspaceId, repoRoot: trimmedRoot)
+        var args: [String] = [
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--unified=3",
+            "HEAD",
+            "--"
+        ]
+        args.append(contentsOf: paths)
+        return try runGit(
+            in: trimmedRoot,
+            arguments: args,
+            env: env,
+            allowExitOne: true
+        )
+    }
+
     // MARK: - Tier helpers
 
     /// True iff `git rev-parse --verify <ref>` succeeds. Used to gate diff calls

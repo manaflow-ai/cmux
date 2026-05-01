@@ -69,6 +69,13 @@ final class TurnCheckpointManager {
     /// This is the source of truth for what we render in the panel.
     private var cachedDiffByRoot: [String: String] = [:]
 
+    /// Absolute file paths the agent transcript reported during the in-flight
+    /// turn. Cleared at idle→running, populated by `recordDetectedPath` while
+    /// running, consumed at running→idle. Used to scope the first-fetch diff
+    /// for repos with no baseline (so we show only what Claude touched this
+    /// turn, not the entire pre-existing dirty state).
+    private var thisTurnDetectedPaths: Set<String> = []
+
     /// One root + its rendered diff, for the multi-repo grouped view.
     /// Emitted to the React panel via `onMultiDiffChanged`.
     struct RepoDiff {
@@ -156,6 +163,7 @@ final class TurnCheckpointManager {
         // Drop in-memory caches; persisted state is wiped below.
         pendingPreTurnBaselines.removeAll()
         cachedDiffByRoot.removeAll()
+        thisTurnDetectedPaths.removeAll()
         // Best-effort: blow away the workspace's diff-state dir so it doesn't
         // accumulate forever. This also removes per-repo `cached-diff.txt`
         // sidecar files. Cheap enough that doing it here beats writing a
@@ -207,31 +215,18 @@ final class TurnCheckpointManager {
         // visited repos keep their last cached diff so the user retains context.
         emitMultiDiff()
 
-        // If we discover a new root while the agent is Running, snapshot it
-        // NOW (best-effort) and add it to pendingPreTurnBaselines so the
-        // running→idle diff has a baseline to compare against. Claude may
-        // have already edited files here before we noticed (transcript tail
-        // detection lags) — snapshotting now is still the best reference
-        // point we have. captureEnd's diff will under-report any pre-detection
-        // edits, but that's acceptable for the first detection turn.
-        if hasRoot,
-           let root = newRoot,
-           !root.isEmpty,
-           lastStatus == "Running",
-           pendingPreTurnBaselines[root] == nil {
-            do {
-                let tree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: root)
-                pendingPreTurnBaselines[root] = tree
-                #if DEBUG
-                cmuxDebugLog("turn-diff: mid-run baseline snapshot root=\(root) tree=\(String(tree.prefix(7)))")
-                #endif
-            } catch {
-                #if DEBUG
-                cmuxDebugLog("turn-diff: mid-run baseline snapshot failed in \(root): \(error)")
-                #endif
-            }
-            // Restart the live watcher in the new root so live updates still
-            // fire while the rest of the turn plays out.
+        // If we discover a new root while the agent is Running, do NOT snapshot
+        // it now — Claude has likely already edited files there (transcript tail
+        // detection lags), so the snapshot would equal the post-edit state and
+        // the diff at running→idle would be empty. Instead leave
+        // pendingPreTurnBaselines[root] = nil so bestEffortDiff falls through to
+        // Tier 2 (HEAD diff), which approximately equals "this turn's edits"
+        // when the repo was clean before. Just restart the live watcher so live
+        // updates fire for the rest of the turn.
+        if hasRoot, let root = newRoot, !root.isEmpty, lastStatus == "Running" {
+            #if DEBUG
+            cmuxDebugLog("turn-diff: mid-run root detected root=\(root), deferring baseline to Tier 2 fallback")
+            #endif
             startLiveWatcher()
         }
     }
@@ -255,6 +250,16 @@ final class TurnCheckpointManager {
         }
     }
 
+    /// Called by the registry from the transcript tailer's onPathDetected
+    /// closure (already on the main actor). Builds up the per-turn set of
+    /// paths the agent touched so captureEnd can scope first-fetch diffs to
+    /// just those files for repos that had no baseline.
+    func recordDetectedPath(_ path: String) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        thisTurnDetectedPaths.insert(trimmed)
+    }
+
     private func captureStart() {
         // We don't know which repo the agent will touch this turn. Snapshot
         // EVERY visited repo's current state as a pre-turn baseline so the
@@ -263,6 +268,9 @@ final class TurnCheckpointManager {
         // vanished, permissions) are silently skipped — the running→idle path
         // will fall through to Tier 2 (HEAD diff) for those.
         pendingPreTurnBaselines.removeAll()
+        // Clear the per-turn detected-paths set; the tailer's onPathDetected
+        // callback fills it during the Running window.
+        thisTurnDetectedPaths.removeAll()
         for repo in visitedRoots {
             guard !repo.isEmpty,
                   FileManager.default.fileExists(atPath: repo) else { continue }
@@ -283,19 +291,57 @@ final class TurnCheckpointManager {
 
     private func captureEnd() {
         // For each visited repo, diff its current tree against the pre-turn
-        // baseline we snapshotted at captureStart. Three cases:
+        // baseline we snapshotted at captureStart. Four cases:
         //   1. Baseline present + diff non-empty -> repo was modified this
         //      turn. Update cachedDiffByRoot and persist.
         //   2. Baseline present + diff empty -> repo was NOT modified this
         //      turn. LEAVE cachedDiffByRoot[repo] AS IS (preserve previous
         //      turn's display).
-        //   3. Baseline missing (first-ever visit, never snapshotted) ->
-        //      no reference. Fall through to Tier 2 (git diff HEAD^{tree})
-        //      so the user sees uncommitted-vs-HEAD as a best-effort show.
+        //   3. Baseline missing AND we have transcript-detected paths inside
+        //      this repo -> scoped first-fetch diff via `git diff HEAD -- <paths>`.
+        //      This shows only what Claude touched this turn instead of the
+        //      entire pre-existing dirty state, which is what Tier 2 would
+        //      have shown.
+        //   4. Baseline missing and no detected paths -> existing Tier 2/3
+        //      fallback. Catches repos that were never visited via transcript
+        //      and never seen before (e.g. the seed root).
         for repo in visitedRoots {
             guard !repo.isEmpty,
                   FileManager.default.fileExists(atPath: repo) else { continue }
             let baseline = pendingPreTurnBaselines[repo]
+
+            if baseline == nil {
+                let scopedPaths = pathsInside(repo: repo, from: thisTurnDetectedPaths)
+                if !scopedPaths.isEmpty {
+                    do {
+                        let scoped = try TurnCheckpointStore.scopedDiff(
+                            workspaceId: session,
+                            in: repo,
+                            paths: scopedPaths
+                        )
+                        #if DEBUG
+                        cmuxDebugLog(
+                            "turn-diff: scoped diff repo=\(repo) paths=\(scopedPaths.count) bytes=\(scoped.utf8.count)"
+                        )
+                        #endif
+                        if !scoped.isEmpty {
+                            cachedDiffByRoot[repo] = scoped
+                            TurnCheckpointStore.writeCachedDiff(scoped, workspaceId: session, repoRoot: repo)
+                        }
+                        // Whether scoped was empty or non-empty, we did the
+                        // best-effort scoped read. Don't fall through to the
+                        // unscoped HEAD diff (which would re-introduce the
+                        // pre-existing dirty state we're trying to avoid).
+                        continue
+                    } catch {
+                        #if DEBUG
+                        cmuxDebugLog("turn-diff: scoped diff failed in \(repo): \(error); falling through")
+                        #endif
+                        // fall through to bestEffortDiff
+                    }
+                }
+            }
+
             let (diff, tier) = TurnCheckpointStore.bestEffortDiff(
                 workspaceId: session,
                 baselineTreeSha: baseline,
@@ -315,13 +361,32 @@ final class TurnCheckpointManager {
         }
 
         // Pre-turn baselines are single-turn ephemeral. Wipe them so the next
-        // captureStart re-snapshots from a clean slate.
+        // captureStart re-snapshots from a clean slate. The detected-paths set
+        // is also single-turn; clear it so the next turn's first-fetch scoping
+        // sees only that turn's paths.
         pendingPreTurnBaselines.removeAll()
+        thisTurnDetectedPaths.removeAll()
 
         // Re-emit the full multi-repo payload so every visited repo's group
         // refreshes on turn end. The dispatched diffs come straight from the
         // cache so unchanged repos keep their previous turn's display.
         emitMultiDiff()
+    }
+
+    /// Filter `paths` down to those that live inside `repo`. Both sides are
+    /// expected to be absolute. Uses a simple prefix check normalised to a
+    /// trailing slash so that `/foo` doesn't accidentally match `/foobar`.
+    private func pathsInside(repo: String, from paths: Set<String>) -> [String] {
+        let trimmed = repo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let prefix = trimmed.hasSuffix("/") ? trimmed : trimmed + "/"
+        var out: [String] = []
+        for p in paths {
+            if p == trimmed || p.hasPrefix(prefix) {
+                out.append(p)
+            }
+        }
+        return out
     }
 
     private func startLiveWatcher() {

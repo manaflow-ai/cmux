@@ -11,7 +11,6 @@ final class TurnCheckpointRegistry {
     private struct Entry {
         let manager: TurnCheckpointManager
         let tailer: ClaudeTranscriptTailer
-        let rootDetectionWatcher: WorktreeWatcher?
         var cancellables: Set<AnyCancellable>
     }
 
@@ -23,48 +22,33 @@ final class TurnCheckpointRegistry {
         guard entries[workspace.id] == nil else { return }
         let mgr = TurnCheckpointManager(workspace: workspace)
 
-        // 1) Primary: Claude Code transcript tail. The tailer runs on a
-        // background queue; the `onPathDetected` closure is dispatched onto
-        // main by the tailer itself, so we can safely call into the @MainActor
-        // manager from inside it.
+        // Primary (and only) repo-discovery channel: the agent transcript tail.
+        // The tailer runs on a background queue; the `onPathDetected` closure
+        // is dispatched onto main by the tailer itself, so we can safely call
+        // into the @MainActor manager from inside it.
+        //
+        // We previously had a second channel — a broad FSEvents watcher rooted
+        // at the workspace's focused-pane pwd (or its cwd) that walked back up
+        // to find a `.git` on any change. With wide cwds (e.g. `~`) that watcher
+        // picked up file changes from OTHER workspaces' agents and polluted
+        // this workspace's `visitedRoots`. The agent transcript is already
+        // per-workspace and agent-attributed, so it's the only thing allowed
+        // to add new repos to `visitedRoots`. The per-active-root WorktreeWatcher
+        // inside TurnCheckpointManager (for live diff updates of already-tracked
+        // repos) stays — it only watches one repo and only fires onLiveDiff updates.
+        let source = AgentTranscriptSourceFactory.makeFromCurrentSettings()
         let tailer = ClaudeTranscriptTailer(
             workspaceCwd: workspace.currentDirectory,
+            source: source,
             onPathDetected: { [weak mgr, weak workspace] path in
                 MainActor.assumeIsolated {
                     Self.handleCandidatePath(path, manager: mgr, workspace: workspace)
+                    mgr?.recordDetectedPath(path)
                 }
             }
         )
         // Seed the tailer with the workspace's current focused-pane pwd.
         tailer.updateFocusedPanePwd(workspace.focusedPanePwd)
-
-        // 2) Fallback: broad FSEvents watcher rooted at the focused-pane pwd
-        // (or the workspace cwd when no pane is focused yet). Whenever any file
-        // in that subtree changes we walk back up to find a `.git`. Independent
-        // from the per-root WorktreeWatcher used for live diff updates.
-        let fallbackRoot: String = {
-            if let p = workspace.focusedPanePwd,
-               !p.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return p
-            }
-            return workspace.currentDirectory
-        }()
-        var rootDetectionWatcher: WorktreeWatcher?
-        let trimmedFallback = fallbackRoot.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedFallback.isEmpty,
-           FileManager.default.fileExists(atPath: trimmedFallback) {
-            rootDetectionWatcher = WorktreeWatcher(
-                path: trimmedFallback,
-                debounceMs: 750
-            ) { [weak mgr, weak workspace] in
-                // FSEvents debounces onto main already.
-                guard let ws = workspace else { return }
-                let candidate = ws.focusedPanePwd?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let probe = (candidate?.isEmpty == false ? candidate! : ws.currentDirectory)
-                Self.handleCandidatePath(probe, manager: mgr, workspace: ws)
-            }
-            rootDetectionWatcher?.start()
-        }
 
         // Subscribe to focused-pane pwd changes so the tailer always knows
         // which `~/.claude/projects/<sanitized>/` to look at, and so we
@@ -88,7 +72,6 @@ final class TurnCheckpointRegistry {
         entries[workspace.id] = Entry(
             manager: mgr,
             tailer: tailer,
-            rootDetectionWatcher: rootDetectionWatcher,
             cancellables: cancellables
         )
         mgr.start()
@@ -96,8 +79,8 @@ final class TurnCheckpointRegistry {
 
         // Seed: try the workspace's current cwd / focused pane pwd as a starting
         // candidate. If either is inside a git repo we jump straight in;
-        // otherwise the panel renders its empty state until the tailer or
-        // fallback watcher reports something.
+        // otherwise the panel renders its empty state until the tailer reports
+        // something.
         let seed = workspace.focusedPanePwd ?? workspace.currentDirectory
         Self.handleCandidatePath(seed, manager: mgr, workspace: workspace)
     }
@@ -105,7 +88,6 @@ final class TurnCheckpointRegistry {
     func detach(workspaceId: UUID) {
         guard let entry = entries.removeValue(forKey: workspaceId) else { return }
         entry.tailer.stop()
-        entry.rootDetectionWatcher?.stop()
         entry.manager.stop()
     }
 

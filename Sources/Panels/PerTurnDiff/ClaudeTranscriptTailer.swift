@@ -1,27 +1,33 @@
 import Foundation
 
-/// Tails the active Claude Code session's JSONL transcript and emits absolute file
-/// paths extracted from `tool_use` entries (Edit/Write/MultiEdit/Read/NotebookEdit
-/// `file_path`, plus `cd <path>` arguments inside Bash `command`s).
+/// Tails the active agent session's JSONL transcript and emits absolute file
+/// paths extracted from each line. The "active session" file is selected by an
+/// `AgentTranscriptSource`; the default `ClaudeCodeTranscriptSource` mirrors
+/// the previous Claude Code-only behavior (project dir under
+/// `~/.claude/projects/<sanitized cwd>/`, picking the most recently modified
+/// `.jsonl`).
 ///
-/// Used by `TurnCheckpointRegistry` to detect which git repo the agent is currently
-/// operating on, since the workspace's static cwd may not match the actual work
-/// directory (e.g. user starts the workspace at `~` but Claude does work in
-/// `~/Desktop/projects/foo`).
+/// Used by `TurnCheckpointRegistry` to detect which git repo the agent is
+/// currently operating on, since the workspace's static cwd may not match the
+/// actual work directory (e.g. user starts the workspace at `~` but Claude does
+/// work in `~/Desktop/projects/foo`).
 ///
-/// Resolution: walks `~/.claude/projects/<sanitized cwd>/` for the most recently
-/// modified `.jsonl` and treats that as the active session. Re-resolves periodically
-/// (every 30s) so a `/resume`-induced session swap is picked up. While waiting for
-/// the directory or file to appear, polls every 2s and tolerates either being
-/// missing (the user may not have used Claude Code yet).
+/// Resolution: walks the source's `transcriptDirectory(forAnchorPwd:)` for the
+/// most recently modified `.jsonl` and treats that as the active session.
+/// Re-resolves periodically (every 30s) so a `/resume`-induced session swap is
+/// picked up. While waiting for the directory or file to appear, polls every 2s
+/// and tolerates either being missing.
 ///
-/// All I/O happens on a background DispatchQueue. The `onPathDetected` callback is
-/// invoked on the main queue so callers can safely mutate UI/main-actor state.
+/// All I/O happens on a background DispatchQueue. The `onPathDetected` callback
+/// is invoked on the main queue so callers can safely mutate UI/main-actor state.
 final class ClaudeTranscriptTailer {
 
     // MARK: - Public API
 
     private let workspaceCwd: String
+    /// The pluggable agent transcript source used to resolve the transcript dir
+    /// and to parse each JSONL line for file paths.
+    private let source: AgentTranscriptSource
     private let onPathDetected: (String) -> Void
 
     /// Latest known focused-pane pwd. Updated via `updateFocusedPanePwd(_:)`
@@ -32,9 +38,11 @@ final class ClaudeTranscriptTailer {
 
     init(
         workspaceCwd: String,
+        source: AgentTranscriptSource = ClaudeCodeTranscriptSource(),
         onPathDetected: @escaping (String) -> Void
     ) {
         self.workspaceCwd = workspaceCwd
+        self.source = source
         self.onPathDetected = onPathDetected
     }
 
@@ -91,14 +99,6 @@ final class ClaudeTranscriptTailer {
         return workspaceCwd
     }
 
-    /// Project dir under `~/.claude/projects/` for the given cwd. Mirrors
-    /// `SessionIndexStore.encodeClaudeProjectDir` ("/" -> "-").
-    private static func projectDir(for cwd: String) -> String {
-        let claudeRoot = ("~/.claude/projects" as NSString).expandingTildeInPath
-        let encoded = cwd.replacingOccurrences(of: "/", with: "-")
-        return (claudeRoot as NSString).appendingPathComponent(encoded)
-    }
-
     /// Find the newest `.jsonl` directly inside `dir`, by mtime.
     private static func newestJSONL(in dir: String) -> String? {
         let fm = FileManager.default
@@ -125,7 +125,12 @@ final class ClaudeTranscriptTailer {
     private func tickResolve() {
         if stopped { return }
 
-        let dir = Self.projectDir(for: anchorPath())
+        let anchor = anchorPath()
+        guard let dirURL = source.transcriptDirectory(forAnchorPwd: anchor) else {
+            scheduleWaitTimer()
+            return
+        }
+        let dir = dirURL.path
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue else {
@@ -266,125 +271,15 @@ final class ClaudeTranscriptTailer {
         }
     }
 
+    /// Hand the raw line off to the agent source for parsing, then emit each
+    /// extracted absolute path on the main queue.
     private func handleLine(_ data: Data) {
-        guard let obj = try? JSONSerialization.jsonObject(with: data),
-              let dict = obj as? [String: Any] else { return }
-
-        // Tool-use entries live nested inside `message.content[]` for assistant
-        // messages. Walk both the legacy top-level shape and the nested shape.
-        if let type = dict["type"] as? String, type == "tool_use" {
-            extractAndEmit(fromToolUse: dict)
-        }
-        if let message = dict["message"] as? [String: Any],
-           let content = message["content"] as? [[String: Any]] {
-            for entry in content {
-                if (entry["type"] as? String) == "tool_use" {
-                    extractAndEmit(fromToolUse: entry)
-                }
-            }
-        }
-    }
-
-    /// Pull `file_path` (Edit/Write/MultiEdit/Read/NotebookEdit) and `command`-cd
-    /// targets (Bash) out of a tool_use object, resolve to absolute paths, and emit.
-    private func extractAndEmit(fromToolUse tu: [String: Any]) {
-        let name = (tu["name"] as? String) ?? ""
-        guard let input = tu["input"] as? [String: Any] else { return }
         let anchor = anchorPath()
-
-        switch name {
-        case "Write", "Edit", "MultiEdit", "Read", "NotebookEdit":
-            if let path = input["file_path"] as? String {
-                emit(rawPath: path, anchor: anchor)
-            }
-            // MultiEdit's edits[] may not carry file_path; the top-level one is
-            // what we need here. No additional walk required.
-
-        case "Bash":
-            if let cmd = input["command"] as? String {
-                for cdPath in extractCdTargets(from: cmd) {
-                    emit(rawPath: cdPath, anchor: anchor)
-                }
-                // Best-effort: also pick obvious absolute paths in the command.
-                for abs in extractAbsolutePaths(from: cmd) {
-                    emit(rawPath: abs, anchor: anchor)
-                }
-            }
-
-        default:
-            break
-        }
-    }
-
-    /// Find `cd <path>` arguments. Tolerates `&&`, `;`, and quoted paths.
-    private func extractCdTargets(from cmd: String) -> [String] {
-        // Split on common shell separators, then look for tokens starting with `cd `.
-        let separators = CharacterSet(charactersIn: ";&|")
-        var results: [String] = []
-        for piece in cmd.unicodeScalars
-            .split(whereSeparator: { separators.contains($0) })
-            .map({ String(String.UnicodeScalarView($0)) })
-        {
-            let trimmed = piece.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.hasPrefix("cd ") || trimmed == "cd" else { continue }
-            let rest = trimmed.dropFirst(2).trimmingCharacters(in: .whitespacesAndNewlines)
-            if rest.isEmpty { continue }
-            // Take the first whitespace-delimited token.
-            let token = rest.split(separator: " ", maxSplits: 1).first.map(String.init) ?? rest
-            // Strip surrounding quotes if any.
-            var unquoted = token
-            for quote in ["\"", "'"] {
-                if unquoted.hasPrefix(quote) && unquoted.hasSuffix(quote) && unquoted.count >= 2 {
-                    unquoted = String(unquoted.dropFirst().dropLast())
-                }
-            }
-            results.append(unquoted)
-        }
-        return results
-    }
-
-    /// Best-effort scan for absolute paths in a command string. Returns at most a
-    /// few candidates; caller is responsible for git-root resolution.
-    private func extractAbsolutePaths(from cmd: String) -> [String] {
-        var out: [String] = []
-        var current: [Character] = []
-        for ch in cmd {
-            if ch == " " || ch == "\t" || ch == "\n" || ch == "\"" || ch == "'" {
-                if !current.isEmpty {
-                    let s = String(current)
-                    if s.hasPrefix("/") { out.append(s) }
-                    current.removeAll(keepingCapacity: true)
-                }
-            } else {
-                current.append(ch)
-            }
-        }
-        if !current.isEmpty {
-            let s = String(current)
-            if s.hasPrefix("/") { out.append(s) }
-        }
-        return out
-    }
-
-    /// Resolve `rawPath` to an absolute path (relative paths are joined onto
-    /// `anchor`) and forward to the callback on the main queue.
-    private func emit(rawPath: String, anchor: String) {
-        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        // Expand ~ and ~/...
-        let expanded = (trimmed as NSString).expandingTildeInPath
-
-        let absolute: String
-        if expanded.hasPrefix("/") {
-            absolute = expanded
-        } else {
-            absolute = (anchor as NSString).appendingPathComponent(expanded)
-        }
-
+        let paths = source.extractPaths(fromLine: data, anchorPwd: anchor)
+        guard !paths.isEmpty else { return }
         let cb = onPathDetected
         DispatchQueue.main.async {
-            cb(absolute)
+            for p in paths { cb(p) }
         }
     }
 }

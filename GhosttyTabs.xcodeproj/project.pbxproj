@@ -140,6 +140,7 @@
 		PERTD00000000000000000015 /* TurnDiffBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = PERTD00000000000000000016 /* TurnDiffBridge.swift */; };
 		PERTD00000000000000000017 /* TurnDiffPanelHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = PERTD00000000000000000018 /* TurnDiffPanelHost.swift */; };
 		PERTD00000000000000000019 /* ClaudeTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = PERTD00000000000000000020 /* ClaudeTranscriptTailer.swift */; };
+		PERTD00000000000000000021 /* AgentTranscriptSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = PERTD00000000000000000022 /* AgentTranscriptSource.swift */; };
 		A5001434A5001434A5001434 /* FilePreviewPDFThumbnailCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001433A5001433A5001433 /* FilePreviewPDFThumbnailCollectionView.swift */; };
 		A5001432A5001432A5001432 /* FilePreviewFocusCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001431A5001431A5001431 /* FilePreviewFocusCoordinator.swift */; };
 		A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001424 /* PDFPreviewChromeDebugWindowController.swift */; };
@@ -472,6 +473,7 @@
 		PERTD00000000000000000016 /* TurnDiffBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PerTurnDiff/TurnDiffBridge.swift; sourceTree = "<group>"; };
 		PERTD00000000000000000018 /* TurnDiffPanelHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PerTurnDiff/TurnDiffPanelHost.swift; sourceTree = "<group>"; };
 		PERTD00000000000000000020 /* ClaudeTranscriptTailer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PerTurnDiff/ClaudeTranscriptTailer.swift; sourceTree = "<group>"; };
+		PERTD00000000000000000022 /* AgentTranscriptSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PerTurnDiff/AgentTranscriptSource.swift; sourceTree = "<group>"; };
 		A5001433A5001433A5001433 /* FilePreviewPDFThumbnailCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFThumbnailCollectionView.swift; sourceTree = "<group>"; };
 		A5001431A5001431A5001431 /* FilePreviewFocusCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewFocusCoordinator.swift; sourceTree = "<group>"; };
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
@@ -828,6 +830,7 @@
 				PERTD00000000000000000016 /* TurnDiffBridge.swift */,
 				PERTD00000000000000000018 /* TurnDiffPanelHost.swift */,
 				PERTD00000000000000000020 /* ClaudeTranscriptTailer.swift */,
+				PERTD00000000000000000022 /* AgentTranscriptSource.swift */,
 				A5001433A5001433A5001433 /* FilePreviewPDFThumbnailCollectionView.swift */,
 				A5001431A5001431A5001431 /* FilePreviewFocusCoordinator.swift */,
 				A5001424 /* PDFPreviewChromeDebugWindowController.swift */,
@@ -1290,6 +1293,7 @@
 				PERTD00000000000000000015 /* TurnDiffBridge.swift in Sources */,
 				PERTD00000000000000000017 /* TurnDiffPanelHost.swift in Sources */,
 				PERTD00000000000000000019 /* ClaudeTranscriptTailer.swift in Sources */,
+				PERTD00000000000000000021 /* AgentTranscriptSource.swift in Sources */,
 				A5001434A5001434A5001434 /* FilePreviewPDFThumbnailCollectionView.swift in Sources */,
 				A5001432A5001432A5001432 /* FilePreviewFocusCoordinator.swift in Sources */,
 				A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */,
