@@ -113,36 +113,26 @@
               <span></span>
               <span></span>
             </div>
-            <div ref="terminalElement" class="xterm-host" :aria-label="t('terminalOutputLabel')"></div>
+            <div
+              ref="terminalElement"
+              class="xterm-host"
+              :aria-label="t('terminalOutputLabel')"
+              @click="focusTerminalInput"
+              @pointerdown="focusTerminalInput"
+            ></div>
           </div>
 
-          <div class="composer">
-            <form class="send-form" @submit.prevent="sendComposerTextAndEnter">
-              <textarea
-                v-model="composerText"
-                rows="2"
-                autocapitalize="off"
-                spellcheck="false"
-                :disabled="!selectedSurface"
-                :placeholder="t('inputPlaceholder')"
-                @keydown.enter.exact="handleComposerEnter"
-                @focus="handleComposerFocus"
-                @blur="handleComposerBlur"
-              ></textarea>
-              <button type="submit" :disabled="!selectedSurface || !composerText">{{ t("sendButton") }}</button>
-            </form>
-            <div class="quick-key-strip" :aria-label="t('terminalKeysLabel')">
-              <span>{{ t("quickKeysLabel") }}</span>
-              <button
-                v-for="quickKey in quickKeys"
-                :key="quickKey.key"
-                type="button"
-                :disabled="!selectedSurface"
-                @click="sendKey(quickKey.key)"
-              >
-                {{ t(quickKey.label) }}
-              </button>
-            </div>
+          <div class="quick-key-strip" :aria-label="t('terminalKeysLabel')">
+            <span>{{ t("quickKeysLabel") }}</span>
+            <button
+              v-for="quickKey in quickKeys"
+              :key="quickKey.key"
+              type="button"
+              :disabled="!selectedSurface"
+              @click="sendKey(quickKey.key)"
+            >
+              {{ t(quickKey.label) }}
+            </button>
           </div>
         </section>
       </div>
@@ -203,7 +193,6 @@ const selectedSurface = ref<Selection | null>(null);
 const eventState = ref<EventState>("offline");
 const statusMessage = ref("");
 const statusIsError = ref(false);
-const composerText = ref("");
 const navOpen = ref(false);
 const creatingSession = ref(false);
 const creatingTab = ref(false);
@@ -218,6 +207,8 @@ let eventRefreshTimer: number | null = null;
 let eventSessionRefreshTimer: number | null = null;
 let eventStartGeneration = 0;
 let lastTerminalText = "";
+let terminalFocusDisposable: { dispose: () => void } | null = null;
+let terminalBlurDisposable: { dispose: () => void } | null = null;
 const terminalInputQueue = new TerminalInputQueue({
   targetEquals,
   sendText: sendTextMutation,
@@ -578,15 +569,6 @@ async function readSelectedTerminal() {
   writeTerminal(result.text || t("terminalEmptyOutput"), !result.text);
 }
 
-async function sendTextAndEnter(text: string) {
-  const target = currentTerminalTarget();
-  if (!target) return;
-  terminalInputQueue.flushBuffer();
-  await terminalInputQueue.waitForIdle();
-  await sendTextMutation(target, `${text}\r`);
-  await readSelectedTerminalForTarget(target);
-}
-
 function sendKey(key: string) {
   const target = currentTerminalTarget();
   if (!target) return;
@@ -672,19 +654,6 @@ function targetMatchesSelection(target: TerminalInputTarget) {
 
 function targetEquals(lhs: TerminalInputTarget, rhs: TerminalInputTarget) {
   return lhs.workspaceID === rhs.workspaceID && lhs.surfaceID === rhs.surfaceID;
-}
-
-function sendComposerTextAndEnter() {
-  const text = composerText.value;
-  if (!text) return;
-  composerText.value = "";
-  sendTextAndEnter(text).catch(handleRemoteError);
-}
-
-function handleComposerEnter(event: KeyboardEvent) {
-  if (event.isComposing) return;
-  event.preventDefault();
-  sendComposerTextAndEnter();
 }
 
 function readSelectedTerminalFromButton() {
@@ -858,6 +827,8 @@ async function ensureTerminalInitialized() {
   terminal.loadAddon(new WebLinksAddon());
   terminal.open(terminalElement.value);
   terminal.onData(handleTerminalData);
+  terminalFocusDisposable = terminal.onFocus(handleTerminalFocus);
+  terminalBlurDisposable = terminal.onBlur(handleTerminalBlur);
   writeTerminal(t("terminalEmptyOutput"));
   nextTick(fitTerminal);
   return true;
@@ -865,10 +836,15 @@ async function ensureTerminalInitialized() {
 
 function disposeTerminal() {
   terminalInputQueue.dispose();
+  terminalFocusDisposable?.dispose();
+  terminalBlurDisposable?.dispose();
+  terminalFocusDisposable = null;
+  terminalBlurDisposable = null;
   terminal?.dispose();
   terminal = null;
   fitAddon = null;
   lastTerminalText = "";
+  keyboardActive.value = false;
 }
 
 function handleTerminalData(data: string) {
@@ -898,7 +874,7 @@ function writeTerminal(text: string, isEmpty = false) {
 }
 
 function normalizeTerminalText(text: string) {
-  return text.replace(/\n/g, "\r\n");
+  return text.replace(/\r?\n/g, "\r\n");
 }
 
 function fitTerminal() {
@@ -915,8 +891,9 @@ function handleResize() {
   nextTick(fitTerminal);
 }
 
-function keepComposerVisible(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return;
+function keepTerminalVisible() {
+  const target = terminalElement.value;
+  if (!target) return;
   updateVisualViewportHeight();
   window.setTimeout(() => target.scrollIntoView({ block: "nearest", inline: "nearest" }), 80);
   window.setTimeout(() => {
@@ -926,14 +903,19 @@ function keepComposerVisible(target: EventTarget | null) {
   }, 260);
 }
 
-function handleComposerFocus(event: FocusEvent) {
+function handleTerminalFocus() {
   keyboardActive.value = true;
-  keepComposerVisible(event.currentTarget);
+  keepTerminalVisible();
 }
 
-function handleComposerBlur() {
+function handleTerminalBlur() {
   keyboardActive.value = false;
   window.setTimeout(handleResize, 120);
+}
+
+function focusTerminalInput() {
+  terminal?.focus();
+  handleTerminalFocus();
 }
 
 function handleVisibilityChange() {

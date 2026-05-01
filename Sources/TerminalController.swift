@@ -19,6 +19,11 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let authenticated: Bool
 }
 
+private enum TerminalTextReadFormat: String {
+    case plain
+    case vt
+}
+
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -6852,6 +6857,10 @@ class TerminalController {
         if lineLimit != nil {
             includeScrollback = true
         }
+        let formatName = (params["format"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? TerminalTextReadFormat.plain.rawValue
+        guard let format = TerminalTextReadFormat(rawValue: formatName) else {
+            return .err(code: "invalid_params", message: "format must be plain or vt", data: nil)
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
         v2MainSync {
@@ -6879,11 +6888,13 @@ class TerminalController {
                 return
             }
 
-            let response = readTerminalTextBase64(
+            let readResult = readTerminalTextBase64WithFormat(
                 terminalPanel: terminalPanel,
                 includeScrollback: includeScrollback,
-                lineLimit: lineLimit
+                lineLimit: lineLimit,
+                format: format
             )
+            let response = readResult.response
             guard response.hasPrefix("OK ") else {
                 result = .err(code: "internal_error", message: response, data: nil)
                 return
@@ -6903,6 +6914,7 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "format": readResult.format.rawValue,
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ])
@@ -6910,8 +6922,50 @@ class TerminalController {
         return result
     }
 
-    private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard let surface = terminalPanel.surface.surface else { return "ERROR: Terminal surface not found" }
+    private func readTerminalTextBase64(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool = false,
+        lineLimit: Int? = nil,
+        format: TerminalTextReadFormat = .plain
+    ) -> String {
+        readTerminalTextBase64WithFormat(
+            terminalPanel: terminalPanel,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit,
+            format: format
+        ).response
+    }
+
+    private func readTerminalTextBase64WithFormat(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool = false,
+        lineLimit: Int? = nil,
+        format: TerminalTextReadFormat = .plain
+    ) -> (response: String, format: TerminalTextReadFormat) {
+        if format == .vt {
+            let vtOutput: String?
+            if includeScrollback {
+                vtOutput = readTerminalTextFromMergedVTExportForSnapshot(
+                    terminalPanel: terminalPanel,
+                    lineLimit: lineLimit
+                )
+            } else {
+                vtOutput = readTerminalTextFromVTExportForSnapshot(
+                    terminalPanel: terminalPanel,
+                    scope: .screen,
+                    lineLimit: lineLimit
+                )
+            }
+            guard let vtOutput else {
+                return ("ERROR: Failed to read terminal VT text", .vt)
+            }
+            let base64 = vtOutput.data(using: .utf8)?.base64EncodedString() ?? ""
+            return ("OK \(base64)", .vt)
+        }
+
+        guard let surface = terminalPanel.surface.surface else {
+            return ("ERROR: Terminal surface not found", .plain)
+        }
 
         func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
             let topLeft = ghostty_point_s(
@@ -6985,11 +7039,11 @@ class TerminalController {
             }) {
                 output = best
             } else {
-                return "ERROR: Failed to read terminal text"
+                return ("ERROR: Failed to read terminal text", .plain)
             }
         } else {
             guard let viewport = readSelectionText(pointTag: GHOSTTY_POINT_VIEWPORT) else {
-                return "ERROR: Failed to read terminal text"
+                return ("ERROR: Failed to read terminal text", .plain)
             }
             output = viewport
         }
@@ -6999,11 +7053,25 @@ class TerminalController {
         }
 
         let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
-        return "OK \(base64)"
+        return ("OK \(base64)", .plain)
     }
 
     private struct PasteboardItemSnapshot {
         let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
+    }
+
+    private enum TerminalTextVTExportScope {
+        case screen
+        case scrollback
+
+        var bindingAction: String {
+            switch self {
+            case .screen:
+                return "write_screen_file:copy,vt"
+            case .scrollback:
+                return "write_scrollback_file:copy,vt"
+            }
+        }
     }
 
     private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
@@ -7050,6 +7118,7 @@ class TerminalController {
 
     private func readTerminalTextFromVTExportForSnapshot(
         terminalPanel: TerminalPanel,
+        scope: TerminalTextVTExportScope = .screen,
         lineLimit: Int?
     ) -> String? {
         let pasteboard = NSPasteboard.general
@@ -7059,7 +7128,7 @@ class TerminalController {
         }
 
         let initialChangeCount = pasteboard.changeCount
-        guard terminalPanel.performBindingAction("write_screen_file:copy,vt") else {
+        guard terminalPanel.performBindingAction(scope.bindingAction) else {
             return nil
         }
         guard pasteboard.changeCount != initialChangeCount else {
@@ -7089,13 +7158,41 @@ class TerminalController {
         return output
     }
 
+    private func readTerminalTextFromMergedVTExportForSnapshot(
+        terminalPanel: TerminalPanel,
+        lineLimit: Int?
+    ) -> String? {
+        let history = readTerminalTextFromVTExportForSnapshot(
+            terminalPanel: terminalPanel,
+            scope: .scrollback,
+            lineLimit: nil
+        )
+        guard let screen = readTerminalTextFromVTExportForSnapshot(
+            terminalPanel: terminalPanel,
+            scope: .screen,
+            lineLimit: nil
+        ) else {
+            return nil
+        }
+
+        var output = history ?? ""
+        if !output.isEmpty, !output.hasSuffix("\n"), !screen.isEmpty {
+            output.append("\n")
+        }
+        output.append(screen)
+        if let lineLimit {
+            output = tailTerminalLines(output, maxLines: lineLimit)
+        }
+        return output
+    }
+
     func readTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
         if includeScrollback,
-           let vtOutput = readTerminalTextFromVTExportForSnapshot(
+           let vtOutput = readTerminalTextFromMergedVTExportForSnapshot(
                terminalPanel: terminalPanel,
                lineLimit: lineLimit
            ) {
