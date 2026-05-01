@@ -129,9 +129,9 @@ private struct TurnDiffWebViewWrapper: NSViewRepresentable {
                     eventName: "turnDiff:rootChanged",
                     detail: ["root": root]
                 )
-                let diff = (try? TurnCheckpointStore.diffAgainstWorkingTree(
+                let (diff, _) = TurnCheckpointStore.bestEffortDiff(
                     session: workspaceId, in: root
-                )) ?? ""
+                )
                 webView?.cmuxDispatchTurnDiff(eventName: "cmux:diff-changed", detail: diff)
             }
         }

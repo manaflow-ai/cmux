@@ -106,13 +106,170 @@ enum TurnCheckpointStore {
         )
     }
 
+    /// Which tier `bestEffortDiff` ended up using.
+    enum DiffTier {
+        case sessionRef       // Tier 1: refs/cmux/session-<uuid>/last-turn-base
+        case head             // Tier 2: HEAD
+        case syntheticAdded   // Tier 3: synthetic everything-as-added (no commits yet)
+        case empty            // Nothing to show
+    }
+
+    /// Get the active diff for the working tree using the best available baseline.
+    /// Tier 1: against the session's last-turn-base ref (if it exists)
+    /// Tier 2: against HEAD (if HEAD exists)
+    /// Tier 3: full working-tree diff treating everything as added
+    /// Returns the unified-diff string and the tier used. Empty string if nothing to show.
+    static func bestEffortDiff(session: UUID, in worktree: String) -> (diff: String, tier: DiffTier) {
+        let trimmedRoot = worktree.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRoot.isEmpty,
+              FileManager.default.fileExists(atPath: trimmedRoot) else {
+            return ("", .empty)
+        }
+
+        // Tier 1: session ref
+        if refExists(refName(for: session), in: trimmedRoot) {
+            do {
+                let diff = try diffAgainstWorkingTree(session: session, in: trimmedRoot)
+                return (diff, .sessionRef)
+            } catch {
+                #if DEBUG
+                cmuxDebugLog("turn-diff: bestEffortDiff failed in \(trimmedRoot): tier1 ref-diff error \(error)")
+                #endif
+            }
+        }
+
+        // Tier 2: HEAD
+        if refExists("HEAD", in: trimmedRoot) {
+            do {
+                let diff = try runGit(
+                    in: trimmedRoot,
+                    arguments: [
+                        "diff",
+                        "--no-color",
+                        "--no-ext-diff",
+                        "--unified=3",
+                        "HEAD"
+                    ]
+                )
+                // `git diff HEAD` shows tracked-file changes only. Append untracked
+                // files as additions so the panel matches what the user sees.
+                let untracked = syntheticAddedDiff(in: trimmedRoot, untrackedOnly: true)
+                let combined: String
+                if diff.isEmpty {
+                    combined = untracked
+                } else if untracked.isEmpty {
+                    combined = diff
+                } else {
+                    combined = diff + (diff.hasSuffix("\n") ? "" : "\n") + untracked
+                }
+                return (combined, .head)
+            } catch {
+                #if DEBUG
+                cmuxDebugLog("turn-diff: bestEffortDiff failed in \(trimmedRoot): tier2 HEAD-diff error \(error)")
+                #endif
+            }
+        }
+
+        // Tier 3: synthetic everything-as-added. Brand-new repo with no HEAD.
+        let synth = syntheticAddedDiff(in: trimmedRoot, untrackedOnly: false)
+        if synth.isEmpty {
+            return ("", .empty)
+        }
+        return (synth, .syntheticAdded)
+    }
+
+    // MARK: - Tier helpers
+
+    /// True iff `git rev-parse --verify <ref>` succeeds. Used to gate diff calls
+    /// against refs/HEAD that may not exist (fresh repo / detached / missing).
+    static func refExists(_ ref: String, in worktree: String) -> Bool {
+        do {
+            _ = try runGit(in: worktree, arguments: ["rev-parse", "--verify", "--quiet", ref])
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Build a synthetic unified diff that emits every file under the worktree
+    /// as an addition. Used when there is no baseline (fresh repo, no commits).
+    /// If `untrackedOnly` is true, only files git reports as `??` (untracked) are
+    /// included — used to augment `git diff HEAD` with untracked additions.
+    /// Skips files git considers binary.
+    static func syntheticAddedDiff(in worktree: String, untrackedOnly: Bool) -> String {
+        let porcelain: String
+        do {
+            porcelain = try runGit(
+                in: worktree,
+                arguments: ["status", "--porcelain", "--untracked-files=all"]
+            )
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("turn-diff: bestEffortDiff failed in \(worktree): status porcelain error \(error)")
+            #endif
+            return ""
+        }
+
+        var pieces: [String] = []
+        for rawLine in porcelain.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine)
+            // Porcelain v1: "XY path" with X/Y in cols 0/1, space at 2, path from col 3.
+            // For untracked it's "?? path".
+            guard line.count > 3 else { continue }
+            let xy = String(line.prefix(2))
+            let pathStart = line.index(line.startIndex, offsetBy: 3)
+            var path = String(line[pathStart...])
+            // Renames look like "old -> new" — keep just the new side.
+            if let arrow = path.range(of: " -> ") {
+                path = String(path[arrow.upperBound...])
+            }
+            // Strip optional surrounding quotes git uses for paths with funky chars.
+            if path.hasPrefix("\""), path.hasSuffix("\""), path.count >= 2 {
+                path = String(path.dropFirst().dropLast())
+            }
+            let isUntracked = (xy == "??")
+            if untrackedOnly && !isUntracked { continue }
+            // Deletions (" D" / "D ") have no working-tree file to read.
+            if xy.contains("D") { continue }
+
+            // Use git diff --no-index against /dev/null: produces a real unified
+            // diff that respects git's own binary detection (skipped via grep below).
+            let diff: String
+            do {
+                diff = try runGit(
+                    in: worktree,
+                    arguments: [
+                        "diff",
+                        "--no-color",
+                        "--no-ext-diff",
+                        "--unified=3",
+                        "--no-index",
+                        "--",
+                        "/dev/null",
+                        path
+                    ],
+                    allowExitOne: true
+                )
+            } catch {
+                continue
+            }
+            // Skip git's "Binary files ... differ" sentinel — diff2html chokes on it
+            // and there's nothing useful to show anyway.
+            if diff.contains("Binary files ") && !diff.contains("@@") { continue }
+            if diff.isEmpty { continue }
+            pieces.append(diff)
+        }
+        return pieces.joined(separator: "\n")
+    }
+
     // MARK: - runGit
 
     @discardableResult
     private static func runGit(
         in directory: String,
         arguments: [String],
-        env: [String: String] = [:]
+        env: [String: String] = [:],
+        allowExitOne: Bool = false
     ) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -130,12 +287,15 @@ enum TurnCheckpointStore {
         try process.run()
         let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        if process.terminationStatus != 0 {
+        let status = process.terminationStatus
+        // git diff --no-index returns 1 when files differ — that's success for us.
+        let isAcceptable = status == 0 || (allowExitOne && status == 1)
+        if !isAcceptable {
             let err = String(
                 data: errPipe.fileHandleForReading.readDataToEndOfFile(),
                 encoding: .utf8
             ) ?? ""
-            throw Error.gitFailed(stderr: err, exitCode: process.terminationStatus)
+            throw Error.gitFailed(stderr: err, exitCode: status)
         }
         return String(data: outData, encoding: .utf8) ?? ""
     }

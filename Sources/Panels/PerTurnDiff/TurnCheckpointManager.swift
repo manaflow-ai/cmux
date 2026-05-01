@@ -97,10 +97,16 @@ final class TurnCheckpointManager {
         if let prev = currentRoot, !prev.isEmpty {
             try? TurnCheckpointStore.cleanup(session: session, in: prev)
         }
+        // pendingStartTree was captured against the old root; it is invalid for
+        // the new root. Dropping it here is what lets bestEffortDiff fall through
+        // to tier 2/3 on the next idle (per spec step 3).
         pendingStartTree = nil
 
         currentRoot = newRoot
         let hasRoot = (newRoot?.isEmpty == false)
+        #if DEBUG
+        cmuxDebugLog("turn-diff: root changed workspace=\(session.uuidString) root=\(newRoot ?? "(nil)")")
+        #endif
         onRootChanged?(newRoot, hasRoot, observedCwd)
 
         // If the agent happens to be Running while we swap, immediately recapture
@@ -137,32 +143,44 @@ final class TurnCheckpointManager {
         } catch {
             pendingStartTree = nil
         }
+        #if DEBUG
+        cmuxDebugLog("turn-diff: idle->running workspace=\(session.uuidString) root=\(worktree) snapshot=\(pendingStartTree ?? "(nil)")")
+        #endif
     }
 
     private func captureEnd() {
-        guard let worktree = currentRoot, !worktree.isEmpty,
-              let startTree = pendingStartTree else {
+        guard let worktree = currentRoot, !worktree.isEmpty else {
             pendingStartTree = nil
             return
         }
-        defer { pendingStartTree = nil }
 
-        do {
-            let endTree = try TurnCheckpointStore.writeTreeIsolated(in: worktree)
-            guard startTree != endTree else {
-                // No-op turn: no ref update, no diff change.
-                return
+        // Best-effort path: try to commit a clean baseline from the captured
+        // T_start tree; if anything fails we still emit the tiered diff so the
+        // panel never silently shows "No changes yet." while the working tree
+        // has uncommitted changes.
+        if let startTree = pendingStartTree {
+            do {
+                let endTree = try TurnCheckpointStore.writeTreeIsolated(in: worktree)
+                if startTree != endTree, TurnCheckpointStore.refExists("HEAD", in: worktree) {
+                    let head = try gitHead(in: worktree)
+                    let commit = try TurnCheckpointStore.commitTree(
+                        startTree, parent: head, message: "cmux turn base", in: worktree
+                    )
+                    try TurnCheckpointStore.updateRef(session: session, commit: commit, in: worktree)
+                }
+            } catch {
+                #if DEBUG
+                cmuxDebugLog("turn-diff: bestEffortDiff failed in \(worktree): captureEnd ref-update error \(error)")
+                #endif
             }
-            let head = try gitHead(in: worktree)
-            let commit = try TurnCheckpointStore.commitTree(
-                startTree, parent: head, message: "cmux turn base", in: worktree
-            )
-            try TurnCheckpointStore.updateRef(session: session, commit: commit, in: worktree)
-            let diff = try TurnCheckpointStore.diffAgainstWorkingTree(session: session, in: worktree)
-            onDiffChanged?(diff)
-        } catch {
-            // Snapshot or diff failed; surface via status only, don't crash.
         }
+        pendingStartTree = nil
+
+        let (diff, tier) = TurnCheckpointStore.bestEffortDiff(session: session, in: worktree)
+        #if DEBUG
+        cmuxDebugLog("turn-diff: running->idle workspace=\(session.uuidString) root=\(worktree) diffBytes=\(diff.utf8.count) tier=\(Self.tierLabel(tier))")
+        #endif
+        onDiffChanged?(diff)
     }
 
     private func startLiveWatcher() {
@@ -170,15 +188,24 @@ final class TurnCheckpointManager {
         let sessionId = self.session
         watcher = WorktreeWatcher(path: cwd) { [weak self] in
             guard let self else { return }
-            // Live diff requires a current last-turn-base ref; if missing (very first turn
-            // ever with no completed code-change yet), this returns "" — UI shows empty state.
-            let diff = (try? TurnCheckpointStore.diffAgainstWorkingTree(
-                session: sessionId, in: cwd
-            )) ?? ""
+            // Live diff uses the same tiered fallback so a fresh root / bare repo
+            // still shows uncommitted edits while the agent is running.
+            let (diff, _) = TurnCheckpointStore.bestEffortDiff(session: sessionId, in: cwd)
             self.onLiveDiffChanged?(diff)
         }
         watcher?.start()
     }
+
+    #if DEBUG
+    private static func tierLabel(_ tier: TurnCheckpointStore.DiffTier) -> String {
+        switch tier {
+        case .sessionRef:     return "1"
+        case .head:           return "2"
+        case .syntheticAdded: return "3"
+        case .empty:          return "empty"
+        }
+    }
+    #endif
 
     private func stopLiveWatcher() {
         watcher?.stop()
