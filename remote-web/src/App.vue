@@ -1,5 +1,5 @@
 <template>
-  <main class="app-shell" :class="{ 'nav-open': navOpen, 'has-token': hasToken }">
+  <main class="app-shell" :class="{ 'nav-open': navOpen, 'has-token': hasToken, 'keyboard-active': keyboardActive }">
     <section v-if="!hasToken" class="token-screen">
       <div class="token-panel">
         <div class="brand-row">
@@ -36,7 +36,7 @@
         <div class="topbar-title">
           <div class="brand-mark small" aria-hidden="true">c</div>
           <div>
-            <h1>{{ t("productName") }}</h1>
+            <h1>{{ terminalTitle }}</h1>
             <p class="status-pill" :class="statusClass">{{ statusText }}</p>
           </div>
         </div>
@@ -126,6 +126,8 @@
                 :disabled="!selectedSurface"
                 :placeholder="t('inputPlaceholder')"
                 @keydown.enter.exact="handleComposerEnter"
+                @focus="handleComposerFocus"
+                @blur="handleComposerBlur"
               ></textarea>
               <button type="submit" :disabled="!selectedSurface || !composerText">{{ t("sendButton") }}</button>
             </form>
@@ -205,6 +207,7 @@ const composerText = ref("");
 const navOpen = ref(false);
 const creatingSession = ref(false);
 const creatingTab = ref(false);
+const keyboardActive = ref(false);
 const terminalElement = ref<HTMLElement | null>(null);
 
 let terminal: Terminal | null = null;
@@ -789,9 +792,28 @@ function refresh() {
   fetchSnapshot().catch(handleRemoteError);
 }
 
+function isMobileTerminalViewport() {
+  return window.matchMedia("(max-width: 720px)").matches;
+}
+
+function applyTerminalSizing() {
+  if (!terminal) return;
+  const mobile = isMobileTerminalViewport();
+  terminal.options.fontSize = mobile ? 10.5 : 13;
+  terminal.options.lineHeight = mobile ? 1.08 : 1.18;
+}
+
+function updateVisualViewportHeight() {
+  const height = window.visualViewport?.height || window.innerHeight;
+  if (height > 0) {
+    document.documentElement.style.setProperty("--remote-visual-height", `${Math.round(height)}px`);
+  }
+}
+
 async function ensureTerminalInitialized() {
   if (terminal) {
     await nextTick();
+    applyTerminalSizing();
     fitTerminal();
     return true;
   }
@@ -806,8 +828,8 @@ async function ensureTerminalInitialized() {
     cursorBlink: true,
     disableStdin: false,
     fontFamily: '"SF Mono", Menlo, Monaco, Consolas, monospace',
-    fontSize: window.matchMedia("(max-width: 720px)").matches ? 12 : 13,
-    lineHeight: 1.18,
+    fontSize: isMobileTerminalViewport() ? 10.5 : 13,
+    lineHeight: isMobileTerminalViewport() ? 1.08 : 1.18,
     scrollback: 5000,
     theme: {
       background: "#030507",
@@ -888,7 +910,30 @@ function fitTerminal() {
 }
 
 function handleResize() {
+  updateVisualViewportHeight();
+  applyTerminalSizing();
   nextTick(fitTerminal);
+}
+
+function keepComposerVisible(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return;
+  updateVisualViewportHeight();
+  window.setTimeout(() => target.scrollIntoView({ block: "nearest", inline: "nearest" }), 80);
+  window.setTimeout(() => {
+    updateVisualViewportHeight();
+    target.scrollIntoView({ block: "nearest", inline: "nearest" });
+    fitTerminal();
+  }, 260);
+}
+
+function handleComposerFocus(event: FocusEvent) {
+  keyboardActive.value = true;
+  keepComposerVisible(event.currentTarget);
+}
+
+function handleComposerBlur() {
+  keyboardActive.value = false;
+  window.setTimeout(handleResize, 120);
 }
 
 function handleVisibilityChange() {
@@ -910,8 +955,11 @@ watch(navOpen, () => nextTick(fitTerminal));
 onMounted(async () => {
   await loadStrings();
   loadToken();
+  updateVisualViewportHeight();
   window.addEventListener("resize", handleResize);
   window.addEventListener("orientationchange", handleResize);
+  window.visualViewport?.addEventListener("resize", handleResize);
+  window.visualViewport?.addEventListener("scroll", handleResize);
   document.addEventListener("visibilitychange", handleVisibilityChange);
   if (token.value) {
     await ensureTerminalInitialized();
@@ -930,6 +978,8 @@ onBeforeUnmount(() => {
   clearEventSessionRefresh();
   window.removeEventListener("resize", handleResize);
   window.removeEventListener("orientationchange", handleResize);
+  window.visualViewport?.removeEventListener("resize", handleResize);
+  window.visualViewport?.removeEventListener("scroll", handleResize);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
   disposeTerminal();
 });
