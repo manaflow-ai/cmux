@@ -15768,7 +15768,13 @@ private struct WindowBackdropLayer: View {
     private func backdrop(for policy: WindowBackdropPolicy) -> some View {
         switch policy {
         case let .ghosttyTerminalBackdrop(color, opacity, _):
-            LayerBackedBackdropColor(color: color.withAlphaComponent(opacity))
+            let backdropColor = color.withAlphaComponent(opacity)
+            switch role {
+            case .windowRoot:
+                Color(nsColor: backdropColor)
+            case .terminalCanvas, .bonsplitChrome, .titlebar, .leftSidebar, .rightSidebar, .browserSurface:
+                LayerBackedBackdropColor(color: backdropColor)
+            }
         case let .sidebarMaterial(materialPolicy):
             ZStack {
                 let usingNativeLiquidGlass = materialPolicy.preferLiquidGlass &&
