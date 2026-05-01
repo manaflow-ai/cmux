@@ -9,7 +9,7 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
 
     func testCmdShiftPCopyIdentifierCommandsWriteExpectedClipboardPayloads() {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-menuBarOnly", "false"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
 
@@ -66,7 +66,7 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
             try? FileManager.default.removeItem(atPath: capturePath)
         }
 
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-menuBarOnly", "false"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = capturePath
         launchAndActivate(app)
