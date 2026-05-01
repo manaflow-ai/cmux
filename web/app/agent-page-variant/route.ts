@@ -4,6 +4,7 @@ import {
   resolveAgentPageVariant,
 } from "../lib/agent-page-paths";
 import { headersForCanonicalFetch } from "../lib/agent-page-canonical-fetch";
+import { sameOriginRedirectUrl } from "../lib/agent-page-redirects";
 import {
   headersForAgentPage,
   headersForLlmsTxt,
@@ -41,13 +42,10 @@ export async function GET(request: NextRequest) {
     searchParams: request.nextUrl.searchParams,
   });
 
-  const htmlResponse = await fetch(htmlUrl, {
-    cache: "no-store",
-    headers: canonicalFetchHeaders,
-    redirect: "follow",
-  });
+  const htmlResponse = await fetchCanonicalHtml(htmlUrl, canonicalFetchHeaders);
 
   if (
+    !htmlResponse ||
     !htmlResponse.ok ||
     !htmlResponse.headers.get("content-type")?.includes("text/html")
   ) {
@@ -74,6 +72,42 @@ export async function GET(request: NextRequest) {
       varyAcceptLanguage: canonicalFetchHeaders.has("accept-language"),
     }),
   });
+}
+
+async function fetchCanonicalHtml(
+  htmlUrl: URL,
+  headers: Headers,
+): Promise<Response | null> {
+  let currentUrl = new URL(htmlUrl);
+
+  for (let redirectCount = 0; redirectCount < 6; redirectCount += 1) {
+    const response = await fetch(currentUrl, {
+      cache: "no-store",
+      headers,
+      redirect: "manual",
+    });
+
+    if (!isRedirectStatus(response.status)) {
+      return response;
+    }
+
+    const nextUrl = sameOriginRedirectUrl({
+      currentUrl,
+      location: response.headers.get("location"),
+      origin: htmlUrl.origin,
+    });
+    if (!nextUrl) {
+      return response;
+    }
+
+    currentUrl = nextUrl;
+  }
+
+  return null;
+}
+
+function isRedirectStatus(status: number): boolean {
+  return status >= 300 && status < 400;
 }
 
 function canonicalUrlFromResponse(response: Response, fallbackUrl: URL): string {

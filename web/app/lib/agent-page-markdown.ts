@@ -183,11 +183,19 @@ export function localeFromCanonicalPath(pathname: string): string {
 }
 
 export function extractReadableHtml(html: string): string {
+  const searchableHtml = stripRawIgnoredElements(html);
   return (
-    firstElementInnerHtml(html, "main") ??
-    firstElementInnerHtml(html, "body") ??
+    firstElementInnerHtml(searchableHtml, "main") ??
+    firstElementInnerHtml(searchableHtml, "body") ??
     html
   );
+}
+
+function stripRawIgnoredElements(html: string): string {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, "");
 }
 
 function firstElementInnerHtml(html: string, tagName: string): string | null {

@@ -5,11 +5,13 @@ import {
   variantPathForPage,
 } from "../app/lib/agent-page-paths";
 import {
+  extractReadableHtml,
   headersForAgentPage,
   markdownFromHtml,
   plainTextFromMarkdown,
 } from "../app/lib/agent-page-markdown";
 import { headersForCanonicalFetch } from "../app/lib/agent-page-canonical-fetch";
+import { sameOriginRedirectUrl } from "../app/lib/agent-page-redirects";
 
 describe("agent page variants", () => {
   test("maps Markdown and text extension paths to canonical HTML pages", () => {
@@ -98,6 +100,28 @@ describe("agent page variants", () => {
     });
 
     expect(markdown).toStartWith("# Settings & Docs 'Guide'\n\nConfigure cmux.");
+  });
+
+  test("extracts readable HTML after scripts with closing tag strings", () => {
+    const html = `
+      <html>
+        <body>
+          <main>
+            <script>window.__payload = "</main>";</script>
+            <h1>Docs</h1>
+            <p>After script.</p>
+          </main>
+        </body>
+      </html>`;
+    const markdown = markdownFromHtml({
+      html,
+      origin: "https://cmux.com",
+      sourceUrl: "https://cmux.com/docs",
+    });
+
+    expect(extractReadableHtml(html)).toContain("<p>After script.</p>");
+    expect(markdown).toContain("After script.");
+    expect(markdown).not.toContain("window.__payload");
   });
 
   test("moves the page title before backlinks and media", () => {
@@ -219,6 +243,23 @@ describe("agent page variants", () => {
     expect(headers.get("authorization")).toBe("Bearer token");
     expect(headers.get("x-vercel-protection-bypass")).toBe("secret");
     expect(headers.get("x-vercel-set-bypass-cookie")).toBe("true");
+  });
+
+  test("keeps internal redirects on the same origin", () => {
+    expect(
+      sameOriginRedirectUrl({
+        currentUrl: new URL("https://cmux.com/docs"),
+        location: "/docs/getting-started?from=old#intro",
+        origin: "https://cmux.com",
+      })?.toString(),
+    ).toBe("https://cmux.com/docs/getting-started?from=old");
+    expect(
+      sameOriginRedirectUrl({
+        currentUrl: new URL("https://cmux.com/docs"),
+        location: "https://example.com/docs",
+        origin: "https://cmux.com",
+      }),
+    ).toBeNull();
   });
 
   test("lists agent-readable Markdown and text variants", () => {
