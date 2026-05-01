@@ -206,9 +206,9 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 6.0) {
-                app.state == .runningForeground || app.windows.firstMatch.exists
+                app.state == .runningForeground
             },
-            "App did not expose UI before interactions. state=\(app.state.rawValue)"
+            "App did not become foreground before interactions. state=\(app.state.rawValue)"
         )
     }
 }

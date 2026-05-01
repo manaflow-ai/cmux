@@ -132,6 +132,7 @@ if [[ "${#selected_skills[@]}" -eq 0 ]]; then
 fi
 
 [[ "${#selected_skills[@]}" -gt 0 ]] || die "no skills found in $source_dir"
+[[ -n "$dest_dir" ]] || die "destination directory must not be empty"
 
 for skill_name in "${selected_skills[@]}"; do
   [[ "$skill_name" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid skill name: $skill_name"
@@ -150,10 +151,10 @@ mkdir -p "$dest_dir"
 
 for skill_name in "${selected_skills[@]}"; do
   src="$source_dir/$skill_name"
-  tmp_target="$dest_dir/.${skill_name}.tmp.$$"
+  tmp_target="${dest_dir:?}/.${skill_name}.tmp.$$"
   rm -rf "$tmp_target"
   cp -R "$src" "$tmp_target"
-  rm -rf "$dest_dir/$skill_name"
-  mv "$tmp_target" "$dest_dir/$skill_name"
-  printf 'Installed %s -> %s\n' "$skill_name" "$dest_dir/$skill_name"
+  rm -rf "${dest_dir:?}/$skill_name"
+  mv "$tmp_target" "${dest_dir:?}/$skill_name"
+  printf 'Installed %s -> %s\n' "$skill_name" "${dest_dir:?}/$skill_name"
 done

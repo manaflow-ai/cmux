@@ -7151,7 +7151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TaskManagerWindowController.shared.show()
     }
 
-    func showMainWindowFromMenuBar() {
+    @discardableResult func showMainWindowFromMenuBar() -> NSWindow? {
         let context: MainWindowContext? = {
             if let keyWindow = NSApp.keyWindow,
                let keyContext = contextForMainTerminalWindow(keyWindow) {
@@ -7181,13 +7181,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return windowForMainWindowId(windowId)
         }()
 
-        guard let window else {
-            NSSound.beep()
-            return
-        }
+        guard let window else { NSSound.beep(); return nil }
 
-        NSApp.unhide(nil)
-        bringToFront(window)
+        NSApp.unhide(nil); bringToFront(window); return window
     }
 
     func showNotificationsPopoverFromMenuBar() {

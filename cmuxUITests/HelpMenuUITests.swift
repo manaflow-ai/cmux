@@ -66,7 +66,11 @@ final class HelpMenuUITests: XCTestCase {
             app.terminate()
             helpMenuResetMenuBarOnlyDefault()
         }
-        app.launchArguments += ["-menuBarOnly", "false"]
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-menuBarOnly", "false",
+        ]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
 
@@ -184,9 +188,9 @@ final class HelpMenuUITests: XCTestCase {
 
         XCTAssertTrue(
             helpMenuPollUntil(timeout: 6.0) {
-                app.state == .runningForeground || app.windows.firstMatch.exists
+                app.state == .runningForeground
             },
-            "App did not expose UI before interactions. state=\(app.state.rawValue)"
+            "App did not become foreground before menu interactions. state=\(app.state.rawValue)"
         )
     }
 }
