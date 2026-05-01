@@ -949,7 +949,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         AppIconLaunchState.markDidFinishLaunching()
-        syncActivationPolicy()
+        if isRunningUnderXCTest {
+            NSApp.setActivationPolicy(.regular)
+        } else {
+            syncActivationPolicy()
+        }
 
         claimAuthCallbackURLSchemes()
 
