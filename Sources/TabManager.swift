@@ -898,7 +898,7 @@ class TabManager: ObservableObject {
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
-    private static var nextPortOrdinal: Int = 0
+    static var nextPortOrdinal: Int = 0
     private nonisolated static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
     private nonisolated static let backgroundPollInterval: TimeInterval = 60
     private nonisolated static let selectedPollInterval: TimeInterval = 10
@@ -1021,24 +1021,6 @@ class TabManager: ObservableObject {
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
-    private struct WorkspaceCreationTabSnapshot {
-        let id: UUID
-        let isPinned: Bool
-
-        @MainActor
-        init(workspace: Workspace) {
-            self.id = workspace.id
-            self.isPinned = workspace.isPinned
-        }
-    }
-
-    private struct WorkspaceCreationSnapshot {
-        let tabs: [WorkspaceCreationTabSnapshot]
-        let selectedTabId: UUID?
-        let selectedTabWasPinned: Bool
-        let preferredWorkingDirectory: String?
-        let inheritedTerminalFontPoints: Float?
-    }
     private var agentPIDSweepTimer: DispatchSourceTimer?
     private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
     private var selectedWorkspaceGitMetadataPollTimer: DispatchSourceTimer?
@@ -1878,7 +1860,7 @@ class TabManager: ObservableObject {
         )
     }
 
-    private func wireClosedBrowserTracking(for workspace: Workspace) {
+    func wireClosedBrowserTracking(for workspace: Workspace) {
         workspace.onClosedBrowserPanel = { [weak self] snapshot in
             self?.recentlyClosedBrowsers.push(snapshot)
         }
@@ -2004,7 +1986,7 @@ class TabManager: ObservableObject {
         )
     }
 
-    private func applyCreationChromeInheritance(
+    func applyCreationChromeInheritance(
         to newWorkspace: Workspace,
         from sourceWorkspace: Workspace?
     ) {
@@ -2035,7 +2017,7 @@ class TabManager: ObservableObject {
     func didCaptureWorkspaceCreationSnapshot() {}
 
 #if DEBUG
-    private func maybeMutateSelectionDuringWorkspaceCreationForDev(
+    func maybeMutateSelectionDuringWorkspaceCreationForDev(
         snapshot: WorkspaceCreationSnapshot
     ) {
         let env = ProcessInfo.processInfo.environment
@@ -2172,90 +2154,6 @@ class TabManager: ObservableObject {
                     sendWelcomeWhenReady(to: newWorkspace)
                 }
             }
-            return newWorkspace
-        }
-    }
-
-    @discardableResult
-    func addWorkspace(
-        fromDetachedSurface detached: Workspace.DetachedSurfaceTransfer,
-        title: String? = nil,
-        select: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
-        focusIntent: PanelFocusIntent? = nil
-    ) -> Workspace? {
-        let sourceWorkspace = selectedWorkspace
-        let capturedTabs = tabs
-        let capturedSelectedTabId = sourceWorkspace?.id
-        return withExtendedLifetime((capturedTabs, sourceWorkspace, detached.panel)) {
-            let inheritedDirectory = preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
-            let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
-            let snapshot = workspaceCreationSnapshotLite(
-                currentTabs: capturedTabs,
-                currentSelectedTabId: capturedSelectedTabId,
-                preferredWorkingDirectory: inheritedDirectory,
-                inheritedTerminalFontPoints: font
-            )
-            didCaptureWorkspaceCreationSnapshot()
-#if DEBUG
-            maybeMutateSelectionDuringWorkspaceCreationForDev(snapshot: snapshot)
-#endif
-            let nextTabCount = snapshot.tabs.count + 1
-            sentryBreadcrumb("workspace.create.fromDetachedSurface", data: ["tabCount": nextTabCount])
-            let detachedDirectory = normalizedWorkingDirectory(detached.directory)
-            let workingDirectory = detachedDirectory ?? snapshot.preferredWorkingDirectory
-            let inheritedConfig = workspaceCreationConfigTemplate(
-                inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
-            )
-            let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
-            let newWorkspace = Workspace(
-                title: title ?? detached.title,
-                workingDirectory: workingDirectory,
-                portOrdinal: ordinal,
-                configTemplate: inheritedConfig,
-                initialDetachedSurface: detached
-            )
-            guard newWorkspace.panels[detached.panelId] != nil else {
-                return nil
-            }
-            applyCreationChromeInheritance(
-                to: newWorkspace,
-                from: sourceWorkspace ?? capturedTabs.first
-            )
-            newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
-            }
-            wireClosedBrowserTracking(for: newWorkspace)
-
-            var updatedTabs = tabs
-            if insertIndex >= 0 && insertIndex <= updatedTabs.count {
-                updatedTabs.insert(newWorkspace, at: insertIndex)
-            } else {
-                updatedTabs.append(newWorkspace)
-            }
-            tabs = updatedTabs
-            if select {
-#if DEBUG
-                debugPrimeWorkspaceSwitchTrigger("createFromDetachedSurface", to: newWorkspace.id)
-#endif
-                selectedTabId = newWorkspace.id
-                NotificationCenter.default.post(
-                    name: .ghosttyDidFocusTab,
-                    object: nil,
-                    userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
-                )
-                newWorkspace.focusPanel(detached.panelId, focusIntent: focusIntent)
-            }
-#if DEBUG
-            UITestRecorder.incrementInt("addTabInvocations")
-            UITestRecorder.record([
-                "tabCount": String(updatedTabs.count),
-                "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
-            ])
-#endif
             return newWorkspace
         }
     }
@@ -3669,7 +3567,7 @@ class TabManager: ObservableObject {
     /// for obtaining `preferredWorkingDirectory` and `inheritedTerminalFontPoints` through
     /// `self` (where `self.tabs` keeps all Workspace objects alive) so that no local
     /// Workspace references are needed here.
-    private func workspaceCreationSnapshotLite(
+    func workspaceCreationSnapshotLite(
         currentTabs: [Workspace],
         currentSelectedTabId: UUID?,
         preferredWorkingDirectory: String?,
@@ -3796,13 +3694,13 @@ class TabManager: ObservableObject {
         inheritedTerminalFontPointsForNewWorkspace(workspace: selectedWorkspace)
     }
 
-    private func inheritedTerminalFontPointsForNewWorkspace(
+    func inheritedTerminalFontPointsForNewWorkspace(
         workspace: Workspace?
     ) -> Float? {
         cachedInheritedTerminalFontPointsForNewWorkspace(workspace: workspace)
     }
 
-    private func workspaceCreationConfigTemplate(
+    func workspaceCreationConfigTemplate(
         inheritedTerminalFontPoints: Float?
     ) -> CmuxSurfaceConfigTemplate? {
         guard let inheritedTerminalFontPoints, inheritedTerminalFontPoints > 0 else {
@@ -3815,7 +3713,7 @@ class TabManager: ObservableObject {
         return config
     }
 
-    private func normalizedWorkingDirectory(_ directory: String?) -> String? {
+    func normalizedWorkingDirectory(_ directory: String?) -> String? {
         guard let directory else { return nil }
         let normalized = normalizeDirectory(directory)
         let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3826,7 +3724,7 @@ class TabManager: ObservableObject {
         newTabInsertIndex(snapshot: workspaceCreationSnapshot(), placementOverride: placementOverride)
     }
 
-    private func newTabInsertIndex(
+    func newTabInsertIndex(
         snapshot: WorkspaceCreationSnapshot,
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
@@ -3862,7 +3760,7 @@ class TabManager: ObservableObject {
         preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace)
     }
 
-    private func preferredWorkingDirectoryForNewTab(
+    func preferredWorkingDirectoryForNewTab(
         workspace: Workspace?
     ) -> String? {
         guard let workspace else {
@@ -5306,7 +5204,7 @@ class TabManager: ObservableObject {
         return (debugWorkspaceSwitchId, debugWorkspaceSwitchStartTime)
     }
 
-    private func debugPrimeWorkspaceSwitchTrigger(_ trigger: String, to target: UUID?) {
+    func debugPrimeWorkspaceSwitchTrigger(_ trigger: String, to target: UUID?) {
         guard selectedTabId != target else {
             debugPendingWorkspaceSwitchTrigger = nil
             debugPendingWorkspaceSwitchTarget = nil
