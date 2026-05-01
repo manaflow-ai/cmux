@@ -328,6 +328,95 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "settings.json chord should dispatch the configured shortcut")
     }
 
+    func testSettingsFileBareKeyChordDispatchesSplitRight() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let focusedPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            XCTFail("Expected test window with focused terminal panel")
+            return
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "splitRight": ["`", "d"]
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let terminalView = surfaceView(in: focusedPanel.hostedView) else {
+            XCTFail("Expected a GhosttyNSView inside the focused panel's hosted view")
+            return
+        }
+        XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected to make Ghostty surface the first responder")
+        XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface to hold first responder after makeFirstResponder")
+
+        let initialPanelCount = workspace.panels.count
+
+        guard let prefixEvent = makeKeyDownEvent(
+            key: "`",
+            modifiers: [],
+            keyCode: 50,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct backtick prefix event")
+            return
+        }
+
+        guard let actionEvent = makeKeyDownEvent(
+            key: "d",
+            modifiers: [],
+            keyCode: 2,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct d action event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+            "Bare-key chord prefix from settings.json must be consumed by the routing path"
+        )
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: actionEvent),
+            "Second stroke of a bare-key chord from settings.json must be consumed by the routing path"
+        )
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(
+            workspace.panels.count,
+            initialPanelCount + 1,
+            "splitRight should have added one terminal panel"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
     func testConfiguredChordPrefixIsClearedWhenAppResignsActive() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -718,6 +807,308 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Unmatched chord suffix must not trigger the action")
+    }
+
+    func testBareKeyChordPrefixArmsAndSplitsOnSecondKey() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let focusedPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            XCTFail("Expected test window with focused terminal panel")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let terminalView = surfaceView(in: focusedPanel.hostedView) else {
+            XCTFail("Expected a GhosttyNSView inside the focused panel's hosted view")
+            return
+        }
+        XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected to make Ghostty surface the first responder")
+        XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface to hold first responder after makeFirstResponder")
+
+        let shortcut = StoredShortcut(
+            key: "`",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "d"
+        )
+
+        let initialPanelCount = workspace.panels.count
+
+        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct backtick prefix event")
+                return
+            }
+
+            guard let actionEvent = makeKeyDownEvent(
+                key: "d",
+                modifiers: [],
+                keyCode: 2,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct d action event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+                "Bare-key chord prefix must be consumed so the terminal does not receive `"
+            )
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: actionEvent),
+                "Second stroke after a bare-key chord prefix must dispatch the bound action"
+            )
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            XCTAssertEqual(
+                workspace.panels.count,
+                initialPanelCount + 1,
+                "splitRight should have added one terminal panel"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testBareKeyChordMismatchDoesNotConsumeSecondKey() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // ` then d → splitRight, but the user will press ` then q (unbound second).
+        let shortcut = StoredShortcut(
+            key: "`",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "d"
+        )
+
+        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ),
+            let mismatchedSecondEvent = makeKeyDownEvent(
+                key: "q",
+                modifiers: [],
+                keyCode: 12,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct chord events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+                "Bare-key chord prefix should arm and consume the prefix event"
+            )
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: mismatchedSecondEvent),
+                "Mismatched second stroke after a bare-key chord prefix must NOT be consumed"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testBareKeyChordDoubleTapSendsLiteralToFocusedTerminal() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let focusedPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            XCTFail("Expected test window with focused terminal panel")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // Make the Ghostty surface the first responder so sendLiteralChordPrefixToFocusedSurface
+        // can resolve it via cmuxOwningGhosttyView(for: window.firstResponder).
+        guard let terminalView = surfaceView(in: focusedPanel.hostedView) else {
+            XCTFail("Expected a GhosttyNSView inside the focused panel's hosted view")
+            return
+        }
+        XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected to make Ghostty surface the first responder")
+        XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface to hold first responder after makeFirstResponder")
+
+        // Bind ` then d so a bare-key leader is configured.
+        let shortcut = StoredShortcut(
+            key: "`",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "d"
+        )
+
+#if DEBUG
+        var captured: [String] = []
+        let previousRecorder = TerminalSurface.debugLastSendTextRecorder
+        TerminalSurface.debugLastSendTextRecorder = { text in
+            captured.append(text)
+        }
+        defer { TerminalSurface.debugLastSendTextRecorder = previousRecorder }
+#endif
+
+        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ),
+            let secondPrefixEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct backtick events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: secondPrefixEvent),
+                "Double-tap of a bare-key leader must be consumed and forwarded as a literal"
+            )
+            XCTAssertEqual(captured, ["`"], "Exactly one literal backtick should be sent to the focused surface")
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testBareKeyChordDoubleTapWithExplicitBindingFiresActionInsteadOfLiteral() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let focusedPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            XCTFail("Expected test window with focused terminal panel")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // Make the Ghostty surface the first responder so the implicit literal-send
+        // path (sendLiteralChordPrefixToFocusedSurface) can resolve the surface.
+        guard let terminalView = surfaceView(in: focusedPanel.hostedView) else {
+            XCTFail("Expected a GhosttyNSView inside the focused panel's hosted view")
+            return
+        }
+        XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected to make Ghostty surface the first responder")
+        XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface to hold first responder after makeFirstResponder")
+
+        // Explicit `+` chord — bind to splitRight so the second backtick should
+        // fire the action and the implicit literal-send must NOT run.
+        let shortcut = StoredShortcut(
+            key: "`",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "`"
+        )
+
+#if DEBUG
+        var captured: [String] = []
+        let previousRecorder = TerminalSurface.debugLastSendTextRecorder
+        TerminalSurface.debugLastSendTextRecorder = { text in captured.append(text) }
+        defer { TerminalSurface.debugLastSendTextRecorder = previousRecorder }
+#endif
+
+        let initialPanelCount = workspace.panels.count
+
+        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ),
+            let secondEvent = makeKeyDownEvent(
+                key: "`",
+                modifiers: [],
+                keyCode: 50,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct backtick events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: secondEvent),
+                "Configured `+` chord must dispatch the action"
+            )
+            XCTAssertEqual(captured, [], "Explicit binding must suppress the implicit literal-send")
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            XCTAssertEqual(
+                workspace.panels.count,
+                initialPanelCount + 1,
+                "Explicit `+` binding should have fired splitRight and added one terminal panel"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
     }
 
     func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {

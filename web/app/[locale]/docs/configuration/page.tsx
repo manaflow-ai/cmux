@@ -354,6 +354,15 @@ working-directory = ~/code`}</CodeBlock>
         the stored default and still match digits <code>1</code> through <code>9</code>.
       </p>
       <p>
+        The first stroke of a chord can be a bare key with no modifiers — for example,{" "}
+        <code>[&quot;`&quot;, &quot;d&quot;]</code> binds backtick then d. Single-stroke bare-key
+        bindings are rejected; a modifier is still required for one-step shortcuts. While a bare-key
+        leader is armed, cmux consumes the leader keystroke instead of sending it to the terminal.
+        Press the leader key twice in a row to send one literal copy to the focused terminal — the
+        same trick tmux uses by default. To override, bind a different action to the leader+leader
+        chord in your settings.
+      </p>
+      <p>
         The defaults below are the same cmux-owned actions listed on the{" "}
         <Link href="/docs/keyboard-shortcuts">keyboard shortcuts page</Link>.
       </p>

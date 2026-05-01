@@ -462,6 +462,8 @@
       "chordsRuleSingle": "Use a plain string for a one-step shortcut.",
       "chordsRuleArray": "Use a two-item array for a chord. The first item is the prefix stroke, the second is the key that follows it.",
       "chordsRuleSyntax": "Each item uses the same syntax as regular bindings, for example cmd+b, ctrl+b, shift+/, or ctrl+1.",
+      "chordsRuleBareKey": "The first stroke of a chord can be a bare key with no modifiers — for example, [\"`\", \"d\"] binds backtick then d. Single-stroke bare-key bindings are rejected; a modifier is still required for one-step shortcuts.",
+      "chordsRuleDoubleTap": "While a bare-key leader is armed, cmux consumes the leader keystroke instead of sending it to the terminal. Press the leader key twice in a row to send one literal copy to the focused terminal — the same trick tmux uses by default. To override, bind a different action to the leader+leader chord in your settings. If you bind the leader+leader chord to an action explicitly, that binding takes precedence.",
       "searchPlaceholder": "Search shortcuts...",
       "searchLabel": "Search keyboard shortcuts",
       "noResults": "No shortcuts found",

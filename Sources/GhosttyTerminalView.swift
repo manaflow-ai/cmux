@@ -4172,6 +4172,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceFreedOutOfBandForTesting = false
     private let debugForceRefreshCountLock = NSLock()
     private var debugForceRefreshCountValue = 0
+    /// Test-only: most recent text passed to `sendText`. Set in `sendText` before any
+    /// I/O happens, so a unit test can assert "the literal leader was forwarded here"
+    /// without running a real Ghostty surface.
+    static var debugLastSendTextRecorder: ((String) -> Void)?
 #endif
     private enum PortalLifecycleState: String {
         case live
@@ -5291,6 +5295,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func sendText(_ text: String) {
+#if DEBUG
+        Self.debugLastSendTextRecorder?(text)
+#endif
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
         guard let surface = surface else {
             enqueuePendingSocketInput(.text(data))

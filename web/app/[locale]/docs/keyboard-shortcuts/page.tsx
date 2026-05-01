@@ -48,6 +48,8 @@ export default function KeyboardShortcutsPage() {
         <li>{t("chordsRuleSingle")}</li>
         <li>{t("chordsRuleArray")}</li>
         <li>{t("chordsRuleSyntax")}</li>
+        <li>{t("chordsRuleBareKey")}</li>
+        <li>{t("chordsRuleDoubleTap")}</li>
       </ul>
 
       <KeyboardShortcuts />

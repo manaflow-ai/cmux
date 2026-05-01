@@ -5337,6 +5337,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    /// Sends the literal character of a bare-key chord prefix to the focused Ghostty
+    /// surface. Used by the implicit double-tap-leader behavior so a user with a
+    /// bare-key leader can still type the literal character by pressing it twice.
+    ///
+    /// Returns `true` iff a focused terminal surface was found and `sendText` was
+    /// invoked. If no terminal is focused, returns `false` so the caller can decide
+    /// whether to consume the event.
+    private func sendLiteralChordPrefixToFocusedSurface(
+        prefix: ShortcutStroke,
+        event: NSEvent
+    ) -> Bool {
+        let preferredWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let responder = preferredWindow?.firstResponder
+            ?? NSApp.keyWindow?.firstResponder
+            ?? NSApp.mainWindow?.firstResponder
+        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
+              let surface = ghosttyView.terminalSurface else {
+            return false
+        }
+        let literal: String
+        if let characters = event.characters, !characters.isEmpty {
+            literal = characters
+        } else if let charactersIgnoringModifiers = event.charactersIgnoringModifiers,
+                  !charactersIgnoringModifiers.isEmpty {
+            literal = charactersIgnoringModifiers
+        } else {
+            literal = prefix.key
+        }
+        surface.sendText(literal)
+        return true
+    }
+
     private func focusedTerminalShortcutContext(preferredWindow: NSWindow? = nil) -> FocusedTerminalShortcutContext? {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         let responder = targetWindow?.firstResponder
@@ -10181,6 +10213,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// Returns true iff at least one configured shortcut (across all live
+    /// MainWindowContext instances) has a chord whose first stroke has no modifiers.
+    ///
+    /// This is intentionally computed fresh on every call rather than cached.
+    /// Caching would require per-context Combine subscriptions that must be
+    /// torn down on context removal. The cost of recomputing is low: the
+    /// built-in actions loop short-circuits on the first match; the per-context
+    /// shortcutActions() call filters and sorts a typically-single-digit list.
+    /// In the common no-bare-key case the function returns false quickly.
+    private func recomputeHasConfiguredBareKeyChordPrefix() -> Bool {
+        for action in configuredShortcutChordActions {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard shortcut.hasChord else { continue }
+            if shortcut.firstStroke.modifierFlags.isEmpty {
+                return true
+            }
+        }
+        for context in mainWindowContexts.values {
+            let configuredShortcuts = configuredCmuxShortcutActions(for: context)
+                .compactMap(\.shortcut)
+            for shortcut in configuredShortcuts {
+                guard shortcut.hasChord else { continue }
+                if shortcut.firstStroke.modifierFlags.isEmpty {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     private func clearConfiguredShortcutChordState() {
         pendingConfiguredShortcutChord = nil
         activeConfiguredShortcutChordPrefixForCurrentEvent = nil
@@ -10837,7 +10899,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // history): after command-palette/notification handling and browser omnibar
         // arrow navigation above, plain key events have no app-level shortcut behavior.
         if normalizedFlags.isEmpty && activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
-            return false
+            // Without modifiers and without an armed chord, the only way an event
+            // can still be a shortcut is if the user configured a bare-key chord
+            // leader (e.g. tmux-style ` as a prefix). Skip the early-return only
+            // when such a binding actually exists.
+            if !hasConfiguredBareKeyChordPrefix() {
+                return false
+            }
         }
 
         // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
@@ -11432,6 +11500,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
             _ = tabManager?.reopenMostRecentlyClosedBrowserPanel()
+            return true
+        }
+
+        // Implicit `<leader><leader>` → send literal leader to focused terminal.
+        // Only fires when the armed chord prefix has no modifiers and the second
+        // event is the same bare key with no modifiers, AND no configured chord
+        // binding above matched. This gives bare-key leader users a free
+        // tmux-style send-prefix without any settings.json wiring; an explicit
+        // user binding for `<prefix><prefix>` always wins because the configured
+        // chord match loop above runs first.
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent,
+           prefix.modifierFlags.isEmpty,
+           normalizedFlags.isEmpty,
+           matchShortcutStroke(event: event, stroke: prefix),
+           sendLiteralChordPrefixToFocusedSurface(prefix: prefix, event: event) {
             return true
         }
 
@@ -12326,6 +12409,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return window.windowNumber
         }
         return event.windowNumber > 0 ? event.windowNumber : nil
+    }
+
+    /// True iff at least one configured shortcut has a chord whose first stroke has no modifiers.
+    /// Used by `handleCustomShortcut` to know whether bare-key keyDown events still need to be
+    /// considered for chord arming, instead of being short-circuited as non-shortcut input.
+    /// Computed fresh on each call (see `recomputeHasConfiguredBareKeyChordPrefix()` for rationale).
+    private func hasConfiguredBareKeyChordPrefix() -> Bool {
+        recomputeHasConfiguredBareKeyChordPrefix()
     }
 
     private func armConfiguredShortcutChordIfNeeded(
