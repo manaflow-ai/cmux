@@ -62,15 +62,25 @@ enum TurnCheckpointStore {
         return tree
     }
 
-    /// Builds a commit object with the given tree and parent. Returns the commit SHA.
-    static func commitTree(_ tree: String, parent: String, message: String, in worktree: String) throws -> String {
+    /// Builds a commit object with the given tree. If `parent` is supplied, the
+    /// resulting commit links to it via `-p`; otherwise it is parent-less, which
+    /// is what we need in a brand-new (HEAD-less) repo where there is nothing to
+    /// link to. Returns the commit SHA.
+    static func commitTree(_ tree: String, parent: String? = nil, message: String, in worktree: String) throws -> String {
         let env: [String: String] = [
             "GIT_AUTHOR_NAME": "cmux", "GIT_AUTHOR_EMAIL": "cmux@local",
             "GIT_COMMITTER_NAME": "cmux", "GIT_COMMITTER_EMAIL": "cmux@local"
         ]
+        var args: [String] = ["commit-tree", tree]
+        if let parent, !parent.isEmpty {
+            args.append("-p")
+            args.append(parent)
+        }
+        args.append("-m")
+        args.append(message)
         let commit = try runGit(
             in: worktree,
-            arguments: ["commit-tree", tree, "-p", parent, "-m", message],
+            arguments: args,
             env: env
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         guard commit.count == 40 else { throw Error.unexpectedOutput("commit-tree returned: \(commit)") }

@@ -158,15 +158,31 @@ final class TurnCheckpointManager {
         // T_start tree; if anything fails we still emit the tiered diff so the
         // panel never silently shows "No changes yet." while the working tree
         // has uncommitted changes.
+        //
+        // The save flow (write-tree → commit-tree → update-ref) is intentionally
+        // HEAD-independent: a parent-less commit is fine, and refs/cmux/... can
+        // be written even in a brand-new repo with no commits. If HEAD exists we
+        // use it as the parent so the snapshot commit slots into history; if
+        // not, the commit is parent-less. Either way the session ref is written
+        // so the next turn picks Tier 1 instead of falling through to Tier 3
+        // (synthetic everything-as-added).
         if let startTree = pendingStartTree {
             do {
                 let endTree = try TurnCheckpointStore.writeTreeIsolated(in: worktree)
-                if startTree != endTree, TurnCheckpointStore.refExists("HEAD", in: worktree) {
-                    let head = try gitHead(in: worktree)
+                if startTree != endTree {
+                    let parent: String? = TurnCheckpointStore.refExists("HEAD", in: worktree)
+                        ? try? gitHead(in: worktree)
+                        : nil
                     let commit = try TurnCheckpointStore.commitTree(
-                        startTree, parent: head, message: "cmux turn base", in: worktree
+                        startTree, parent: parent, message: "cmux turn base", in: worktree
                     )
                     try TurnCheckpointStore.updateRef(session: session, commit: commit, in: worktree)
+                    #if DEBUG
+                    let treePrefix = String(startTree.prefix(7))
+                    let commitPrefix = String(commit.prefix(7))
+                    let refPath = TurnCheckpointStore.refName(for: session)
+                    cmuxDebugLog("turn-diff: saved snapshot tree=\(treePrefix) commit=\(commitPrefix) ref=\(refPath)")
+                    #endif
                 }
             } catch {
                 #if DEBUG
