@@ -95,6 +95,43 @@ if ! command -v zig >/dev/null 2>&1; then
   exit 1
 fi
 
+zig_binary_arch() {
+  local zig_bin="$1"
+  file "$zig_bin" 2>/dev/null | grep -oE '(arm64|x86_64)' | head -1 || true
+}
+
+zig_binary_for_arch() {
+  local desired_arch="$1"
+  local default_zig
+  default_zig="$(command -v zig 2>/dev/null || true)"
+
+  local candidates=(
+    /opt/homebrew/bin/zig
+    /usr/local/bin/zig
+    "$default_zig"
+  )
+  local candidate=""
+  local seen=" "
+  for candidate in "${candidates[@]}"; do
+    [[ -n "$candidate" && -x "$candidate" ]] || continue
+    if [[ "$seen" == *" $candidate "* ]]; then
+      continue
+    fi
+    seen="${seen}${candidate} "
+    if [[ "$(zig_binary_arch "$candidate")" == "$desired_arch" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  if [[ -n "$default_zig" ]]; then
+    echo "$default_zig"
+    return 0
+  fi
+
+  return 1
+}
+
 if [[ ! -f "$GHOSTTY_DIR/build.zig" ]]; then
   echo "error: Ghostty submodule is missing at $GHOSTTY_DIR" >&2
   exit 1
@@ -103,8 +140,25 @@ fi
 build_helper() {
   local prefix="$1"
   local target="${2:-}"
+  local zig_bin
+  local target_arch=""
+
+  case "$target" in
+    aarch64-macos) target_arch="arm64" ;;
+    x86_64-macos) target_arch="x86_64" ;;
+  esac
+
+  if [[ -n "$target_arch" ]]; then
+    zig_bin="$(zig_binary_for_arch "$target_arch")"
+    if [[ "$(zig_binary_arch "$zig_bin")" == "$target_arch" ]]; then
+      target=""
+    fi
+  else
+    zig_bin="$(command -v zig)"
+  fi
+
   local args=(
-    zig build
+    "$zig_bin" build
     cli-helper
     -Dapp-runtime=none
     -Demit-macos-app=false

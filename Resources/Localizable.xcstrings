@@ -68172,13 +68172,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click a shortcut value to record. Press a second key for a chord, or click again to keep the first key."
+            "value": "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ショートカット値をクリックして記録します。コードにするには続けて2つ目のキーを押し、1キーのままにするにはもう一度クリックします。"
+            "value": "ショートカット値をクリックして記録します。X で割り当て解除でき、解除後は復元に変わります。"
           }
         },
         "zh-Hans": {
@@ -68281,6 +68281,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Натисніть на значення комбінації, щоб записати нову."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.resetDefaults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Default Shortcuts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトショートカットにリセット"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.resetDefaults.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Defaults"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトにリセット"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.resetDefaults.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore built-in shortcut values for shortcuts managed in app settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ設定で管理しているショートカットを組み込み値に戻します。"
           }
         }
       }
@@ -82802,6 +82853,23 @@
         }
       }
     },
+    "shortcut.unbound.displayValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし"
+          }
+        }
+      }
+    },
     "shortcut.recorder.pendingChord": {
       "extractionState": "manual",
       "localizations": {
@@ -82821,6 +82889,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ …"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbind"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "割り当て解除"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.clear.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbind shortcut"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットの割り当てを解除"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.restore.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore previous shortcut"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のショートカットを復元"
           }
         }
       }

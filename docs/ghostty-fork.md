@@ -13,11 +13,12 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on April 28, 2026.
-Current cmux pinned fork head: `04ec69173`, merged into fork `main` via
-`manaflow-ai/ghostty` PR https://github.com/manaflow-ai/ghostty/pull/50
+Current cmux pinned fork head: `4265d3428`, based on `04ec69173`, which was
+merged into fork `main` via `manaflow-ai/ghostty` PR
+https://github.com/manaflow-ai/ghostty/pull/50
 (`xcframework-d3117e03ea19665bc83a28f7e0428c63937e6140-8-g04ec69173`).
-This head restores the cmux theme picker hooks on top of `d3117e03e`, which
-merged upstream `659019666` and preserved the previous cmux pin `465a9a621`.
+This head restores the cmux theme picker hooks on top of `d3117e03e` and fixes
+the cmux picker search-mode Enter apply path.
 
 ### 1) macOS display link restart on display changes
 
@@ -71,6 +72,7 @@ tend to conflict together during rebases.
   - `042cbaaab` (Match Ghostty theme picker startup)
   - `eb34bcdd6` (Harden cmux theme override writes)
   - `04ec69173` (Apply highlighted cmux theme on Enter)
+  - `4265d3428` (Apply cmux theme from picker search)
 - Files:
   - `build.zig`
   - `src/cli/list_themes.zig`
@@ -80,6 +82,7 @@ tend to conflict together during rebases.
   - Lets `+list-themes` switch into a cmux-managed mode via env vars, writing the cmux theme override file and posting the existing cmux reload notification for live app-wide preview.
   - Keeps the preview UI readable in light mode, matches upstream picker startup behavior, and hardens writes to the cmux-managed theme override file.
   - Restores Enter as the cmux apply action by writing the currently highlighted theme before the picker exits.
+  - Applies the highlighted search result when Enter is pressed from search mode in cmux-managed picker sessions.
 
 ### 5) Color scheme mode 2031 reporting
 
@@ -142,8 +145,8 @@ tend to conflict together during rebases.
   - Lets cmux parse generated or override config without materializing a separate config file first.
 
 The current cmux pin is the head listed above. It is reachable from the
-`manaflow-ai/ghostty` fork `main` branch and has a matching prebuilt release
-tag `xcframework-04ec69173f8f5ac5a2568afca0faf8e4a74b2dc2`.
+`manaflow-ai/ghostty` fork branch `fix-cmux-theme-search-enter` and has a matching
+prebuilt release tag `xcframework-4265d34282ce2023c27da851c454dabe6cdc76ce`.
 
 ## Upstreamed fork changes
 
@@ -186,6 +189,14 @@ These files change frequently upstream; be careful when rebasing the fork:
   - Published `xcframework-04ec69173f8f5ac5a2568afca0faf8e4a74b2dc2` and pinned
     its archive checksum in `scripts/ghosttykit-checksums.txt`.
 
+- April 30, 2026, theme picker search Enter:
+  - Search-mode Enter in cmux mode must apply the current filtered selection and exit with
+    outcome `apply`.
+  - Escape still leaves search mode, and stock Ghostty search Enter still returns to normal mode.
+  - Verified with `./scripts/reload.sh --tag thmenter`.
+  - Published `xcframework-4265d34282ce2023c27da851c454dabe6cdc76ce` and pinned
+    its archive checksum in `scripts/ghosttykit-checksums.txt`.
+
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser and keep
     the newer `capture`/`captureTrailing()` API usage intact.
@@ -199,6 +210,8 @@ These files change frequently upstream; be careful when rebasing the fork:
     stock Ghostty behavior unchanged when the cmux env vars are absent.
   - The April 28, 2026 restore requires Enter in cmux mode to call the same selection-apply path
     used by keyboard/mouse navigation before setting the picker outcome to apply.
+  - The April 30, 2026 follow-up requires the same behavior from search mode, while preserving Escape
+    as the search cancel path.
 
 - `build.zig`
   - Upstream's new wasm/libghostty work touched the same build graph. Keep the cmux-only `cli-helper`
