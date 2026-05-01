@@ -1101,7 +1101,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         temporaryDirectoryURL = directoryURL
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: directoryURL.appendingPathComponent("settings.json", isDirectory: false).path,
+            primaryPath: directoryURL.appendingPathComponent("cmux.json", isDirectory: false).path,
             fallbackPath: nil,
             startWatching: false
         )

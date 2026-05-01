@@ -792,7 +792,7 @@ final class SessionIndexStore: ObservableObject {
     private static let headByteCap = 64 * 1024
     private static let tailByteCap = 32 * 1024
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
-    private static let searchMaxFiles = 1500
+    nonisolated static let searchMaxFiles = 1500
 
     private static func scanAll() async -> [SessionEntry] {
         // Initial scan errors are silently ignored — UI just shows the cached
@@ -964,7 +964,7 @@ final class SessionIndexStore: ObservableObject {
     /// envelope/system wrapper (`<environment_context>...`, `<user_instructions>`,
     /// `<permissions>`, AGENTS.md preamble) that we don't want to surface as a
     /// session title.
-    nonisolated private static func realCodexUserMessage(_ raw: String) -> String? {
+    nonisolated static func realCodexUserMessage(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let envelopePrefixes = [
@@ -1222,12 +1222,12 @@ final class SessionIndexStore: ObservableObject {
         return (providerModel, agentName?.isEmpty == false ? agentName : nil)
     }
 
-    nonisolated private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+    nonisolated static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
         guard let cString = sqlite3_column_text(stmt, index) else { return nil }
         return String(cString: cString)
     }
 
-    nonisolated private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
+    nonisolated static func sqliteMessage(_ db: OpaquePointer?) -> String? {
         guard let db, let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
     }
@@ -1374,7 +1374,7 @@ final class SessionIndexStore: ObservableObject {
     /// `process.terminate()`, killing the in-flight rg instead of letting it
     /// grind to completion. Wait is also async (via `terminationHandler`) so we
     /// don't tie up a cooperative-pool thread on `waitUntilExit`.
-    nonisolated private static func ripgrepMatchingPaths(
+    nonisolated static func ripgrepMatchingPaths(
         needle: String, root: String, fileGlob: String
     ) async -> [URL]? {
         guard let rg = cachedRipgrepPath else { return nil }
@@ -1591,7 +1591,7 @@ final class SessionIndexStore: ObservableObject {
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag
     ) async -> [SessionEntry] {
-        if let viaSQL = loadCodexEntriesViaSQL(
+        if let viaSQL = await loadCodexEntriesViaSQL(
             needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit,
             errorBag: errorBag
         ) {
@@ -1602,128 +1602,13 @@ final class SessionIndexStore: ObservableObject {
         )
     }
 
-    /// SQL-backed Codex loader. Returns nil if `state_5.sqlite` doesn't exist
-    /// (signaling caller to fall back to the disk scan). On schema mismatch or
-    /// other SQL errors, appends a user-facing message to `errorBag` and still
-    /// returns nil so the caller can fall back.
-    nonisolated private static func loadCodexEntriesViaSQL(
-        needle: String, cwdFilter: String?, offset: Int, limit: Int,
-        errorBag: ErrorBag
-    ) -> [SessionEntry]? {
-        let dbPath = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: dbPath) else { return nil }
-
-        // Snapshot DB + WAL/SHM to avoid contention with a running Codex.
-        let snapshotDir = fm.temporaryDirectory.appendingPathComponent(
-            "cmux-codex-search-\(UUID().uuidString)", isDirectory: true
-        )
-        do { try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true) } catch { return nil }
-        defer { try? fm.removeItem(at: snapshotDir) }
-        let snapshotDB = snapshotDir.appendingPathComponent("state.db")
-        do { try fm.copyItem(atPath: dbPath, toPath: snapshotDB.path) } catch { return nil }
-        for sidecar in ["-wal", "-shm"] {
-            let src = dbPath + sidecar
-            let dst = snapshotDB.path + sidecar
-            if fm.fileExists(atPath: src) { try? fm.copyItem(atPath: src, toPath: dst) }
+    nonisolated static func fileContainsNeedle(url: URL, needle: String) -> Bool {
+        guard !needle.isEmpty,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              let text = String(data: data, encoding: .utf8) else {
+            return false
         }
-
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            errorBag.add("Codex: cannot open state_5.sqlite (\(sqliteMessage(db) ?? "unknown error"))")
-            sqlite3_close(db)
-            return nil
-        }
-        defer { sqlite3_close(db) }
-
-        var sql = """
-            SELECT id, rollout_path, cwd, title, model, git_branch,
-                   approval_mode, sandbox_policy, reasoning_effort,
-                   first_user_message, updated_at_ms
-            FROM threads
-            WHERE archived = 0
-            """
-        var conditions: [String] = []
-        if !needle.isEmpty {
-            // Match against title, first_user_message, cwd, and git_branch.
-            conditions.append("(LOWER(title) LIKE ?1 OR LOWER(first_user_message) LIKE ?1 OR LOWER(cwd) LIKE ?1 OR LOWER(git_branch) LIKE ?1)")
-        }
-        if cwdFilter != nil {
-            conditions.append("cwd = ?\(needle.isEmpty ? 1 : 2)")
-        }
-        if !conditions.isEmpty {
-            sql += " AND " + conditions.joined(separator: " AND ")
-        }
-        sql += " ORDER BY updated_at_ms DESC LIMIT \(limit) OFFSET \(offset)"
-
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            errorBag.add("Codex: schema unsupported — \(sqliteMessage(db) ?? "prepare failed"). Falling back to file scan.")
-            sqlite3_finalize(stmt)
-            return nil
-        }
-        defer { sqlite3_finalize(stmt) }
-
-        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        if !needle.isEmpty {
-            sqlite3_bind_text(stmt, 1, "%\(needle)%", -1, SQLITE_TRANSIENT_FN)
-        }
-        if let cwdFilter {
-            sqlite3_bind_text(stmt, needle.isEmpty ? 1 : 2, cwdFilter, -1, SQLITE_TRANSIENT_FN)
-        }
-
-        var results: [SessionEntry] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let sid = sqliteText(stmt, 0) ?? ""
-            let rollout = sqliteText(stmt, 1) ?? ""
-            let cwd = sqliteText(stmt, 2)
-            let titleField = sqliteText(stmt, 3) ?? ""
-            let model = sqliteText(stmt, 4)
-            let branch = sqliteText(stmt, 5)
-            let approval = sqliteText(stmt, 6)
-            let sandboxJSON = sqliteText(stmt, 7)
-            let effort = sqliteText(stmt, 8)
-            let firstMsg = sqliteText(stmt, 9) ?? ""
-            let updatedMs = sqlite3_column_int64(stmt, 10)
-            let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
-
-            // Codex stores sandbox_policy as JSON like {"type":"danger-full-access"}.
-            let sandboxMode = sandboxJSON
-                .flatMap { $0.data(using: .utf8) }
-                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                .flatMap { $0["type"] as? String }
-
-            // Prefer Codex's curated `title`. Fall back to first_user_message,
-            // skipping envelope wrappers (<environment_context>, etc.).
-            let displayTitle: String
-            if !titleField.isEmpty {
-                displayTitle = titleField
-            } else if let real = realCodexUserMessage(firstMsg) {
-                displayTitle = real
-            } else {
-                displayTitle = ""
-            }
-
-            let fileURL: URL? = rollout.isEmpty ? nil : URL(fileURLWithPath: rollout)
-            results.append(SessionEntry(
-                id: "codex:" + (fileURL?.path ?? sid),
-                agent: .codex,
-                sessionId: sid,
-                title: displayTitle,
-                cwd: cwd,
-                gitBranch: branch?.isEmpty == false ? branch : nil,
-                pullRequest: nil,
-                modified: modified,
-                fileURL: fileURL,
-                specifics: .codex(
-                    model: model?.isEmpty == false ? model : nil,
-                    approvalPolicy: approval?.isEmpty == false ? approval : nil,
-                    sandboxMode: sandboxMode,
-                    effort: effort?.isEmpty == false ? effort : nil
-                )
-            ))
-        }
-        return results
+        return text.range(of: needle, options: [.caseInsensitive, .literal]) != nil
     }
 
     /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old

@@ -2600,8 +2600,24 @@ final class CmuxConfigStore: ObservableObject {
             )
             return ParsedConfigResult(config: nil, issue: issue)
         }
+        let sanitized: Data
         do {
-            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: data)
+            sanitized = try JSONCParser.preprocess(data: data)
+        } catch {
+            let issue = schemaIssue(path: path, message: "JSONC preprocessing failed: \(schemaErrorMessage(error))")
+            parsedConfigCache[path] = ParsedConfigCacheEntry(
+                fileSize: fileSize,
+                modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
+                config: nil,
+                issue: issue
+            )
+            NSLog("[CmuxConfig] JSONC preprocessing error at %@: %@", path, String(describing: error))
+            return ParsedConfigResult(config: nil, issue: issue)
+        }
+
+        do {
+            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,

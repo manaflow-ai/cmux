@@ -302,10 +302,8 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     @MainActor
     func testSurfaceTabBarActionReferenceUsesActionSourcePath() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-config-store-\(UUID().uuidString)",
-            isDirectory: true
-        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
         let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
         let localDirectory = root.appendingPathComponent("project", isDirectory: true)
         try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
@@ -591,10 +589,8 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     @MainActor
     func testInvalidConfigExposesSchemaIssueAndClearsAfterFix() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-config-store-\(UUID().uuidString)",
-            isDirectory: true
-        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -691,6 +687,63 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(store.resolvedAction(id: "first"))
         XCTAssertNotNil(store.resolvedAction(id: "second"))
         cancellable?.cancel()
+    }
+
+    @MainActor
+    func testConfigStoreParsesGlobalCmuxJSONCSettingsAndActionSections() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let data = """
+        {
+          // cmux-owned app settings share the global cmux.json file.
+          "app": {
+            "appearance": "dark",
+          },
+          "actions": {
+            "first": {
+              "type": "workspaceCommand",
+              "commandName": "Dev",
+            },
+          },
+          "ui": { "newWorkspace": { "action": "first" } },
+          "commands": [{ "name": "Dev", "workspace": { "name": "Dev" } }],
+        }
+        """.data(using: .utf16LittleEndian)!
+        try data.write(to: configURL)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.loadAll()
+
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+        XCTAssertEqual(store.newWorkspaceActionID, "first")
+        XCTAssertEqual(store.loadedCommands.map(\.name), ["Dev"])
+    }
+
+    @MainActor
+    func testConfigStoreReportsJSONCPreprocessingErrors() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try "{\n/* missing close\n\"actions\": {}\n}".write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.loadAll()
+
+        let issue = try XCTUnwrap(store.configurationIssues.first)
+        XCTAssertEqual(issue.kind, .schemaError)
+        XCTAssertEqual(issue.message, "JSONC preprocessing failed: unterminated block comment")
     }
 
     @MainActor

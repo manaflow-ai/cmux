@@ -59,7 +59,7 @@ Environment:
 | --- | --- |
 | `welcome` | Print the welcome screen. |
 | `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
-| `settings` | Open Settings, print settings file paths, or print settings docs. |
+| `settings` | Open Settings, print cmux.json paths, or print settings docs. |
 | `shortcuts` | Open Settings to Keyboard Shortcuts. |
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
@@ -274,7 +274,7 @@ Docs topics:
 | Command | Contract |
 | --- | --- |
 | `docs` | List docs topics without a socket. |
-| `docs settings` | Print the configuration docs URL, raw schema URL, settings file paths, backup reminder, and reload command. |
+| `docs settings` | Print the configuration docs URL, raw schema URL, cmux.json paths, backup reminder, and reload command. |
 | `docs shortcuts` | Print shortcut docs and raw shortcut data resources. |
 | `docs api` | Print API docs and raw CLI contract resources. |
 | `docs browser` | Print browser automation docs and raw browser skill resources. |
@@ -286,9 +286,9 @@ Settings subcommands:
 | --- | --- |
 | `settings` | Open the Settings window, launching cmux if needed. |
 | `settings open [target]` | Open Settings to an optional target section. |
-| `settings path` | Print settings.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
+| `settings path` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
 | `settings docs` | Print the same output as `docs settings` without a socket. |
-| `settings <target>` | Open Settings to a target section. Supported aliases include `shortcuts`, `json`, `settings-json`, `browser`, and `automation`. |
+| `settings <target>` | Open Settings to a target section. Supported aliases include `shortcuts`, `json`, `cmux-json`, `browser`, and `automation`. |
 
 ## No-Socket Help Probes
 
@@ -307,11 +307,11 @@ the expected text without connecting to a cmux socket.
 - `cmux help --help` -> `Usage: cmux help`
 - `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`
 - `cmux docs` -> `Topics:`
-- `cmux docs settings` -> `Settings files:`
+- `cmux docs settings` -> `Config files:`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
 - `cmux settings --help` -> `Usage: cmux settings [open|path|docs|target]`
-- `cmux settings path` -> `Settings files:`
-- `cmux settings docs` -> `Settings files:`
+- `cmux settings path` -> `Config files:`
+- `cmux settings docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`

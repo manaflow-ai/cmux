@@ -1,9 +1,10 @@
 import Foundation
 
 extension CMUXCLI {
-    private static let settingsDocsURL = "https://cmux.com/docs/configuration#settings-json"
-    private static let settingsSchemaURL = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
-    private static let primarySettingsDisplayPath = "~/.config/cmux/settings.json"
+    private static let settingsDocsURL = "https://cmux.com/docs/configuration#cmux-json"
+    private static let settingsSchemaURL = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
+    private static let primarySettingsDisplayPath = "~/.config/cmux/cmux.json"
+    private static let legacySettingsDisplayPath = "~/.config/cmux/settings.json"
     private static let fallbackSettingsDisplayPath = "~/Library/Application Support/com.cmuxterm.app/settings.json"
 
     private struct DocsResource {
@@ -23,8 +24,8 @@ extension CMUXCLI {
     private static let docsReferences: [DocsReference] = [
         DocsReference(
             topic: "settings",
-            aliases: ["configuration", "config", "settings-json", "schema"],
-            summary: "cmux-owned settings, settings.json locations, schema, and reload flow.",
+            aliases: ["configuration", "config", "cmux-json", "settings-json", "settingsjson", "schema"],
+            summary: "cmux-owned settings, cmux.json locations, schema, and reload flow.",
             webURL: settingsDocsURL,
             rawResources: [
                 DocsResource(label: "settings schema", url: settingsSchemaURL),
@@ -32,7 +33,7 @@ extension CMUXCLI {
             ],
             commands: [
                 "cmux settings path",
-                "cmux settings json",
+                "cmux settings cmux-json",
                 "cmux reload-config",
             ]
         ),
@@ -162,9 +163,9 @@ extension CMUXCLI {
         This command does not require a running cmux app or socket.
 
         Agents:
-          Use `cmux docs settings` before editing ~/.config/cmux/settings.json.
+          Use `cmux docs settings` before editing ~/.config/cmux/cmux.json.
           Use `cmux docs dock` before creating or editing .cmux/dock.json.
-          Back up any existing settings file to a timestamped .bak copy before editing so the user can revert.
+          Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert.
           Fetch raw resources with the printed curl commands when you need the latest schema.
         """
     }
@@ -194,9 +195,10 @@ extension CMUXCLI {
         if reference.topic == "settings" {
             payload["settings_files"] = [
                 "primary": Self.primarySettingsDisplayPath,
+                "legacy": Self.legacySettingsDisplayPath,
                 "fallback": Self.fallbackSettingsDisplayPath,
             ]
-            payload["backup"] = "Back up any existing settings file to a timestamped .bak copy before editing so the user can revert."
+            payload["backup"] = "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert."
             payload["reload_command"] = "cmux reload-config"
         }
         return payload
@@ -239,14 +241,15 @@ extension CMUXCLI {
         }
         if reference.topic == "settings" {
             print()
-            print("Settings files:")
-            print("  \(Self.primarySettingsDisplayPath)")
-            print("  \(Self.fallbackSettingsDisplayPath)")
+            print("Config files:")
+            print("  primary: \(Self.primarySettingsDisplayPath)")
+            print("  legacy config: \(Self.legacySettingsDisplayPath)")
+            print("  legacy app support: \(Self.fallbackSettingsDisplayPath)")
             print()
-            print("Before editing settings.json:")
-            print("  Back up any existing settings file to a timestamped .bak copy so the user can revert.")
+            print("Before editing cmux.json:")
+            print("  Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.")
             print()
-            print("After editing settings.json:")
+            print("After editing cmux.json:")
             print("  cmux reload-config")
         }
     }
@@ -330,41 +333,40 @@ extension CMUXCLI {
         return """
         Usage: cmux settings [open|path|docs|target]
 
-        Open cmux Settings, print settings file paths, or show settings documentation.
+        Open cmux Settings, print cmux.json paths, or show settings documentation.
 
         Subcommands:
           open [target]       Open Settings, optionally to a target section.
-          path                Print settings.json paths, docs URL, and schema URL.
+          path                Print cmux.json paths, docs URL, and schema URL.
           docs                Print the same output as `cmux docs settings`.
 
         Targets:
           account, app, terminal, sidebar-appearance, automation, browser,
           browser-import, global-hotkey, keyboard-shortcuts, shortcuts,
-          workspace-colors, settings-json, json, reset
+          workspace-colors, cmux-json, json, reset
 
-        Settings file:
+        Config file:
           \(Self.primarySettingsDisplayPath)
-          \(Self.fallbackSettingsDisplayPath)
+          legacy config: \(Self.legacySettingsDisplayPath)
+          legacy app support: \(Self.fallbackSettingsDisplayPath)
 
-        Before editing settings.json:
-          Back up any existing settings file to a timestamped .bak copy so the user can revert.
+        Before editing cmux.json:
+          Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.
 
-        After editing settings.json:
+        After editing cmux.json:
           cmux reload-config
-
-        Full docs:
-          cmux docs settings
         """
     }
 
     private func printSettingsPaths(jsonOutput: Bool) {
         let payload: [String: Any] = [
             "primary": Self.primarySettingsDisplayPath,
+            "legacy": Self.legacySettingsDisplayPath,
             "fallback": Self.fallbackSettingsDisplayPath,
             "docs_url": Self.settingsDocsURL,
             "schema_url": Self.settingsSchemaURL,
             "reload_command": "cmux reload-config",
-            "backup": "Back up any existing settings file to a timestamped .bak copy before editing so the user can revert.",
+            "backup": "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert.",
         ]
 
         if jsonOutput {
@@ -372,9 +374,10 @@ extension CMUXCLI {
             return
         }
 
-        print("Settings files:")
+        print("Config files:")
         print("  primary:  \(Self.primarySettingsDisplayPath)")
-        print("  fallback: \(Self.fallbackSettingsDisplayPath)")
+        print("  legacy config: \(Self.legacySettingsDisplayPath)")
+        print("  legacy app support: \(Self.fallbackSettingsDisplayPath)")
         print()
         print("Docs:")
         print("  \(Self.settingsDocsURL)")
@@ -382,10 +385,10 @@ extension CMUXCLI {
         print("Schema:")
         print("  \(Self.settingsSchemaURL)")
         print()
-        print("Before editing settings.json:")
-        print("  Back up any existing settings file to a timestamped .bak copy so the user can revert.")
+        print("Before editing cmux.json:")
+        print("  Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.")
         print()
-        print("After editing settings.json:")
+        print("After editing cmux.json:")
         print("  cmux reload-config")
     }
 
@@ -416,7 +419,7 @@ extension CMUXCLI {
             return "keyboardShortcuts"
         case "workspace-colors", "workspacecolors", "colors":
             return "workspaceColors"
-        case "settings-json", "settingsjson", "json", "file", "settings-file":
+        case "cmux-json", "cmuxjson", "settings-json", "settingsjson", "json", "file", "settings-file":
             return "settingsJSON"
         case "reset":
             return "reset"
