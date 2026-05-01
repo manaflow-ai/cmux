@@ -105564,6 +105564,57 @@
         }
       }
     },
+    "dock.empty.promptInfo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Agent Prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント用プロンプトを表示"
+          }
+        }
+      }
+    },
+    "dock.empty.promptInfo.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the prompt that will be copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーされるプロンプトを表示"
+          }
+        }
+      }
+    },
+    "dock.empty.promptPopoverTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント用プロンプト"
+          }
+        }
+      }
+    },
     "dock.empty.title": {
       "extractionState": "manual",
       "localizations": {
