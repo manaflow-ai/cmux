@@ -833,10 +833,32 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         assertClearBackdrop(snapshot.policy(for: .windowRoot))
     }
 
+    func testSidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {
+        let red = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundOpacity: 0.9,
+            sidebarTintHexDark: "#FF0000",
+            sidebarTintOpacity: 0.4
+        )
+        let blue = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundOpacity: 0.9,
+            sidebarTintHexDark: "#0000FF",
+            sidebarTintOpacity: 0.8
+        )
+
+        XCTAssertEqual(
+            red.appKitWindowMutationID,
+            blue.appKitWindowMutationID
+        )
+    }
+
     private func makeSnapshot(
         unifySurfaceBackdrops: Bool,
         backgroundOpacity: CGFloat = 0.6,
-        backgroundBlur: GhosttyBackgroundBlur = .disabled
+        backgroundBlur: GhosttyBackgroundBlur = .disabled,
+        sidebarTintHexDark: String? = nil,
+        sidebarTintOpacity: Double = 0.18
     ) -> WindowAppearanceSnapshot {
         WindowAppearanceSnapshot(
             terminalBackgroundColor: NSColor(hex: "#272822") ?? .black,
@@ -850,8 +872,8 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
                 stateRawValue: SidebarStateOption.followWindow.rawValue,
                 tintHex: "#000000",
                 tintHexLight: nil,
-                tintHexDark: nil,
-                tintOpacity: 0.18,
+                tintHexDark: sidebarTintHexDark,
+                tintOpacity: sidebarTintOpacity,
                 cornerRadius: 0,
                 blurOpacity: 1,
                 colorScheme: .dark
