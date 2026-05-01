@@ -73,6 +73,35 @@ private struct TurnDiffWebViewWrapper: NSViewRepresentable {
             mgr.onStatusChanged = { [weak self] status in
                 self?.webView?.cmuxDispatchTurnDiff(eventName: "cmux:status-changed", detail: status)
             }
+            mgr.onRootChanged = { [weak self] newRoot, hasRoot, observedCwd in
+                guard let self else { return }
+                if hasRoot, let root = newRoot {
+                    self.webView?.cmuxDispatchTurnDiff(
+                        eventName: "turnDiff:rootChanged",
+                        detail: ["root": root]
+                    )
+                } else {
+                    self.webView?.cmuxDispatchTurnDiff(
+                        eventName: "turnDiff:noGitRoot",
+                        detail: ["cwd": observedCwd ?? "(none)"]
+                    )
+                }
+            }
+
+            // Push the current root immediately so a freshly-mounted panel knows
+            // whether to render the empty/no-repo state without waiting for the
+            // next pwd change.
+            if let root = mgr.currentRoot {
+                webView?.cmuxDispatchTurnDiff(
+                    eventName: "turnDiff:rootChanged",
+                    detail: ["root": root]
+                )
+            } else {
+                webView?.cmuxDispatchTurnDiff(
+                    eventName: "turnDiff:noGitRoot",
+                    detail: ["cwd": "(none)"]
+                )
+            }
         }
 
         func detachManagerCallbacks() {
@@ -80,6 +109,7 @@ private struct TurnDiffWebViewWrapper: NSViewRepresentable {
                 mgr.onDiffChanged = nil
                 mgr.onLiveDiffChanged = nil
                 mgr.onStatusChanged = nil
+                mgr.onRootChanged = nil
             }
         }
 
@@ -87,12 +117,20 @@ private struct TurnDiffWebViewWrapper: NSViewRepresentable {
             switch message {
             case .ready, .diffRequest:
                 guard let mgr = TurnCheckpointRegistry.shared.manager(for: workspaceId),
-                      let cwd = mgr.workspaceCwd, !cwd.isEmpty else {
-                    // No manager / no cwd → leave empty state visible
+                      let root = mgr.currentRoot, !root.isEmpty else {
+                    // No manager / no git root → leave empty state visible.
+                    webView?.cmuxDispatchTurnDiff(
+                        eventName: "turnDiff:noGitRoot",
+                        detail: ["cwd": "(none)"]
+                    )
                     return
                 }
+                webView?.cmuxDispatchTurnDiff(
+                    eventName: "turnDiff:rootChanged",
+                    detail: ["root": root]
+                )
                 let diff = (try? TurnCheckpointStore.diffAgainstWorkingTree(
-                    session: workspaceId, in: cwd
+                    session: workspaceId, in: root
                 )) ?? ""
                 webView?.cmuxDispatchTurnDiff(eventName: "cmux:diff-changed", detail: diff)
             }

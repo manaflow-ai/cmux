@@ -15,6 +15,33 @@ enum TurnCheckpointStore {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Walk up from `path` looking for the nearest ancestor containing a `.git`
+    /// directory or file (the latter for worktrees / submodules). Returns the
+    /// containing directory path, or `nil` if no ancestor has `.git`.
+    /// Stops at the filesystem root and never crosses outside the user's tree.
+    static func gitRoot(containing path: String) -> String? {
+        let fm = FileManager.default
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        var current = URL(fileURLWithPath: trimmed, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+
+        // Hard cap at 64 ancestors to defend against pathological loops.
+        for _ in 0..<64 {
+            let candidate = current.appendingPathComponent(".git")
+            if fm.fileExists(atPath: candidate.path) {
+                return current.path
+            }
+            let parent = current.deletingLastPathComponent()
+            // deletingLastPathComponent on "/" returns "/" — bail when we stop moving.
+            if parent.path == current.path { return nil }
+            current = parent
+        }
+        return nil
+    }
+
     // MARK: - Snapshot operations
 
     /// Stages all current worktree contents (including untracked, respecting .gitignore)

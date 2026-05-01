@@ -69,15 +69,19 @@ export function App() {
     return (
       <div className="empty">
         <div className="status-dot" data-status={status} />
-        <p>No git repository at <code>{rootState.cwd}</code></p>
+        <p>No git repository detected. Make sure your work is inside a git repo.</p>
+        <p className="muted"><code>{rootState.cwd}</code></p>
       </div>
     )
   }
+
+  const repoLabel: string | null = rootState.kind === "ok" ? rootState.root : null
 
   if (files.length === 0) {
     return (
       <div className="empty">
         <div className="status-dot" data-status={status} />
+        {repoLabel && <p className="muted">Repo: <code>{repoLabel}</code></p>}
         <p>{status === "Running" ? "Agent running…" : "No changes yet."}</p>
       </div>
     )
@@ -97,6 +101,9 @@ export function App() {
           <span className="file-count">{files.length} file{files.length === 1 ? "" : "s"}</span>
         </span>
       </header>
+      {repoLabel && (
+        <div className="repo-header">Repo: <code>{repoLabel}</code></div>
+      )}
       <div className="diff-body">
         {files.map((f) => (
           <DiffFileView key={f.path} file={f} />

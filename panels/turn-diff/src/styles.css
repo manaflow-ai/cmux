@@ -48,6 +48,24 @@ body, html, #root {
   padding: 2px 6px;
   border-radius: 4px;
 }
+.empty .muted, .repo-header .muted { color: #6e7681; font-size: 11px; }
+
+.repo-header {
+  font-size: 11px;
+  color: #8b949e;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: #161618;
+  font-family: var(--mono-font);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.repo-header code {
+  background: transparent;
+  color: #adbac7;
+  padding: 0;
+}
 
 .panel {
   display: flex;

@@ -13997,4 +13997,8 @@ extension Workspace: TurnCheckpointManagerWorkspace {
     var currentDirectoryPublisher: Published<String>.Publisher {
         $currentDirectory
     }
+    var focusedPanePwd: String? {
+        guard let pid = focusedPanelId else { return nil }
+        return panelDirectories[pid]
+    }
 }

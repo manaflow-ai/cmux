@@ -95,12 +95,14 @@ final class TestWorkspaceStub: ObservableObject, TurnCheckpointManagerWorkspace 
     let id: UUID
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var currentDirectory: String
+    var focusedPanePwd: String?
 
     var statusEntriesPublisher: Published<[String: SidebarStatusEntry]>.Publisher { $statusEntries }
     var currentDirectoryPublisher: Published<String>.Publisher { $currentDirectory }
 
-    init(id: UUID, currentDirectory: String) {
+    init(id: UUID, currentDirectory: String, focusedPanePwd: String? = nil) {
         self.id = id
         self.currentDirectory = currentDirectory
+        self.focusedPanePwd = focusedPanePwd
     }
 }
