@@ -112,6 +112,97 @@ enum TurnCheckpointStore {
         try? fm.removeItem(at: dir)
     }
 
+    // MARK: - Persistent baseline (per repo)
+
+    /// Returns `<HOME>/Library/Application Support/cmux/diff-state/<wsId>/<repo-hash>/baseline.txt`.
+    /// Sibling of the `objects/` dir produced by `diffStateDirectory(workspaceId:repoRoot:)`.
+    /// Holds a single 40-char tree SHA — the per-repo "frozen at start of last turn"
+    /// baseline. Persisted so cmux restarts don't fall through to Tier 2 (HEAD diff)
+    /// on the first turn after cold start.
+    static func baselineFileURL(workspaceId: UUID, repoRoot: String) -> URL {
+        // diffStateDirectory returns `.../objects/` — the baseline file is its sibling.
+        return diffStateDirectory(workspaceId: workspaceId, repoRoot: repoRoot)
+            .deletingLastPathComponent()
+            .appendingPathComponent("baseline.txt", isDirectory: false)
+    }
+
+    /// Sibling of `baseline.txt`. Records the absolute repo path so we can
+    /// reconstruct the `[repoPath: tree]` dict on cold start (the dir name is
+    /// just a SHA-256 hash of the repo path, which we can't invert).
+    private static func repoPathFileURL(workspaceId: UUID, repoRoot: String) -> URL {
+        return diffStateDirectory(workspaceId: workspaceId, repoRoot: repoRoot)
+            .deletingLastPathComponent()
+            .appendingPathComponent("repo-path.txt", isDirectory: false)
+    }
+
+    /// Persist a baseline tree SHA for a (workspace, repo) pair to disk. Also
+    /// writes the absolute repo path to a sibling file so cold-start recovery
+    /// can reconstruct the dict keyed by repo path.
+    static func writeBaselineTree(_ tree: String, workspaceId: UUID, repoRoot: String) throws {
+        // Touching diffStateDirectory ensures the parent tree exists (it does
+        // a mkdir -p the first time). The baseline/repo-path files sit at the
+        // sibling level (one level up from `objects/`).
+        _ = diffStateDirectory(workspaceId: workspaceId, repoRoot: repoRoot)
+        let baselineURL = baselineFileURL(workspaceId: workspaceId, repoRoot: repoRoot)
+        let repoPathURL = repoPathFileURL(workspaceId: workspaceId, repoRoot: repoRoot)
+        try tree.write(to: baselineURL, atomically: true, encoding: .utf8)
+        // Best-effort; baseline alone is enough to make Tier 1 work for the
+        // active root, but cold-start enumeration needs to recover the path
+        // (the on-disk dir name is just a SHA-256 hash of repoRoot).
+        try? repoRoot.write(to: repoPathURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Read a previously-persisted baseline tree SHA, or nil if absent/invalid.
+    static func readBaselineTree(workspaceId: UUID, repoRoot: String) -> String? {
+        let url = baselineFileURL(workspaceId: workspaceId, repoRoot: repoRoot)
+        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 40 else { return nil }
+        return trimmed
+    }
+
+    /// Scan `~/Library/Application Support/cmux/diff-state/<wsId>/` and rebuild
+    /// the `[repoPath: baselineTreeSha]` dict from the per-repo `baseline.txt`
+    /// + `repo-path.txt` sibling files. Returns an empty dict if the workspace
+    /// has no persisted state (e.g., first ever run).
+    static func enumerateBaselineTrees(workspaceId: UUID) -> [String: String] {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        let workspaceDir = appSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("diff-state", isDirectory: true)
+            .appendingPathComponent(workspaceId.uuidString.lowercased(), isDirectory: true)
+
+        guard let entries = try? fm.contentsOfDirectory(
+            at: workspaceDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return [:]
+        }
+
+        var result: [String: String] = [:]
+        for entry in entries {
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: entry.path, isDirectory: &isDir), isDir.boolValue else {
+                continue
+            }
+            let baselineURL = entry.appendingPathComponent("baseline.txt", isDirectory: false)
+            let repoPathURL = entry.appendingPathComponent("repo-path.txt", isDirectory: false)
+            guard let baselineRaw = try? String(contentsOf: baselineURL, encoding: .utf8),
+                  let repoPathRaw = try? String(contentsOf: repoPathURL, encoding: .utf8) else {
+                continue
+            }
+            let baseline = baselineRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+            let repoPath = repoPathRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard baseline.count == 40, !repoPath.isEmpty else { continue }
+            result[repoPath] = baseline
+        }
+        return result
+    }
+
     /// Build the env dict that points git at our cmux-owned object store while
     /// keeping the user's `.git/objects/` available for read (HEAD-relative
     /// references resolve through the alternate). `GIT_INDEX_FILE` is left to
