@@ -2,13 +2,74 @@ import Foundation
 
 enum JSONCParser {
     static func preprocess(data: Data) throws -> Data {
-        guard let source = String(data: data, encoding: .utf8) else {
-            throw JSONCError.invalidUTF8
-        }
+        let source = try sourceString(from: data)
         let withoutBOM = source.hasPrefix("\u{feff}") ? String(source.dropFirst()) : source
         let stripped = try stripComments(from: withoutBOM)
         let normalized = stripTrailingCommas(from: stripped)
         return Data(normalized.utf8)
+    }
+
+    private static func sourceString(from data: Data) throws -> String {
+        if let encoding = detectedJSONEncoding(for: data),
+           let source = String(data: data, encoding: encoding) {
+            return source
+        }
+        if let source = String(data: data, encoding: .utf8) {
+            return source
+        }
+
+        var convertedString: NSString?
+        var usedLossyConversion = ObjCBool(false)
+        let encoding = NSString.stringEncoding(
+            for: data,
+            encodingOptions: [
+                .suggestedEncodingsKey: [
+                    String.Encoding.utf8.rawValue,
+                    String.Encoding.utf16BigEndian.rawValue,
+                    String.Encoding.utf16LittleEndian.rawValue,
+                    String.Encoding.utf32BigEndian.rawValue,
+                    String.Encoding.utf32LittleEndian.rawValue,
+                ],
+                .useOnlySuggestedEncodingsKey: true,
+                .allowLossyKey: false,
+            ],
+            convertedString: &convertedString,
+            usedLossyConversion: &usedLossyConversion
+        )
+
+        if let convertedString, !usedLossyConversion.boolValue {
+            return convertedString as String
+        }
+        if encoding != 0, !usedLossyConversion.boolValue {
+            let stringEncoding = String.Encoding(rawValue: encoding)
+            if let source = String(data: data, encoding: stringEncoding) {
+                return source
+            }
+        }
+        throw JSONCError.invalidTextEncoding
+    }
+
+    private static func detectedJSONEncoding(for data: Data) -> String.Encoding? {
+        let bytes = Array(data.prefix(4))
+        if bytes.starts(with: [0x00, 0x00, 0xFE, 0xFF]) { return .utf32BigEndian }
+        if bytes.starts(with: [0xFF, 0xFE, 0x00, 0x00]) { return .utf32LittleEndian }
+        if bytes.starts(with: [0xFE, 0xFF]) { return .utf16BigEndian }
+        if bytes.starts(with: [0xFF, 0xFE]) { return .utf16LittleEndian }
+        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { return .utf8 }
+        guard bytes.count >= 4 else { return nil }
+
+        switch (bytes[0] == 0, bytes[1] == 0, bytes[2] == 0, bytes[3] == 0) {
+        case (true, true, true, false):
+            return .utf32BigEndian
+        case (false, true, true, true):
+            return .utf32LittleEndian
+        case (true, false, true, false):
+            return .utf16BigEndian
+        case (false, true, false, true):
+            return .utf16LittleEndian
+        default:
+            return nil
+        }
     }
 
     private static func stripComments(from source: String) throws -> String {
@@ -126,8 +187,17 @@ enum JSONCParser {
         return result
     }
 
-    private enum JSONCError: Error {
-        case invalidUTF8
+    private enum JSONCError: LocalizedError {
+        case invalidTextEncoding
         case unterminatedBlockComment
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidTextEncoding:
+                return "config file text encoding is not supported"
+            case .unterminatedBlockComment:
+                return "unterminated block comment"
+            }
+        }
     }
 }

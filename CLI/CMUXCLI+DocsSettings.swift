@@ -24,7 +24,7 @@ extension CMUXCLI {
     private static let docsReferences: [DocsReference] = [
         DocsReference(
             topic: "settings",
-            aliases: ["configuration", "config", "cmux-json", "schema"],
+            aliases: ["configuration", "config", "cmux-json", "settings-json", "settingsjson", "schema"],
             summary: "cmux-owned settings, cmux.json locations, schema, and reload flow.",
             webURL: settingsDocsURL,
             rawResources: [
