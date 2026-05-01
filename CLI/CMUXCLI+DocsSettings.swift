@@ -94,6 +94,21 @@ extension CMUXCLI {
                 "cmux hooks setup",
             ]
         ),
+        DocsReference(
+            topic: "dock",
+            aliases: ["doc", "controls", "right-sidebar", "dock-json"],
+            summary: "Custom right-sidebar terminal controls from .cmux/dock.json or ~/.config/cmux/dock.json.",
+            webURL: "https://cmux.com/docs/dock",
+            rawResources: [
+                DocsResource(label: "dock docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/dock.md"),
+                DocsResource(label: "dock web copy", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/messages/en.json"),
+            ],
+            commands: [
+                "cmux docs dock",
+                "cmux docs dock --json",
+                "python3 -m json.tool .cmux/dock.json",
+            ]
+        ),
     ]
 
     func runDocsCommand(commandArgs: [String], jsonOutput: Bool) throws {
@@ -116,7 +131,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]")
         }
 
         if topic == "list" || topic == "all" {
@@ -141,13 +156,14 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents]
+        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.
 
         Agents:
           Use `cmux docs settings` before editing ~/.config/cmux/settings.json.
+          Use `cmux docs dock` before creating or editing .cmux/dock.json.
           Back up any existing settings file to a timestamped .bak copy before editing so the user can revert.
           Fetch raw resources with the printed curl commands when you need the latest schema.
         """

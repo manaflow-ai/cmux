@@ -648,12 +648,12 @@
       "intro": "Dock позволяет добавлять TUI-элементы управления в правую боковую панель. Каждый элемент управления это команда из JSON, отображаемая в собственной секции терминала на базе Ghostty. Используйте его для лент, логов, очередей, статуса git, dev-серверов или любого TUI, который команда хочет видеть рядом с каждым workspace.",
       "configTitle": "Конфигурация",
       "configIntro": "cmux ищет конфигурацию Dock в таком порядке:",
-      "projectConfig": "для текущего репозитория и его подкаталогов.",
-      "globalConfig": "для вашего личного Dock по умолчанию.",
-      "precedenceCallout": "Если файла нет, Dock открывается пустым. cmux не добавляет встроенные элементы управления автоматически.",
+      "projectConfig": "for the current repo, nearest parent project, and nested project directories.",
+      "globalConfig": "for your personal default Dock or when there is no repo.",
+      "precedenceCallout": "If a project and global config both exist, the project config wins. Nested project configs apply to their directory tree. If no project config exists, Dock uses the global config. If neither file exists, Dock opens empty.",
       "trustCallout": "Проектные конфигурации Dock могут запускать команды. cmux просит доверять проектной конфигурации перед запуском ее элементов управления.",
       "exampleTitle": "Пример dock.json",
-      "exampleIntro": "Файл Dock это JSON-объект с массивом controls. Коммитьте проектные элементы управления в .cmux/dock.json, если хотите, чтобы участники команды использовали один и тот же Dock.",
+      "exampleIntro": "A Dock file is a JSON object with a controls array. Commit project controls to .cmux/dock.json when you want teammates to share the same Dock. Replace example commands with tools your repo actually has.",
       "fieldsTitle": "Поля",
       "fieldHeader": "Поле",
       "descriptionHeader": "Описание",
@@ -666,12 +666,12 @@
       "sharingTitle": "Совместное использование в команде",
       "sharingIntro": "Dock рассчитан на совместное использование через source control, когда команды относятся к репозиторию.",
       "sharingProject": "Поместите элементы управления для репозитория в .cmux/dock.json и закоммитьте файл.",
-      "sharingGlobal": "Поместите личные элементы управления в ~/.config/cmux/dock.json и держите этот файл вне репозитория.",
+      "sharingGlobal": "Put personal controls in ~/.config/cmux/dock.json, especially outside a repo, and keep that file out of shared source control.",
       "sharingSecrets": "Не помещайте секреты в dock.json. Читайте секреты из shell, локального env-файла или существующих инструментов разработки.",
       "agentPromptTitle": "Попросите агента настроить это",
-      "agentPromptIntro": "Вставьте это в coding agent из пустого состояния Dock, затем проверьте сгенерированные команды перед тем, как доверять конфигурации.",
+      "agentPromptIntro": "Use this prompt when you want a coding agent to create Dock controls. It tells the agent to run `cmux docs dock`, inspect the project, and ask before guessing.",
       "agentPromptCodeTitle": "Промпт агента",
-      "agentPrompt": "Добавь элементы управления cmux Dock для этого репозитория. Создай .cmux/dock.json с массивом controls. Каждому элементу управления нужны id, title, command, а cwd, height, env являются необязательными. Используй безопасные команды для этого репозитория и не включай секреты. Добавляй элемент Feed только если cmux feed tui --opentui полезен. Добавь полезные элементы управления для этого проекта, например git, логи, статус dev-сервера, очередь задач или test watcher."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     }
   },
   "legal": {

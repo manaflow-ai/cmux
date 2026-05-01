@@ -20273,13 +20273,13 @@ export default CMUXSessionRestore;
           --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
 
         Agent Help:
-          To change cmux settings, run `cmux docs settings` and `cmux settings path` first.
+          To change cmux settings, run `cmux docs settings` and `cmux settings path`; to add Dock controls, run `cmux docs dock`.
           Back up any existing settings file to a timestamped .bak copy before editing.
           Use printed curl commands to fetch the latest docs/schema, and prefer Ghostty config for terminal behavior Ghostty already supports.
 
         Commands:
           welcome
-          docs [settings|shortcuts|api|browser|agents]
+          docs [settings|shortcuts|api|browser|agents|dock]
           settings [open|path|docs|target]
           shortcuts
           disable-browser | enable-browser | browser-status

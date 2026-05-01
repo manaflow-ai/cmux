@@ -648,12 +648,12 @@
       "intro": "Dock은 오른쪽 사이드바에 TUI 컨트롤을 추가할 수 있게 해줍니다. 각 컨트롤은 JSON에 정의된 명령이며 Ghostty 기반의 전용 터미널 섹션에 표시됩니다. 피드, 로그, 큐, git 상태, 개발 서버 또는 팀이 모든 워크스페이스 옆에 두고 싶은 TUI에 사용하세요.",
       "configTitle": "설정",
       "configIntro": "cmux는 다음 순서로 Dock 설정을 찾습니다:",
-      "projectConfig": "현재 저장소와 그 하위 디렉터리용입니다.",
-      "globalConfig": "개인 기본 Dock용입니다.",
-      "precedenceCallout": "파일이 없으면 Dock은 비어 있는 상태로 열립니다. cmux는 내장 컨트롤을 자동으로 추가하지 않습니다.",
+      "projectConfig": "for the current repo, nearest parent project, and nested project directories.",
+      "globalConfig": "for your personal default Dock or when there is no repo.",
+      "precedenceCallout": "If a project and global config both exist, the project config wins. Nested project configs apply to their directory tree. If no project config exists, Dock uses the global config. If neither file exists, Dock opens empty.",
       "trustCallout": "프로젝트 Dock 설정은 명령을 시작할 수 있습니다. cmux는 컨트롤을 실행하기 전에 프로젝트 설정을 신뢰할지 묻습니다.",
       "exampleTitle": "dock.json 예시",
-      "exampleIntro": "Dock 파일은 controls 배열을 가진 JSON 객체입니다. 팀원이 같은 Dock을 공유해야 할 때 프로젝트 컨트롤을 .cmux/dock.json에 커밋하세요.",
+      "exampleIntro": "A Dock file is a JSON object with a controls array. Commit project controls to .cmux/dock.json when you want teammates to share the same Dock. Replace example commands with tools your repo actually has.",
       "fieldsTitle": "필드",
       "fieldHeader": "필드",
       "descriptionHeader": "설명",
@@ -666,12 +666,12 @@
       "sharingTitle": "팀과 공유하기",
       "sharingIntro": "Dock은 명령이 저장소에 속할 때 소스 컨트롤로 공유하도록 설계되었습니다.",
       "sharingProject": "저장소 전용 컨트롤은 .cmux/dock.json에 넣고 파일을 커밋하세요.",
-      "sharingGlobal": "개인 컨트롤은 ~/.config/cmux/dock.json에 넣고 이 파일은 저장소 밖에 두세요.",
+      "sharingGlobal": "Put personal controls in ~/.config/cmux/dock.json, especially outside a repo, and keep that file out of shared source control.",
       "sharingSecrets": "dock.json에 시크릿을 넣지 마세요. 셸, 로컬 env 파일 또는 기존 개발 도구에서 시크릿을 읽으세요.",
       "agentPromptTitle": "에이전트에게 설정 요청하기",
-      "agentPromptIntro": "빈 Dock 상태에서 이 내용을 코딩 에이전트에 붙여 넣고, 설정을 신뢰하기 전에 생성된 명령을 검토하세요.",
+      "agentPromptIntro": "Use this prompt when you want a coding agent to create Dock controls. It tells the agent to run `cmux docs dock`, inspect the project, and ask before guessing.",
       "agentPromptCodeTitle": "에이전트 프롬프트",
-      "agentPrompt": "이 저장소용 cmux Dock 컨트롤을 추가하세요. controls 배열이 있는 .cmux/dock.json을 만드세요. 각 컨트롤에는 id, title, command가 필요하며 cwd, height, env는 선택 사항입니다. 이 저장소에 안전한 명령을 사용하고 시크릿은 포함하지 마세요. cmux feed tui --opentui가 유용할 때만 Feed 컨트롤을 포함하세요. git, 로그, 개발 서버 상태, 작업 큐, 테스트 watcher처럼 이 프로젝트에 유용한 컨트롤을 추가하세요."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     }
   },
   "legal": {

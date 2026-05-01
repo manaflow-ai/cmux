@@ -44,12 +44,6 @@ export default function DockPage() {
       <CodeBlock title=".cmux/dock.json" lang="json">{`{
   "controls": [
     {
-      "id": "feed",
-      "title": "Feed",
-      "command": "cmux feed tui --opentui",
-      "height": 320
-    },
-    {
       "id": "git",
       "title": "Git",
       "command": "lazygit",
@@ -60,6 +54,12 @@ export default function DockPage() {
       "title": "Logs",
       "command": "tail -f ./logs/development.log",
       "cwd": "."
+    },
+    {
+      "id": "feed",
+      "title": "Feed",
+      "command": "cmux feed tui --opentui",
+      "height": 320
     }
   ]
 }`}</CodeBlock>

@@ -305,7 +305,7 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh> [args...]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
-- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents]`
+- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Settings files:`
 - `cmux settings --help` -> `Usage: cmux settings [open|path|docs|target]`
