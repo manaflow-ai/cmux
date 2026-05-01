@@ -515,7 +515,7 @@
         "bindings": {
           "type": "object",
           "default": {},
-          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut or an array for a chord.",
+          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, or an empty string to unbind.",
           "propertyNames": {
             "enum": [
               "openSettings",
@@ -612,7 +612,7 @@
       "oneOf": [
         {
           "type": "string",
-          "description": "Single-stroke shortcut, for example cmd+n."
+          "description": "Single-stroke shortcut, for example cmd+n. Use an empty string, none, clear, or unbound to unbind."
         },
         {
           "type": "array",

@@ -941,7 +941,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
                 throw DecodingError.dataCorruptedError(
                     forKey: key,
                     in: container,
-                    debugDescription: "shortcut must use modifier+key syntax like 'cmd+shift+t'"
+                    debugDescription: "shortcut must use modifier+key syntax like 'cmd+shift+t' or be empty to unbind"
                 )
             }
             return shortcut
@@ -969,6 +969,10 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         in container: inout KeyedEncodingContainer<CodingKeys>
     ) throws {
         guard let shortcut else { return }
+        if shortcut.isUnbound {
+            try container.encode("", forKey: key)
+            return
+        }
         if let secondStroke = shortcut.secondStroke {
             try container.encode(
                 [shortcut.firstStroke.configString(), secondStroke.configString()],

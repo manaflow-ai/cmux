@@ -12789,6 +12789,10 @@ class TerminalController {
             action = .focusUp
         case "focus_down", "focusdown":
             action = .focusDown
+        case "split_right", "splitright":
+            action = .splitRight
+        case "split_down", "splitdown":
+            action = .splitDown
         case "workspace_digits", "workspace_number", "select_workspace_by_number":
             action = .selectWorkspaceByNumber
         case "surface_digits", "surface_number", "select_surface_by_number":
@@ -12798,10 +12802,15 @@ class TerminalController {
         }
 
         guard let action else {
-            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down, workspace_digits, surface_digits"
+            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down, split_right, split_down, workspace_digits, surface_digits"
         }
 
-        if combo.lowercased() == "clear" || combo.lowercased() == "default" || combo.lowercased() == "reset" {
+        if combo.lowercased() == "clear" || combo.lowercased() == "unbound" || combo.lowercased() == "none" {
+            KeyboardShortcutSettings.clearShortcut(for: action)
+            return "OK"
+        }
+
+        if combo.lowercased() == "default" || combo.lowercased() == "reset" {
             KeyboardShortcutSettings.resetShortcut(for: action)
             return "OK"
         }

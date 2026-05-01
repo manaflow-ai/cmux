@@ -1950,6 +1950,7 @@ class GhosttyApp {
                 prefix: "cmux-shell-integration-override",
                 logLabel: "shell integration override (fallback)"
             )
+            loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
                 true,
                 source: "initialize.fallbackConfig"
@@ -2119,9 +2120,25 @@ class GhosttyApp {
             prefix: "cmux-shell-integration-override",
             logLabel: "shell integration override"
         )
+        loadCmuxOwnedGhosttyKeybindOverrides(config)
 
         ghostty_config_finalize(config)
         return renderingModeChanged
+    }
+
+    private func loadCmuxOwnedGhosttyKeybindOverrides(_ config: ghostty_config_t) {
+        // cmux owns these split shortcuts through KeyboardShortcutSettings.
+        // Remove Ghostty's default fallbacks so remapped or cleared shortcuts
+        // can reach the focused terminal instead of creating a split.
+        loadInlineGhosttyConfig(
+            """
+            keybind = super+d=unbind
+            keybind = super+shift+d=unbind
+            """,
+            into: config,
+            prefix: "cmux-owned-split-keybind-overrides",
+            logLabel: "cmux-owned split keybind overrides"
+        )
     }
 
     /// When the user has not configured `font-codepoint-map` for CJK ranges
@@ -6762,6 +6779,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("paste_from_clipboard")
     }
 
+    private func applyConfiguredMenuShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {
+        guard let keyEquivalent = shortcut.menuItemKeyEquivalent else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+
+        item.keyEquivalent = keyEquivalent
+        item.keyEquivalentModifierMask = shortcut.modifierFlags
+    }
+
     /// Validates whether edit menu items (copy, paste, split) should be enabled.
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
@@ -8762,10 +8790,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let splitHorizontallyItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.splitHorizontally", defaultValue: "Split Horizontally"),
             action: #selector(splitHorizontally(_:)),
-            keyEquivalent: "d"
+            keyEquivalent: ""
         )
         splitHorizontallyItem.target = self
-        splitHorizontallyItem.keyEquivalentModifierMask = [.command, .shift]
+        applyConfiguredMenuShortcut(KeyboardShortcutSettings.shortcut(for: .splitDown), to: splitHorizontallyItem)
         splitHorizontallyItem.image = NSImage(
             systemSymbolName: "rectangle.bottomhalf.inset.filled",
             accessibilityDescription: nil
@@ -8774,10 +8802,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let splitVerticallyItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.splitVertically", defaultValue: "Split Vertically"),
             action: #selector(splitVertically(_:)),
-            keyEquivalent: "d"
+            keyEquivalent: ""
         )
         splitVerticallyItem.target = self
-        splitVerticallyItem.keyEquivalentModifierMask = [.command]
+        applyConfiguredMenuShortcut(KeyboardShortcutSettings.shortcut(for: .splitRight), to: splitVerticallyItem)
         splitVerticallyItem.image = NSImage(
             systemSymbolName: "rectangle.righthalf.inset.filled",
             accessibilityDescription: nil

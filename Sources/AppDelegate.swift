@@ -11145,7 +11145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Split actions: Cmd+D / Cmd+Shift+D
+        // Configured split actions.
         if matchConfiguredShortcut(event: event, action: .splitRight) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
@@ -12169,6 +12169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
@@ -12189,6 +12190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        guard !shortcut.isUnbound else { return nil }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
@@ -12207,6 +12209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         arrowKeyCode: UInt16
     ) -> Bool {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
@@ -12347,6 +12350,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         shortcut.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+    }
+
+    private func matchesKeyboardShortcutEvent(
+        _ event: NSEvent,
+        action: KeyboardShortcutSettings.Action,
+        shortcut: StoredShortcut
+    ) -> Bool {
+        guard !shortcut.isUnbound else { return false }
+        if action.usesNumberedDigitMatching {
+            return numberedShortcutDigit(event: event, shortcut: shortcut) != nil
+        }
+        guard !shortcut.hasChord else { return false }
+        return matchShortcut(event: event, shortcut: shortcut)
+    }
+
+    func shouldSuppressStaleCmuxMenuShortcut(event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        if event.window is NSPanel || NSApp.keyWindow is NSPanel || NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil {
+            return false
+        }
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard flags.contains(.command) else { return false }
+
+        for action in KeyboardShortcutSettings.Action.allCases where action != .showHideAllWindows {
+            let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
+            if matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut) {
+                return false
+            }
+        }
+
+        for action in KeyboardShortcutSettings.Action.allCases where action != .showHideAllWindows {
+            if matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut) {
+                return true
+            }
+        }
+        return false
     }
 
     private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
@@ -13468,6 +13509,22 @@ private extension NSApplication {
            AppDelegate.shared?.handleMinimalModeTitlebarDoubleClickMouseDown(event: event) == true {
             return
         }
+        if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
+            let responder = event.window?.firstResponder
+                ?? keyWindow?.firstResponder
+                ?? mainWindow?.firstResponder
+            if let ghosttyView = cmuxOwningGhosttyView(for: responder) {
+                ghosttyView.keyDown(with: event)
+#if DEBUG
+                cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut and forwarded to terminal")
+#endif
+            } else {
+#if DEBUG
+                cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut")
+#endif
+            }
+            return
+        }
         cmux_applicationSendEvent(event)
     }
 }
@@ -13814,6 +13871,20 @@ private extension NSWindow {
             )
             return true
         }
+        if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
+            if let firstResponderGhosttyView {
+                firstResponderGhosttyView.keyDown(with: event)
+#if DEBUG
+                cmuxDebugLog("  → terminal received command equivalent bypassing stale cmux menu shortcut")
+#endif
+                return true
+            }
+#if DEBUG
+            cmuxDebugLog("  → suppressed stale cmux menu shortcut")
+#endif
+            return false
+        }
+
         if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can

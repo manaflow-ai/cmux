@@ -495,7 +495,6 @@ enum KeyboardShortcutSettings {
     }
 
     private static let hardcodedSystemWideHotkeyConflicts: [StoredShortcut] = [
-        StoredShortcut(key: "d", command: true, shift: false, option: false, control: false),
         StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true),
         StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true),
         StoredShortcut(key: "`", command: true, shift: false, option: false, control: false),
@@ -725,6 +724,8 @@ enum KeyboardShortcutSettings {
         UserDefaults.standard.removeObject(forKey: action.defaultsKey)
         postDidChangeNotification(action: action)
     }
+
+    static func clearShortcut(for action: Action) { setShortcut(.unbound, for: action) }
 
     static func resetAll() {
         for action in Action.allCases {
@@ -2172,9 +2173,7 @@ extension StoredShortcut {
     }
 
     var configIdentifier: String {
-        if isUnbound {
-            return "none"
-        }
+        if isUnbound { return "none" }
         if let secondStroke {
             return "\(firstStroke.configString()) \(secondStroke.configString())"
         }
@@ -2183,7 +2182,7 @@ extension StoredShortcut {
 
     private static func isUnboundConfigToken(_ rawValue: String) -> Bool {
         let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.isEmpty || normalized == "none" || normalized == "unbound"
+        return normalized.isEmpty || normalized == "none" || normalized == "clear" || normalized == "unbound"
     }
 }
 

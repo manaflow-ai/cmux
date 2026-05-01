@@ -612,7 +612,16 @@ if [[ -d "$PWD/ghostty" ]]; then
   if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
     echo "Skipping direct ghostty CLI helper zig build (CMUX_SKIP_ZIG_BUILD=1)"
   else
-    (cd "$PWD/ghostty" && zig build cli-helper -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Doptimize=ReleaseFast)
+    GHOSTTY_HELPER_TARGET=""
+    case "$(/usr/bin/arch)" in
+      arm64) GHOSTTY_HELPER_TARGET="aarch64-macos" ;;
+      i386|x86_64) GHOSTTY_HELPER_TARGET="x86_64-macos" ;;
+    esac
+    if [[ -n "$GHOSTTY_HELPER_TARGET" ]]; then
+      "$PWD/scripts/build-ghostty-cli-helper.sh" --target "$GHOSTTY_HELPER_TARGET" --output "$GHOSTTY_HELPER_SRC"
+    else
+      "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_SRC"
+    fi
   fi
 fi
 if [[ -x "$CMUXD_SRC" ]]; then
