@@ -48,10 +48,12 @@ final class TurnCheckpointManager {
     private(set) var currentRoot: String?
 
     /// All git roots visited during this session, in order of first visit.
-    /// The most-recently-active root is appended (or moved) to the END of the
-    /// array so the React panel can default-expand the latest repo group.
-    /// Insertion is deduped: revisiting an existing root just moves it to the
-    /// end without creating a duplicate entry.
+    /// APPEND-ONLY: a root is added to the end the FIRST time it's seen and
+    /// never moved on subsequent visits. The React panel relies on this
+    /// stable ordering so the active repo doesn't shuffle to the bottom of
+    /// the list every time the agent switches focus. The user can manually
+    /// reorder repo groups in the panel; the panel persists that order
+    /// independently in localStorage.
     private(set) var visitedRoots: [String] = []
 
     /// Per-repo pre-turn baseline tree SHA (cmux store object), keyed by repo
@@ -126,21 +128,14 @@ final class TurnCheckpointManager {
             cachedDiffByRoot.merge(restored) { current, _ in current }
             // Seed visitedRoots so the multi-repo grouped panel shows every
             // previously-touched repo on cold start, not just the seed root.
-            // The active root (if any) belongs at the END so React's
-            // default-expand picks it.
+            // APPEND-ONLY: keep insertion order stable. The seed root (if any)
+            // already sits at index 0 from init; restored roots are appended
+            // afterwards in dictionary-iteration order.
             for root in restored.keys {
                 guard !root.isEmpty, root != currentRoot else { continue }
                 if !visitedRoots.contains(root) {
                     visitedRoots.append(root)
                 }
-            }
-            // Re-append currentRoot last to preserve "most-recent-active at end"
-            // ordering, in case it was already present from init.
-            if let active = currentRoot, !active.isEmpty,
-               let idx = visitedRoots.firstIndex(of: active),
-               idx != visitedRoots.count - 1 {
-                visitedRoots.remove(at: idx)
-                visitedRoots.append(active)
             }
             #if DEBUG
             cmuxDebugLog("turn-diff: hydrated \(restored.count) cached diffs for repos=[\(restored.keys.sorted().joined(separator: ", "))]")
@@ -187,21 +182,18 @@ final class TurnCheckpointManager {
         currentRoot = newRoot
         let hasRoot = (newRoot?.isEmpty == false)
         // Track this root as visited so the multi-repo grouped panel can render
-        // every repo we've seen, even after the user hops elsewhere. The
-        // most-recently-active root always sits at the END of the array; the
-        // React side keys off this for default-expand.
+        // every repo we've seen, even after the user hops elsewhere.
+        // APPEND-ONLY: a root joins the array the first time we see it and
+        // never moves on subsequent visits. This keeps the React panel's
+        // default ordering stable so focus changes don't reshuffle the list;
+        // the panel layers manual drag-to-reorder on top of this order.
         if hasRoot, let r = newRoot, !r.isEmpty {
             // Best-effort migration: scrub any legacy ref the previous design
             // wrote into the user's .git/refs/cmux/. Idempotent and silent on
             // failure.
             TurnCheckpointStore.deleteLegacySessionRef(workspaceId: session, in: r)
 
-            if let existing = visitedRoots.firstIndex(of: r) {
-                if existing != visitedRoots.count - 1 {
-                    visitedRoots.remove(at: existing)
-                    visitedRoots.append(r)
-                }
-            } else {
+            if !visitedRoots.contains(r) {
                 visitedRoots.append(r)
             }
         }

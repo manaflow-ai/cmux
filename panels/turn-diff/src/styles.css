@@ -131,9 +131,37 @@ body, html, #root {
   margin-bottom: 12px;
   overflow: hidden;
   background: #0d1117;
+  transition: border-color 120ms, opacity 120ms, transform 120ms;
 }
 .repo-group[data-active="true"] {
   border-color: #30363d;
+}
+/* Currently being dragged: dim slightly so it reads as "in-flight". */
+.repo-group[data-dragging="true"] {
+  opacity: 0.45;
+}
+/* Currently a drop target during drag: highlight border so the user sees
+   where the drop will land. */
+.repo-group[data-drop-target="true"] {
+  border-color: #388bfd;
+  box-shadow: 0 0 0 1px #388bfd inset;
+}
+
+.repo-group-drag-handle {
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  color: #6e7681;
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+.repo-group-header:active .repo-group-drag-handle,
+.repo-group[data-dragging="true"] .repo-group-drag-handle {
+  cursor: grabbing;
+  color: #adbac7;
 }
 
 .repo-group-header {

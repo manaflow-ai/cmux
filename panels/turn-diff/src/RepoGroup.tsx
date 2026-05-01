@@ -18,15 +18,29 @@ interface Props {
   onToggleFile: (path: string) => void
   /** Whether to use the unified (narrow) diff renderer. */
   unified: boolean
+  /** Drag-to-reorder hooks. The header is the drag source AND the drop target. */
+  onDragStart: (root: string) => void
+  onDragOver: (root: string) => void
+  onDrop: (root: string) => void
+  onDragEnd: () => void
+  /** When true, this group is currently being dragged (visual hint). */
+  isDragging: boolean
+  /** When true, this group is the current drop target (visual hint). */
+  isDropTarget: boolean
 }
 
 /**
  * One repo's section of the multi-repo diff panel:
- *   - header: chevron + repo path + +X/-Y badges + active marker
+ *   - header: drag-handle + chevron + repo path + +X/-Y badges + active marker
  *   - body (when expanded): DiffFileView per file, or "No changes." if empty
  *
  * Body keys off the repo `root`, so an unchanged repo's file rows aren't
  * rebuilt when other repos in the panel update.
+ *
+ * Drag-to-reorder: the wrapper `<section>` is `draggable`. The drag handle on
+ * the left of the header is the visual affordance, but the whole header is
+ * draggable so the user doesn't have to grab a tiny target. The chevron
+ * toggle stops propagation so clicking it never accidentally starts a drag.
  */
 export const RepoGroup = React.memo(function RepoGroup({
   root,
@@ -37,6 +51,12 @@ export const RepoGroup = React.memo(function RepoGroup({
   expandedFiles,
   onToggleFile,
   unified,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  isDragging,
+  isDropTarget,
 }: Props) {
   const onHeaderClick = useCallback(() => onToggleRepo(root), [onToggleRepo, root])
 
@@ -50,8 +70,53 @@ export const RepoGroup = React.memo(function RepoGroup({
     return { adds, dels }
   }, [files])
 
+  const handleDragStart = useCallback(
+    (e: React.DragEvent<HTMLElement>) => {
+      // Use text/plain so a stray drop in another widget doesn't blow up.
+      // Mark the data on the event so external handlers can sniff it; the
+      // App-level state is what we actually use to compute the reorder.
+      e.dataTransfer.setData("text/plain", root)
+      e.dataTransfer.effectAllowed = "move"
+      onDragStart(root)
+    },
+    [onDragStart, root]
+  )
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent<HTMLElement>) => {
+      // Required to allow drop. preventDefault unlocks dropEffect = "move".
+      e.preventDefault()
+      e.dataTransfer.dropEffect = "move"
+      onDragOver(root)
+    },
+    [onDragOver, root]
+  )
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLElement>) => {
+      e.preventDefault()
+      onDrop(root)
+    },
+    [onDrop, root]
+  )
+
+  const handleDragEnd = useCallback(() => {
+    onDragEnd()
+  }, [onDragEnd])
+
   return (
-    <section className="repo-group" data-active={isActive} data-expanded={expanded}>
+    <section
+      className="repo-group"
+      data-active={isActive}
+      data-expanded={expanded}
+      data-dragging={isDragging || undefined}
+      data-drop-target={isDropTarget || undefined}
+      draggable
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      onDragEnd={handleDragEnd}
+    >
       <button
         type="button"
         className="repo-group-header"
@@ -59,6 +124,13 @@ export const RepoGroup = React.memo(function RepoGroup({
         aria-expanded={expanded}
         title={root}
       >
+        <span
+          className="repo-group-drag-handle"
+          aria-hidden
+          title="Drag to reorder"
+        >
+          {"☰"}
+        </span>
         <span className={`twisty ${expanded ? "open" : "closed"}`} aria-hidden>
           ▾
         </span>
