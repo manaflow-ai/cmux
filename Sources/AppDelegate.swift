@@ -4838,7 +4838,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return trimmed.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : trimmed
     }
 
-    private func rollbackDetachedSurface(
+    func rollbackDetachedSurface(
         _ detached: Workspace.DetachedSurfaceTransfer,
         to workspace: Workspace,
         sourcePane: PaneID?,
@@ -4858,7 +4858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func cleanupEmptySourceWorkspaceAfterSurfaceMove(
+    func cleanupEmptySourceWorkspaceAfterSurfaceMove(
         sourceWorkspace: Workspace,
         sourceManager: TabManager,
         sourceWindowId: UUID
@@ -4873,7 +4873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func reassertCrossWindowSurfaceMoveFocusIfNeeded(
+    func reassertCrossWindowSurfaceMoveFocusIfNeeded(
         destinationWindowId: UUID,
         sourceWindowId: UUID,
         destinationWorkspaceId: UUID,

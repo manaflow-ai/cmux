@@ -2176,6 +2176,90 @@ class TabManager: ObservableObject {
         }
     }
 
+    @discardableResult
+    func addWorkspace(
+        fromDetachedSurface detached: Workspace.DetachedSurfaceTransfer,
+        title: String? = nil,
+        select: Bool = true,
+        placementOverride: NewWorkspacePlacement? = nil,
+        focusIntent: PanelFocusIntent? = nil
+    ) -> Workspace? {
+        let sourceWorkspace = selectedWorkspace
+        let capturedTabs = tabs
+        let capturedSelectedTabId = sourceWorkspace?.id
+        return withExtendedLifetime((capturedTabs, sourceWorkspace, detached.panel)) {
+            let inheritedDirectory = preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+            let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
+            let snapshot = workspaceCreationSnapshotLite(
+                currentTabs: capturedTabs,
+                currentSelectedTabId: capturedSelectedTabId,
+                preferredWorkingDirectory: inheritedDirectory,
+                inheritedTerminalFontPoints: font
+            )
+            didCaptureWorkspaceCreationSnapshot()
+#if DEBUG
+            maybeMutateSelectionDuringWorkspaceCreationForDev(snapshot: snapshot)
+#endif
+            let nextTabCount = snapshot.tabs.count + 1
+            sentryBreadcrumb("workspace.create.fromDetachedSurface", data: ["tabCount": nextTabCount])
+            let detachedDirectory = normalizedWorkingDirectory(detached.directory)
+            let workingDirectory = detachedDirectory ?? snapshot.preferredWorkingDirectory
+            let inheritedConfig = workspaceCreationConfigTemplate(
+                inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
+            )
+            let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+            let ordinal = Self.nextPortOrdinal
+            Self.nextPortOrdinal += 1
+            let newWorkspace = Workspace(
+                title: title ?? detached.title,
+                workingDirectory: workingDirectory,
+                portOrdinal: ordinal,
+                configTemplate: inheritedConfig,
+                initialDetachedSurface: detached
+            )
+            guard newWorkspace.panels[detached.panelId] != nil else {
+                return nil
+            }
+            applyCreationChromeInheritance(
+                to: newWorkspace,
+                from: sourceWorkspace ?? capturedTabs.first
+            )
+            newWorkspace.owningTabManager = self
+            if title != nil {
+                newWorkspace.setCustomTitle(title)
+            }
+            wireClosedBrowserTracking(for: newWorkspace)
+
+            var updatedTabs = tabs
+            if insertIndex >= 0 && insertIndex <= updatedTabs.count {
+                updatedTabs.insert(newWorkspace, at: insertIndex)
+            } else {
+                updatedTabs.append(newWorkspace)
+            }
+            tabs = updatedTabs
+            if select {
+#if DEBUG
+                debugPrimeWorkspaceSwitchTrigger("createFromDetachedSurface", to: newWorkspace.id)
+#endif
+                selectedTabId = newWorkspace.id
+                NotificationCenter.default.post(
+                    name: .ghosttyDidFocusTab,
+                    object: nil,
+                    userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
+                )
+                newWorkspace.focusPanel(detached.panelId, focusIntent: focusIntent)
+            }
+#if DEBUG
+            UITestRecorder.incrementInt("addTabInvocations")
+            UITestRecorder.record([
+                "tabCount": String(updatedTabs.count),
+                "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
+            ])
+#endif
+            return newWorkspace
+        }
+    }
+
     @MainActor
     private func sendWelcomeWhenReady(to workspace: Workspace) {
         if let terminalPanel = workspace.focusedTerminalPanel,
@@ -5046,7 +5130,12 @@ class TabManager: ObservableObject {
         return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
     }
 
-    func focusTab(_ tabId: UUID, surfaceId: UUID? = nil, suppressFlash: Bool = false) {
+    func focusTab(
+        _ tabId: UUID,
+        surfaceId: UUID? = nil,
+        suppressFlash: Bool = false,
+        focusIntent: PanelFocusIntent? = nil
+    ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         if let surfaceId, tab.panels[surfaceId] != nil {
             // Keep selected-surface intent stable across selectedTabId didSet async restore.
@@ -5079,7 +5168,7 @@ class TabManager: ObservableObject {
             if !suppressFlash {
                 focusSurface(tabId: tabId, surfaceId: surfaceId)
             } else {
-                tab.focusPanel(surfaceId)
+                tab.focusPanel(surfaceId, focusIntent: focusIntent)
             }
         }
     }

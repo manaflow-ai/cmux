@@ -68,31 +68,52 @@ extension AppDelegate {
             panelId: panelId,
             panel: sourcePanel
         )
-        let destinationWorkspace = targetManager.addWorkspace(
-            title: destinationTitle,
-            select: focus,
-            placementOverride: placementOverride,
-            autoWelcomeIfNeeded: false
-        )
-        let bootstrapPanelIds = Set(destinationWorkspace.panels.keys)
+        let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
+        let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
+        let activationIntent = focusIntentForNewWorkspaceMove(panel: sourcePanel)
+        guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else { return nil }
 
-        let moved = moveSurface(
-            panelId: panelId,
-            toWorkspace: destinationWorkspace.id,
-            focus: focus,
-            focusWindow: focusWindow
-        )
-        guard moved else {
-            if targetManager.tabs.count > 1,
-               targetManager.tabs.contains(where: { $0.id == destinationWorkspace.id }) {
-                targetManager.closeWorkspace(destinationWorkspace)
-            }
+        guard let destinationWorkspace = targetManager.addWorkspace(
+            fromDetachedSurface: detached,
+            title: destinationTitle,
+            select: false,
+            placementOverride: placementOverride
+        ) else {
+            rollbackDetachedSurface(
+                detached,
+                to: sourceWorkspace,
+                sourcePane: sourcePane,
+                sourceIndex: sourceIndex,
+                focus: focus
+            )
             return nil
         }
 
-        for bootstrapPanelId in bootstrapPanelIds where bootstrapPanelId != panelId {
-            if destinationWorkspace.panels[bootstrapPanelId] != nil {
-                _ = destinationWorkspace.closePanel(bootstrapPanelId, force: true)
+        cleanupEmptySourceWorkspaceAfterSurfaceMove(
+            sourceWorkspace: sourceWorkspace,
+            sourceManager: source.tabManager,
+            sourceWindowId: source.windowId
+        )
+
+        if focus {
+            let destinationWindowId = focusWindow ? windowId(for: targetManager) : nil
+            if let destinationWindowId {
+                _ = focusMainWindow(windowId: destinationWindowId)
+            }
+            targetManager.focusTab(
+                destinationWorkspace.id,
+                surfaceId: panelId,
+                suppressFlash: true,
+                focusIntent: activationIntent
+            )
+            if let destinationWindowId {
+                reassertCrossWindowSurfaceMoveFocusIfNeeded(
+                    destinationWindowId: destinationWindowId,
+                    sourceWindowId: source.windowId,
+                    destinationWorkspaceId: destinationWorkspace.id,
+                    destinationPanelId: panelId,
+                    destinationManager: targetManager
+                )
             }
         }
 
@@ -104,6 +125,13 @@ extension AppDelegate {
             surfaceId: panelId,
             paneId: destinationWorkspace.paneId(forPanelId: panelId)?.id
         )
+    }
+
+    private func focusIntentForNewWorkspaceMove(panel: any Panel) -> PanelFocusIntent {
+        if panel is BrowserPanel {
+            return .browser(.addressBar)
+        }
+        return panel.preferredFocusIntentForActivation()
     }
 
     private func titleForDetachedWorkspace(
