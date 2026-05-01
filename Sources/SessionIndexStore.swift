@@ -1608,9 +1608,9 @@ final class SessionIndexStore: ObservableObject {
     /// returns nil so the caller can fall back.
     nonisolated private static func loadCodexEntriesViaSQL(
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
-        errorBag: ErrorBag
+        errorBag: ErrorBag,
+        dbPath: String = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath
     ) -> [SessionEntry]? {
-        let dbPath = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath
         let fm = FileManager.default
         guard fm.fileExists(atPath: dbPath) else { return nil }
 
@@ -1725,6 +1725,27 @@ final class SessionIndexStore: ObservableObject {
         }
         return results
     }
+
+    #if DEBUG
+    nonisolated static func loadCodexEntriesForTesting(
+        stateDBPath: String,
+        needle: String,
+        cwdFilter: String? = nil,
+        offset: Int = 0,
+        limit: Int = 100
+    ) async -> SearchOutcome {
+        let bag = ErrorBag()
+        let entries = loadCodexEntriesViaSQL(
+            needle: needle.lowercased(),
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: bag,
+            dbPath: stateDBPath
+        ) ?? []
+        return SearchOutcome(entries: entries, errors: bag.snapshot())
+    }
+    #endif
 
     /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old
     /// Codex installs, or non-default config). Same shape as the original loader.
