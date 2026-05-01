@@ -616,7 +616,7 @@ let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cm
 let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
 private func windowContentOverlayInstallationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
-    if let glassTarget = WindowGlassEffect.contentOverlayInstallationTarget(for: window) {
+    if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
         return glassTarget
     }
 
@@ -793,7 +793,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             cmuxDebugLog(
                 "palette.overlay.install container=\(String(describing: type(of: target.container))) " +
                 "reference=\(String(describing: type(of: target.reference))) " +
-                "glass=\(WindowGlassEffect.contentOverlayInstallationTarget(for: window) != nil ? 1 : 0)"
+                "glass=\(WindowGlassEffect.portalInstallationTarget(for: window) != nil ? 1 : 0)"
             )
 #endif
         }
@@ -2812,16 +2812,6 @@ struct ContentView: View {
         )
     }
 
-#if DEBUG
-    private func debugLogSidebarAppearanceContentChange(_ action: String) {
-        let appearance = windowAppearanceSnapshot
-        let policy = appearance.sidebarSettings.materialPolicy
-        cmuxDebugLog(
-            "settings.sidebarAppearance.content action=\(action) match=\(sidebarMatchTerminalBackground ? 1 : 0) scheme=\(colorScheme == .dark ? "dark" : "light") material=\(sidebarMaterial) blend=\(sidebarBlendMode) state=\(sidebarStateSetting) base=\(sidebarTintHex) light=\(sidebarTintHexLight ?? "nil") dark=\(sidebarTintHexDark ?? "nil") opacity=\(String(format: "%.3f", sidebarTintOpacity)) resolved=\(policy.tintColor.hexString(includeAlpha: true)) policy=\(policy.usesWindowLevelGlass ? "windowGlass" : "sidebarLayer") blur=\(String(format: "%.3f", policy.opacity))"
-        )
-    }
-#endif
-
     private func fakeTitlebarTextColor(appearance: WindowAppearanceSnapshot) -> Color {
         let ghosttyBackground = appearance.terminalBackgroundColor
         return ghosttyBackground.isLightColor
@@ -3719,37 +3709,10 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
-#if DEBUG
-            debugLogSidebarAppearanceContentChange("matchTerminal.changed")
-#endif
             tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")
             guard sidebarState.isVisible,
                   sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
             schedulePortalGeometrySynchronize()
-        })
-
-        view = AnyView(view.onChange(of: sidebarTintHexLight) { _ in
-#if DEBUG
-            debugLogSidebarAppearanceContentChange("lightTint.changed")
-#endif
-        })
-
-        view = AnyView(view.onChange(of: sidebarTintHex) { _ in
-#if DEBUG
-            debugLogSidebarAppearanceContentChange("baseTint.changed")
-#endif
-        })
-
-        view = AnyView(view.onChange(of: sidebarTintHexDark) { _ in
-#if DEBUG
-            debugLogSidebarAppearanceContentChange("darkTint.changed")
-#endif
-        })
-
-        view = AnyView(view.onChange(of: sidebarTintOpacity) { _ in
-#if DEBUG
-            debugLogSidebarAppearanceContentChange("opacity.changed")
-#endif
         })
 
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
@@ -3830,12 +3793,6 @@ struct ContentView: View {
             // NSGlassEffectView path vs the older NSVisualEffectView fallback is chosen
             // inside WindowGlassEffect.apply.
             let backdropPlan = appearance.backdropPlan()
-#if DEBUG
-            let sidebarPolicy = appearance.sidebarSettings.materialPolicy
-            cmuxDebugLog(
-                "settings.sidebarAppearance.windowApply win=\(window.windowNumber) match=\(appearance.unifySurfaceBackdrops ? 1 : 0) scheme=\(appearance.sidebarSettings.colorScheme == .dark ? "dark" : "light") material=\(appearance.sidebarSettings.materialRawValue) blend=\(appearance.sidebarSettings.blendModeRawValue) state=\(appearance.sidebarSettings.stateRawValue) base=\(appearance.sidebarSettings.tintHex) light=\(appearance.sidebarSettings.tintHexLight ?? "nil") dark=\(appearance.sidebarSettings.tintHexDark ?? "nil") opacity=\(String(format: "%.3f", appearance.sidebarSettings.tintOpacity)) resolved=\(sidebarPolicy.tintColor.hexString(includeAlpha: true)) policy=\(sidebarPolicy.usesWindowLevelGlass ? "windowGlass" : "sidebarLayer") phase=\(backdropPlan.hostingPhase.rawValue) glass=\(backdropPlan.usesWindowGlass ? 1 : 0) transparent=\(backdropPlan.usesTransparentWindow ? 1 : 0) clearHierarchy=\(backdropPlan.shouldClearContentViewHierarchy ? 1 : 0)"
-            )
-#endif
             removeNativeTitlebarBackdrop(in: window)
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
@@ -4115,16 +4072,8 @@ struct ContentView: View {
 
     private func updateWindowGlassTint() {
         // Find this view's main window by identifier (keyWindow might be a debug panel/settings).
-        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else {
-#if DEBUG
-            cmuxDebugLog("settings.windowGlass.contentTintUpdate result=noWindow win=0 base=\(bgGlassTintHex) opacity=\(String(format: "%.3f", bgGlassTintOpacity))")
-#endif
-            return
-        }
+        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
-#if DEBUG
-        cmuxDebugLog("settings.windowGlass.contentTintUpdate result=window win=\(window.windowNumber) base=\(bgGlassTintHex) opacity=\(String(format: "%.3f", bgGlassTintOpacity)) resolved=\(tintColor.hexString(includeAlpha: true))")
-#endif
         WindowBackdropController.updateGlassTint(to: window, color: tintColor)
     }
 
@@ -15591,14 +15540,6 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
         NSClassFromString("NSGlassEffectView") != nil
     }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    final class Coordinator {
-        var lastDebugSignature: String?
-    }
-
     func makeNSView(context: Context) -> NSView {
         // Try NSGlassEffectView if preferred or if we want to test availability
         if preferLiquidGlass, let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
@@ -15642,24 +15583,6 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
             visualEffect.layer?.masksToBounds = cornerRadius > 0
             visualEffect.needsDisplay = true
         }
-#if DEBUG
-        let signature = [
-            nsView.className,
-            String(describing: material),
-            String(describing: blendingMode),
-            String(describing: state),
-            String(format: "%.3f", clampedOpacity),
-            tintColor?.hexString(includeAlpha: true) ?? "nil",
-            String(format: "%.1f", cornerRadius),
-            preferLiquidGlass ? "preferGlass" : "visualEffect",
-        ].joined(separator: "|")
-        if context.coordinator.lastDebugSignature != signature {
-            context.coordinator.lastDebugSignature = signature
-            cmuxDebugLog(
-                "settings.sidebarAppearance.effectUpdate kind=\(nsView.className == "NSGlassEffectView" ? "nativeGlass" : "visualEffect") material=\(String(describing: material)) blend=\(String(describing: blendingMode)) state=\(String(describing: state)) opacity=\(String(format: "%.3f", clampedOpacity)) resolved=\(tintColor?.hexString(includeAlpha: true) ?? "nil") corner=\(String(format: "%.1f", cornerRadius)) prefer=\(preferLiquidGlass ? 1 : 0)"
-            )
-        }
-#endif
     }
 }
 

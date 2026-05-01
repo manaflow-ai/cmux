@@ -5564,14 +5564,7 @@ struct SettingsView: View {
             },
             set: { newColor in
                 let nsColor = NSColor(newColor)
-                let nextHex = nsColor.hexString()
-                let previousHex = sidebarTintHexLight ?? "(nil)"
-                sidebarTintHexLight = nextHex
-#if DEBUG
-                logSidebarAppearanceSettingsChange(
-                    "lightTint.set previous=\(previousHex) next=\(nextHex)"
-                )
-#endif
+                sidebarTintHexLight = nsColor.hexString()
             }
         )
     }
@@ -5583,55 +5576,10 @@ struct SettingsView: View {
             },
             set: { newColor in
                 let nsColor = NSColor(newColor)
-                let nextHex = nsColor.hexString()
-                let previousHex = sidebarTintHexDark ?? "(nil)"
-                sidebarTintHexDark = nextHex
-#if DEBUG
-                logSidebarAppearanceSettingsChange(
-                    "darkTint.set previous=\(previousHex) next=\(nextHex)"
-                )
-#endif
+                sidebarTintHexDark = nsColor.hexString()
             }
         )
     }
-
-    private var settingsSidebarTintOpacityBinding: Binding<Double> {
-        Binding(
-            get: { sidebarTintOpacity },
-            set: { newValue in
-                let previous = sidebarTintOpacity
-                sidebarTintOpacity = newValue
-#if DEBUG
-                logSidebarAppearanceSettingsChange(
-                    "opacity.set previous=\(String(format: "%.3f", previous)) next=\(String(format: "%.3f", newValue))"
-                )
-#endif
-            }
-        )
-    }
-
-    private var settingsSidebarMatchTerminalBinding: Binding<Bool> {
-        Binding(
-            get: { sidebarMatchTerminalBackground },
-            set: { newValue in
-                let previous = sidebarMatchTerminalBackground
-                sidebarMatchTerminalBackground = newValue
-#if DEBUG
-                logSidebarAppearanceSettingsChange(
-                    "matchTerminal.set previous=\(previous ? 1 : 0) next=\(newValue ? 1 : 0)"
-                )
-#endif
-            }
-        )
-    }
-
-#if DEBUG
-    private func logSidebarAppearanceSettingsChange(_ action: String) {
-        cmuxDebugLog(
-            "settings.sidebarAppearance.ui action=\(action) match=\(sidebarMatchTerminalBackground ? 1 : 0) base=\(sidebarTintHex) light=\(sidebarTintHexLight ?? "nil") dark=\(sidebarTintHexDark ?? "nil") opacity=\(String(format: "%.3f", sidebarTintOpacity))"
-        )
-    }
-#endif
 
     private var hasSocketPasswordConfigured: Bool {
         SocketControlPasswordStore.hasConfiguredPassword()
@@ -6525,7 +6473,7 @@ struct SettingsView: View {
                             String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
                             subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
                         ) {
-                            Toggle("", isOn: settingsSidebarMatchTerminalBinding)
+                            Toggle("", isOn: $sidebarMatchTerminalBackground)
                                 .labelsHidden()
                                 .toggleStyle(.switch)
                                 .controlSize(.small)
@@ -6585,7 +6533,7 @@ struct SettingsView: View {
                             subtitle: String(localized: "settings.sidebarAppearance.tintOpacity.subtitle", defaultValue: "How strongly the tint color shows over the sidebar material.")
                         ) {
                             HStack(spacing: 8) {
-                                Slider(value: settingsSidebarTintOpacityBinding, in: 0...1)
+                                Slider(value: $sidebarTintOpacity, in: 0...1)
                                     .frame(width: 140)
                                 Text(String(format: "%.0f%%", sidebarTintOpacity * 100))
                                     .font(.system(size: 12, weight: .medium, design: .monospaced))
@@ -6607,9 +6555,6 @@ struct SettingsView: View {
                                 sidebarTintHexDark = nil
                                 sidebarTintHex = SidebarTintDefaults.hex
                                 sidebarTintOpacity = SidebarTintDefaults.opacity
-#if DEBUG
-                                logSidebarAppearanceSettingsChange("resetTint")
-#endif
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)

@@ -292,47 +292,13 @@ enum WindowGlassEffect {
         NSClassFromString("NSGlassEffectView") != nil
     }
 
-#if DEBUG
-    private static func debugTintDescription(_ color: NSColor?) -> String {
-        color?.hexString(includeAlpha: true) ?? "nil"
-    }
-
-    private static func debugStyleDescription(_ style: Style?) -> String {
-        switch style {
-        case .regular:
-            return "regular"
-        case .clear:
-            return "clear"
-        case nil:
-            return "nil"
-        }
-    }
-#endif
-
     @discardableResult
     static func apply(to window: NSWindow, tintColor: NSColor? = nil, style: Style? = nil) -> Bool {
-        guard let currentContentView = window.contentView else {
-#if DEBUG
-            cmuxDebugLog(
-                "settings.windowGlass.apply result=noContent win=\(window.windowNumber) tint=\(debugTintDescription(tintColor)) style=\(debugStyleDescription(style))"
-            )
-#endif
-            return false
-        }
+        guard let currentContentView = window.contentView else { return false }
         guard isAvailable else {
-#if DEBUG
-            cmuxDebugLog(
-                "settings.windowGlass.apply path=fallback reason=unavailable win=\(window.windowNumber) tint=\(debugTintDescription(tintColor)) style=\(debugStyleDescription(style))"
-            )
-#endif
             return applyFallback(to: window, contentView: currentContentView, tintColor: tintColor)
         }
-        let removedFallback = removeFallback(from: window)
-#if DEBUG
-        if removedFallback {
-            cmuxDebugLog("settings.windowGlass.apply removed=fallback win=\(window.windowNumber)")
-        }
-#endif
+        removeFallback(from: window)
 
         let topOffset = glassTopOffset(for: window, contentView: currentContentView)
         let cornerRadius = windowCornerRadius(for: window)
@@ -345,11 +311,6 @@ enum WindowGlassEffect {
                 cornerRadius: cornerRadius,
                 isKeyWindow: window.isKeyWindow
             )
-#if DEBUG
-            cmuxDebugLog(
-                "settings.windowGlass.apply path=native result=updated win=\(window.windowNumber) tint=\(debugTintDescription(tintColor)) style=\(debugStyleDescription(style)) top=\(String(format: "%.1f", topOffset)) key=\(window.isKeyWindow ? 1 : 0)"
-            )
-#endif
             return false
         }
 
@@ -369,11 +330,6 @@ enum WindowGlassEffect {
         objc_setAssociatedObject(window, &glassRootViewKey, rootView, .OBJC_ASSOCIATION_RETAIN)
         objc_setAssociatedObject(window, &originalContentViewKey, originalContentView, .OBJC_ASSOCIATION_RETAIN)
         objc_setAssociatedObject(window, &originalContentLayoutStateKey, layoutState, .OBJC_ASSOCIATION_RETAIN)
-#if DEBUG
-        cmuxDebugLog(
-            "settings.windowGlass.apply path=native result=created win=\(window.windowNumber) tint=\(debugTintDescription(tintColor)) style=\(debugStyleDescription(style)) top=\(String(format: "%.1f", topOffset)) key=\(window.isKeyWindow ? 1 : 0)"
-        )
-#endif
         return true
     }
 
@@ -387,11 +343,6 @@ enum WindowGlassEffect {
                 cornerRadius: windowCornerRadius(for: window),
                 isKeyWindow: window.isKeyWindow
             )
-#if DEBUG
-            cmuxDebugLog(
-                "settings.windowGlass.updateTint path=native win=\(window.windowNumber) tint=\(debugTintDescription(color)) key=\(window.isKeyWindow ? 1 : 0)"
-            )
-#endif
         } else if let fallbackView = fallbackBackgroundView(for: window) {
             fallbackView.configure(
                 tintColor: color,
@@ -399,17 +350,6 @@ enum WindowGlassEffect {
                 cornerRadius: windowCornerRadius(for: window),
                 isKeyWindow: window.isKeyWindow
             )
-#if DEBUG
-            cmuxDebugLog(
-                "settings.windowGlass.updateTint path=fallback win=\(window.windowNumber) tint=\(debugTintDescription(color)) key=\(window.isKeyWindow ? 1 : 0)"
-            )
-#endif
-        } else {
-#if DEBUG
-            cmuxDebugLog(
-                "settings.windowGlass.updateTint path=none win=\(window.windowNumber) tint=\(debugTintDescription(color)) key=\(window.isKeyWindow ? 1 : 0)"
-            )
-#endif
         }
     }
 
@@ -456,17 +396,13 @@ enum WindowGlassEffect {
         return objc_getAssociatedObject(window, &originalContentViewKey) as? NSView
     }
 
-    static func contentOverlayInstallationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
+    static func portalInstallationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
         guard let rootView = activeRootView(for: window),
               let originalContentView = originalContentView(for: window),
               originalContentView.superview === rootView.foregroundContainer else {
             return nil
         }
         return (rootView.foregroundContainer, originalContentView)
-    }
-
-    static func portalInstallationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
-        contentOverlayInstallationTarget(for: window)
     }
 
     private static func activeRootView(for window: NSWindow) -> GlassRootView? {
@@ -490,12 +426,7 @@ enum WindowGlassEffect {
         contentView: NSView,
         tintColor: NSColor?
     ) -> Bool {
-        guard let themeFrame = contentView.superview else {
-#if DEBUG
-            cmuxDebugLog("settings.windowGlass.applyFallback result=noThemeFrame win=\(window.windowNumber) tint=\(debugTintDescription(tintColor))")
-#endif
-            return false
-        }
+        guard let themeFrame = contentView.superview else { return false }
         let cornerRadius = windowCornerRadius(for: window)
         if let fallbackView = fallbackBackgroundView(for: window) {
             if fallbackView.superview !== themeFrame {
@@ -508,9 +439,6 @@ enum WindowGlassEffect {
                 cornerRadius: cornerRadius,
                 isKeyWindow: window.isKeyWindow
             )
-#if DEBUG
-            cmuxDebugLog("settings.windowGlass.applyFallback result=updated win=\(window.windowNumber) tint=\(debugTintDescription(tintColor))")
-#endif
             return false
         }
 
@@ -524,9 +452,6 @@ enum WindowGlassEffect {
         )
         attachFallback(fallbackView, to: themeFrame, below: contentView)
         objc_setAssociatedObject(window, &fallbackBackgroundViewKey, fallbackView, .OBJC_ASSOCIATION_RETAIN)
-#if DEBUG
-        cmuxDebugLog("settings.windowGlass.applyFallback result=created win=\(window.windowNumber) tint=\(debugTintDescription(tintColor))")
-#endif
         return true
     }
 
@@ -563,16 +488,9 @@ enum WindowGlassEffect {
     @discardableResult
     static func remove(from window: NSWindow) -> Bool {
         if !removeNativeRoot(from: window) {
-            let removedFallback = removeFallback(from: window)
-#if DEBUG
-            cmuxDebugLog("settings.windowGlass.remove path=fallback result=\(removedFallback ? 1 : 0) win=\(window.windowNumber)")
-#endif
-            return removedFallback
+            return removeFallback(from: window)
         }
         removeFallback(from: window)
-#if DEBUG
-        cmuxDebugLog("settings.windowGlass.remove path=native result=1 win=\(window.windowNumber)")
-#endif
         return true
     }
 
