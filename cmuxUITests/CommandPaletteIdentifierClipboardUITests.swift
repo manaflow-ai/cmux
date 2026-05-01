@@ -57,6 +57,50 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
         )
     }
 
+    func testCmdShiftPOpenCmuxJSONOpensUserConfigFile() throws {
+        let app = XCUIApplication()
+        let capturePath = "/tmp/cmux-ui-test-open-cmux-json-\(UUID().uuidString).txt"
+        try? FileManager.default.removeItem(atPath: capturePath)
+        addTeardownBlock {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: capturePath)
+        }
+
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = capturePath
+        launchAndActivate(app)
+
+        XCTAssertTrue(
+            pollUntil(timeout: 8.0) { app.windows.count >= 1 },
+            "Expected the main window to be visible"
+        )
+
+        openCommandPaletteCommands(app: app)
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        searchField.typeText("open cmux json")
+
+        let predicate = NSPredicate(
+            format: "identifier BEGINSWITH %@ AND value == %@",
+            "CommandPaletteResultRow.",
+            "palette.openCmuxSettingsFile"
+        )
+        let row = app.descendants(matching: .any)
+            .matching(predicate)
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5.0), "Expected row for Open cmux.json")
+        row.click()
+
+        let openedPath = try XCTUnwrap(
+            capturedOpenPath(at: capturePath, timeout: 3.0),
+            "Expected the palette action to attempt opening a file"
+        )
+        let expectedPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/cmux/cmux.json", isDirectory: false)
+            .path
+        XCTAssertEqual(openedPath, expectedPath)
+    }
+
     private func launchAndActivate(_ app: XCUIApplication) {
         app.launch()
         XCTAssertTrue(
@@ -118,6 +162,21 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
         app.typeKey("p", modifierFlags: [.command, .shift])
         XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
         searchField.click()
+    }
+
+    private func capturedOpenPath(at path: String, timeout: TimeInterval) -> String? {
+        var latest: String?
+        let matched = pollUntil(timeout: timeout) {
+            guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+                return false
+            }
+            latest = contents
+                .split(separator: "\n")
+                .map(String.init)
+                .last
+            return latest != nil
+        }
+        return matched ? latest : nil
     }
 
     private func waitForIdentifierClipboard(keys: [String], timeout: TimeInterval) -> String? {
