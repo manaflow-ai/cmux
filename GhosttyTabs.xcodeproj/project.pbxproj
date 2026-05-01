@@ -46,6 +46,8 @@
 		8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 		9C1BEA3D2E6F49709A71C020 /* TerminalControllerSocketWriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C1BEA3D2E6F49709A71C021 /* TerminalControllerSocketWriteTests.swift */; };
 		A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
+		A50033840000000000000003 /* SettingsDebugSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50033840000000000000004 /* SettingsDebugSocketCommands.swift */; };
+		A50033840000000000000001 /* SettingsPickerRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50033840000000000000002 /* SettingsPickerRows.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
 		A50019B0 /* SettingsSearchAliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B1 /* SettingsSearchAliases.swift */; };
 		A50019B2 /* SettingsSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B3 /* SettingsSearchIndexTests.swift */; };
@@ -365,6 +367,8 @@
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		A5001000 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
+		A50033840000000000000004 /* SettingsDebugSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/SettingsDebugSocketCommands.swift; sourceTree = "<group>"; };
+		A50033840000000000000002 /* SettingsPickerRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/SettingsPickerRows.swift; sourceTree = "<group>"; };
 		A50019A1 /* SettingsNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigation.swift; sourceTree = "<group>"; };
 		A50019B1 /* SettingsSearchAliases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchAliases.swift; sourceTree = "<group>"; };
 		A50019B3 /* SettingsSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchIndexTests.swift; sourceTree = "<group>"; };
@@ -720,6 +724,8 @@
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
 				A5001011 /* cmuxApp.swift */,
+				A50033840000000000000004 /* SettingsDebugSocketCommands.swift */,
+				A50033840000000000000002 /* SettingsPickerRows.swift */,
 				A50019A1 /* SettingsNavigation.swift */,
 				A50019B1 /* SettingsSearchAliases.swift */,
 				A5001012 /* ContentView.swift */,
@@ -1176,6 +1182,8 @@
 				3023A1003023A1003023A100 /* ConfigSource.swift in Sources */,
 				3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
 				A5001001 /* cmuxApp.swift in Sources */,
+				A50033840000000000000003 /* SettingsDebugSocketCommands.swift in Sources */,
+				A50033840000000000000001 /* SettingsPickerRows.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
 				A50019B0 /* SettingsSearchAliases.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,

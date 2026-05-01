@@ -2770,8 +2770,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugPanelSnapshotReset(params: params))
         case "debug.window.screenshot":
             return v2Result(id: id, self.v2DebugScreenshot(params: params))
+        case "debug.settings.window_state": return v2Result(id: id, self.v2DebugSettingsWindowState(params: params))
 #endif
-
             default:
                 return v2Error(id: id, code: "method_not_found", message: "Unknown method")
             }
@@ -2989,9 +2989,9 @@ class TerminalController {
             "debug.panel_snapshot",
             "debug.panel_snapshot.reset",
             "debug.window.screenshot",
+            "debug.settings.window_state",
         ])
 #endif
-
         return [
             "protocol": "cmux-socket",
             "version": 2,

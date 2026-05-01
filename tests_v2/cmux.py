@@ -1059,6 +1059,12 @@ class cmux:
     def reset_flash_counts(self) -> None:
         self._call("debug.flash.reset")
 
+    def settings_window_state(self) -> dict:
+        return dict(self._call("debug.settings.window_state") or {})
+
+    def close_settings(self) -> None:
+        self._call("debug.settings.window_state", {"close": True})
+
     def screenshot(self, label: str = "") -> dict:
         params: Dict[str, Any] = {}
         if label:

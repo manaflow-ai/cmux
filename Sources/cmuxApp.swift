@@ -5200,6 +5200,8 @@ private func openCmuxSettingsFileInEditor() {
 }
 
 struct SettingsView: View {
+    let selectedSection: SettingsNavigationTarget
+
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
@@ -5307,9 +5309,14 @@ struct SettingsView: View {
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var showOpenAccessConfirmation = false
     @State private var pendingOpenAccessMode: SocketControlMode?
+    @State private var detectedImportBrowserRefreshTask: Task<Void, Never>?
+    @State private var detectedImportBrowserScanTask: Task<[InstalledBrowserCandidate], Never>?
+    @State private var detectedImportBrowserRefreshGeneration: UInt64 = 0
     @State private var browserHistoryEntryCount: Int = 0
     @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
+    @State private var browserInsecureHTTPAllowlistDraftInitialized = false
+    @State private var browserInsecureHTTPAllowlistDraftDirty = false
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
@@ -5320,7 +5327,11 @@ struct SettingsView: View {
     @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
-    @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
+    @State private var workspaceTabPaletteEntries: [WorkspaceTabColorEntry] = []
+
+    private var showsBrowserSection: Bool {
+        selectedSection == .browser || selectedSection == .browserImport
+    }
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -5612,7 +5623,17 @@ struct SettingsView: View {
     }
 
     private var browserInsecureHTTPAllowlistHasUnsavedChanges: Bool {
-        browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
+        browserInsecureHTTPAllowlistDraftDirty
+    }
+
+    private var browserInsecureHTTPAllowlistDraftBinding: Binding<String> {
+        Binding(
+            get: { browserInsecureHTTPAllowlistDraft },
+            set: { newValue in
+                browserInsecureHTTPAllowlistDraft = newValue
+                browserInsecureHTTPAllowlistDraftDirty = newValue != browserInsecureHTTPAllowlist
+            }
+        )
     }
 
     private var hasCustomNotificationSoundFilePath: Bool {
@@ -5841,22 +5862,52 @@ struct SettingsView: View {
         }
     }
 
+    private func refreshVisibleSettingsSection() {
+        switch selectedSection {
+        case .app:
+            notificationStore.refreshAuthorizationStatus()
+            refreshNotificationCustomSoundStatus()
+        case .browser, .browserImport:
+            BrowserHistoryStore.shared.loadIfNeeded()
+            browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
+            browserImportHintVariantRaw = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw).rawValue
+            browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+            refreshBrowserInsecureHTTPAllowlistDraftIfClean()
+            refreshDetectedImportBrowsers()
+        case .workspaceColors:
+            reloadWorkspaceTabColorSettings()
+        case .account, .terminal, .sidebarAppearance, .automation, .globalHotkey, .keyboardShortcuts, .settingsJSON, .reset:
+            break
+        }
+    }
+
+    private func refreshBrowserInsecureHTTPAllowlistDraftIfClean() {
+        if !browserInsecureHTTPAllowlistDraftInitialized || !browserInsecureHTTPAllowlistDraftDirty {
+            browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
+            browserInsecureHTTPAllowlistDraftDirty = false
+        }
+        browserInsecureHTTPAllowlistDraftInitialized = true
+    }
+
     var body: some View {
-        let _ = keyboardShortcutSettingsObserver.revision
+        let _ = selectedSection == .keyboardShortcuts ? keyboardShortcutSettingsObserver.revision : UInt64(0)
         let _ = Self.validateBypassedSettingsConfigurationReviews()
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .account))
-                    SettingsCard {
-                        AuthSettingsRow(authManager: authManager)
+                    if selectedSection == .account {
+                        SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
+                            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .account))
+                        SettingsCard {
+                            AuthSettingsRow(authManager: authManager)
+                        }
+                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .account, idSuffix: "account"))
                     }
-                    .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .account, idSuffix: "account"))
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .app))
-                    SettingsCard {
+                    if selectedSection == .app {
+                        SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
+                            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .app))
+                        SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("app.language"),
                             String(localized: "settings.app.language", defaultValue: "Language"),
@@ -6444,10 +6495,12 @@ struct SettingsView: View {
                         }
                         .disabled(sidebarHideAllDetails)
                     }
+                    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .terminal))
-                    SettingsCard {
+                    if selectedSection == .terminal {
+                        SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+                            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .terminal))
+                        SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("terminal.showScrollBar"),
                             String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
@@ -6464,10 +6517,12 @@ struct SettingsView: View {
                                 )
                         }
                     }
+                    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
-                    SettingsCard {
+                    if selectedSection == .sidebarAppearance {
+                        SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance"))
+                            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
+                        SettingsCard {
                         SettingsCardRow(
                             configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
                             String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
@@ -6560,10 +6615,12 @@ struct SettingsView: View {
                             .controlSize(.small)
                         }
                     }
+                    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .automation))
-                    SettingsCard {
+                    if selectedSection == .automation {
+                        SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
+                            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .automation))
+                        SettingsCard {
                         SettingsPickerRow(
                             configurationReview: .json("automation.socketControlMode"),
                             String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
@@ -6718,11 +6775,13 @@ struct SettingsView: View {
 
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
                     }
+                    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .browser))
-                        .accessibilityIdentifier("SettingsBrowserSection")
-                    SettingsCard {
+                    if showsBrowserSection {
+                        SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
+                            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .browser))
+                            .accessibilityIdentifier("SettingsBrowserSection")
+                        SettingsCard {
                         browserEnabledSettingsRows
 
                         SettingsPickerRow(
@@ -6849,7 +6908,7 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
-                            TextEditor(text: $browserInsecureHTTPAllowlistDraft)
+                            TextEditor(text: browserInsecureHTTPAllowlistDraftBinding)
                                 .font(.system(size: 12, weight: .regular, design: .monospaced))
                                 .frame(minHeight: 86)
                                 .padding(6)
@@ -7007,13 +7066,17 @@ struct SettingsView: View {
                             .disabled(browserHistoryEntryCount == 0)
                         }
                     }
+                    }
 
-                    GlobalHotkeySection()
+                    if selectedSection == .globalHotkey {
+                        GlobalHotkeySection()
+                    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .keyboardShortcuts))
-                        .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
-                    SettingsCard {
+                    if selectedSection == .keyboardShortcuts {
+                        SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
+                            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .keyboardShortcuts))
+                            .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
+                        SettingsCard {
                         SettingsCardRow(
                             configurationReview: .action,
                             String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"),
@@ -7100,10 +7163,12 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                         .padding(.leading, 2)
                         .accessibilityIdentifier("ShortcutRecordingHint")
+                    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .workspaceColors))
-                    SettingsCard {
+                    if selectedSection == .workspaceColors {
+                        SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
+                            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .workspaceColors))
+                        SettingsCard {
                         SettingsPickerRow(
                             configurationReview: .json("workspaceColors.indicatorStyle"),
                             String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),
@@ -7252,11 +7317,13 @@ struct SettingsView: View {
                             .controlSize(.small)
                         }
                     }
+                    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.settingsJSON", defaultValue: "settings.json"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .settingsJSON))
-                        .accessibilityIdentifier("SettingsJSONSection")
-                    SettingsCard {
+                    if selectedSection == .settingsJSON {
+                        SettingsSectionHeader(title: String(localized: "settings.section.settingsJSON", defaultValue: "settings.json"))
+                            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .settingsJSON))
+                            .accessibilityIdentifier("SettingsJSONSection")
+                        SettingsCard {
                         SettingsCardRow(
                             configurationReview: .action,
                             String(localized: "settings.settingsJSON.file", defaultValue: "User settings file"),
@@ -7295,10 +7362,12 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsJSONDocsLink")
                         }
                     }
+                    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
-                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .reset))
-                    SettingsCard {
+                    if selectedSection == .reset {
+                        SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
+                            .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .reset))
+                        SettingsCard {
                         HStack {
                             Spacer(minLength: 0)
                             Button(String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings")) {
@@ -7312,6 +7381,7 @@ struct SettingsView: View {
                         .padding(.vertical, 10)
                         .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
                     }
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
@@ -7320,36 +7390,42 @@ struct SettingsView: View {
                     \.settingsSearchHighlightState,
                     SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken, startedAt: searchHighlightStartedAt)
                 )
-            }
+        }
         .toggleStyle(.switch)
         .onAppear {
-            BrowserHistoryStore.shared.loadIfNeeded()
-            notificationStore.refreshAuthorizationStatus()
-            browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
-            browserImportHintVariantRaw = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw).rawValue
-            browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
-            browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
-            refreshDetectedImportBrowsers()
-            reloadWorkspaceTabColorSettings()
-            refreshNotificationCustomSoundStatus()
+            refreshVisibleSettingsSection()
+        }
+        .onChange(of: selectedSection) { _, _ in
+            refreshVisibleSettingsSection()
         }
         .onChange(of: notificationSound) { _, _ in
-            refreshNotificationCustomSoundStatus()
+            if selectedSection == .app {
+                refreshNotificationCustomSoundStatus()
+            }
         }
         .onChange(of: notificationSoundCustomFilePath) { _, _ in
-            refreshNotificationCustomSoundStatus()
+            if selectedSection == .app {
+                refreshNotificationCustomSoundStatus()
+            }
         }
-        .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
+        .onChange(of: browserInsecureHTTPAllowlist) { _, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
-            if browserInsecureHTTPAllowlistDraft == oldValue {
+            if !browserInsecureHTTPAllowlistDraftDirty {
                 browserInsecureHTTPAllowlistDraft = newValue
+                browserInsecureHTTPAllowlistDraftInitialized = true
+            } else if browserInsecureHTTPAllowlistDraft == newValue {
+                browserInsecureHTTPAllowlistDraftDirty = false
             }
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
-            browserHistoryEntryCount = entries.count
+            if showsBrowserSection {
+                browserHistoryEntryCount = entries.count
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            reloadWorkspaceTabColorSettings()
+            if selectedSection == .workspaceColors {
+                reloadWorkspaceTabColorSettings()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
@@ -7365,10 +7441,12 @@ struct SettingsView: View {
                 searchHighlightStartedAt = nil
             }
             DispatchQueue.main.async {
-                guard navigationGeneration == settingsNavigationGeneration else { return }
-                proxy.scrollTo(sectionID, anchor: .top)
-                if destination.shouldHighlight {
-                    proxy.scrollTo(destination.anchorID, anchor: .center)
+                DispatchQueue.main.async {
+                    guard navigationGeneration == settingsNavigationGeneration else { return }
+                    proxy.scrollTo(sectionID, anchor: .top)
+                    if destination.shouldHighlight {
+                        proxy.scrollTo(destination.anchorID, anchor: .center)
+                    }
                 }
             }
         }
@@ -7474,6 +7552,8 @@ struct SettingsView: View {
         browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
+        browserInsecureHTTPAllowlistDraftInitialized = true
+        browserInsecureHTTPAllowlistDraftDirty = false
         notificationSound = NotificationSoundSettings.defaultValue
         notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
         notificationCustomSoundStatusMessage = nil
@@ -7587,10 +7667,37 @@ struct SettingsView: View {
 
     private func saveBrowserInsecureHTTPAllowlist() {
         browserInsecureHTTPAllowlist = browserInsecureHTTPAllowlistDraft
+        browserInsecureHTTPAllowlistDraftInitialized = true
+        browserInsecureHTTPAllowlistDraftDirty = false
     }
 
     private func refreshDetectedImportBrowsers() {
-        detectedImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
+        detectedImportBrowserRefreshTask?.cancel()
+        detectedImportBrowserScanTask?.cancel()
+        detectedImportBrowserRefreshGeneration &+= 1
+        let generation = detectedImportBrowserRefreshGeneration
+
+        let scanTask = Task.detached(priority: .utility) {
+            InstalledBrowserDetector.detectInstalledBrowsers()
+        }
+        detectedImportBrowserScanTask = scanTask
+        detectedImportBrowserRefreshTask = Task {
+            let browsers = await scanTask.value
+            guard !Task.isCancelled else {
+                await MainActor.run {
+                    guard detectedImportBrowserRefreshGeneration == generation else { return }
+                    detectedImportBrowserRefreshTask = nil
+                    detectedImportBrowserScanTask = nil
+                }
+                return
+            }
+            await MainActor.run {
+                guard detectedImportBrowserRefreshGeneration == generation else { return }
+                detectedImportBrowsers = browsers
+                detectedImportBrowserRefreshTask = nil
+                detectedImportBrowserScanTask = nil
+            }
+        }
     }
 }
 
@@ -7831,33 +7938,6 @@ extension SettingsPickerRow where ExtraTrailing == EmptyView {
     }
 }
 
-private enum SettingsConfigurationReview: Equatable {
-    case settingsFile([String])
-    case settingsOnly
-    case action
-    case debugOnly
-
-    static func json(_ paths: String...) -> Self {
-        .settingsFile(paths)
-    }
-
-    var searchAnchorIDs: [String] {
-        guard case .settingsFile(let paths) = self else { return [] }
-        return paths.compactMap(SettingsSearchIndex.anchorID(forSettingsPath:))
-    }
-
-    func validate(file: StaticString = #fileID, line: UInt = #line) {
-        guard case .settingsFile(let paths) = self else { return }
-        let unknownPaths = paths.filter { !CmuxSettingsFileStore.supportedSettingsJSONPaths.contains($0) }
-        precondition(
-            unknownPaths.isEmpty,
-            "Unknown settings.json path(s): \(unknownPaths.joined(separator: ", "))",
-            file: file,
-            line: line
-        )
-    }
-}
-
 private extension View {
     @ViewBuilder
     func applyIf(_ condition: Bool, transform: (Self) -> some View) -> some View {
@@ -7891,301 +7971,6 @@ private struct SettingsCardNote: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct ThemeWindowThumbnail: View {
-    let isDark: Bool
-
-    var body: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let height = geo.size.height
-
-            ZStack {
-                // Wallpaper background
-                if isDark {
-                    LinearGradient(
-                        colors: [Color(red: 0.1, green: 0.1, blue: 0.3), Color(red: 0.05, green: 0.05, blue: 0.1)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    Path { path in
-                        path.move(to: CGPoint(x: 0, y: height * 0.5))
-                        path.addQuadCurve(to: CGPoint(x: width, y: height), control: CGPoint(x: width * 0.5, y: height * 0.2))
-                        path.addLine(to: CGPoint(x: width, y: 0))
-                        path.addLine(to: CGPoint(x: 0, y: 0))
-                    }
-                    .fill(LinearGradient(colors: [Color(red: 0.2, green: 0.2, blue: 0.6).opacity(0.5), .clear], startPoint: .topLeading, endPoint: .bottomTrailing))
-                } else {
-                    LinearGradient(
-                        colors: [Color(red: 0.6, green: 0.8, blue: 0.95), Color(red: 0.2, green: 0.4, blue: 0.8)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    Path { path in
-                        path.move(to: CGPoint(x: 0, y: height * 0.5))
-                        path.addQuadCurve(to: CGPoint(x: width, y: height), control: CGPoint(x: width * 0.5, y: height * 0.2))
-                        path.addLine(to: CGPoint(x: width, y: 0))
-                        path.addLine(to: CGPoint(x: 0, y: 0))
-                    }
-                    .fill(LinearGradient(colors: [Color(red: 0.8, green: 0.9, blue: 1.0).opacity(0.6), .clear], startPoint: .topLeading, endPoint: .bottomTrailing))
-                }
-
-                // Menu bar
-                VStack(spacing: 0) {
-                    HStack {
-                        Image(systemName: "applelogo")
-                            .font(.system(size: max(height * 0.08, 6)))
-                            .foregroundColor(isDark ? .white : .black)
-                            .opacity(0.8)
-                        Spacer()
-                    }
-                    .padding(.horizontal, max(width * 0.04, 4))
-                    .frame(height: max(height * 0.12, 8))
-                    .background(.ultraThinMaterial)
-                    Spacer()
-                }
-
-                // Back window
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(isDark ? Color(white: 0.2) : Color(white: 0.9))
-                        .frame(height: max(height * 0.15, 8))
-                    ZStack(alignment: .top) {
-                        Rectangle()
-                            .fill(isDark ? Color(white: 0.15) : Color(white: 0.98))
-                        RoundedRectangle(cornerRadius: max(width * 0.02, 2), style: .continuous)
-                            .fill(Color.accentColor)
-                            .frame(height: max(height * 0.12, 6))
-                            .padding(max(width * 0.04, 4))
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: max(width * 0.04, 4), style: .continuous))
-                .frame(width: width * 0.65, height: height * 0.45)
-                .shadow(color: .black.opacity(isDark ? 0.4 : 0.15), radius: 4, x: 0, y: 2)
-                .offset(x: -width * 0.08, y: -height * 0.1)
-
-                // Front window with traffic lights
-                VStack(spacing: 0) {
-                    ZStack {
-                        Rectangle()
-                            .fill(isDark ? Color(white: 0.18) : Color(white: 0.92))
-                        HStack(spacing: max(width * 0.025, 2)) {
-                            Circle().fill(Color(red: 1.0, green: 0.37, blue: 0.34)).frame(width: max(width * 0.04, 3))
-                            Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.18)).frame(width: max(width * 0.04, 3))
-                            Circle().fill(Color(red: 0.15, green: 0.79, blue: 0.25)).frame(width: max(width * 0.04, 3))
-                            Spacer()
-                        }
-                        .padding(.horizontal, max(width * 0.04, 4))
-                    }
-                    .frame(height: max(height * 0.18, 10))
-                    Rectangle()
-                        .fill(isDark ? Color(white: 0.1) : .white)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: max(width * 0.05, 5), style: .continuous))
-                .shadow(color: .black.opacity(isDark ? 0.5 : 0.2), radius: 6, x: 0, y: 3)
-                .frame(width: width * 0.75, height: height * 0.55)
-                .offset(x: width * 0.12, y: height * 0.2)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-        )
-    }
-}
-
-private struct ThemePickerRow: View {
-    let configurationReview: SettingsConfigurationReview
-    let selectedMode: String
-    let onSelect: (AppearanceMode) -> Void
-
-    private let thumbWidth: CGFloat = 76
-    private let thumbHeight: CGFloat = 50
-
-    init(
-        configurationReview: SettingsConfigurationReview,
-        selectedMode: String,
-        onSelect: @escaping (AppearanceMode) -> Void
-    ) {
-        configurationReview.validate()
-        self.configurationReview = configurationReview
-        self.selectedMode = selectedMode
-        self.onSelect = onSelect
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(String(localized: "settings.app.theme", defaultValue: "Theme"))
-                .font(.system(size: 13, weight: .medium))
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 8) {
-                ForEach(AppearanceMode.visibleCases) { mode in
-                    let isSelected = selectedMode == mode.rawValue
-                    Button {
-                        onSelect(mode)
-                    } label: {
-                        VStack(spacing: 4) {
-                            Group {
-                                if mode == .system {
-                                    ZStack {
-                                        ThemeWindowThumbnail(isDark: false)
-                                            .mask(
-                                                GeometryReader { geo in
-                                                    Rectangle()
-                                                        .frame(width: geo.size.width / 2, height: geo.size.height)
-                                                        .position(x: geo.size.width / 4, y: geo.size.height / 2)
-                                                }
-                                            )
-                                        ThemeWindowThumbnail(isDark: true)
-                                            .mask(
-                                                GeometryReader { geo in
-                                                    Rectangle()
-                                                        .frame(width: geo.size.width / 2, height: geo.size.height)
-                                                        .position(x: geo.size.width * 0.75, y: geo.size.height / 2)
-                                                }
-                                            )
-                                        GeometryReader { geo in
-                                            Rectangle()
-                                                .fill(Color.primary.opacity(0.15))
-                                                .frame(width: 1, height: geo.size.height)
-                                                .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                                        }
-                                    }
-                                } else {
-                                    ThemeWindowThumbnail(isDark: mode == .dark)
-                                }
-                            }
-                            .frame(width: thumbWidth, height: thumbHeight)
-
-                            Text(mode.displayName)
-                                .font(.system(size: 10))
-                                .fontWeight(isSelected ? .semibold : .regular)
-                                .foregroundColor(isSelected ? .primary : .secondary)
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 10)
-                        .contentShape(Rectangle())
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(isSelected
-                                    ? Color.accentColor.opacity(0.12)
-                                    : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .focusable(false)
-                    .accessibilityAddTraits(isSelected ? .isSelected : [])
-                }
-            }
-            .layoutPriority(1)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .settingsSearchAnchors(configurationReview.searchAnchorIDs)
-    }
-}
-
-private struct AppIconPickerRow: View {
-    let configurationReview: SettingsConfigurationReview
-    let selectedMode: String
-    let onSelect: (AppIconMode) -> Void
-
-    private let iconSize: CGFloat = 48
-    private let autoIconSize: CGFloat = 36
-
-    init(
-        configurationReview: SettingsConfigurationReview,
-        selectedMode: String,
-        onSelect: @escaping (AppIconMode) -> Void
-    ) {
-        configurationReview.validate()
-        self.configurationReview = configurationReview
-        self.selectedMode = selectedMode
-        self.onSelect = onSelect
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(String(localized: "settings.app.appIcon", defaultValue: "App Icon"))
-                    .font(.system(size: 13, weight: .medium))
-                Text(String(localized: "settings.app.appIcon.subtitle", defaultValue: "Dock and app switcher"))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 8) {
-                ForEach(AppIconMode.allCases) { mode in
-                    let isSelected = selectedMode == mode.rawValue
-                    Button {
-                        onSelect(mode)
-                    } label: {
-                        VStack(spacing: 4) {
-                            Group {
-                                if mode == .automatic {
-                                    ZStack {
-                                        Image("AppIconLight")
-                                            .resizable()
-                                            .interpolation(.high)
-                                            .frame(width: autoIconSize, height: autoIconSize)
-                                            .clipShape(RoundedRectangle(cornerRadius: autoIconSize * 0.22, style: .continuous))
-                                            .offset(x: -10)
-                                        Image("AppIconDark")
-                                            .resizable()
-                                            .interpolation(.high)
-                                            .frame(width: autoIconSize, height: autoIconSize)
-                                            .clipShape(RoundedRectangle(cornerRadius: autoIconSize * 0.22, style: .continuous))
-                                            .offset(x: 10)
-                                    }
-                                    .frame(width: iconSize, height: iconSize)
-                                } else {
-                                    Image(mode.imageName ?? "AppIconLight")
-                                        .resizable()
-                                        .interpolation(.high)
-                                        .frame(width: iconSize, height: iconSize)
-                                        .clipShape(RoundedRectangle(cornerRadius: iconSize * 0.22, style: .continuous))
-                                }
-                            }
-
-                            Text(mode.displayName)
-                                .font(.system(size: 10))
-                                .foregroundColor(isSelected ? .primary : .secondary)
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 10)
-                        .contentShape(Rectangle())
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(isSelected
-                                    ? Color.accentColor.opacity(0.12)
-                                    : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .focusable(false)
-                    .accessibilityAddTraits(isSelected ? .isSelected : [])
-                }
-            }
-            .layoutPriority(1)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .settingsSearchAnchors(configurationReview.searchAnchorIDs)
     }
 }
 
@@ -8317,7 +8102,7 @@ private struct SettingsRootView: View {
             )
             .navigationSplitViewColumnWidth(210)
         } detail: {
-            SettingsView()
+            SettingsView(selectedSection: selectedSection)
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: SettingsWindowPresenter.minimumSize.width, minHeight: SettingsWindowPresenter.minimumSize.height)
@@ -8327,11 +8112,8 @@ private struct SettingsRootView: View {
         }
         .onAppear {
             searchText = ""
-            if let target = SettingsWindowPresenter.consumePendingNavigationTarget() {
-                navigate(to: target, postRequest: true)
-            } else {
-                navigate(to: selectedSection, postRequest: true)
-            }
+            let target = SettingsWindowPresenter.consumePendingNavigationTarget() ?? selectedSection
+            navigate(to: target, postRequest: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let target = SettingsNavigationRequest.target(from: notification) else { return }

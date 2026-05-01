@@ -19,8 +19,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", cmux.DEFAULT_SOCKET_PATH)
 FIRST_OPEN_BUDGET_MS = 1_000.0
+SETTINGS_WINDOW_IDENTIFIER = "cmux.settings"
 SETTINGS_MIN_WIDTH = 820
 SETTINGS_MIN_HEIGHT = 540
 
@@ -61,24 +62,44 @@ def _looks_like_settings_size(size: tuple[int, int]) -> bool:
     return width >= SETTINGS_MIN_WIDTH and height >= SETTINGS_MIN_HEIGHT
 
 
+def _settings_window_is_presented(state: dict) -> bool:
+    return (
+        state.get("identifier") == SETTINGS_WINDOW_IDENTIFIER
+        and bool(state.get("visible"))
+        and (bool(state.get("main")) or bool(state.get("key")))
+    )
+
+
 def _measure_settings_first_capture(c: cmux) -> tuple[float, tuple[int, int]]:
     start = time.perf_counter()
     c.open_settings(activate=True)
-    size = _capture_main_window_size(c, "settings-open-latency")
-    return (time.perf_counter() - start) * 1000.0, size
+    deadline = start + (FIRST_OPEN_BUDGET_MS / 1000.0) + 1.0
+    last_size = (0, 0)
+    while time.perf_counter() < deadline:
+        if _settings_window_is_presented(c.settings_window_state()):
+            last_size = _capture_main_window_size(c, "settings-open-latency")
+            return (time.perf_counter() - start) * 1000.0, last_size
+        time.sleep(0.02)
+    return (time.perf_counter() - start) * 1000.0, last_size
 
 
 def main() -> int:
     _ = _app_pid_for_socket(SOCKET_PATH)
 
     with cmux(SOCKET_PATH) as c:
-        before_size = _capture_main_window_size(c, "settings-open-before")
-        if _looks_like_settings_size(before_size):
-            raise cmuxError(
-                "Main window already matches the Settings minimum size before the latency measurement"
-            )
+        try:
+            before_state = c.settings_window_state()
+            if bool(before_state.get("exists")):
+                raise cmuxError(
+                    "Settings window already exists before the first-present latency measurement"
+                )
 
-        first_open_ms, settings_size = _measure_settings_first_capture(c)
+            first_open_ms, settings_size = _measure_settings_first_capture(c)
+        finally:
+            try:
+                c.close_settings()
+            except cmuxError:
+                pass
 
     if first_open_ms > FIRST_OPEN_BUDGET_MS:
         raise cmuxError(
