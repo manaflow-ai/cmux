@@ -2774,6 +2774,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugResetEmptyPanelCount())
         case "debug.notification.focus":
             return v2Result(id: id, self.v2DebugFocusNotification(params: params))
+        case "debug.window.snapshot":
+            return v2Result(id: id, self.v2DebugWindowSnapshot())
         case "debug.flash.count":
             return v2Result(id: id, self.v2DebugFlashCount(params: params))
         case "debug.flash.reset":
@@ -2998,6 +3000,7 @@ class TerminalController {
             "debug.empty_panel.count",
             "debug.empty_panel.reset",
             "debug.notification.focus",
+            "debug.window.snapshot",
             "debug.flash.count",
             "debug.flash.reset",
             "debug.panel_snapshot",
@@ -12477,6 +12480,25 @@ class TerminalController {
         let args = surfaceId != nil ? "\(wsId) \(surfaceId!)" : wsId
         let resp = focusFromNotification(args)
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugWindowSnapshot() -> V2CallResult {
+#if DEBUG
+        // NSApp.windows, AppDelegate.mainWindowContexts, and per-window AppKit
+        // properties are main-actor state; the exact-snapshot contract for this
+        // debug RPC requires synchronous main-thread execution.
+        // AppDelegate.debugWindowSnapshot() is itself `#if DEBUG`, so this body
+        // must be guarded too or release builds fail to link.
+        let payload: [String: Any]? = v2MainSync {
+            AppDelegate.shared?.debugWindowSnapshot()
+        }
+        guard let payload else {
+            return .err(code: "unavailable", message: "AppDelegate.debugWindowSnapshot unavailable", data: nil)
+        }
+        return .ok(payload)
+#else
+        return .err(code: "unavailable", message: "debug.window.snapshot is DEBUG-only", data: nil)
+#endif
     }
 
     private func v2DebugFlashCount(params: [String: Any]) -> V2CallResult {

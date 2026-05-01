@@ -1,8 +1,25 @@
 import AppKit
 import ObjectiveC
+import OSLog
 #if DEBUG
 import Bonsplit
 #endif
+
+private let notificationPortalLogger = Logger(
+    subsystem: "com.manaflow.cmux",
+    category: "notification-debug"
+)
+
+private func notificationPortalLog(_ message: String) {
+    // Default String-interpolation privacy is `.private`; hosted-view pointers
+    // and window numbers stay redacted in release unified logs.
+    notificationPortalLogger.debug("\(message)")
+}
+
+private func notificationPortalObjectToken(_ object: AnyObject?) -> String {
+    guard let object else { return "nil" }
+    return String(describing: Unmanaged.passUnretained(object).toOpaque())
+}
 
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
@@ -1967,6 +1984,13 @@ enum TerminalWindowPortalRegistry {
 
         let windowId = ObjectIdentifier(window)
         let hostedId = ObjectIdentifier(hostedView)
+        let mappedWindowBefore = hostedToWindowId[hostedId].map { String(describing: $0) } ?? "nil"
+        notificationPortalLog(
+            "portal.bind.request hosted=\(notificationPortalObjectToken(hostedView)) " +
+                "anchor=\(notificationPortalObjectToken(anchorView)) window=\(window.windowNumber) " +
+                "mappedWindowBefore=\(mappedWindowBefore) visible=\(visibleInUI ? 1 : 0) z=\(zPriority) " +
+                "expectedSurface=\(expectedSurfaceId?.uuidString ?? "nil") expectedGeneration=\(expectedGeneration.map { String($0) } ?? "nil")"
+        )
         let guardState = hostedView.portalBindingGuardState()
         guard hostedView.canAcceptPortalBinding(
             expectedSurfaceId: expectedSurfaceId,
@@ -2005,6 +2029,17 @@ enum TerminalWindowPortalRegistry {
         nextPortal.bind(hostedView: hostedView, to: anchorView, visibleInUI: visibleInUI, zPriority: zPriority)
         hostedToWindowId[hostedId] = windowId
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
+#if DEBUG
+        let portalEntryCountAfterBind = nextPortal.debugEntryCount()
+#else
+        let portalEntryCountAfterBind = -1
+#endif
+        notificationPortalLog(
+            "portal.bind.result hosted=\(notificationPortalObjectToken(hostedView)) " +
+                "anchor=\(notificationPortalObjectToken(anchorView)) window=\(window.windowNumber) " +
+                "mappedWindowAfter=\(hostedToWindowId[hostedId].map { String(describing: $0) } ?? "nil") " +
+                "portalEntryCount=\(portalEntryCountAfterBind) hostedSuperview=\(hostedView.superview != nil ? 1 : 0)"
+        )
     }
 
     static func synchronizeForAnchor(_ anchorView: NSView) {
@@ -2075,6 +2110,16 @@ enum TerminalWindowPortalRegistry {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId],
               let portal = portalsByWindowId[windowId] else { return }
+#if DEBUG
+        let portalEntryCount = portal.debugEntryCount()
+#else
+        let portalEntryCount = -1
+#endif
+        notificationPortalLog(
+            "portal.visibility.update hosted=\(notificationPortalObjectToken(hostedView)) " +
+                "mappedWindow=\(String(describing: windowId)) visible=\(visibleInUI ? 1 : 0) " +
+                "portalEntryCount=\(portalEntryCount)"
+        )
         portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
     }
 

@@ -954,6 +954,9 @@ class cmux:
     def activate_app(self) -> None:
         self._call("debug.app.activate")
 
+    def window_snapshot(self) -> dict:
+        return dict(self._call("debug.window.snapshot") or {})
+
     def open_command_palette_rename_tab_input(self, window_id: Optional[str] = None) -> None:
         params: Dict[str, Any] = {}
         if window_id is not None:

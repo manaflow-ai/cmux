@@ -1,6 +1,10 @@
 import Foundation
 import CryptoKit
 import Darwin
+import OSLog
+#if canImport(AppKit)
+import AppKit
+#endif
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
@@ -10,6 +14,18 @@ import Security
 #if canImport(Sentry)
 import Sentry
 #endif
+
+private let cliNotificationDebugLogger = Logger(
+    subsystem: "com.manaflow.cmux",
+    category: "notification-debug"
+)
+
+private func cliNotificationDebugLog(_ message: String) {
+    // See AppDelegate.notificationDebugLog — default String interpolation
+    // privacy (`.private`) keeps bundle identifiers, pids, and argv payloads
+    // redacted in release unified logs.
+    cliNotificationDebugLogger.debug("\(message)")
+}
 
 struct CLIError: Error, CustomStringConvertible {
     let message: String
@@ -3782,17 +3798,49 @@ struct CMUXCLI {
     }
 
     private func launchApp() throws {
+        let bundleIdentifier = currentCmuxAppBundleIdentifier()
+#if canImport(AppKit)
+        if let bundleIdentifier,
+           let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+            cliNotificationDebugLog(
+                "cli.launchApp.running bundleId=\(bundleIdentifier) pid=\(running.processIdentifier) active=\(running.isActive ? 1 : 0)"
+            )
+            return
+        }
+#endif
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "cmux"]
+        process.arguments = bundleIdentifier.map { ["-b", $0] } ?? ["-a", "cmux"]
+        cliNotificationDebugLog(
+            "cli.launchApp.spawn bundleId=\(bundleIdentifier ?? "nil") args=\(process.arguments?.joined(separator: " ") ?? "")"
+        )
         try process.run()
         process.waitUntilExit()
     }
 
     private func activateApp() throws {
+        let bundleIdentifier = currentCmuxAppBundleIdentifier()
+#if canImport(AppKit)
+        if let bundleIdentifier,
+           let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+            let activated = running.activate(options: [.activateAllWindows])
+            cliNotificationDebugLog(
+                "cli.activateApp.existing bundleId=\(bundleIdentifier) pid=\(running.processIdentifier) activated=\(activated ? 1 : 0)"
+            )
+            if activated {
+                return
+            }
+            cliNotificationDebugLog(
+                "cli.activateApp.fallback bundleId=\(bundleIdentifier) reason=activate_returned_false"
+            )
+        }
+#endif
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "cmux"]
+        process.arguments = bundleIdentifier.map { ["-b", $0] } ?? ["-a", "cmux"]
+        cliNotificationDebugLog(
+            "cli.activateApp.spawn bundleId=\(bundleIdentifier ?? "nil") args=\(process.arguments?.joined(separator: " ") ?? "")"
+        )
         try process.run()
         process.waitUntilExit()
     }

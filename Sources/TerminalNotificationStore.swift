@@ -1,7 +1,19 @@
 import AppKit
 import Foundation
+import OSLog
 import UserNotifications
 import Bonsplit
+
+private let notificationStoreLogger = Logger(
+    subsystem: "com.manaflow.cmux",
+    category: "notification-debug"
+)
+
+private func notificationStoreLog(_ message: String) {
+    // Default String-interpolation privacy is `.private`, which redacts tab /
+    // surface / notification UUIDs in release unified logs.
+    notificationStoreLogger.debug("\(message)")
+}
 
 // UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
 // removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
@@ -921,6 +933,10 @@ final class TerminalNotificationStore: ObservableObject {
            let resolvedCooldownInterval,
            let lastNotificationDate = lastNotificationDateByCooldownKey[cooldownKey],
            now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
+            notificationStoreLog(
+                "notification.store.skipCooldown tabId=\(tabId.uuidString) " +
+                    "surfaceId=\(surfaceId?.uuidString ?? "nil") cooldownKey=\(cooldownKey)"
+            )
             return
         }
 
@@ -943,6 +959,12 @@ final class TerminalNotificationStore: ObservableObject {
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
         let shouldSuppressExternalDelivery = isAppFocused && isFocusedPanel
+        notificationStoreLog(
+            "notification.store.add tabId=\(tabId.uuidString) surfaceId=\(surfaceId?.uuidString ?? "nil") " +
+                "activeTab=\(isActiveTab ? 1 : 0) focusedSurface=\(isFocusedSurface ? 1 : 0) " +
+                "focusedPanel=\(isFocusedPanel ? 1 : 0) appFocused=\(isAppFocused ? 1 : 0) " +
+                "suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0) existingCount=\(notifications.count)"
+        )
         if shouldSuppressExternalDelivery {
             setFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         }
@@ -970,6 +992,11 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
+        notificationStoreLog(
+            "notification.store.commit notificationId=\(notification.id.uuidString) tabId=\(tabId.uuidString) " +
+                "surfaceId=\(surfaceId?.uuidString ?? "nil") cleared=\(idsToClear.count) " +
+                "newCount=\(notifications.count) unread=\(indexes.unreadCount)"
+        )
         if shouldSuppressExternalDelivery {
             suppressedNotificationFeedbackHandler(self, notification)
         } else {
