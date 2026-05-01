@@ -269,6 +269,18 @@ def main() -> int:
         shown = _run_cli(cli, ["display-message", "-p", msg])
         _must(msg in shown.stdout, f"display-message -p should print message: {shown.stdout!r}")
 
+        # show-options must succeed for known and unknown options so omx/codex
+        # capability probes (e.g. `tmux show-options -sv extended-keys`) do not
+        # blow up the agent before it starts. Regression for the bug where
+        # show-options threw "Unsupported tmux compatibility command".
+        ek = _run_cli(cli, ["show-options", "-sv", "extended-keys"])
+        _must(ek.stdout.strip() == "off", f"show-options -sv extended-keys should print 'off', got: {ek.stdout!r}")
+        unknown = _run_cli(cli, ["show-options", "-sv", "definitely-not-a-real-option"])
+        _must(unknown.returncode == 0, f"show-options for unknown option should exit 0, got code={unknown.returncode}, stderr={unknown.stderr!r}")
+        _must(unknown.stdout.strip() == "", f"show-options for unknown option should be empty, got: {unknown.stdout!r}")
+        named = _run_cli(cli, ["show-options", "-s", "extended-keys"])
+        _must("extended-keys" in named.stdout and "off" in named.stdout, f"show-options without -v should print name and value: {named.stdout!r}")
+
     print("PASS: tmux compatibility matrix commands are wired and tested")
     return 0
 
