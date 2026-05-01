@@ -17,7 +17,7 @@ struct DockEmptyView: View {
             ))
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
+            VStack(spacing: 8) {
                 HStack(spacing: 4) {
                     Button {
                         copyAgentPrompt()
