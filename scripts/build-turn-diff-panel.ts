@@ -10,14 +10,42 @@ const repoRoot = resolve(import.meta.dir, "..")
 const panelDir = join(repoRoot, "panels", "turn-diff")
 const swiftOut = join(repoRoot, "Sources", "Panels", "PerTurnDiff", "TurnDiffWebViewBundle.swift")
 
-// Vite 5 + bun runtime has a crypto.getRandomValues incompatibility.
-// Run vite via node directly (Node 20 available via nvm).
-const nodeBin = join(panelDir, "node_modules", ".bin", "vite")
-const nodePath =
-  process.env.VITE_NODE_BIN ?? "/Users/waichong/.nvm/versions/node/v20.20.2/bin/node"
+// Vite 5 + bun runtime has a crypto.getRandomValues incompatibility, so we
+// invoke vite via Node 20+. Resolution order:
+//   1. $VITE_NODE_BIN (explicit override; not version-checked)
+//   2. Candidates: `node` on PATH, common nvm/volta/brew paths — first one with major >= 20 wins
+async function nodeMajor(bin: string): Promise<number> {
+  const r = await $`${bin} --version`.quiet().nothrow()
+  if (r.exitCode !== 0) return -1
+  const m = r.stdout.toString().trim().match(/^v(\d+)/)
+  return m ? Number(m[1]) : -1
+}
 
-console.log("[turn-diff] vite build…")
-await $`${nodePath} ${nodeBin} build`.cwd(panelDir).quiet()
+async function resolveNode(): Promise<string> {
+  if (process.env.VITE_NODE_BIN) return process.env.VITE_NODE_BIN
+  const candidates: string[] = []
+  const which = await $`which node`.quiet().nothrow()
+  if (which.exitCode === 0) candidates.push(which.stdout.toString().trim())
+  candidates.push(
+    `${process.env.HOME}/.nvm/versions/node/v20.20.2/bin/node`,
+    `${process.env.HOME}/.volta/bin/node`,
+    "/opt/homebrew/bin/node",
+    "/usr/local/bin/node",
+  )
+  for (const c of candidates) {
+    if (!(await Bun.file(c).exists())) continue
+    if ((await nodeMajor(c)) >= 20) return c
+  }
+  throw new Error(
+    "Node 20+ not found. Install with `brew install node` or set $VITE_NODE_BIN."
+  )
+}
+
+const nodePath = await resolveNode()
+const viteBin = join(panelDir, "node_modules", ".bin", "vite")
+
+console.log(`[turn-diff] vite build (node: ${nodePath})…`)
+await $`${nodePath} ${viteBin} build`.cwd(panelDir).quiet()
 
 const html = await readFile(join(panelDir, "dist", "index.html"), "utf8")
 
