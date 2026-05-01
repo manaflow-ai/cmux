@@ -17,11 +17,20 @@ protocol TurnCheckpointManagerWorkspace: AnyObject {
 
 /// Lazy-snapshot orchestrator for one workspace.
 /// Subscribes to claude_code status entry; on idle→running captures T_start tree;
-/// on running→idle compares T_end and updates the ref iff something changed.
+/// on running→idle compares T_end and updates the in-memory baseline iff something changed.
 ///
 /// The git root tracked here is dynamic: callers (TurnCheckpointRegistry) update
 /// it whenever the focused terminal pane's pwd changes, by walking up to the
 /// nearest `.git` ancestor. While `currentRoot == nil` the manager is idle.
+///
+/// Baselines used to be stored as refs/cmux/session-<wsId>/last-turn-base in
+/// the user's `.git/refs/`, with parent-less commits/trees in the user's
+/// `.git/objects/`. That polluted `git fsck`/`for-each-ref` and accumulated
+/// disk inside the user's repo. The current design keeps tree/commit objects
+/// inside cmux's per-(ws, repo) object store under
+/// `~/Library/Application Support/cmux/diff-state/...`, and tracks the
+/// per-repo baseline tree SHA in `baselineTreesByRoot` here. No `update-ref`
+/// calls are ever made against the user's repo.
 @MainActor
 final class TurnCheckpointManager {
     /// Status-key the snapshot algorithm watches. Constant for v1 (Claude Code only).
@@ -40,6 +49,11 @@ final class TurnCheckpointManager {
     /// Insertion is deduped: revisiting an existing root just moves it to the
     /// end without creating a duplicate entry.
     private(set) var visitedRoots: [String] = []
+
+    /// Per-repo baseline tree SHA (cmux store object), keyed by repo path.
+    /// Replaces the old `refs/cmux/session-<wsId>/last-turn-base` storage.
+    /// nil entry / missing entry => Tier 1 unavailable, fall through to HEAD.
+    private var baselineTreesByRoot: [String: String] = [:]
 
     /// One root + its rendered diff, for the multi-repo grouped view.
     /// Emitted to the React panel via `onMultiDiffChanged`.
@@ -86,6 +100,13 @@ final class TurnCheckpointManager {
 
     func start() {
         guard let workspace else { return }
+        // Best-effort migration: clear any legacy refs/cmux/session-<ws>/...
+        // refs that prior versions of cmux wrote into the user's .git/refs/.
+        // We do this for the seed root (if any); other roots get their legacy
+        // refs cleaned the first time `updateRoot` visits them.
+        if let root = currentRoot, !root.isEmpty {
+            TurnCheckpointStore.deleteLegacySessionRef(workspaceId: session, in: root)
+        }
         workspace.statusEntriesPublisher
             .map { $0[Self.statusKey]?.value }
             .removeDuplicates()
@@ -98,11 +119,12 @@ final class TurnCheckpointManager {
     func stop() {
         stopLiveWatcher()
         cancellables.removeAll()
-        // Cleanup baselines for every repo we ever visited in this session, not
-        // just the current one — otherwise stale refs leak across re-attaches.
-        for root in visitedRoots where !root.isEmpty {
-            try? TurnCheckpointStore.cleanup(session: session, in: root)
-        }
+        // Drop in-memory baselines; nothing on disk in the user's repo to clean.
+        baselineTreesByRoot.removeAll()
+        // Best-effort: blow away the workspace's diff-state dir so it doesn't
+        // accumulate forever. Cheap enough that doing it here beats writing a
+        // separate gc routine.
+        TurnCheckpointStore.removeDiffStateDirectory(workspaceId: session)
     }
 
     // MARK: - Root management
@@ -117,7 +139,7 @@ final class TurnCheckpointManager {
         }
 
         // Tear down any in-flight per-turn state tied to the old root.
-        // NOTE: do NOT delete the old root's session ref — keep it so returning
+        // NOTE: do NOT clear the old root's baseline entry — keep it so returning
         // to a previously-visited repo finds its baseline intact (e.g., after a
         // /clear in Claude or hopping between two repos).
         stopLiveWatcher()
@@ -133,6 +155,11 @@ final class TurnCheckpointManager {
         // most-recently-active root always sits at the END of the array; the
         // React side keys off this for default-expand.
         if hasRoot, let r = newRoot, !r.isEmpty {
+            // Best-effort migration: scrub any legacy ref the previous design
+            // wrote into the user's .git/refs/cmux/. Idempotent and silent on
+            // failure.
+            TurnCheckpointStore.deleteLegacySessionRef(workspaceId: session, in: r)
+
             if let existing = visitedRoots.firstIndex(of: r) {
                 if existing != visitedRoots.count - 1 {
                     visitedRoots.remove(at: existing)
@@ -153,25 +180,21 @@ final class TurnCheckpointManager {
         // visited repos still show their last diff so the user retains context.
         emitMultiDiff()
 
-        // Snapshot the new root's working tree as the baseline ref ONLY when
-        // the agent is idle. If we're currently Running, the root was likely
-        // detected via the transcript tailer AFTER Claude already edited a
-        // file there — snapshotting now would capture the post-edit state and
-        // the diff at running→idle would show nothing. Instead, leave the ref
-        // unwritten so bestEffortDiff falls through to Tier 2 (HEAD diff) and
-        // shows uncommitted changes. captureEnd will write a fresh baseline
-        // afterward so the next turn produces a clean delta.
+        // Snapshot the new root's working tree as the in-memory baseline ONLY
+        // when the agent is idle. If we're currently Running, the root was
+        // likely detected via the transcript tailer AFTER Claude already
+        // edited a file there — snapshotting now would capture the post-edit
+        // state and the diff at running→idle would show nothing. Instead,
+        // leave the baseline unset so bestEffortDiff falls through to Tier 2
+        // (HEAD diff) and shows uncommitted changes. captureEnd will write a
+        // fresh baseline afterward so the next turn produces a clean delta.
         if hasRoot, let root = newRoot, !root.isEmpty, lastStatus != "Running" {
             do {
-                let tree = try TurnCheckpointStore.writeTreeIsolated(in: root)
-                let commit = try TurnCheckpointStore.commitTree(
-                    tree, parent: nil, message: "cmux baseline on root change", in: root
-                )
-                try TurnCheckpointStore.updateRef(session: session, commit: commit, in: root)
+                let tree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: root)
+                baselineTreesByRoot[root] = tree
                 #if DEBUG
-                let treePrefix = String(tree.prefix(7))
-                let commitPrefix = String(commit.prefix(7))
-                cmuxDebugLog("turn-diff: root changed (idle), baseline saved newRoot=\(root) tree=\(treePrefix) commit=\(commitPrefix)")
+                cmuxDebugLog("turn-diff: baseline cached root=\(root) tree=\(String(tree.prefix(7)))")
+                cmuxDebugLog("turn-diff: root changed (idle), baseline saved newRoot=\(root) tree=\(String(tree.prefix(7)))")
                 #endif
             } catch {
                 #if DEBUG
@@ -210,7 +233,7 @@ final class TurnCheckpointManager {
     private func captureStart() {
         guard let worktree = currentRoot, !worktree.isEmpty else { return }
         do {
-            pendingStartTree = try TurnCheckpointStore.writeTreeIsolated(in: worktree)
+            pendingStartTree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: worktree)
         } catch {
             pendingStartTree = nil
         }
@@ -225,45 +248,40 @@ final class TurnCheckpointManager {
             return
         }
 
-        // Best-effort path: try to commit a clean baseline from the captured
+        // Best-effort path: try to cache a clean baseline from the captured
         // T_start tree; if anything fails we still emit the tiered diff so the
         // panel never silently shows "No changes yet." while the working tree
         // has uncommitted changes.
         //
-        // The save flow (write-tree → commit-tree → update-ref) is intentionally
-        // HEAD-independent: a parent-less commit is fine, and refs/cmux/... can
-        // be written even in a brand-new repo with no commits. If HEAD exists we
-        // use it as the parent so the snapshot commit slots into history; if
-        // not, the commit is parent-less. Either way the session ref is written
-        // so the next turn picks Tier 1 instead of falling through to Tier 3
-        // (synthetic everything-as-added).
+        // The save flow is now just: write the start tree into cmux's object
+        // store (already done in captureStart) and remember its SHA in
+        // baselineTreesByRoot. No commit-tree/update-ref against the user's
+        // repo. Tier 1 of bestEffortDiff resolves the baseline tree SHA
+        // directly.
         if let startTree = pendingStartTree {
             do {
-                let endTree = try TurnCheckpointStore.writeTreeIsolated(in: worktree)
+                let endTree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: worktree)
                 if startTree != endTree {
-                    let parent: String? = TurnCheckpointStore.refExists("HEAD", in: worktree)
-                        ? try? gitHead(in: worktree)
-                        : nil
-                    let commit = try TurnCheckpointStore.commitTree(
-                        startTree, parent: parent, message: "cmux turn base", in: worktree
-                    )
-                    try TurnCheckpointStore.updateRef(session: session, commit: commit, in: worktree)
+                    baselineTreesByRoot[worktree] = startTree
                     #if DEBUG
-                    let treePrefix = String(startTree.prefix(7))
-                    let commitPrefix = String(commit.prefix(7))
-                    let refPath = TurnCheckpointStore.refName(for: session)
-                    cmuxDebugLog("turn-diff: saved snapshot tree=\(treePrefix) commit=\(commitPrefix) ref=\(refPath)")
+                    cmuxDebugLog("turn-diff: baseline cached root=\(worktree) tree=\(String(startTree.prefix(7)))")
+                    cmuxDebugLog("turn-diff: saved snapshot tree=\(String(startTree.prefix(7))) (in-memory baseline)")
                     #endif
                 }
             } catch {
                 #if DEBUG
-                cmuxDebugLog("turn-diff: bestEffortDiff failed in \(worktree): captureEnd ref-update error \(error)")
+                cmuxDebugLog("turn-diff: bestEffortDiff failed in \(worktree): captureEnd baseline-update error \(error)")
                 #endif
             }
         }
         pendingStartTree = nil
 
-        let (diff, tier) = TurnCheckpointStore.bestEffortDiff(session: session, in: worktree)
+        let baseline = baselineTreesByRoot[worktree]
+        let (diff, tier) = TurnCheckpointStore.bestEffortDiff(
+            workspaceId: session,
+            baselineTreeSha: baseline,
+            in: worktree
+        )
         #if DEBUG
         cmuxDebugLog("turn-diff: running->idle workspace=\(session.uuidString) root=\(worktree) diffBytes=\(diff.utf8.count) tier=\(Self.tierLabel(tier))")
         #endif
@@ -272,22 +290,17 @@ final class TurnCheckpointManager {
         // stale entries for previously-visited repos).
         emitMultiDiff()
 
-        // Always make sure the new root has a baseline ref pointing at the
+        // Always make sure the new root has a baseline pointing at the
         // current working tree, so the NEXT turn produces a clean delta even
         // if this turn happened before the root was detected (mid-running
         // updateRoot deferred the baseline to here).
-        if !TurnCheckpointStore.refExists(TurnCheckpointStore.refName(for: session), in: worktree) {
+        if baselineTreesByRoot[worktree] == nil {
             do {
-                let endTree = try TurnCheckpointStore.writeTreeIsolated(in: worktree)
-                let parent: String? = TurnCheckpointStore.refExists("HEAD", in: worktree)
-                    ? try? gitHead(in: worktree)
-                    : nil
-                let commit = try TurnCheckpointStore.commitTree(
-                    endTree, parent: parent, message: "cmux post-turn baseline", in: worktree
-                )
-                try TurnCheckpointStore.updateRef(session: session, commit: commit, in: worktree)
+                let endTree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: worktree)
+                baselineTreesByRoot[worktree] = endTree
                 #if DEBUG
-                cmuxDebugLog("turn-diff: post-turn baseline saved root=\(worktree) tree=\(String(endTree.prefix(7))) commit=\(String(commit.prefix(7)))")
+                cmuxDebugLog("turn-diff: baseline cached root=\(worktree) tree=\(String(endTree.prefix(7)))")
+                cmuxDebugLog("turn-diff: post-turn baseline saved root=\(worktree) tree=\(String(endTree.prefix(7)))")
                 #endif
             } catch {
                 #if DEBUG
@@ -336,7 +349,12 @@ final class TurnCheckpointManager {
             // bestEffortDiff is per-root and stateless; it's safe to call once
             // per visited repo even if no edits have happened there recently —
             // it returns "" and the React side renders an empty group.
-            let (diff, _) = TurnCheckpointStore.bestEffortDiff(session: session, in: root)
+            let baseline = baselineTreesByRoot[root]
+            let (diff, _) = TurnCheckpointStore.bestEffortDiff(
+                workspaceId: session,
+                baselineTreeSha: baseline,
+                in: root
+            )
             return RepoDiff(root: root, diff: diff, isActive: root == active)
         }
     }
@@ -344,10 +362,10 @@ final class TurnCheckpointManager {
     #if DEBUG
     private static func tierLabel(_ tier: TurnCheckpointStore.DiffTier) -> String {
         switch tier {
-        case .sessionRef:     return "1"
-        case .head:           return "2"
-        case .syntheticAdded: return "3"
-        case .empty:          return "empty"
+        case .sessionBaseline: return "1"
+        case .head:            return "2"
+        case .syntheticAdded:  return "3"
+        case .empty:           return "empty"
         }
     }
     #endif
@@ -355,18 +373,5 @@ final class TurnCheckpointManager {
     private func stopLiveWatcher() {
         watcher?.stop()
         watcher = nil
-    }
-
-    private func gitHead(in worktree: String) throws -> String {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        p.arguments = ["rev-parse", "HEAD"]
-        p.currentDirectoryURL = URL(fileURLWithPath: worktree)
-        let pipe = Pipe()
-        p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
-        try p.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return String(data: data, encoding: .utf8)!.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

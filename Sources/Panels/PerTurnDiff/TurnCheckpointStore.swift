@@ -1,7 +1,15 @@
 import Foundation
+import CryptoKit
 
 /// Stateless wrapper for git plumbing operations used by the per-turn diff snapshotting.
 /// Uses /usr/bin/git shell-out (matches existing pattern in Sources/FileExplorerStore.swift:958).
+///
+/// All cmux-owned tree/commit objects are written into a per-(workspace, repo)
+/// object store under `~/Library/Application Support/cmux/diff-state/...`,
+/// NEVER into the user's `<repo>/.git/objects/`. The user's objects remain
+/// readable via `GIT_ALTERNATE_OBJECT_DIRECTORIES` so HEAD-relative diffs still
+/// work. We never call `git update-ref` against the user's repo — baseline
+/// tree SHAs are tracked in-memory by `TurnCheckpointManager`.
 enum TurnCheckpointStore {
     enum Error: Swift.Error {
         case gitFailed(stderr: String, exitCode: Int32)
@@ -42,19 +50,96 @@ enum TurnCheckpointStore {
         return nil
     }
 
+    // MARK: - cmux-owned object store
+
+    /// First 16 hex chars of SHA-256(repoRoot.absolutePath).
+    /// Stable per repo path; safe to use as a directory name.
+    static func repoHash(for repoRoot: String) -> String {
+        let data = Data(repoRoot.utf8)
+        let digest = SHA256.hash(data: data)
+        let hex = digest.compactMap { String(format: "%02x", $0) }.joined()
+        return String(hex.prefix(16))
+    }
+
+    /// Returns `<HOME>/Library/Application Support/cmux/diff-state/<wsId>/<repo-hash>/objects/`.
+    /// Creates the directory tree (and the parent `info`/`pack` dirs git needs)
+    /// on first call. Logs the path once per (ws, repo) when DEBUG.
+    static func diffStateDirectory(workspaceId: UUID, repoRoot: String) -> URL {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        let hash = repoHash(for: repoRoot)
+        let objectsDir = appSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("diff-state", isDirectory: true)
+            .appendingPathComponent(workspaceId.uuidString.lowercased(), isDirectory: true)
+            .appendingPathComponent(hash, isDirectory: true)
+            .appendingPathComponent("objects", isDirectory: true)
+
+        let alreadyExisted = fm.fileExists(atPath: objectsDir.path)
+        if !alreadyExisted {
+            try? fm.createDirectory(at: objectsDir, withIntermediateDirectories: true)
+            // git's loose-object writer needs an `info/` and `pack/` next to
+            // `objects/` in the alternate; create them so writes don't ENOENT.
+            try? fm.createDirectory(
+                at: objectsDir.appendingPathComponent("info", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+            try? fm.createDirectory(
+                at: objectsDir.appendingPathComponent("pack", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+            #if DEBUG
+            cmuxDebugLog("turn-diff: cmux object store path=\(objectsDir.path)")
+            #endif
+        }
+        return objectsDir
+    }
+
+    /// Best-effort: remove the entire workspace's diff-state directory.
+    /// Called from `TurnCheckpointManager.stop()` to keep the on-disk footprint
+    /// tidy across re-attaches.
+    static func removeDiffStateDirectory(workspaceId: UUID) {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        let dir = appSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("diff-state", isDirectory: true)
+            .appendingPathComponent(workspaceId.uuidString.lowercased(), isDirectory: true)
+        try? fm.removeItem(at: dir)
+    }
+
+    /// Build the env dict that points git at our cmux-owned object store while
+    /// keeping the user's `.git/objects/` available for read (HEAD-relative
+    /// references resolve through the alternate). `GIT_INDEX_FILE` is left to
+    /// callers that need it (write-tree path).
+    private static func cmuxObjectEnv(workspaceId: UUID, repoRoot: String) -> [String: String] {
+        let store = diffStateDirectory(workspaceId: workspaceId, repoRoot: repoRoot)
+        let userObjects = (repoRoot as NSString).appendingPathComponent(".git/objects")
+        return [
+            "GIT_OBJECT_DIRECTORY": store.path,
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": userObjects
+        ]
+    }
+
     // MARK: - Snapshot operations
 
     /// Stages all current worktree contents (including untracked, respecting .gitignore)
-    /// into an isolated index file, then writes the tree object. Returns the tree SHA.
-    /// The user's real .git/index is never touched.
+    /// into an isolated index file, then writes the tree object into the cmux
+    /// per-(ws, repo) object store. Returns the tree SHA.
+    /// The user's real .git/index and .git/objects are never touched.
     @discardableResult
-    static func writeTreeIsolated(in worktree: String) throws -> String {
+    static func writeTreeIsolated(workspaceId: UUID, in worktree: String) throws -> String {
         let indexPath = NSString.path(withComponents: [
             NSTemporaryDirectory(),
             "cmux-pertd-\(UUID().uuidString).idx"
         ])
         defer { try? FileManager.default.removeItem(atPath: indexPath) }
-        let env = ["GIT_INDEX_FILE": indexPath]
+        var env = cmuxObjectEnv(workspaceId: workspaceId, repoRoot: worktree)
+        env["GIT_INDEX_FILE"] = indexPath
         _ = try runGit(in: worktree, arguments: ["add", "-A"], env: env)
         let tree = try runGit(in: worktree, arguments: ["write-tree"], env: env)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -62,15 +147,22 @@ enum TurnCheckpointStore {
         return tree
     }
 
-    /// Builds a commit object with the given tree. If `parent` is supplied, the
-    /// resulting commit links to it via `-p`; otherwise it is parent-less, which
-    /// is what we need in a brand-new (HEAD-less) repo where there is nothing to
-    /// link to. Returns the commit SHA.
-    static func commitTree(_ tree: String, parent: String? = nil, message: String, in worktree: String) throws -> String {
-        let env: [String: String] = [
-            "GIT_AUTHOR_NAME": "cmux", "GIT_AUTHOR_EMAIL": "cmux@local",
-            "GIT_COMMITTER_NAME": "cmux", "GIT_COMMITTER_EMAIL": "cmux@local"
-        ]
+    /// Builds a commit object with the given tree, written into the cmux
+    /// per-(ws, repo) object store. If `parent` is supplied the commit links to
+    /// it via `-p`; otherwise it is parent-less (HEAD-less repo case).
+    /// Returns the commit SHA.
+    static func commitTree(
+        _ tree: String,
+        parent: String? = nil,
+        message: String,
+        workspaceId: UUID,
+        in worktree: String
+    ) throws -> String {
+        var env = cmuxObjectEnv(workspaceId: workspaceId, repoRoot: worktree)
+        env["GIT_AUTHOR_NAME"] = "cmux"
+        env["GIT_AUTHOR_EMAIL"] = "cmux@local"
+        env["GIT_COMMITTER_NAME"] = "cmux"
+        env["GIT_COMMITTER_EMAIL"] = "cmux@local"
         var args: [String] = ["commit-tree", tree]
         if let parent, !parent.isEmpty {
             args.append("-p")
@@ -87,87 +179,74 @@ enum TurnCheckpointStore {
         return commit
     }
 
-    static func refName(for session: UUID) -> String {
-        "refs/cmux/session-\(session.uuidString.lowercased())/last-turn-base"
-    }
-
-    static func updateRef(session: UUID, commit: String, in worktree: String) throws {
-        _ = try runGit(in: worktree, arguments: ["update-ref", refName(for: session), commit])
-    }
-
-    static func cleanup(session: UUID, in worktree: String) throws {
-        _ = try runGit(in: worktree, arguments: ["update-ref", "-d", refName(for: session)])
+    /// Best-effort: nuke any legacy `refs/cmux/session-<wsId>/last-turn-base`
+    /// that prior versions of cmux wrote into the user's `.git/refs/`. Idempotent
+    /// and silent on failure (e.g., ref doesn't exist, repo is read-only).
+    /// Does NOT touch the surrounding `refs/cmux/` directory in case other tools
+    /// have started using it.
+    static func deleteLegacySessionRef(workspaceId: UUID, in worktree: String) {
+        let ref = "refs/cmux/session-\(workspaceId.uuidString.lowercased())/last-turn-base"
+        _ = try? runGit(in: worktree, arguments: ["update-ref", "-d", ref])
     }
 
     // MARK: - Diff queries
 
-    /// Diff between session's last-turn-base ref and the working tree.
-    /// Returns unified diff text suitable for diff2html.
-    ///
-    /// We avoid `git diff <ref>` because that command compares the ref against
-    /// the user's `.git/index`, and cmux never `git add`s on the user's behalf.
-    /// In a typical session the index is empty, which makes every file in the
-    /// snapshot ref look "deleted" — exactly the symptom this method has to
-    /// avoid. Instead we snapshot the current working tree into a fresh
-    /// throwaway tree object (via `writeTreeIsolated`) and diff the ref's tree
-    /// against that fresh tree. Pure plumbing, index-state-independent, and
-    /// untracked files are included because `writeTreeIsolated` runs
-    /// `git add -A` against an isolated `GIT_INDEX_FILE`.
-    static func diffAgainstWorkingTree(session: UUID, in worktree: String) throws -> String {
-        let freshTree = try writeTreeIsolated(in: worktree)
-        let ref = refName(for: session)
-        let diff = try runGit(
-            in: worktree,
-            arguments: [
-                "diff",
-                "--no-color",
-                "--no-ext-diff",
-                "--unified=3",
-                "\(ref)^{tree}",
-                freshTree
-            ],
-            allowExitOne: true
-        )
-        #if DEBUG
-        let baseTree = (try? runGit(
-            in: worktree,
-            arguments: ["rev-parse", "\(ref)^{tree}"]
-        ).trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
-        cmuxDebugLog(
-            "turn-diff: tier1 diff-tree base=\(baseTree.prefix(7)) now=\(freshTree.prefix(7)) bytes=\(diff.utf8.count)"
-        )
-        #endif
-        return diff
-    }
-
     /// Which tier `bestEffortDiff` ended up using.
     enum DiffTier {
-        case sessionRef       // Tier 1: refs/cmux/session-<uuid>/last-turn-base
+        case sessionBaseline  // Tier 1: in-memory baseline tree SHA from manager
         case head             // Tier 2: HEAD
         case syntheticAdded   // Tier 3: synthetic everything-as-added (no commits yet)
         case empty            // Nothing to show
     }
 
     /// Get the active diff for the working tree using the best available baseline.
-    /// Tier 1: against the session's last-turn-base ref (if it exists)
+    /// Tier 1: against the manager's in-memory baseline tree SHA (if non-nil)
     /// Tier 2: against HEAD (if HEAD exists)
     /// Tier 3: full working-tree diff treating everything as added
     /// Returns the unified-diff string and the tier used. Empty string if nothing to show.
-    static func bestEffortDiff(session: UUID, in worktree: String) -> (diff: String, tier: DiffTier) {
+    ///
+    /// `baselineTreeSha` lives in the cmux per-(ws, repo) object store; HEAD
+    /// lives in the user's `.git/objects/`. Both diff invocations set
+    /// `GIT_OBJECT_DIRECTORY` + `GIT_ALTERNATE_OBJECT_DIRECTORIES` so the
+    /// resolver can see both stores.
+    static func bestEffortDiff(
+        workspaceId: UUID,
+        baselineTreeSha: String?,
+        in worktree: String
+    ) -> (diff: String, tier: DiffTier) {
         let trimmedRoot = worktree.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRoot.isEmpty,
               FileManager.default.fileExists(atPath: trimmedRoot) else {
             return ("", .empty)
         }
 
-        // Tier 1: session ref
-        if refExists(refName(for: session), in: trimmedRoot) {
+        // Tier 1: in-memory baseline tree → fresh tree, both in cmux store.
+        if let baselineTreeSha, !baselineTreeSha.isEmpty {
             do {
-                let diff = try diffAgainstWorkingTree(session: session, in: trimmedRoot)
-                return (diff, .sessionRef)
+                let freshTree = try writeTreeIsolated(workspaceId: workspaceId, in: trimmedRoot)
+                let env = cmuxObjectEnv(workspaceId: workspaceId, repoRoot: trimmedRoot)
+                let diff = try runGit(
+                    in: trimmedRoot,
+                    arguments: [
+                        "diff",
+                        "--no-color",
+                        "--no-ext-diff",
+                        "--unified=3",
+                        baselineTreeSha,
+                        freshTree
+                    ],
+                    env: env,
+                    allowExitOne: true
+                )
+                #if DEBUG
+                cmuxDebugLog(
+                    "turn-diff: tier1 diff-tree base=\(baselineTreeSha.prefix(7)) now=\(freshTree.prefix(7)) bytes=\(diff.utf8.count)"
+                )
+                #endif
+                return (diff, .sessionBaseline)
             } catch {
                 #if DEBUG
-                cmuxDebugLog("turn-diff: bestEffortDiff failed in \(trimmedRoot): tier1 ref-diff error \(error)")
+                cmuxDebugLog("turn-diff: bestEffortDiff failed in \(trimmedRoot): tier1 baseline-diff error \(error)")
                 #endif
             }
         }
@@ -175,9 +254,12 @@ enum TurnCheckpointStore {
         // Tier 2: HEAD. Same tree-vs-tree approach as tier 1 — `git diff HEAD`
         // would compare HEAD against the index (empty for cmux users), missing
         // every untracked file and falsely reporting tracked files as deleted.
+        // HEAD lives in the user's .git/objects (resolved via alternate),
+        // freshTree lives in the cmux store.
         if refExists("HEAD", in: trimmedRoot) {
             do {
-                let freshTree = try writeTreeIsolated(in: trimmedRoot)
+                let freshTree = try writeTreeIsolated(workspaceId: workspaceId, in: trimmedRoot)
+                let env = cmuxObjectEnv(workspaceId: workspaceId, repoRoot: trimmedRoot)
                 let diff = try runGit(
                     in: trimmedRoot,
                     arguments: [
@@ -188,6 +270,7 @@ enum TurnCheckpointStore {
                         "HEAD^{tree}",
                         freshTree
                     ],
+                    env: env,
                     allowExitOne: true
                 )
                 #if DEBUG
@@ -218,7 +301,7 @@ enum TurnCheckpointStore {
     // MARK: - Tier helpers
 
     /// True iff `git rev-parse --verify <ref>` succeeds. Used to gate diff calls
-    /// against refs/HEAD that may not exist (fresh repo / detached / missing).
+    /// against HEAD that may not exist (fresh repo / detached / missing).
     static func refExists(_ ref: String, in worktree: String) -> Bool {
         do {
             _ = try runGit(in: worktree, arguments: ["rev-parse", "--verify", "--quiet", ref])
