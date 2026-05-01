@@ -53,6 +53,7 @@ final class HelpMenuUITests: XCTestCase {
         app.launchArguments += helpMenuMainWindowLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
+        closeKeyboardShortcutsWindowIfVisible(in: app)
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
@@ -71,6 +72,7 @@ final class HelpMenuUITests: XCTestCase {
         keyboardShortcutsItem.click()
 
         XCTAssertTrue(app.staticTexts["ShortcutRecordingHint"].waitForExistence(timeout: 6.0))
+        closeKeyboardShortcutsWindowIfVisible(in: app)
     }
 
     func testMainHelpMenuShowsCmuxResourcesAndOpensKeyboardShortcuts() {
@@ -167,6 +169,15 @@ final class HelpMenuUITests: XCTestCase {
         }
         XCTAssertTrue(found, "Expected \(description) to exist")
         return match ?? candidates[0]
+    }
+
+    private func closeKeyboardShortcutsWindowIfVisible(in app: XCUIApplication) {
+        let shortcutHint = app.staticTexts["ShortcutRecordingHint"]
+        guard shortcutHint.waitForExistence(timeout: 1.0) else { return }
+        app.typeKey("w", modifierFlags: [.command])
+        _ = helpMenuPollUntil(timeout: 3.0) {
+            !shortcutHint.exists
+        }
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
