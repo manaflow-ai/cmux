@@ -825,7 +825,7 @@
       "agentPromptTitle": "エージェントに設定を依頼する",
       "agentPromptIntro": "空のDock状態からこのプロンプトをコーディングエージェントに貼り付け、信頼する前に生成されたコマンドを確認してください。",
       "agentPromptCodeTitle": "エージェント用プロンプト",
-      "agentPrompt": "このリポジトリ用のcmux Dockコントロールを追加してください。.cmux/dock.json を作成し、controls配列を入れてください。各コントロールには id、title、command が必要で、cwd、height、env は任意です。このリポジトリで安全なコマンドを使い、シークレットは含めないでください。cmux feed tui --opentui が有用な場合のみFeedコントロールを含めてください。git、ログ、開発サーバー状態、タスクキュー、テストウォッチャーなど、このプロジェクトに役立つコントロールを追加してください。"
+      "agentPrompt": "このリポジトリ用のcmux Dockコントロールを追加してください。controls配列を含む .cmux/dock.json を作成してください。各コントロールには id、title、command が必要で、cwd、height、env は任意です。このリポジトリで安全なコマンドを使い、シークレットは含めないでください。cmux feed tui --opentui が有用な場合のみFeedコントロールを含めてください。git、ログ、開発サーバー状態、タスクキュー、テストウォッチャーなど、このプロジェクトに役立つコントロールを追加してください。"
     }
   },
   "legal": {

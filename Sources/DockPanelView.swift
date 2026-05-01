@@ -862,8 +862,6 @@ private struct DockErrorView: View {
 }
 
 private struct DockEmptyView: View {
-    @State private var didCopyPrompt = false
-
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "dock.rectangle")
@@ -882,9 +880,7 @@ private struct DockEmptyView: View {
                     copyAgentPrompt()
                 } label: {
                     Label(
-                        didCopyPrompt
-                        ? String(localized: "dock.empty.copyPromptDone", defaultValue: "Copied")
-                        : String(localized: "dock.empty.copyPrompt", defaultValue: "Copy Agent Prompt"),
+                        String(localized: "dock.empty.copyPrompt", defaultValue: "Copy Agent Prompt"),
                         systemImage: "doc.on.doc"
                     )
                 }
@@ -914,7 +910,6 @@ private struct DockEmptyView: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(agentPrompt, forType: .string)
-        didCopyPrompt = true
     }
 
     private func openDockDocs() {
@@ -925,7 +920,7 @@ private struct DockEmptyView: View {
     private var agentPrompt: String {
         String(
             localized: "dock.empty.agentPrompt",
-            defaultValue: "Add cmux Dock controls for this repo. Create .cmux/dock.json with a controls array. Each control needs id, title, command, and optional cwd, height, env. Use safe commands for this repo and do not include secrets. Example:\n\n{\n  \"controls\": [\n    {\n      \"id\": \"feed\",\n      \"title\": \"Feed\",\n      \"command\": \"cmux feed tui --opentui\",\n      \"height\": 320\n    },\n    {\n      \"id\": \"git\",\n      \"title\": \"Git\",\n      \"command\": \"lazygit\",\n      \"height\": 300\n    }\n  ]\n}"
+            defaultValue: "Add cmux Dock controls for this repo. Create .cmux/dock.json with a controls array. Each control needs id, title, command, and optional cwd, height, env. Use safe commands for this repo and do not include secrets. Include a Feed control only if cmux feed tui --opentui is useful. Add useful controls for this project, such as git, logs, dev server status, task queue, or test watcher."
         )
     }
 }

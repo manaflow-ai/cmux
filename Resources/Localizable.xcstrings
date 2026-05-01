@@ -105468,13 +105468,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add cmux Dock controls for this repo. Create .cmux/dock.json with a controls array. Each control needs id, title, command, and optional cwd, height, env. Use safe commands for this repo and do not include secrets. Example:\n\n{\n  \"controls\": [\n    {\n      \"id\": \"feed\",\n      \"title\": \"Feed\",\n      \"command\": \"cmux feed tui --opentui\",\n      \"height\": 320\n    },\n    {\n      \"id\": \"git\",\n      \"title\": \"Git\",\n      \"command\": \"lazygit\",\n      \"height\": 300\n    }\n  ]\n}"
+            "value": "Add cmux Dock controls for this repo. Create .cmux/dock.json with a controls array. Each control needs id, title, command, and optional cwd, height, env. Use safe commands for this repo and do not include secrets. Include a Feed control only if cmux feed tui --opentui is useful. Add useful controls for this project, such as git, logs, dev server status, task queue, or test watcher."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このリポジトリ用のcmux Dockコントロールを追加してください。.cmux/dock.json を作成し、controls配列を入れてください。各コントロールには id、title、command が必要で、cwd、height、env は任意です。このリポジトリで安全なコマンドを使い、シークレットは含めないでください。例:\n\n{\n  \"controls\": [\n    {\n      \"id\": \"feed\",\n      \"title\": \"Feed\",\n      \"command\": \"cmux feed tui --opentui\",\n      \"height\": 320\n    },\n    {\n      \"id\": \"git\",\n      \"title\": \"Git\",\n      \"command\": \"lazygit\",\n      \"height\": 300\n    }\n  ]\n}"
+            "value": "このリポジトリ用のcmux Dockコントロールを追加してください。controls配列を含む .cmux/dock.json を作成してください。各コントロールには id、title、command が必要で、cwd、height、env は任意です。このリポジトリで安全なコマンドを使い、シークレットは含めないでください。cmux feed tui --opentui が有用な場合のみFeedコントロールを含めてください。git、ログ、開発サーバー状態、タスクキュー、テストウォッチャーなど、このプロジェクトに役立つコントロールを追加してください。"
           }
         }
       }
