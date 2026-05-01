@@ -61686,6 +61686,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
       }
     },
+    "remoteAccess.web.action.keyboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keyboard" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キーボード" } }
+      }
+    },
     "remoteAccess.web.sessions.title": {
       "extractionState": "manual",
       "localizations": {

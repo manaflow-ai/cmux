@@ -117,13 +117,17 @@
               ref="terminalElement"
               class="xterm-host"
               :aria-label="t('terminalOutputLabel')"
-              @click="focusTerminalInput"
-              @pointerdown="focusTerminalInput"
+              @pointerdown.capture="handleTerminalPointerDown"
+              @mousedown.capture="handleTerminalMouseEvent"
+              @click.capture="handleTerminalMouseEvent"
             ></div>
           </div>
 
           <div class="quick-key-strip" :aria-label="t('terminalKeysLabel')">
             <span>{{ t("quickKeysLabel") }}</span>
+            <button type="button" class="keyboard-button" :disabled="!selectedSurface" @click="focusTerminalInput">
+              {{ t("keyboardButton") }}
+            </button>
             <button
               v-for="quickKey in quickKeys"
               :key="quickKey.key"
@@ -146,8 +150,14 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { decoratePlainTerminalText } from "./terminalDisplayText";
 import { classifyTerminalData } from "./terminalKeyMap";
 import { TerminalInputQueue, type TerminalInputTarget } from "./terminalInputQueue";
+import {
+  shouldAutoFocusTerminal,
+  shouldFocusTerminalFromPointer,
+  shouldSuppressMouseFocusAfterTouch,
+} from "./terminalPointerFocus";
 
 type RemoteStrings = Record<string, string>;
 type SurfaceSnapshot = {
@@ -207,6 +217,7 @@ let eventRefreshTimer: number | null = null;
 let eventSessionRefreshTimer: number | null = null;
 let eventStartGeneration = 0;
 let lastTerminalText = "";
+let lastTouchTerminalAt = 0;
 let terminalFocusDisposable: { dispose: () => void } | null = null;
 let terminalBlurDisposable: { dispose: () => void } | null = null;
 const terminalInputQueue = new TerminalInputQueue({
@@ -551,7 +562,9 @@ function selectSurface(selection: Selection) {
   readSelectedTerminal().catch(handleRemoteError);
   nextTick(() => {
     fitTerminal();
-    terminal?.focus();
+    if (shouldAutoFocusTerminal(window.matchMedia?.("(pointer: coarse)").matches ?? false, navigator.maxTouchPoints ?? 0)) {
+      terminal?.focus();
+    }
   });
 }
 
@@ -869,7 +882,7 @@ function writeTerminal(text: string, isEmpty = false) {
   if (nextText === lastTerminalText && !isEmpty) return;
   lastTerminalText = nextText;
   terminal.reset();
-  terminal.write(normalizeTerminalText(nextText));
+  terminal.write(normalizeTerminalText(decoratePlainTerminalText(nextText)));
   fitTerminal();
 }
 
@@ -916,6 +929,23 @@ function handleTerminalBlur() {
 function focusTerminalInput() {
   terminal?.focus();
   handleTerminalFocus();
+}
+
+function handleTerminalPointerDown(event: PointerEvent) {
+  if (!shouldFocusTerminalFromPointer(event.pointerType)) {
+    lastTouchTerminalAt = event.timeStamp;
+    terminal?.blur();
+    handleTerminalBlur();
+    return;
+  }
+  focusTerminalInput();
+}
+
+function handleTerminalMouseEvent(event: MouseEvent) {
+  if (!shouldSuppressMouseFocusAfterTouch(lastTouchTerminalAt, event.timeStamp)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
 }
 
 function handleVisibilityChange() {

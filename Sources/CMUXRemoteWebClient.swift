@@ -66,6 +66,7 @@ enum CMUXRemoteWebClient {
         LocalizedEntry("readButton", key: "remoteAccess.web.action.read", defaultValue: "Read"),
         LocalizedEntry("inputPlaceholder", key: "remoteAccess.web.terminal.inputPlaceholder", defaultValue: "Type input"),
         LocalizedEntry("sendButton", key: "remoteAccess.web.action.send", defaultValue: "Send"),
+        LocalizedEntry("keyboardButton", key: "remoteAccess.web.action.keyboard", defaultValue: "Keyboard"),
         LocalizedEntry("terminalOutputLabel", key: "remoteAccess.web.terminal.outputLabel", defaultValue: "Terminal output"),
         LocalizedEntry("terminalKeysLabel", key: "remoteAccess.web.terminal.keysLabel", defaultValue: "Terminal keys"),
         LocalizedEntry("quickKeysLabel", key: "remoteAccess.web.terminal.quickKeysLabel", defaultValue: "Quick keys"),

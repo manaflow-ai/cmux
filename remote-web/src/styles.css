@@ -552,6 +552,7 @@ p {
 
 .xterm .xterm-viewport {
   background: transparent !important;
+  overscroll-behavior: contain;
 }
 
 .xterm .xterm-screen {
@@ -581,6 +582,10 @@ p {
   font: 700 12px/1 var(--mono);
 }
 
+.quick-key-strip .keyboard-button {
+  display: none;
+}
+
 .drawer-scrim {
   display: none;
 }
@@ -596,6 +601,24 @@ p {
 
   .quick-key-strip span {
     grid-column: 1 / -1;
+  }
+}
+
+@media (any-pointer: coarse) {
+  .xterm-host {
+    touch-action: pan-y;
+  }
+
+  .xterm-host .xterm-viewport {
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  .quick-key-strip .keyboard-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--green);
   }
 }
 
@@ -901,6 +924,10 @@ p {
     border-radius: 5px;
     background: #0b0f13;
     font: 700 10.5px/1 var(--mono);
+  }
+
+  .quick-key-strip .keyboard-button {
+    min-width: 68px;
   }
 }
 
