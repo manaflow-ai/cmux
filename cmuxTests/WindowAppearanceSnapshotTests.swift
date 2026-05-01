@@ -52,8 +52,8 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             backgroundBlur: .macosGlassClear
         )
 
-        XCTAssertTrue(snapshot.shouldUseTransparentHosting())
-        XCTAssertTrue(snapshot.windowGlassSettings.shouldApply())
+        XCTAssertTrue(snapshot.shouldUseTransparentHosting(glassEffectAvailable: true))
+        XCTAssertTrue(snapshot.windowGlassSettings.shouldApply(glassEffectAvailable: true))
         XCTAssertEqual(snapshot.windowGlassSettings.style, .clear)
         XCTAssertEqual(snapshot.windowGlassSettings.tintColor.hexString(includeAlpha: true), "#272822FF")
         assertClearBackdrop(snapshot.policy(for: .windowRoot))
