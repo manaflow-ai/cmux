@@ -88,7 +88,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd || true)"
+script_path="${BASH_SOURCE[0]:-}"
+script_dir=""
+if [[ -n "$script_path" && -f "$script_path" ]]; then
+  script_dir="$(cd -- "$(dirname -- "$script_path")" >/dev/null 2>&1 && pwd || true)"
+fi
 if [[ -z "$source_dir" && -n "$script_dir" && -d "$script_dir/skills" ]]; then
   source_dir="$script_dir/skills"
 fi
