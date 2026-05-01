@@ -6,9 +6,10 @@ interface Props {
   file: DiffFile
   expanded: boolean
   onToggle: (path: string) => void
+  unified: boolean
 }
 
-export function DiffFileView({ file, expanded, onToggle }: Props) {
+export function DiffFileView({ file, expanded, onToggle, unified }: Props) {
   const lang = useMemo(() => detectLanguage(file.path), [file.path])
 
   const status = file.isNew ? "added" : file.isDeleted ? "deleted" : "modified"
@@ -40,22 +41,34 @@ export function DiffFileView({ file, expanded, onToggle }: Props) {
         </span>
       </button>
       {expanded ? (
-        <div className="file-body" role="table">
-          {file.rows.map((row, idx) => (
-            <DiffRowView key={idx} row={row} lang={lang} />
-          ))}
-        </div>
+        unified ? (
+          <UnifiedDiffView rows={file.rows} lang={lang} />
+        ) : (
+          <SideBySideDiffView rows={file.rows} lang={lang} />
+        )
       ) : null}
     </section>
   )
 }
 
-interface RowProps {
-  row: DiffRow
+// ---------- Side-by-side (wide) renderer ---------------------------------
+
+interface ViewProps {
+  rows: DiffRow[]
   lang: string | null
 }
 
-const DiffRowView = React.memo(function DiffRowView({ row, lang }: RowProps) {
+function SideBySideDiffView({ rows, lang }: ViewProps) {
+  return (
+    <div className="file-body side-by-side" role="table">
+      {rows.map((row, idx) => (
+        <SideBySideRow key={idx} row={row} lang={lang} />
+      ))}
+    </div>
+  )
+}
+
+const SideBySideRow = React.memo(function SideBySideRow({ row, lang }: { row: DiffRow; lang: string | null }) {
   if (row.kind === "hunk") {
     return (
       <div className="row hunk" role="row">
@@ -86,6 +99,84 @@ function cellSide(kind: DiffRow["kind"], side: "left" | "right"): string {
   if (kind === "modify") return side === "left" ? "del" : "add"
   return "context"
 }
+
+// ---------- Unified (narrow) renderer ------------------------------------
+
+function UnifiedDiffView({ rows, lang }: ViewProps) {
+  // A "modify" row in the row model represents a paired delete+add line with
+  // word-level diff parts already computed. For the unified view we want to
+  // emit it as two separate physical rows (one red, one green) so the user
+  // sees one column per change, while keeping the same word-level emphasis.
+  const flat = useMemo(() => flattenForUnified(rows), [rows])
+  return (
+    <div className="file-body unified" role="table">
+      {flat.map((row, idx) => (
+        <UnifiedRow key={idx} row={row} lang={lang} />
+      ))}
+    </div>
+  )
+}
+
+interface UnifiedPhysicalRow {
+  kind: "context" | "add" | "del" | "hunk"
+  lineNo: number | null
+  parts: WordPart[] | null
+  hunkHeader?: string
+}
+
+function flattenForUnified(rows: DiffRow[]): UnifiedPhysicalRow[] {
+  const out: UnifiedPhysicalRow[] = []
+  for (const r of rows) {
+    if (r.kind === "hunk") {
+      out.push({ kind: "hunk", lineNo: null, parts: null, hunkHeader: r.hunkHeader })
+      continue
+    }
+    if (r.kind === "context") {
+      out.push({ kind: "context", lineNo: r.newLn ?? r.oldLn, parts: r.left })
+      continue
+    }
+    if (r.kind === "del") {
+      out.push({ kind: "del", lineNo: r.oldLn, parts: r.left })
+      continue
+    }
+    if (r.kind === "add") {
+      out.push({ kind: "add", lineNo: r.newLn, parts: r.right })
+      continue
+    }
+    if (r.kind === "modify") {
+      // Emit deleted side first, then added side. Word-level parts already
+      // carry "hard" emphasis on the differing tokens.
+      out.push({ kind: "del", lineNo: r.oldLn, parts: r.left })
+      out.push({ kind: "add", lineNo: r.newLn, parts: r.right })
+    }
+  }
+  return out
+}
+
+const UnifiedRow = React.memo(function UnifiedRow({ row, lang }: { row: UnifiedPhysicalRow; lang: string | null }) {
+  if (row.kind === "hunk") {
+    return (
+      <div className="unified-diff-row hunk" role="row">
+        <div className="unified-gutter hunk-gutter" />
+        <div className="unified-lineno hunk-gutter" />
+        <div className="unified-content hunk-cell">{row.hunkHeader}</div>
+      </div>
+    )
+  }
+
+  const sym = row.kind === "add" ? "+" : row.kind === "del" ? "−" : " "
+  return (
+    <div className={`unified-diff-row ${row.kind}`} role="row">
+      <div className="unified-gutter" aria-hidden>{sym}</div>
+      <div className="unified-lineno">{row.lineNo ?? ""}</div>
+      <div className={`unified-content side-${row.kind}`}>
+        <LineContent parts={row.parts} lang={lang} />
+      </div>
+    </div>
+  )
+})
+
+// ---------- Shared line content ------------------------------------------
 
 interface LineContentProps {
   parts: WordPart[] | null

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { parseUnifiedDiff, type DiffFile } from "./diffModel"
 import { DiffFileView } from "./DiffFileView"
 
@@ -8,11 +8,19 @@ type RootState =
   | { kind: "ok"; root: string }
   | { kind: "missing"; cwd: string }
 
+/** Below this panel width we render the unified (single-column) diff view.
+ *  At or above it we render the original side-by-side renderer. */
+export const UNIFIED_VIEW_WIDTH_THRESHOLD = 600
+
 export function App() {
   const [diffText, setDiffText] = useState<string>("")
   const [status, setStatus] = useState<Status>("Unknown")
   const [rootState, setRootState] = useState<RootState>({ kind: "unknown" })
   const [expandedSet, setExpandedSet] = useState<Set<string>>(() => new Set())
+  const [panelWidth, setPanelWidth] = useState<number>(() =>
+    typeof window !== "undefined" ? window.innerWidth : UNIFIED_VIEW_WIDTH_THRESHOLD
+  )
+  const panelRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const onDiff = (e: Event) => {
@@ -55,6 +63,25 @@ export function App() {
       window.removeEventListener("turnDiff:rootChanged", onRoot)
       window.removeEventListener("turnDiff:noGitRoot", onNoRoot)
     }
+  }, [])
+
+  // Track panel width via ResizeObserver so we can switch between the
+  // unified (narrow) and side-by-side (wide) renderers without remounting
+  // the whole tree on every pixel change.
+  useEffect(() => {
+    const node = panelRef.current
+    if (!node || typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width
+        // Use a functional update + epsilon to avoid no-op rerenders.
+        setPanelWidth((prev) => (Math.abs(prev - w) >= 1 ? w : prev))
+      }
+    })
+    ro.observe(node)
+    // Seed once synchronously so the first render after mount is correct.
+    setPanelWidth(node.getBoundingClientRect().width)
+    return () => ro.disconnect()
   }, [])
 
   const files: DiffFile[] = useMemo(() => {
@@ -101,7 +128,7 @@ export function App() {
 
   if (rootState.kind === "missing") {
     return (
-      <div className="empty">
+      <div className="empty" ref={panelRef}>
         <div className="status-dot" data-status={status} />
         <p>No git repository detected. Make sure your work is inside a git repo.</p>
         <p className="muted"><code>{rootState.cwd}</code></p>
@@ -113,7 +140,7 @@ export function App() {
 
   if (files.length === 0) {
     return (
-      <div className="empty">
+      <div className="empty" ref={panelRef}>
         <div className="status-dot" data-status={status} />
         {repoLabel && <p className="muted">Repo: <code>{repoLabel}</code></p>}
         <p>{status === "Running" ? "Agent running…" : "No changes yet."}</p>
@@ -125,9 +152,10 @@ export function App() {
   const totalDels = files.reduce((s, f) => s + f.deletions, 0)
   const allExpanded = expandedSet.size === files.length
   const anyExpanded = expandedSet.size > 0
+  const unified = panelWidth < UNIFIED_VIEW_WIDTH_THRESHOLD
 
   return (
-    <div className="panel">
+    <div className="panel" ref={panelRef} data-layout={unified ? "unified" : "side-by-side"}>
       <header>
         <span className="status-dot" data-status={status} />
         <span className="title">Latest turn</span>
@@ -156,6 +184,7 @@ export function App() {
             file={f}
             expanded={expandedSet.has(f.path)}
             onToggle={onToggleFile}
+            unified={unified}
           />
         ))}
       </div>
