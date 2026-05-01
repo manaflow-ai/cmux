@@ -19776,6 +19776,23 @@
         }
       }
     },
+    "command.cmuxConfig.issue.newWorkspaceActionNotFound.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ references missing action '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は存在しないアクション '%@' を参照しています"
+          }
+        }
+      }
+    },
     "command.cmuxConfig.issue.newWorkspaceCommandNotFound.detail": {
       "extractionState": "manual",
       "localizations": {
@@ -20054,13 +20071,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebar Appearance"
+            "value": "Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーの外観"
+            "value": "サイドバー"
           }
         }
       }
@@ -69501,115 +69518,115 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry 一般 環境設定 設定 動作 外観 ドック メニューバー 通知 サイドバー テレメトリ"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry 一般 環境設定 設定 動作 外観 ドック メニューバー 通知 テレメトリ"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي جانبي تنقل يسار تفاصيل إخفاء تخطيط استيراد ترحيل إشارات مرجعية سجل ملفات تعريف ارتباط شخصية إعدادات تكوين ملف json مخطط وثائق مرجع إشعار إشعارات تنبيه غير مقروء رسالة شارة رنين وميض صوت سطح المكتب قياس استخدام تحليلات تعطل تقارير مجهول خصوصية الإشعارات التفضيلات… التطبيق"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry تطبيق عام تفضيلات سلوك شريط القائمة حالة استيراد ترحيل إشارات مرجعية سجل ملفات تعريف ارتباط شخصية إعدادات تكوين ملف json مخطط وثائق مرجع إشعار إشعارات تنبيه غير مقروء رسالة شارة رنين وميض صوت سطح المكتب قياس استخدام تحليلات تعطل تقارير مجهول خصوصية الإشعارات التفضيلات… التطبيق"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry aplikacija opće postavke ponašanje traka menija bočna navigacija lijevo detalji sakrij raspored uvoz migracija oznake historija kolačići profili konfiguracija datoteka json šema dokumentacija referenca preferencije obavijest obavijesti upozorenje nepročitano poruka značka prsten bljesak zvuk desktop telemetrija analitika rušenje izvještaji korištenje anonimno privatnost Obavještenja Postavke… Meni"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry aplikacija opće postavke ponašanje traka menija status uvoz migracija oznake historija kolačići profili konfiguracija datoteka json šema dokumentacija referenca preferencije obavijest obavijesti upozorenje nepročitano poruka značka prsten bljesak zvuk desktop telemetrija analitika rušenje izvještaji korištenje anonimno privatnost Obavještenja Postavke… Meni"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry app generelt indstillinger adfærd menulinje sidepanel navigation venstre detaljer skjul layout import migrering bogmærker historik cookies profiler konfiguration fil json skema dokumentation reference præferencer notifikation notifikationer advarsel ulæst besked badge ring blink lyd skrivebord telemetri analyse nedbrud rapporter brug anonym privatliv Indstillinger… Sidebjælke"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry app generelt indstillinger adfærd menulinje status import migrering bogmærker historik cookies profiler konfiguration fil json skema dokumentation reference præferencer notifikation notifikationer advarsel ulæst besked badge ring blink lyd skrivebord telemetri analyse nedbrud rapporter brug anonym privatliv Indstillinger…"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry app allgemein einstellungen verhalten menüleiste seitenleiste navigation links details ausblenden layout import migration lesezeichen verlauf cookies profile konfiguration datei json schema dokumentation referenz präferenzen benachrichtigung benachrichtigungen alarm ungelesen nachricht badge ring blinken ton desktop telemetrie analyse absturz berichte nutzung anonym datenschutz … Menü"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry app allgemein einstellungen verhalten menüleiste status import migration lesezeichen verlauf cookies profile konfiguration datei json schema dokumentation referenz präferenzen benachrichtigung benachrichtigungen alarm ungelesen nachricht badge ring blinken ton desktop telemetrie analyse absturz berichte nutzung anonym datenschutz … Menü"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry aplicación preferencias comportamiento barra de menú estado lateral navegación izquierda detalles ocultar diseño importar migración marcadores historial cookies perfiles ajustes configuración archivo json esquema documentación referencia notificación notificaciones alerta no leído mensaje insignia anillo destello sonido escritorio telemetría analíticas fallos informes uso anónimo privacidad Preferencias… App"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry aplicación preferencias comportamiento barra de menú estado importar migración marcadores historial cookies perfiles ajustes configuración archivo json esquema documentación referencia notificación notificaciones alerta no leído mensaje insignia anillo destello sonido escritorio telemetría analíticas fallos informes uso anónimo privacidad Preferencias… App"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry application général préférences comportement barre de menus état latérale navigation gauche détails masquer disposition importer migration favoris historique cookies profils réglages configuration fichier json schéma documentation référence notification alerte non lu message badge anneau flash son bureau télémétrie analytique plantage rapports utilisation anonyme confidentialité Préférences... App"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry application général préférences comportement barre de menus état importer migration favoris historique cookies profils réglages configuration fichier json schéma documentation référence notification alerte non lu message badge anneau flash son bureau télémétrie analytique plantage rapports utilisation anonyme confidentialité Préférences... App"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry app generale preferenze comportamento barra stato laterale navigazione sinistra dettagli nascondi layout importa migrazione segnalibri cronologia cookie profili impostazioni configurazione file json schema documentazione riferimento notifica notifiche avviso non letto messaggio badge anello lampeggio suono scrivania telemetria analisi crash rapporti utilizzo anonimo privacy Preferenze…"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry app generale preferenze comportamento barra stato importa migrazione segnalibri cronologia cookie profili impostazioni configurazione file json schema documentazione riferimento notifica notifiche avviso non letto messaggio badge anello lampeggio suono scrivania telemetria analisi crash rapporti utilizzo anonimo privacy Preferenze…"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 탐색 왼쪽 세부사항 숨기기 레이아웃 가져오기 마이그레이션 북마크 방문 기록 쿠키 프로필 설정 구성 파일 json 스키마 문서 참조 알림 읽지 않음 메시지 배지 링 깜박임 소리 데스크탑 경고 텔레메트리 분석 충돌 보고서 사용량 익명 개인정보 환경설정…"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry 앱 일반 환경설정 동작 독 메뉴 막대 상태 가져오기 마이그레이션 북마크 방문 기록 쿠키 프로필 설정 구성 파일 json 스키마 문서 참조 알림 읽지 않음 메시지 배지 링 깜박임 소리 데스크탑 경고 텔레메트리 분석 충돌 보고서 사용량 익명 개인정보 환경설정…"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry app generelt innstillinger oppførsel menylinje sidepanel navigasjon venstre detaljer skjul oppsett import migrering bokmerker historikk informasjonskapsler profiler konfigurasjon fil json skjema dokumentasjon referanse preferanser varsling varsler ulest melding merke ring blink lyd skrivebord telemetri analyse krasj rapporter bruk anonym personvern … Meny"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry app generelt innstillinger oppførsel menylinje status import migrering bokmerker historikk informasjonskapsler profiler konfigurasjon fil json skjema dokumentasjon referanse preferanser varsling varsler ulest melding merke ring blink lyd skrivebord telemetri analyse krasj rapporter bruk anonym personvern … Meny"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry aplikacja ogólne preferencje zachowanie pasek boczny nawigacja lewy szczegóły ukryj układ import migracja zakładki historia ciasteczka profile ustawienia konfiguracja plik json schemat dokumentacja referencja powiadomienie powiadomienia alert nieprzeczytane wiadomość odznaka pierścień błysk dźwięk pulpit telemetria analityka awaria raporty użycie anonimowe prywatność Preferencje…"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry aplikacja ogólne preferencje zachowanie status import migracja zakładki historia ciasteczka profile ustawienia konfiguracja plik json schemat dokumentacja referencja powiadomienie powiadomienia alert nieprzeczytane wiadomość odznaka pierścień błysk dźwięk pulpit telemetria analityka awaria raporty użycie anonimowe prywatność Preferencje…"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry app geral preferências comportamento barra de lateral navegação esquerda detalhes ocultar layout importar migração favoritos histórico cookies perfis configurações configuração arquivo json esquema documentação referência notificação notificações alerta não lido mensagem selo anel piscar som desktop telemetria análises falhas relatórios uso anônimo privacidade Preferências…"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry app geral preferências comportamento barra de menu estado importar migração favoritos histórico cookies perfis configurações configuração arquivo json esquema documentação referência notificação notificações alerta não lido mensagem selo anel piscar som desktop telemetria análises falhas relatórios uso anônimo privacidade Preferências…"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry приложение общие настройки поведение док строка меню статус боковая панель навигация слева детали скрыть макет импорт миграция закладки история cookies профили конфигурация файл json схема документация справочник предпочтения уведомление уведомления предупреждение непрочитанное сообщение бейдж кольцо вспышка звук рабочий стол телеметрия аналитика сбой отчеты использование анонимно приватность Настройки..."
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry приложение общие настройки поведение док строка меню статус импорт миграция закладки история cookies профили конфигурация файл json схема документация справочник предпочтения уведомление уведомления предупреждение непрочитанное сообщение бейдж кольцо вспышка звук рабочий стол телеметрия аналитика сбой отчеты использование анонимно приватность Настройки..."
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง นำทาง ซ้าย รายละเอียด ซ่อน เค้าโครง นำเข้า ย้ายข้อมูล บุ๊กมาร์ก ประวัติ คุกกี้ โปรไฟล์ การตั้งค่า การกำหนดค่า ไฟล์ json สคีมา เอกสาร อ้างอิง การแจ้งเตือน ยังไม่ได้อ่าน ข้อความ ป้าย วงแหวน แฟลช เสียง เดสก์ท็อป เทเลเมทรี วิเคราะห์ ขัดข้อง รายงาน การใช้งาน นิรนาม ความเป็นส่วนตัว การตั้งค่า... เมนู"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ นำเข้า ย้ายข้อมูล บุ๊กมาร์ก ประวัติ คุกกี้ โปรไฟล์ การตั้งค่า การกำหนดค่า ไฟล์ json สคีมา เอกสาร อ้างอิง การแจ้งเตือน ยังไม่ได้อ่าน ข้อความ ป้าย วงแหวน แฟลช เสียง เดสก์ท็อป เทเลเมทรี วิเคราะห์ ขัดข้อง รายงาน การใช้งาน นิรนาม ความเป็นส่วนตัว การตั้งค่า... เมนู"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry uygulama genel tercihler davranış menü çubuğu durum kenar gezinme sol ayrıntılar gizle düzen içe aktar geçiş yer imleri geçmiş çerezler profiller ayarlar yapılandırma dosya json şema belgeler başvuru bildirim bildirimler uyarı okunmamış mesaj rozet halka flaş ses masaüstü telemetri analiz çökme raporlar kullanım anonim gizlilik Tercihler…"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry uygulama genel tercihler davranış menü çubuğu durum içe aktar geçiş yer imleri geçmiş çerezler profiller ayarlar yapılandırma dosya json şema belgeler başvuru bildirim bildirimler uyarı okunmamış mesaj rozet halka flaş ses masaüstü telemetri analiz çökme raporlar kullanım anonim gizlilik Tercihler…"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 导航 左侧 详细信息 隐藏 布局 导入 迁移 书签 历史记录 Cookie 个人资料 设置 配置 文件 json 架构 文档 参考 通知 未读 消息 徽章 圆环 闪烁 声音 桌面 提醒 遥测 分析 崩溃 报告 使用 匿名 隐私 偏好设置... 菜单"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 导入 迁移 书签 历史记录 Cookie 个人资料 设置 配置 文件 json 架构 文档 参考 通知 未读 消息 徽章 圆环 闪烁 声音 桌面 提醒 遥测 分析 崩溃 报告 使用 匿名 隐私 偏好设置... 菜单"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry 應用程式 一般 偏好設定 行為 選單列 狀態 側邊欄 導覽 左側 詳細資訊 隱藏 版面 匯入 移轉 書籤 瀏覽記錄 Cookie 個人檔案 設定 設定檔 檔案 json 結構描述 文件 參考 通知 未讀 訊息 徽章 圓環 閃爍 聲音 桌面 提醒 遙測 分析 當機 報告 使用 匿名 隱私 偏好設定... 選單 App"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry 應用程式 一般 偏好設定 行為 選單列 狀態 匯入 移轉 書籤 瀏覽記錄 Cookie 個人檔案 設定 設定檔 檔案 json 結構描述 文件 參考 通知 未讀 訊息 徽章 圓環 閃爍 聲音 桌面 提醒 遙測 分析 當機 報告 使用 匿名 隱私 偏好設定... 選單 App"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications sidebar telemetry програма загальні параметри поведінка док рядок меню статус бічна панель навігація ліворуч деталі приховати макет імпорт міграція закладки історія cookies профілі налаштування конфігурація файл json схема документація довідник сповіщення непрочитане повідомлення значок кільце спалах звук робочий стіл телеметрія аналітика збій звіти використання анонімно приватність Параметри…"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry програма загальні параметри поведінка док рядок меню статус імпорт міграція закладки історія cookies профілі налаштування конфігурація файл json схема документація довідник сповіщення непрочитане повідомлення значок кільце спалах звук робочий стіл телеметрія аналітика збій звіти використання анонімно приватність Параметри…"
                 }
             }
         }
@@ -69739,115 +69756,115 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color"
+                    "value": "sidebar left rail navigation details branches badges material terminal background"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color 左サイドバー ナビゲーション 色 透明度 不透明度 マテリアル"
+                    "value": "sidebar left rail navigation details branches badges material terminal background サイドバー 左 ナビゲーション 詳細 ブランチ バッジ マテリアル ターミナル 背景"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color شريط جانبي تنقل يسار تفاصيل إخفاء تخطيط مظهر سمة لون ألوان مخطط فاتح داكن نظام وضع أيسر شفافية اللون"
+                    "value": "sidebar left rail navigation details branches badges material terminal background الشريط الجانبي تنقل يسار تفاصيل فروع شارات مادة طرفية خلفية"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color bočna traka navigacija lijevo detalji sakrij raspored izgled tema boja boje shema svijetlo tamno sistem način Lijeva Prozirnost nijanse"
+                    "value": "sidebar left rail navigation details branches badges material terminal background bočna traka navigacija lijevo detalji grane značke materijal terminal pozadina"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color sidepanel venstre detaljer skjul layout udseende tema farve farver skema lys mørk system tilstand skinne Farvetone gennemsigtighed"
+                    "value": "sidebar left rail navigation details branches badges material terminal background sidebjælke navigation venstre detaljer grene badges materiale terminal baggrund"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color seitenleiste links details ausblenden layout darstellung design farbe farben schema hell dunkel system modus Linke Leiste Farbton-Deckkraft"
+                    "value": "sidebar left rail navigation details branches badges material terminal background seitenleiste navigation links details zweige badges material terminal hintergrund"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color barra lateral navegación izquierda detalles ocultar diseño apariencia tema colores esquema claro oscuro sistema modo Opacidad del tinte"
+                    "value": "sidebar left rail navigation details branches badges material terminal background barra lateral navegación izquierda detalles ramas insignias material terminal fondo"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color barre latérale gauche détails masquer disposition apparence thème couleur couleurs schéma clair sombre système mode Opacité de la teinte"
+                    "value": "sidebar left rail navigation details branches badges material terminal background barre latérale navigation gauche détails branches badges matériau terminal arrière-plan"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color barra laterale navigazione sinistra dettagli nascondi layout aspetto tema colore colori schema chiaro scuro sistema modalità Opacità tinta"
+                    "value": "sidebar left rail navigation details branches badges material terminal background barra laterale navigazione sinistra dettagli branch badge materiale terminale sfondo"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color 사이드바 탐색 왼쪽 세부사항 숨기기 레이아웃 외관 테마 색상 색 구성표 라이트 다크 시스템 모드 레일 색조 불투명도"
+                    "value": "sidebar left rail navigation details branches badges material terminal background 사이드바 탐색 왼쪽 세부사항 브랜치 배지 머티리얼 터미널 배경"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color sidepanel navigasjon venstre detaljer skjul oppsett utseende tema farge farger skjema lys mørk system modus skinne Fargetone-opasitet"
+                    "value": "sidebar left rail navigation details branches badges material terminal background sidefelt navigasjon venstre detaljer grener merker materiale terminal bakgrunn"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color pasek boczny nawigacja lewy szczegóły ukryj układ wygląd motyw kolor kolory schemat jasny ciemny system tryb Lewa listwa Krycie odcienia"
+                    "value": "sidebar left rail navigation details branches badges material terminal background pasek boczny nawigacja lewy szczegóły gałęzie odznaki materiał terminal tło"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color barra lateral navegação esquerda detalhes ocultar layout aparência tema cor cores esquema claro escuro sistema modo Trilho Esquerdo Opacidade da Tonalidade"
+                    "value": "sidebar left rail navigation details branches badges material terminal background barra lateral navegação esquerda detalhes branches badges material terminal fundo"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color боковая панель навигация слева детали скрыть макет внешний вид тема цвет цвета схема светлый темный система режим Левая полоса Непрозрачность оттенка"
+                    "value": "sidebar left rail navigation details branches badges material terminal background боковая панель навигация слева детали ветки бейджи материал терминал фон"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color แถบด้านข้าง นำทาง ซ้าย รายละเอียด ซ่อน เค้าโครง ลักษณะ ธีม สี โครงร่าง สว่าง มืด ระบบ โหมด แถบด้านซ้าย ความทึบของโทนสี"
+                    "value": "sidebar left rail navigation details branches badges material terminal background แถบด้านข้าง นำทาง ซ้าย รายละเอียด branch badge วัสดุ เทอร์มินัล พื้นหลัง"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color kenar çubuğu gezinme sol ayrıntılar gizle düzen görünüm tema renk renkler şema açık koyu sistem mod Şerit Tonu Opaklığı"
+                    "value": "sidebar left rail navigation details branches badges material terminal background kenar çubuğu gezinme sol ayrıntılar dallar rozetler materyal terminal arka plan"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color 侧边栏 导航 左侧 详细信息 隐藏 布局 外观 主题 颜色 配色 浅色 深色 系统 模式 左侧导轨 色调不透明度"
+                    "value": "sidebar left rail navigation details branches badges material terminal background 侧边栏 导航 左侧 详细信息 分支 徽章 材质 终端 背景"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color 側邊欄 導覽 左側 詳細資訊 隱藏 版面 外觀 主題 顏色 配色 淺色 深色 系統 模式 左側軌道 色調不透明度"
+                    "value": "sidebar left rail navigation details branches badges material terminal background 側邊欄 導覽 左側 詳細資訊 分支 徽章 材質 終端機 背景"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "left rail navigation tint transparency opacity material color бічна панель навігація ліворуч деталі приховати макет вигляд тема колір кольори схема світлий темний система режим Лівий рейл Непрозорість відтінку"
+                    "value": "sidebar left rail navigation details branches badges material terminal background бічна панель навігація ліворуч деталі гілки бейджі матеріал термінал фон"
                 }
             }
         }
@@ -100325,115 +100342,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebar Appearance"
+            "value": "Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーの外観"
+            "value": "サイドバー"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏外观"
+            "value": "侧边栏"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄外觀"
+            "value": "側邊欄"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 모양"
+            "value": "사이드바"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seitenleisten-Erscheinungsbild"
+            "value": "Seitenleiste"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apariencia de la barra lateral"
+            "value": "Barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apparence de la barre latérale"
+            "value": "Barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aspetto barra laterale"
+            "value": "Barra laterale"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebjælkeudseende"
+            "value": "Sidebjælke"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wygląd paska bocznego"
+            "value": "Pasek boczny"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Внешний вид боковой панели"
+            "value": "Боковая панель"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Izgled bočne trake"
+            "value": "Bočna traka"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مظهر الشريط الجانبي"
+            "value": "الشريط الجانبي"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidefelts utseende"
+            "value": "Sidefelt"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aparência da Barra Lateral"
+            "value": "Barra lateral"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "รูปลักษณ์แถบด้านข้าง"
+            "value": "แถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kenar Çubuğu Görünümü"
+            "value": "Kenar Çubuğu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Зовнішній вигляд бічної панелі"
+            "value": "Бічна панель"
           }
         }
       }

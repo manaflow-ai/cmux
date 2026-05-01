@@ -2913,6 +2913,15 @@ class GhosttyApp {
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
         }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                AppDelegate.shared?.reloadCmuxConfigStores(source: source)
+            }
+        } else {
+            DispatchQueue.main.sync {
+                AppDelegate.shared?.reloadCmuxConfigStores(source: source)
+            }
+        }
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return

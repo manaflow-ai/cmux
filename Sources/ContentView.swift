@@ -7088,7 +7088,7 @@ struct ContentView: View {
                         ? String(localized: "command.disableMatchTerminalBackground.title", defaultValue: "Disable Match Terminal Background")
                         : String(localized: "command.enableMatchTerminalBackground.title", defaultValue: "Enable Match Terminal Background")
                 },
-                subtitle: constant(String(localized: "command.matchTerminalBackground.subtitle", defaultValue: "Sidebar Appearance")),
+                subtitle: constant(String(localized: "command.matchTerminalBackground.subtitle", defaultValue: "Sidebar")),
                 keywords: ["match", "terminal", "background", "transparency", "sidebar", "surface", "chrome"]
             )
         )
@@ -7857,12 +7857,9 @@ struct ContentView: View {
                 defaultValue: "Invalid cmux.json"
             )
             return String(format: format, issue.message ?? fallback)
-        case .newWorkspaceActionRequiresWorkspaceCommand:
-            let format = String(
-                localized: "command.cmuxConfig.issue.newWorkspaceActionRequiresWorkspaceCommand.detail",
-                defaultValue: "%@ must reference a workspace command action"
-            )
-            return String(format: format, issue.settingName)
+        case .newWorkspaceActionNotFound:
+            let format = String(localized: "command.cmuxConfig.issue.newWorkspaceActionNotFound.detail", defaultValue: "%@ references missing action '%@'")
+            return String(format: format, issue.settingName, issue.commandName ?? "")
         case .newWorkspaceCommandNotFound:
             let format = String(
                 localized: "command.cmuxConfig.issue.newWorkspaceCommandNotFound.detail",
@@ -13164,15 +13161,16 @@ private struct TabItemView: View, Equatable {
             if detailVisibility.showsPorts, !workspaceSnapshot.listeningPorts.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(workspaceSnapshot.listeningPorts, id: \.self) { port in
-                        let portText = String(port)
+                        let portLabel = SidebarPortDisplayText.label(for: port)
+                        let portTooltip = SidebarPortDisplayText.openTooltip(for: port)
                         Button(action: {
                             openPortLink(port)
                         }) {
-                            Text(String(localized: "sidebar.port.label", defaultValue: ":\(portText)"))
+                            Text(portLabel)
                                 .underline()
                         }
                         .buttonStyle(.plain)
-                        .safeHelp(String(localized: "sidebar.port.openTooltip", defaultValue: "Open localhost:\(portText)"))
+                        .safeHelp(portTooltip)
                     }
                     Spacer(minLength: 0)
                 }
@@ -15768,7 +15766,13 @@ private struct WindowBackdropLayer: View {
     private func backdrop(for policy: WindowBackdropPolicy) -> some View {
         switch policy {
         case let .ghosttyTerminalBackdrop(color, opacity, _):
-            LayerBackedBackdropColor(color: color.withAlphaComponent(opacity))
+            let backdropColor = color.withAlphaComponent(opacity)
+            switch role {
+            case .windowRoot:
+                Color(nsColor: backdropColor)
+            case .terminalCanvas, .bonsplitChrome, .titlebar, .leftSidebar, .rightSidebar, .browserSurface:
+                LayerBackedBackdropColor(color: backdropColor)
+            }
         case let .sidebarMaterial(materialPolicy):
             ZStack {
                 let usingNativeLiquidGlass = materialPolicy.preferLiquidGlass &&
