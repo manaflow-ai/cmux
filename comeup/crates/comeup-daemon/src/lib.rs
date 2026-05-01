@@ -18,8 +18,8 @@ use std::time::Instant;
 use anyhow::{Context, Result, anyhow};
 use comeup_core::Model;
 use comeup_protocol::{
-    ClientId, ClientMsg, Command, Delta, PROTOCOL_VERSION, ServerMsg, TerminalId, Viewport,
-    VisibleTerminal, read_msg, write_msg,
+    ClientAuth, ClientId, ClientMsg, Command, Delta, PROTOCOL_VERSION, ServerMsg, TerminalId,
+    Viewport, VisibleTerminal, read_msg, write_msg,
 };
 use portable_pty::{ChildKiller, CommandBuilder, PtySize, native_pty_system};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -32,16 +32,68 @@ pub struct ServerOptions {
     pub shell: String,
     pub cwd: Option<PathBuf>,
     pub initial_viewport: Viewport,
+    pub auth: AuthPolicy,
+}
+
+#[derive(Clone, Default)]
+pub enum AuthPolicy {
+    #[default]
+    Open,
+    BearerToken(String),
+}
+
+impl std::fmt::Debug for AuthPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Open => f.write_str("Open"),
+            Self::BearerToken(_) => f.write_str("BearerToken(<redacted>)"),
+        }
+    }
+}
+
+impl AuthPolicy {
+    pub fn bearer_token(token: impl Into<String>) -> Result<Self> {
+        let token = token.into();
+        if token.is_empty() {
+            return Err(anyhow!("auth token must not be empty"));
+        }
+        Ok(Self::BearerToken(token))
+    }
+
+    fn authorize(&self, auth: Option<&ClientAuth>) -> bool {
+        match self {
+            Self::Open => true,
+            Self::BearerToken(expected) => match auth {
+                Some(ClientAuth::Bearer { token }) => {
+                    constant_time_eq(expected.as_bytes(), token.as_bytes())
+                }
+                None => false,
+            },
+        }
+    }
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    let max_len = left.len().max(right.len());
+    let mut diff = left.len() ^ right.len();
+    for index in 0..max_len {
+        let left_byte = left.get(index).copied().unwrap_or(0);
+        let right_byte = right.get(index).copied().unwrap_or(0);
+        diff |= usize::from(left_byte ^ right_byte);
+    }
+    diff == 0
 }
 
 #[derive(Debug, Clone)]
 pub struct ComeupServer {
     tx: mpsc::UnboundedSender<DaemonMsg>,
+    auth: AuthPolicy,
 }
 
 impl ComeupServer {
     pub fn start(opts: ServerOptions) -> Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
+        let auth = opts.auth.clone();
         let mut terminals = HashMap::new();
         let terminal = PtyTerminal::spawn(
             1,
@@ -62,7 +114,7 @@ impl ComeupServer {
             tx: tx.clone(),
         };
         tokio::spawn(run_loop(rx, state));
-        Ok(Self { tx })
+        Ok(Self { tx, auth })
     }
 
     pub async fn connect(&self, viewport: Viewport) -> Result<LocalClient> {
@@ -80,6 +132,10 @@ impl ComeupServer {
 
     pub fn shutdown(&self) {
         let _ = self.tx.send(DaemonMsg::Shutdown);
+    }
+
+    fn authorize(&self, auth: Option<&ClientAuth>) -> bool {
+        self.auth.authorize(auth)
     }
 }
 
@@ -133,7 +189,12 @@ async fn handle_unix_client(server: ComeupServer, stream: UnixStream) -> Result<
     else {
         return Ok(());
     };
-    let ClientMsg::Hello { version, viewport } = hello else {
+    let ClientMsg::Hello {
+        version,
+        viewport,
+        auth,
+    } = hello
+    else {
         write_msg(
             &mut write_half,
             &ServerMsg::Error {
@@ -144,6 +205,17 @@ async fn handle_unix_client(server: ComeupServer, stream: UnixStream) -> Result<
         .ok();
         return Ok(());
     };
+    if !server.authorize(auth.as_ref()) {
+        write_msg(
+            &mut write_half,
+            &ServerMsg::Error {
+                message: "unauthorized".to_string(),
+            },
+        )
+        .await
+        .ok();
+        return Ok(());
+    }
     if version != PROTOCOL_VERSION {
         write_msg(
             &mut write_half,
@@ -218,7 +290,11 @@ async fn handle_tcp_text_client(server: ComeupServer, stream: TcpStream) -> Resu
             .ok();
         return Ok(());
     };
-    let viewport = parse_text_viewport(rest)?;
+    let (viewport, auth) = parse_text_hello(rest)?;
+    if !server.authorize(auth.as_ref()) {
+        write_half.write_all(b"ERROR unauthorized\n").await.ok();
+        return Ok(());
+    }
     let LocalClient {
         client_id,
         tx,
@@ -349,14 +425,75 @@ mod tests {
             other => panic!("unexpected message: {other:?}"),
         }
     }
+
+    #[test]
+    fn text_harness_hello_accepts_optional_bearer_auth() {
+        let (viewport, auth) =
+            parse_text_hello("90 30 AUTH bearer test-token").expect("parse hello");
+        assert_eq!(viewport, Viewport { cols: 90, rows: 30 });
+        assert_eq!(
+            auth,
+            Some(ClientAuth::Bearer {
+                token: "test-token".to_string()
+            })
+        );
+
+        let (viewport, auth) = parse_text_hello("80 24").expect("parse hello without auth");
+        assert_eq!(viewport, Viewport { cols: 80, rows: 24 });
+        assert_eq!(auth, None);
+    }
+
+    #[test]
+    fn text_harness_hello_rejects_unknown_options() {
+        assert!(parse_text_hello("90 30 TOKEN test-token").is_err());
+        assert!(parse_text_hello("90 30 AUTH basic test-token").is_err());
+        assert!(parse_text_hello("90 30 AUTH bearer").is_err());
+        assert!(parse_text_hello("90 30 AUTH bearer test-token extra").is_err());
+    }
+
+    #[test]
+    fn auth_policy_uses_constant_time_token_check() {
+        let policy = AuthPolicy::bearer_token("expected-token").expect("policy");
+        assert!(policy.authorize(Some(&ClientAuth::Bearer {
+            token: "expected-token".to_string()
+        })));
+        assert!(!policy.authorize(Some(&ClientAuth::Bearer {
+            token: "wrong-token".to_string()
+        })));
+        assert!(!policy.authorize(None));
+    }
 }
 
-fn parse_text_viewport(rest: &str) -> Result<Viewport> {
+fn parse_text_hello(rest: &str) -> Result<(Viewport, Option<ClientAuth>)> {
     let mut parts = rest.split_whitespace();
-    Ok(Viewport {
+    let viewport = Viewport {
         cols: parse_next::<u16>(&mut parts, "cols")?,
         rows: parse_next::<u16>(&mut parts, "rows")?,
-    })
+    };
+    let Some(option) = parts.next() else {
+        return Ok((viewport, None));
+    };
+    if option != "AUTH" {
+        return Err(anyhow!("unknown HELLO option: {option}"));
+    }
+    let scheme = parts
+        .next()
+        .ok_or_else(|| anyhow!("AUTH requires a scheme"))?;
+    if scheme != "bearer" {
+        return Err(anyhow!("unsupported AUTH scheme: {scheme}"));
+    }
+    let token = parts
+        .next()
+        .ok_or_else(|| anyhow!("AUTH bearer requires a token"))?;
+    if parts.next().is_some() {
+        return Err(anyhow!("unexpected trailing HELLO field"));
+    }
+    Ok((
+        viewport,
+        Some(ClientAuth::Bearer {
+            token: token.to_string(),
+        }),
+    ))
 }
 
 fn parse_next<T: std::str::FromStr>(

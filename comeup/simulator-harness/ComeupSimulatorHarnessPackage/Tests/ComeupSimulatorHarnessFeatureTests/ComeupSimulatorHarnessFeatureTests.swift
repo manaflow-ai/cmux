@@ -90,6 +90,16 @@ func ghosttyRuntimeConfigURLsUseReadableOverride() throws {
 }
 
 @Test
+func liveTerminalStoreHelloLineCarriesOptionalBearerAuth() {
+    let size = CmuxTerminalSize(cols: 90, rows: 30)
+    #expect(ComeupLiveTerminalStore.helloLine(size: size, authToken: nil) == "HELLO 90 30")
+    #expect(
+        ComeupLiveTerminalStore.helloLine(size: size, authToken: "test-token")
+            == "HELLO 90 30 AUTH bearer test-token"
+    )
+}
+
+@Test
 func simulatorTextHarnessSyncsWithComeupDaemon() throws {
     let environment = ProcessInfo.processInfo.environment
     guard let portText = environment["COMEUP_TEXT_PORT"] ?? environment["TEST_RUNNER_COMEUP_TEXT_PORT"] else {
@@ -99,7 +109,9 @@ func simulatorTextHarnessSyncsWithComeupDaemon() throws {
     let client = try TextHarnessSocket(host: "127.0.0.1", port: port)
     defer { client.close() }
 
-    try client.sendLine("HELLO 90 30")
+    let authTokenText = environment["COMEUP_AUTH_TOKEN"] ?? environment["TEST_RUNNER_COMEUP_AUTH_TOKEN"]
+    let authToken = authTokenText.flatMap { $0.isEmpty ? nil : $0 }
+    try client.sendLine(ComeupLiveTerminalStore.helloLine(size: CmuxTerminalSize(cols: 90, rows: 30), authToken: authToken))
     let welcome = try client.readLine(containing: "WELCOME client=")
     #expect(welcome.contains("terminal=1"))
     #expect(welcome.contains("size=90x30"))

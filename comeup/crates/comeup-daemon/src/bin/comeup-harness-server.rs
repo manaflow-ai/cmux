@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow, bail};
 use comeup_daemon::{
-    ComeupServer, ServerOptions, serve_tcp_text_harness, serve_unix_socket_with_server,
+    AuthPolicy, ComeupServer, ServerOptions, serve_tcp_text_harness, serve_unix_socket_with_server,
 };
 use comeup_protocol::Viewport;
 
@@ -27,6 +27,7 @@ async fn main() -> Result<()> {
             cols: args.cols,
             rows: args.rows,
         },
+        auth: auth_policy()?,
     })?;
 
     let unix = serve_unix_socket_with_server(&args.socket, server.clone());
@@ -87,4 +88,17 @@ impl Args {
             rows,
         })
     }
+}
+
+fn auth_policy() -> Result<AuthPolicy> {
+    match env_auth_token() {
+        Some(token) => AuthPolicy::bearer_token(token),
+        None => Ok(AuthPolicy::Open),
+    }
+}
+
+fn env_auth_token() -> Option<String> {
+    std::env::var("COMEUP_AUTH_TOKEN")
+        .ok()
+        .filter(|token| !token.is_empty())
 }

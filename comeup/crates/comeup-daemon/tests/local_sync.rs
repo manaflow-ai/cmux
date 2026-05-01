@@ -1,7 +1,7 @@
 use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
-use comeup_daemon::{ComeupServer, ServerOptions};
+use comeup_daemon::{AuthPolicy, ComeupServer, ServerOptions};
 use comeup_protocol::{ClientMsg, Command, Delta, ServerMsg, Viewport, VisibleTerminal};
 use tokio::time::timeout;
 
@@ -14,6 +14,7 @@ async fn two_local_clients_receive_workspace_delta_and_terminal_output() {
         shell: "/bin/cat".to_string(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: Viewport { cols: 80, rows: 24 },
+        auth: AuthPolicy::Open,
     })
     .expect("start server");
 
@@ -107,6 +108,7 @@ async fn silent_disconnect_releases_visible_terminal_size() {
         shell: "/bin/cat".to_string(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: Viewport { cols: 80, rows: 24 },
+        auth: AuthPolicy::Open,
     })
     .expect("start server");
 
@@ -160,6 +162,7 @@ async fn visible_terminal_update_replaces_client_snapshot() {
         shell: "/bin/cat".to_string(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: Viewport { cols: 80, rows: 24 },
+        auth: AuthPolicy::Open,
     })
     .expect("start server");
 
@@ -214,6 +217,7 @@ async fn new_workspace_pty_starts_at_model_size() {
         shell: shell.display().to_string(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: Viewport { cols: 80, rows: 24 },
+        auth: AuthPolicy::Open,
     })
     .expect("start server");
 

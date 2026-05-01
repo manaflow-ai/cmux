@@ -23,6 +23,7 @@ public final class ComeupLiveTerminalStore: ObservableObject, GhosttyTerminalSur
     @Published public private(set) var accessibilityText = ""
 
     private let port: UInt16?
+    private let authToken: String?
     private let sendOnConnect: String?
     private let queue = DispatchQueue(label: "ComeupLiveTerminalStore.connection")
     private var connection: NWConnection?
@@ -37,6 +38,8 @@ public final class ComeupLiveTerminalStore: ObservableObject, GhosttyTerminalSur
     ) {
         let portText = environment["COMEUP_TEXT_PORT"] ?? environment["TEST_RUNNER_COMEUP_TEXT_PORT"]
         self.port = portText.flatMap(UInt16.init)
+        let authTokenText = environment["COMEUP_AUTH_TOKEN"] ?? environment["TEST_RUNNER_COMEUP_AUTH_TOKEN"]
+        self.authToken = authTokenText.flatMap { $0.isEmpty ? nil : $0 }
         self.sendOnConnect = environment["COMEUP_SEND_ON_CONNECT"]
         self.size = defaultSize
         self.state = port == nil ? .disabled : .connecting
@@ -89,7 +92,7 @@ public final class ComeupLiveTerminalStore: ObservableObject, GhosttyTerminalSur
         switch newState {
         case .ready:
             state = .connected
-            sendLine("HELLO \(size.cols) \(size.rows)")
+            sendLine(Self.helloLine(size: size, authToken: authToken))
             receiveNext()
         case .failed(let error):
             state = .failed(error.localizedDescription)
@@ -98,6 +101,14 @@ public final class ComeupLiveTerminalStore: ObservableObject, GhosttyTerminalSur
         default:
             break
         }
+    }
+
+    nonisolated static func helloLine(size: CmuxTerminalSize, authToken: String?) -> String {
+        var line = "HELLO \(size.cols) \(size.rows)"
+        if let authToken, !authToken.isEmpty {
+            line += " AUTH bearer \(authToken)"
+        }
+        return line
     }
 
     private func receiveNext() {

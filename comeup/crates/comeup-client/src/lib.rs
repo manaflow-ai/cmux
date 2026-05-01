@@ -13,7 +13,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 use comeup_protocol::{
-    ClientId, ClientMsg, PROTOCOL_VERSION, ServerMsg, Snapshot, Viewport, read_msg, write_msg,
+    ClientAuth, ClientId, ClientMsg, PROTOCOL_VERSION, ServerMsg, Snapshot, Viewport, read_msg,
+    write_msg,
 };
 use tokio::io::BufReader;
 use tokio::net::UnixStream;
@@ -28,6 +29,14 @@ pub struct UnixClient {
 
 impl UnixClient {
     pub async fn connect(socket_path: impl AsRef<Path>, viewport: Viewport) -> Result<Self> {
+        Self::connect_with_auth(socket_path, viewport, None).await
+    }
+
+    pub async fn connect_with_auth(
+        socket_path: impl AsRef<Path>,
+        viewport: Viewport,
+        auth: Option<ClientAuth>,
+    ) -> Result<Self> {
         let stream = UnixStream::connect(socket_path.as_ref())
             .await
             .with_context(|| format!("connect {}", socket_path.as_ref().display()))?;
@@ -39,6 +48,7 @@ impl UnixClient {
             &ClientMsg::Hello {
                 version: PROTOCOL_VERSION,
                 viewport,
+                auth,
             },
         )
         .await

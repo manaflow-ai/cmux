@@ -118,10 +118,18 @@ pub enum Command {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ClientAuth {
+    Bearer { token: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ClientMsg {
     Hello {
         version: u32,
         viewport: Viewport,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        auth: Option<ClientAuth>,
     },
     Command {
         id: u64,
@@ -238,6 +246,24 @@ mod tests {
             terminal_id: 7,
             input_seq: 9,
             data: b"echo hi\n".to_vec(),
+        };
+        let (mut writer, mut reader) = tokio::io::duplex(1024);
+        write_msg(&mut writer, &msg).await.expect("write");
+        let decoded = read_msg::<_, ClientMsg>(&mut reader)
+            .await
+            .expect("read")
+            .expect("message");
+        assert_eq!(decoded, msg);
+    }
+
+    #[tokio::test]
+    async fn messagepack_frame_round_trips_hello_auth() {
+        let msg = ClientMsg::Hello {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 90, rows: 30 },
+            auth: Some(ClientAuth::Bearer {
+                token: "secret-token".to_string(),
+            }),
         };
         let (mut writer, mut reader) = tokio::io::duplex(1024);
         write_msg(&mut writer, &msg).await.expect("write");

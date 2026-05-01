@@ -15,18 +15,22 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow, bail};
 use comeup_client::UnixClient;
-use comeup_protocol::{ClientMsg, Command, Delta, Focus, ServerMsg, Viewport, VisibleTerminal};
+use comeup_protocol::{
+    ClientAuth, ClientMsg, Command, Delta, Focus, ServerMsg, Viewport, VisibleTerminal,
+};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse(std::env::args().skip(1))?;
-    let mut client = UnixClient::connect(
+    let auth = client_auth();
+    let mut client = UnixClient::connect_with_auth(
         &args.socket,
         Viewport {
             cols: args.cols,
             rows: args.rows,
         },
+        auth,
     )
     .await?;
 
@@ -319,6 +323,13 @@ impl Args {
             rows,
         })
     }
+}
+
+fn client_auth() -> Option<ClientAuth> {
+    std::env::var("COMEUP_AUTH_TOKEN")
+        .ok()
+        .filter(|token| !token.is_empty())
+        .map(|token| ClientAuth::Bearer { token })
 }
 
 #[cfg(test)]

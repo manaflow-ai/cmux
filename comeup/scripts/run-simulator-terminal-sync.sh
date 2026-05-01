@@ -8,12 +8,14 @@ cd "$ROOT"
 command -v xcodebuildmcp >/dev/null
 
 PORT="${COMEUP_TEXT_PORT:-17891}"
+SIMULATOR_ID="${COMEUP_SIMULATOR_ID:-}"
 SIMULATOR_NAME="${COMEUP_SIMULATOR_NAME:-iPhone 17 Pro}"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/comeup-sim-sync.XXXXXX")"
 SOCKET="$WORK_DIR/comeup.sock"
 SERVER_LOG="$WORK_DIR/comeup-server.log"
 CMX_LOG="$WORK_DIR/cmx-pty-recorder.log"
 DERIVED_DATA="$WORK_DIR/DerivedData"
+AUTH_TOKEN="${COMEUP_AUTH_TOKEN:-comeup-sim-auth-token}"
 CMX_SENTINEL="CMX_SENTINEL_TO_SIM"
 SIM_SENTINEL="SIM_SENTINEL_FROM_IOS"
 SERVER_PID=""
@@ -97,6 +99,7 @@ cargo build -p comeup-daemon -p cmx
 
 "$REPO_ROOT/scripts/ensure-ghosttykit.sh"
 
+COMEUP_AUTH_TOKEN="$AUTH_TOKEN" \
 "$ROOT/target/debug/comeup-harness-server" \
   --socket "$SOCKET" \
   --tcp "127.0.0.1:$PORT" \
@@ -108,6 +111,7 @@ SERVER_PID=$!
 wait_for_socket "$SOCKET"
 wait_for_tcp "$PORT"
 
+COMEUP_AUTH_TOKEN="$AUTH_TOKEN" \
 "$ROOT/target/debug/cmx-pty-recorder" \
   --socket "$SOCKET" \
   --cols 120 \
@@ -119,15 +123,24 @@ CMX_PID=$!
 wait_for_log "$CMX_LOG" "COMEUP_TUI_READY client=1 terminal=1 size=120x40"
 
 WORKSPACE="$ROOT/simulator-harness/ComeupSimulatorHarness.xcworkspace"
+SIMULATOR_ARGS=(
+  --workspace-path "$WORKSPACE"
+  --scheme ComeupSimulatorHarness
+)
+if [[ -n "$SIMULATOR_ID" ]]; then
+  SIMULATOR_ARGS+=(--simulator-id "$SIMULATOR_ID")
+else
+  SIMULATOR_ARGS+=(--simulator-name "$SIMULATOR_NAME" --use-latest-os true)
+fi
+
 COMEUP_TEXT_PORT="$PORT" \
 TEST_RUNNER_COMEUP_TEXT_PORT="$PORT" \
+COMEUP_AUTH_TOKEN="$AUTH_TOKEN" \
+TEST_RUNNER_COMEUP_AUTH_TOKEN="$AUTH_TOKEN" \
 COMEUP_SEND_ON_CONNECT="$SIM_SENTINEL" \
 TEST_RUNNER_COMEUP_SEND_ON_CONNECT="$SIM_SENTINEL" \
 xcodebuildmcp simulator test \
-  --workspace-path "$WORKSPACE" \
-  --scheme ComeupSimulatorHarness \
-  --simulator-name "$SIMULATOR_NAME" \
-  --use-latest-os true \
+  "${SIMULATOR_ARGS[@]}" \
   --derived-data-path "$DERIVED_DATA" \
   --prefer-xcodebuild true \
   --output text

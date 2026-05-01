@@ -13,6 +13,9 @@ final class ComeupSimulatorHarnessUITests: XCTestCase {
         if let port = environment["COMEUP_TEXT_PORT"] ?? environment["TEST_RUNNER_COMEUP_TEXT_PORT"] {
             app.launchEnvironment["COMEUP_TEXT_PORT"] = port
         }
+        if let authToken = environment["COMEUP_AUTH_TOKEN"] ?? environment["TEST_RUNNER_COMEUP_AUTH_TOKEN"] {
+            app.launchEnvironment["COMEUP_AUTH_TOKEN"] = authToken
+        }
         if let sendOnConnect = environment["COMEUP_SEND_ON_CONNECT"] ?? environment["TEST_RUNNER_COMEUP_SEND_ON_CONNECT"] {
             app.launchEnvironment["COMEUP_SEND_ON_CONNECT"] = sendOnConnect
         }

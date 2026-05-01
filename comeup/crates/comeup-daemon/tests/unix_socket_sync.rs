@@ -3,11 +3,14 @@ use std::time::Duration;
 
 use comeup_client::UnixClient;
 use comeup_daemon::{
-    ComeupServer, ServerOptions, serve_unix_socket, serve_unix_socket_with_server,
+    AuthPolicy, ComeupServer, ServerOptions, serve_unix_socket, serve_unix_socket_with_server,
 };
 use comeup_protocol::{
-    ClientMsg, Command, Delta, ServerMsg, Viewport, VisibleTerminal, WorkspaceId,
+    ClientAuth, ClientMsg, Command, Delta, PROTOCOL_VERSION, ServerMsg, Viewport, VisibleTerminal,
+    WorkspaceId, read_msg, write_msg,
 };
+use tokio::io::BufReader;
+use tokio::net::UnixStream;
 use tokio::time::timeout;
 
 const SENTINEL: &str = "COMEUP_SOCKET_SYNC_OK_138D";
@@ -24,6 +27,7 @@ async fn unix_socket_clients_sync_workspace_resize_and_terminal_output() {
                 shell: "/bin/cat".to_string(),
                 cwd: Some(dir.path().to_path_buf()),
                 initial_viewport: Viewport { cols: 80, rows: 24 },
+                auth: AuthPolicy::Open,
             },
         )
         .await;
@@ -119,6 +123,7 @@ async fn unix_socket_refuses_to_delete_non_socket_path() {
         shell: "/bin/cat".to_string(),
         cwd: Some(dir.path().to_path_buf()),
         initial_viewport: Viewport { cols: 80, rows: 24 },
+        auth: AuthPolicy::Open,
     })
     .expect("start server");
 
@@ -137,6 +142,58 @@ async fn unix_socket_refuses_to_delete_non_socket_path() {
     server.shutdown();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unix_socket_requires_matching_bearer_auth() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let socket = dir.path().join("comeup.sock");
+    let server_socket = socket.clone();
+    let server_cwd = dir.path().to_path_buf();
+    let server = tokio::spawn(async move {
+        let _ = serve_unix_socket(
+            server_socket,
+            ServerOptions {
+                shell: "/bin/cat".to_string(),
+                cwd: Some(server_cwd),
+                initial_viewport: Viewport { cols: 80, rows: 24 },
+                auth: AuthPolicy::bearer_token("socket-secret").expect("auth policy"),
+            },
+        )
+        .await;
+    });
+    wait_for_socket(&socket).await;
+
+    assert!(matches!(
+        send_hello(&socket, None).await,
+        ServerMsg::Error { message } if message == "unauthorized"
+    ));
+    assert!(matches!(
+        send_hello(
+            &socket,
+            Some(ClientAuth::Bearer {
+                token: "wrong-secret".to_string()
+            })
+        )
+        .await,
+        ServerMsg::Error { message } if message == "unauthorized"
+    ));
+
+    let client = UnixClient::connect_with_auth(
+        &socket,
+        Viewport { cols: 90, rows: 30 },
+        Some(ClientAuth::Bearer {
+            token: "socket-secret".to_string(),
+        }),
+    )
+    .await
+    .expect("connect with auth");
+    assert_eq!(
+        terminal_size(client.snapshot(), client.snapshot().focus.terminal_id),
+        Viewport { cols: 90, rows: 30 }
+    );
+
+    server.abort();
+}
+
 async fn wait_for_socket(socket: &Path) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while !socket.exists() {
@@ -147,6 +204,26 @@ async fn wait_for_socket(socket: &Path) {
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+}
+
+async fn send_hello(socket: &Path, auth: Option<ClientAuth>) -> ServerMsg {
+    let stream = UnixStream::connect(socket).await.expect("connect socket");
+    let (read_half, mut write_half) = stream.into_split();
+    let mut reader = BufReader::new(read_half);
+    write_msg(
+        &mut write_half,
+        &ClientMsg::Hello {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 80, rows: 24 },
+            auth,
+        },
+    )
+    .await
+    .expect("write hello");
+    read_msg::<_, ServerMsg>(&mut reader)
+        .await
+        .expect("read server message")
+        .expect("server message")
 }
 
 fn terminal_size(snapshot: &comeup_protocol::Snapshot, terminal_id: u64) -> Viewport {

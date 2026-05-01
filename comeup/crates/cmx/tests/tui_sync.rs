@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use comeup_client::UnixClient;
-use comeup_daemon::{ServerOptions, serve_unix_socket};
+use comeup_daemon::{AuthPolicy, ServerOptions, serve_unix_socket};
 use comeup_protocol::{
     ClientMsg, Delta, ServerMsg, TerminalId, Viewport, VisibleTerminal, WorkspaceId,
 };
@@ -28,6 +28,7 @@ async fn real_cmx_tui_process_syncs_with_ios_shaped_client() {
                 shell: "/bin/cat".to_string(),
                 cwd: Some(server_cwd),
                 initial_viewport: Viewport { cols: 80, rows: 24 },
+                auth: AuthPolicy::Open,
             },
         )
         .await;
