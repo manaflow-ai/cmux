@@ -71,25 +71,39 @@ export const CMUXFeed = async (ctx) => {
     });
   };
 
-  const replyPermission = async ({ sessionId, requestId, reply, message }) => {
+  const tryRawClientRequest = async (method, options) => {
     try {
-      await rawClientRequest("post", {
+      await rawClientRequest(method, options);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const callClientMethod = async (root, name, args) => {
+    const fn = clientMethod(root, name);
+    if (!fn) return false;
+    await fn(args);
+    return true;
+  };
+
+  const replyPermission = async ({ sessionId, requestId, reply, message }) => {
+    if (
+      await tryRawClientRequest("post", {
         url: "/permission/{requestID}/reply",
         path: { requestID: requestId },
         body: message ? { reply, message } : { reply },
-      });
-      return;
-    } catch (_) {}
-
-    const current = clientMethod(ctx?.client?.permission, "reply");
-    if (current) {
-      await current({ requestID: requestId, reply, message });
+      })
+    ) {
       return;
     }
 
-    const legacy = clientMethod(ctx?.client, "postSessionIdPermissionsPermissionId");
-    if (legacy && sessionId) {
-      await legacy({
+    if (await callClientMethod(ctx?.client?.permission, "reply", { requestID: requestId, reply, message })) {
+      return;
+    }
+
+    if (sessionId) {
+      await callClientMethod(ctx?.client, "postSessionIdPermissionsPermissionId", {
         path: { id: sessionId, permissionID: requestId },
         body: { response: reply },
       });
@@ -97,46 +111,46 @@ export const CMUXFeed = async (ctx) => {
   };
 
   const replyQuestion = async (requestId, answers) => {
-    try {
-      await rawClientRequest("post", {
+    if (
+      await tryRawClientRequest("post", {
         url: "/question/{requestID}/reply",
         path: { requestID: requestId },
         body: { answers },
-      });
+      })
+    ) {
       return;
-    } catch (_) {}
+    }
 
-    const current = clientMethod(ctx?.client?.question, "reply");
-    if (current) await current({ requestID: requestId, answers });
+    await callClientMethod(ctx?.client?.question, "reply", { requestID: requestId, answers });
   };
 
   const rejectQuestion = async (requestId) => {
-    try {
-      await rawClientRequest("post", {
+    if (
+      await tryRawClientRequest("post", {
         url: "/question/{requestID}/reject",
         path: { requestID: requestId },
         body: {},
-      });
+      })
+    ) {
       return;
-    } catch (_) {}
+    }
 
-    const current = clientMethod(ctx?.client?.question, "reject");
-    if (current) await current({ requestID: requestId });
+    await callClientMethod(ctx?.client?.question, "reject", { requestID: requestId });
   };
 
   const updateSessionPermission = async (sessionId, permission) => {
     if (!sessionId || !permission.length) return;
-    try {
-      await rawClientRequest("patch", {
+    if (
+      await tryRawClientRequest("patch", {
         url: "/session/{sessionID}",
         path: { sessionID: sessionId },
         body: { permission },
-      });
+      })
+    ) {
       return;
-    } catch (_) {}
+    }
 
-    const current = clientMethod(ctx?.client?.session, "update");
-    if (current) await current({ path: { id: sessionId }, body: { permission } });
+    await callClientMethod(ctx?.client?.session, "update", { path: { id: sessionId }, body: { permission } });
   };
 
   const sendPlanFeedback = async (sessionId, text) => {
@@ -146,17 +160,17 @@ export const CMUXFeed = async (ctx) => {
       agent: "plan",
       parts: [{ type: "text", text: message }],
     };
-    try {
-      await rawClientRequest("post", {
+    if (
+      await tryRawClientRequest("post", {
         url: "/session/{sessionID}/prompt_async",
         path: { sessionID: sessionId },
         body,
-      });
+      })
+    ) {
       return;
-    } catch (_) {}
+    }
 
-    const current = clientMethod(ctx?.client?.session, "promptAsync");
-    if (current) await current({ path: { id: sessionId }, body });
+    await callClientMethod(ctx?.client?.session, "promptAsync", { path: { id: sessionId }, body });
   };
 
   const permissionRulesForExitPlanMode = (mode) => {
