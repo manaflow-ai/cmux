@@ -1051,7 +1051,7 @@ final class BrowserHistoryStore: ObservableObject {
 
     func loadIfNeeded() {
         guard !didLoad else { return }
-        didLoad = true
+        didLoad = true; if let seededEntries = BrowserHistoryStore.uiTestSeedEntriesIfConfigured() { entries = seededEntries.sorted { $0.lastVisited > $1.lastVisited }; return }
         guard let fileURL else { return }
         migrateLegacyTaggedHistoryFileIfNeeded(to: fileURL)
 

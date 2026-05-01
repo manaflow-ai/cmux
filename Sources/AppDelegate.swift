@@ -4452,8 +4452,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func setCommandPaletteVisible(_ visible: Bool, for window: NSWindow) {
         guard let windowId = mainWindowId(for: window) else { return }
-        let wasVisible = commandPaletteVisibilityByWindowId[windowId] ?? false
-        commandPaletteVisibilityByWindowId[windowId] = visible
+        let wasVisible = commandPaletteVisibilityByWindowId.updateValue(visible, forKey: windowId) ?? false
+        postCommandPaletteVisibilityDidChangeIfNeeded(wasVisible: wasVisible, visible: visible, window: window, windowId: windowId)
         // Opening (false -> true) always resolves pending-open.
         // Closing (true -> false) also clears stale pending state.
         // Ignore repeated false updates so a stale sync cannot erase an in-flight open request.

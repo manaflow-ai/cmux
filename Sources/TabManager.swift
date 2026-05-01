@@ -5646,8 +5646,6 @@ class TabManager: ObservableObject {
         return true
     }
 
-    // MARK: - Browser Panel Operations
-
     /// Create a new browser panel in a split
     func newBrowserSplit(
         tabId: UUID,
