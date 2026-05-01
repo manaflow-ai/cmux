@@ -120,6 +120,10 @@
               @pointerdown.capture="handleTerminalPointerDown"
               @mousedown.capture="handleTerminalMouseEvent"
               @click.capture="handleTerminalMouseEvent"
+              @touchstart.capture="handleTerminalTouchStart"
+              @touchmove.capture="handleTerminalTouchMove"
+              @touchend.capture="handleTerminalTouchEnd"
+              @touchcancel.capture="handleTerminalTouchEnd"
             ></div>
           </div>
 
@@ -152,12 +156,18 @@ import "@xterm/xterm/css/xterm.css";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { decoratePlainTerminalText } from "./terminalDisplayText";
 import { classifyTerminalData } from "./terminalKeyMap";
-import { TerminalInputQueue, type TerminalInputTarget } from "./terminalInputQueue";
+import { TerminalInputQueue, type TerminalInputMutationKind, type TerminalInputTarget } from "./terminalInputQueue";
 import {
   shouldAutoFocusTerminal,
   shouldFocusTerminalFromPointer,
   shouldSuppressMouseFocusAfterTouch,
 } from "./terminalPointerFocus";
+import {
+  beginTerminalTouchScroll,
+  createTerminalTouchScrollState,
+  endTerminalTouchScroll,
+  scrollTerminalViewportByTouch,
+} from "./terminalTouchScroll";
 
 type RemoteStrings = Record<string, string>;
 type SurfaceSnapshot = {
@@ -218,8 +228,10 @@ let eventSessionRefreshTimer: number | null = null;
 let eventStartGeneration = 0;
 let lastTerminalText = "";
 let lastTouchTerminalAt = 0;
+let postEnterReadTimer: number | null = null;
 let terminalFocusDisposable: { dispose: () => void } | null = null;
 let terminalBlurDisposable: { dispose: () => void } | null = null;
+const terminalTouchScrollState = createTerminalTouchScrollState();
 const terminalInputQueue = new TerminalInputQueue({
   targetEquals,
   sendText: sendTextMutation,
@@ -585,7 +597,11 @@ async function readSelectedTerminal() {
 function sendKey(key: string) {
   const target = currentTerminalTarget();
   if (!target) return;
-  terminalInputQueue.sendMappedKey(target, key);
+  if (key === "enter" || key === "return") {
+    terminalInputQueue.sendEnter(target);
+  } else {
+    terminalInputQueue.sendMappedKey(target, key);
+  }
 }
 
 async function sendTextMutation(target: TerminalInputTarget, text: string) {
@@ -643,9 +659,12 @@ async function waitForTerminalRuntime(workspaceID: string, surfaceID: string) {
   throw new Error(t("error.createdTerminalNotReady"));
 }
 
-async function readSelectedTerminalForTarget(target: TerminalInputTarget) {
+async function readSelectedTerminalForTarget(target: TerminalInputTarget, kind?: TerminalInputMutationKind) {
   if (!targetMatchesSelection(target)) return;
   await readSelectedTerminal();
+  if (kind === "enter") {
+    schedulePostEnterRead(target);
+  }
 }
 
 function currentTerminalTarget() {
@@ -848,6 +867,7 @@ async function ensureTerminalInitialized() {
 }
 
 function disposeTerminal() {
+  clearPostEnterRead();
   terminalInputQueue.dispose();
   terminalFocusDisposable?.dispose();
   terminalBlurDisposable?.dispose();
@@ -866,7 +886,11 @@ function handleTerminalData(data: string) {
   const input = classifyTerminalData(data);
   switch (input.kind) {
     case "key":
-      terminalInputQueue.sendMappedKey(target, input.key);
+      if (input.key === "enter" || input.key === "return") {
+        terminalInputQueue.sendEnter(target);
+      } else {
+        terminalInputQueue.sendMappedKey(target, input.key);
+      }
       break;
     case "text":
       terminalInputQueue.appendText(target, input.text);
@@ -931,6 +955,10 @@ function focusTerminalInput() {
   handleTerminalFocus();
 }
 
+function terminalViewportElement() {
+  return terminalElement.value?.querySelector<HTMLElement>(".xterm-viewport") || null;
+}
+
 function handleTerminalPointerDown(event: PointerEvent) {
   if (!shouldFocusTerminalFromPointer(event.pointerType)) {
     lastTouchTerminalAt = event.timeStamp;
@@ -941,11 +969,53 @@ function handleTerminalPointerDown(event: PointerEvent) {
   focusTerminalInput();
 }
 
+function handleTerminalTouchStart(event: TouchEvent) {
+  const touch = event.touches[0];
+  if (!touch) return;
+  lastTouchTerminalAt = event.timeStamp;
+  beginTerminalTouchScroll(terminalTouchScrollState, touch.pageY);
+  terminal?.blur();
+  handleTerminalBlur();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+}
+
+function handleTerminalTouchMove(event: TouchEvent) {
+  const touch = event.touches[0];
+  const viewport = terminalViewportElement();
+  if (!touch || !viewport) return;
+  scrollTerminalViewportByTouch(terminalTouchScrollState, touch.pageY, viewport);
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+}
+
+function handleTerminalTouchEnd(event: TouchEvent) {
+  endTerminalTouchScroll(terminalTouchScrollState);
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+}
+
 function handleTerminalMouseEvent(event: MouseEvent) {
   if (!shouldSuppressMouseFocusAfterTouch(lastTouchTerminalAt, event.timeStamp)) return;
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();
+}
+
+function clearPostEnterRead() {
+  if (postEnterReadTimer === null) return;
+  window.clearTimeout(postEnterReadTimer);
+  postEnterReadTimer = null;
+}
+
+function schedulePostEnterRead(target: TerminalInputTarget) {
+  clearPostEnterRead();
+  postEnterReadTimer = window.setTimeout(() => {
+    postEnterReadTimer = null;
+    if (!targetMatchesSelection(target)) return;
+    readSelectedTerminal().catch(handleRemoteError);
+  }, 250);
 }
 
 function handleVisibilityChange() {

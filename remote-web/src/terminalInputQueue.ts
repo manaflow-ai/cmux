@@ -9,7 +9,7 @@ export type TerminalInputQueueOptions = {
   targetEquals: (lhs: TerminalInputTarget, rhs: TerminalInputTarget) => boolean;
   sendText: (target: TerminalInputTarget, text: string) => Promise<void>;
   sendKey: (target: TerminalInputTarget, key: string) => Promise<void>;
-  afterMutation?: (target: TerminalInputTarget) => Promise<void>;
+  afterMutation?: (target: TerminalInputTarget, kind: TerminalInputMutationKind) => Promise<void>;
   handleError: (error: unknown) => void;
 };
 
@@ -18,13 +18,15 @@ export type TerminalInputTarget = {
   surfaceID: string;
 };
 
+export type TerminalInputMutationKind = "text" | "key" | "enter";
+
 export class TerminalInputQueue {
   private readonly debounceMs: number;
   private readonly scheduler: TerminalInputQueueScheduler;
   private readonly targetEquals: (lhs: TerminalInputTarget, rhs: TerminalInputTarget) => boolean;
   private readonly sendText: (target: TerminalInputTarget, text: string) => Promise<void>;
   private readonly sendKey: (target: TerminalInputTarget, key: string) => Promise<void>;
-  private readonly afterMutation?: (target: TerminalInputTarget) => Promise<void>;
+  private readonly afterMutation?: (target: TerminalInputTarget, kind: TerminalInputMutationKind) => Promise<void>;
   private readonly handleError: (error: unknown) => void;
   private buffer = "";
   private bufferTarget: TerminalInputTarget | null = null;
@@ -56,8 +58,23 @@ export class TerminalInputQueue {
   }
 
   sendMappedKey(target: TerminalInputTarget, key: string) {
+    if (key === "enter" || key === "return") {
+      this.sendEnter(target);
+      return;
+    }
     this.flushBuffer();
-    this.enqueueMutation(target, () => this.sendKey(target, key));
+    this.enqueueMutation(target, "key", () => this.sendKey(target, key));
+  }
+
+  sendEnter(target: TerminalInputTarget) {
+    if (this.bufferTarget && !this.targetEquals(this.bufferTarget, target)) {
+      this.flushBuffer();
+    }
+    this.clearFlushTimer();
+    const text = this.buffer;
+    this.buffer = "";
+    this.bufferTarget = null;
+    this.enqueueMutation(target, "enter", () => this.sendText(target, `${text}\r`));
   }
 
   flushBuffer() {
@@ -67,7 +84,7 @@ export class TerminalInputQueue {
     this.buffer = "";
     this.bufferTarget = null;
     if (!text || !target) return;
-    this.enqueueMutation(target, () => this.sendText(target, text));
+    this.enqueueMutation(target, "text", () => this.sendText(target, text));
   }
 
   dispose() {
@@ -95,7 +112,7 @@ export class TerminalInputQueue {
     this.flushTimer = null;
   }
 
-  private enqueueMutation(target: TerminalInputTarget, operation: () => Promise<void>) {
+  private enqueueMutation(target: TerminalInputTarget, kind: TerminalInputMutationKind, operation: () => Promise<void>) {
     const generation = this.generation;
     this.mutationChain = this.mutationChain
       .then(async () => {
@@ -103,17 +120,22 @@ export class TerminalInputQueue {
         await operation();
       })
       .catch(this.handleError);
-    this.scheduleAfterMutation(target, generation, this.mutationChain);
+    this.scheduleAfterMutation(target, kind, generation, this.mutationChain);
   }
 
-  private scheduleAfterMutation(target: TerminalInputTarget, generation: number, chainSnapshot: Promise<void>) {
+  private scheduleAfterMutation(
+    target: TerminalInputTarget,
+    kind: TerminalInputMutationKind,
+    generation: number,
+    chainSnapshot: Promise<void>,
+  ) {
     if (!this.afterMutation) return;
     queueMicrotask(() => {
       chainSnapshot
         .then(async () => {
           if (this.mutationChain !== chainSnapshot) return;
           if (this.generation !== generation) return;
-          await this.afterMutation?.(target);
+          await this.afterMutation?.(target, kind);
         })
         .catch(this.handleError);
     });

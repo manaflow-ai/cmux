@@ -606,12 +606,12 @@ p {
 
 @media (any-pointer: coarse) {
   .xterm-host {
-    touch-action: pan-y;
+    touch-action: none;
   }
 
   .xterm-host .xterm-viewport {
     -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
+    touch-action: none;
   }
 
   .quick-key-strip .keyboard-button {

@@ -54,7 +54,7 @@ test("flushes buffered printable input before mapped keys", async () => {
   scheduler.runAll();
   await queue.waitForIdle();
 
-  expect(calls).toEqual(["text:surface-a:ls", "key:surface-a:enter"]);
+  expect(calls).toEqual(["text:surface-a:ls\r"]);
 });
 
 test("debounces printable input when no mapped key arrives", async () => {
@@ -108,7 +108,7 @@ test("preserves order across buffered text and multiple mapped keys", async () =
   scheduler.runAll();
   await queue.waitForIdle();
 
-  expect(calls).toEqual(["text:surface-a:echo hi", "key:surface-a:enter", "key:surface-a:up"]);
+  expect(calls).toEqual(["text:surface-a:echo hi\r", "key:surface-a:up"]);
 });
 
 test("keeps buffered text targeted to the surface that produced it", async () => {
@@ -182,7 +182,80 @@ test("flushes buffered text before a mapped key for another target", async () =>
   scheduler.runAll();
   await queue.waitForIdle();
 
-  expect(calls).toEqual(["text:surface-a:ls", "key:surface-b:enter"]);
+  expect(calls).toEqual(["text:surface-a:ls", "text:surface-b:\r"]);
+});
+
+test("sends bare enter as carriage return text", async () => {
+  const calls: string[] = [];
+  const scheduler = new ManualScheduler();
+  const queue = new TerminalInputQueue({
+    scheduler,
+    targetEquals,
+    sendText: async (target, text) => {
+      calls.push(`text:${target.surfaceID}:${text}`);
+    },
+    sendKey: async (target, key) => {
+      calls.push(`key:${target.surfaceID}:${key}`);
+    },
+    handleError: (error) => {
+      throw error;
+    },
+  });
+
+  queue.sendEnter(targetA);
+  await queue.waitForIdle();
+
+  expect(calls).toEqual(["text:surface-a:\r"]);
+});
+
+test("combines buffered input and enter atomically for the original target", async () => {
+  const calls: string[] = [];
+  const scheduler = new ManualScheduler();
+  const queue = new TerminalInputQueue({
+    scheduler,
+    targetEquals,
+    sendText: async (target, text) => {
+      calls.push(`text:${target.surfaceID}:${text}`);
+    },
+    sendKey: async (target, key) => {
+      calls.push(`key:${target.surfaceID}:${key}`);
+    },
+    handleError: (error) => {
+      throw error;
+    },
+  });
+
+  queue.appendText(targetA, "echo hi");
+  queue.sendEnter(targetA);
+  scheduler.runAll();
+  await queue.waitForIdle();
+
+  expect(calls).toEqual(["text:surface-a:echo hi\r"]);
+});
+
+test("flushes another target before sending enter to the requested target", async () => {
+  const calls: string[] = [];
+  const scheduler = new ManualScheduler();
+  const queue = new TerminalInputQueue({
+    scheduler,
+    targetEquals,
+    sendText: async (target, text) => {
+      calls.push(`text:${target.surfaceID}:${text}`);
+    },
+    sendKey: async (target, key) => {
+      calls.push(`key:${target.surfaceID}:${key}`);
+    },
+    handleError: (error) => {
+      throw error;
+    },
+  });
+
+  queue.appendText(targetA, "pwd");
+  queue.sendEnter(targetB);
+  scheduler.runAll();
+  await queue.waitForIdle();
+
+  expect(calls).toEqual(["text:surface-a:pwd", "text:surface-b:\r"]);
 });
 
 test("dispose cancels queued mutations that have not started", async () => {
