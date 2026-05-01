@@ -109,6 +109,36 @@ final class TurnCheckpointManager {
         #endif
         onRootChanged?(newRoot, hasRoot, observedCwd)
 
+        // Clear the stale diff from the previous repo immediately. Without this
+        // the React panel keeps rendering the old repo's diff until the next
+        // turn completes in the new repo (Bug 1).
+        onDiffChanged?("")
+
+        // Snapshot the new root's working tree as the baseline ref NOW. The
+        // session ref lives inside each repo's `.git`, so when the user switches
+        // to a different repo Tier 1 misses and Tier 2 (`HEAD^{tree}`) shows ALL
+        // changes since the repo's initial commit (Bug 2). Re-baselining here
+        // ensures the next turn's diff shows only deltas from this snapshot.
+        if hasRoot, let root = newRoot, !root.isEmpty {
+            do {
+                let tree = try TurnCheckpointStore.writeTreeIsolated(in: root)
+                let commit = try TurnCheckpointStore.commitTree(
+                    tree, parent: nil, message: "cmux baseline on root change", in: root
+                )
+                try TurnCheckpointStore.updateRef(session: session, commit: commit, in: root)
+                #if DEBUG
+                let treePrefix = String(tree.prefix(7))
+                let commitPrefix = String(commit.prefix(7))
+                cmuxDebugLog("turn-diff: root changed, baseline snapshot saved newRoot=\(root) tree=\(treePrefix) commit=\(commitPrefix)")
+                #endif
+            } catch {
+                #if DEBUG
+                cmuxDebugLog("turn-diff: baseline snapshot failed in \(root): \(error)")
+                #endif
+                // Empty diff already emitted above — panel falls back to its empty state.
+            }
+        }
+
         // If the agent happens to be Running while we swap, immediately recapture
         // T_start so the next idle transition produces a meaningful diff.
         if hasRoot, lastStatus == "Running" {
