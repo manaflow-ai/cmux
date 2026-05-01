@@ -8,6 +8,18 @@
     "detail.section": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Section" } }, "ja": { "stringUnit": { "state": "translated", "value": "セクション" } } } },
     "detail.slider": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Amount" } }, "ja": { "stringUnit": { "state": "translated", "value": "量" } } } },
     "detail.toggle": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Enable" } }, "ja": { "stringUnit": { "state": "translated", "value": "有効にする" } } } },
+    "debug.bonsplitTabBarDebug.actionLaneBorder": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Action Lane Border" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクションレーンの境界線" } } } },
+    "debug.bonsplitTabBarDebug.actionLaneGeometry": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Action Lane Geometry" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクションレーンのジオメトリ" } } } },
+    "debug.bonsplitTabBarDebug.contentFade": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Content fade" } }, "ja": { "stringUnit": { "state": "translated", "value": "コンテンツのフェード" } } } },
+    "debug.bonsplitTabBarDebug.copyConfig": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Copy Config" } }, "ja": { "stringUnit": { "state": "translated", "value": "設定をコピー" } } } },
+    "debug.bonsplitTabBarDebug.fineTune": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Fine tune" } }, "ja": { "stringUnit": { "state": "translated", "value": "微調整" } } } },
+    "debug.bonsplitTabBarDebug.heading": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Bonsplit Tab Bar" } }, "ja": { "stringUnit": { "state": "translated", "value": "Bonsplitタブバー" } } } },
+    "debug.bonsplitTabBarDebug.pixelsValue": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%@ px" } }, "ja": { "stringUnit": { "state": "translated", "value": "%@ px" } } } },
+    "debug.bonsplitTabBarDebug.reset": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Reset" } }, "ja": { "stringUnit": { "state": "translated", "value": "リセット" } } } },
+    "debug.bonsplitTabBarDebug.separatorFadeFrame": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Separator fade frame" } }, "ja": { "stringUnit": { "state": "translated", "value": "区切り線のフェード幅" } } } },
+    "debug.bonsplitTabBarDebug.solidBgExtra": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Solid bg extra" } }, "ja": { "stringUnit": { "state": "translated", "value": "単色背景の追加幅" } } } },
+    "debug.bonsplitTabBarDebug.title": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Bonsplit Tab Bar Debug" } }, "ja": { "stringUnit": { "state": "translated", "value": "Bonsplitタブバーのデバッグ" } } } },
+    "debug.menu.bonsplitTabBarDebug": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Bonsplit Tab Bar Debug…" } }, "ja": { "stringUnit": { "state": "translated", "value": "Bonsplitタブバーのデバッグ…" } } } },
     "mode.compact": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Compact" } }, "ja": { "stringUnit": { "state": "translated", "value": "コンパクト" } } } },
     "mode.expanded": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Expanded" } }, "ja": { "stringUnit": { "state": "translated", "value": "拡張" } } } },
     "mode.system": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "System" } }, "ja": { "stringUnit": { "state": "translated", "value": "システム" } } } },
@@ -9447,6 +9459,23 @@
       }
     },
     "command.findInDirectory.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバー"
+          }
+        }
+      }
+    },
+    "command.rightSidebarMode.subtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -40465,19 +40494,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open settings.json"
+            "value": "Open cmux.json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.jsonを開く"
+            "value": "cmux.jsonを開く"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json 열기"
+            "value": "cmux.json 열기"
           }
         }
       }
@@ -51498,19 +51527,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open settings.json"
+            "value": "Open cmux.json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.jsonを開く"
+            "value": "cmux.jsonを開く"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json 열기"
+            "value": "cmux.json 열기"
           }
         }
       }
@@ -51590,7 +51619,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "User settings file"
+            "value": "User config file"
           }
         },
         "ja": {
@@ -51659,19 +51688,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open settings.json"
+            "value": "Open cmux.json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.jsonを開く"
+            "value": "cmux.jsonを開く"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json 열기"
+            "value": "cmux.json 열기"
           }
         }
       }
@@ -67928,19 +67957,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json"
+            "value": "cmux.json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json"
+            "value": "cmux.json"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json"
+            "value": "cmux.json"
           }
         }
       }
@@ -68474,19 +68503,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Managed in settings.json"
+            "value": "Managed in cmux.json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json で管理"
+            "value": "cmux.json で管理"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json에서 관리됨"
+            "value": "cmux.json에서 관리됨"
           }
         }
       }
@@ -68543,19 +68572,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add tmux-style multi-step shortcuts in settings.json, for example [\"ctrl+b\", \"c\"]."
+            "value": "Add tmux-style multi-step shortcuts in cmux.json, for example [\"ctrl+b\", \"c\"]."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json で tmux 風の2段階ショートカットを追加できます。例: [\"ctrl+b\", \"c\"]。"
+            "value": "cmux.json で tmux 風の2段階ショートカットを追加できます。例: [\"ctrl+b\", \"c\"]。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json에서 tmux 스타일의 다단계 단축키를 추가할 수 있습니다. 예: [\"ctrl+b\", \"c\"]."
+            "value": "cmux.json에서 tmux 스타일의 다단계 단축키를 추가할 수 있습니다. 예: [\"ctrl+b\", \"c\"]."
           }
         }
       }
@@ -78562,115 +78591,115 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json tmux prefix プレフィックス ctrl-b control-b 複数キー シーケンス コード settings json"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json tmux prefix プレフィックス ctrl-b control-b 複数キー シーケンス コード cmux json"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل إعدادات تكوين ملف مخطط وثائق مرجع تفضيلات الإعدادات… الإعدادات"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل إعدادات تكوين ملف مخطط وثائق مرجع تفضيلات الإعدادات… الإعدادات"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json tastatura prečica prečice hotkey komande tipke snimač postavke konfiguracija datoteka šema dokumentacija referenca preferencije Postavke…"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json tastatura prečica prečice hotkey komande tipke snimač postavke konfiguracija datoteka šema dokumentacija referenca preferencije Postavke…"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json tastatur genvej genveje hotkey kommandoer taster optager indstillinger konfiguration fil skema dokumentation reference præferencer Indstillinger…"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json tastatur genvej genveje hotkey kommandoer taster optager indstillinger konfiguration fil skema dokumentation reference præferencer Indstillinger…"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder einstellungen konfiguration datei schema dokumentation referenz präferenzen …"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder einstellungen konfiguration datei schema dokumentation referenz präferenzen …"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json teclado atajo atajos tecla rápida comandos teclas grabador ajustes configuración archivo esquema documentación referencia preferencias Ajustes…"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json teclado atajo atajos tecla rápida comandos teclas grabador ajustes configuración archivo esquema documentación referencia preferencias Ajustes…"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json clavier raccourci raccourcis touche globale commandes touches enregistreur réglages configuration fichier schéma documentation référence préférences Réglages..."
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json clavier raccourci raccourcis touche globale commandes touches enregistreur réglages configuration fichier schéma documentation référence préférences Réglages..."
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore impostazioni configurazione file schema documentazione riferimento preferenze Impostazioni…"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore impostazioni configurazione file schema documentazione riferimento preferenze Impostazioni…"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json 키보드 단축키 핫키 명령 키 기록기 설정 구성 파일 스키마 문서 참조 환경설정 설정… settings.json 조합"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json 키보드 단축키 핫키 명령 키 기록기 설정 구성 파일 스키마 문서 참조 환경설정 설정… cmux.json 조합"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json tastatur snarvei snarveier hurtigtast kommandoer taster opptaker innstillinger konfigurasjon fil skjema dokumentasjon referanse preferanser …"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json tastatur snarvei snarveier hurtigtast kommandoer taster opptaker innstillinger konfigurasjon fil skjema dokumentasjon referanse preferanser …"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json klawiatura skrót skróty klawisz polecenia klawisze rejestrator ustawienia konfiguracja plik schemat dokumentacja referencja preferencje Ustawienia…"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json klawiatura skrót skróty klawisz polecenia klawisze rejestrator ustawienia konfiguracja plik schemat dokumentacja referencja preferencje Ustawienia…"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json teclado atalho atalhos tecla rápida comandos teclas gravador configurações configuração arquivo esquema documentação referência preferências Ajustes… Ajustes"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json teclado atalho atalhos tecla rápida comandos teclas gravador configurações configuração arquivo esquema documentação referência preferências Ajustes… Ajustes"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json клавиатура сочетание клавиш горячая клавиша команды клавиши запись настройки конфигурация файл схема документация справочник предпочтения Настройки..."
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json клавиатура сочетание клавиш горячая клавиша команды клавиши запись настройки конфигурация файл схема документация справочник предпочтения Настройки..."
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก การตั้งค่า การกำหนดค่า ไฟล์ สคีมา เอกสาร อ้างอิง ค่ากำหนด การตั้งค่า..."
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก การตั้งค่า การกำหนดค่า ไฟล์ สคีมา เอกสาร อ้างอิง ค่ากำหนด การตั้งค่า..."
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici ayarlar yapılandırma dosya şema belgeler başvuru tercihler Ayarlar…"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici ayarlar yapılandırma dosya şema belgeler başvuru tercihler Ayarlar…"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json 键盘 快捷键 热键 命令 按键 录制器 设置 配置 文件 架构 文档 参考 偏好设置 设置..."
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json 键盘 快捷键 热键 命令 按键 录制器 设置 配置 文件 架构 文档 参考 偏好设置 设置..."
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 設定 設定檔 檔案 結構描述 文件 參考 偏好設定 設定..."
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 設定 設定檔 檔案 結構描述 文件 參考 偏好設定 設定..."
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tmux prefix ctrl-b control-b multi key sequence chord settings json клавіатура скорочення гарячі клавіші команди записувач налаштування конфігурація файл схема документація довідник параметри Налаштування…"
+                    "value": "tmux prefix ctrl-b control-b multi key sequence chord cmux json клавіатура скорочення гарячі клавіші команди записувач налаштування конфігурація файл схема документація довідник параметри Налаштування…"
                 }
             }
         }
@@ -78800,115 +78829,115 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json ホットキー キーバインド キー割り当て コマンド キーボード ショートカット settings json"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json ホットキー キーバインド キー割り当て コマンド キーボード ショートカット cmux json"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل إعدادات تكوين ملف مخطط وثائق مرجع تفضيلات الإعدادات… المفاتيح الإعدادات"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل إعدادات تكوين ملف مخطط وثائق مرجع تفضيلات الإعدادات… المفاتيح الإعدادات"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json tastatura prečica prečice hotkey komande tipke snimač postavke konfiguracija datoteka šema dokumentacija referenca preferencije Postavke… na tastaturi"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json tastatura prečica prečice hotkey komande tipke snimač postavke konfiguracija datoteka šema dokumentacija referenca preferencije Postavke… na tastaturi"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json tastatur genvej genveje hotkey kommandoer taster optager indstillinger konfiguration fil skema dokumentation reference præferencer Indstillinger… Tastaturgenveje"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json tastatur genvej genveje hotkey kommandoer taster optager indstillinger konfiguration fil skema dokumentation reference præferencer Indstillinger… Tastaturgenveje"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder einstellungen konfiguration datei schema dokumentation referenz präferenzen … Tastaturkurzbefehle"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder einstellungen konfiguration datei schema dokumentation referenz präferenzen … Tastaturkurzbefehle"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json teclado atajo atajos tecla rápida comandos teclas grabador ajustes configuración archivo esquema documentación referencia preferencias Ajustes… de"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json teclado atajo atajos tecla rápida comandos teclas grabador ajustes configuración archivo esquema documentación referencia preferencias Ajustes… de"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json clavier raccourci raccourcis touche globale commandes touches enregistreur réglages configuration fichier schéma documentation référence préférences Réglages..."
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json clavier raccourci raccourcis touche globale commandes touches enregistreur réglages configuration fichier schéma documentation référence préférences Réglages..."
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore impostazioni configurazione file schema documentazione riferimento preferenze Impostazioni… Abbreviazioni da"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore impostazioni configurazione file schema documentazione riferimento preferenze Impostazioni… Abbreviazioni da"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json 키보드 단축키 핫키 명령 키 기록기 설정 구성 파일 스키마 문서 참조 환경설정 설정… settings.json"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json 키보드 단축키 핫키 명령 키 기록기 설정 구성 파일 스키마 문서 참조 환경설정 설정… cmux.json"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json tastatur snarvei snarveier hurtigtast kommandoer taster opptaker innstillinger konfigurasjon fil skjema dokumentasjon referanse preferanser … Tastatursnarveier"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json tastatur snarvei snarveier hurtigtast kommandoer taster opptaker innstillinger konfigurasjon fil skjema dokumentasjon referanse preferanser … Tastatursnarveier"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json klawiatura skrót skróty klawisz polecenia klawisze rejestrator ustawienia konfiguracja plik schemat dokumentacja referencja preferencje Ustawienia… klawiaturowe"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json klawiatura skrót skróty klawisz polecenia klawisze rejestrator ustawienia konfiguracja plik schemat dokumentacja referencja preferencje Ustawienia… klawiaturowe"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json teclado atalho atalhos tecla rápida comandos teclas gravador configurações configuração arquivo esquema documentação referência preferências Ajustes… de Ajustes"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json teclado atalho atalhos tecla rápida comandos teclas gravador configurações configuração arquivo esquema documentação referência preferências Ajustes… de Ajustes"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json клавиатура сочетание клавиш горячая клавиша команды клавиши запись настройки конфигурация файл схема документация справочник предпочтения Настройки... Сочетания"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json клавиатура сочетание клавиш горячая клавиша команды клавиши запись настройки конфигурация файл схема документация справочник предпочтения Настройки... Сочетания"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก การตั้งค่า การกำหนดค่า ไฟล์ สคีมา เอกสาร อ้างอิง ค่ากำหนด การตั้งค่า... แป้นพิมพ์ลัด"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก การตั้งค่า การกำหนดค่า ไฟล์ สคีมา เอกสาร อ้างอิง ค่ากำหนด การตั้งค่า... แป้นพิมพ์ลัด"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici ayarlar yapılandırma dosya şema belgeler başvuru tercihler Ayarlar… Kısayolları"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici ayarlar yapılandırma dosya şema belgeler başvuru tercihler Ayarlar… Kısayolları"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json 键盘 快捷键 热键 命令 按键 录制器 设置 配置 文件 架构 文档 参考 偏好设置 设置... 键盘快捷键"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json 键盘 快捷键 热键 命令 按键 录制器 设置 配置 文件 架构 文档 参考 偏好设置 设置... 键盘快捷键"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 設定 設定檔 檔案 結構描述 文件 參考 偏好設定 設定... 鍵盤快速鍵"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 設定 設定檔 檔案 結構描述 文件 參考 偏好設定 設定... 鍵盤快速鍵"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json клавіатура скорочення гарячі клавіші команди записувач налаштування конфігурація файл схема документація довідник параметри Налаштування… Комбінації клавіш"
+                    "value": "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json клавіатура скорочення гарячі клавіші команди записувач налаштування конфігурація файл схема документація довідник параметри Налаштування… Комбінації клавіш"
                 }
             }
         }
@@ -79395,115 +79424,115 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences settings.json を開く json jsonc 設定ファイル エディタ ドットファイル 環境設定"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences cmux.json を開く json jsonc 設定ファイル エディタ ドットファイル 環境設定"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي إعدادات تكوين ملف مخطط وثائق مرجع محرر كود فتح مسار cmux.json الإعدادات الإعدادات… التفضيلات… مفتوح"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي إعدادات تكوين ملف مخطط وثائق مرجع محرر كود فتح مسار cmux.json الإعدادات الإعدادات… التفضيلات… مفتوح"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences aplikacija opće postavke ponašanje dock traka menija status bočna konfiguracija datoteka šema dokumentacija referenca preferencije kod otvori putanja cmux.json Postavke… otvoren"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences aplikacija opće postavke ponašanje dock traka menija status bočna konfiguracija datoteka šema dokumentacija referenca preferencije kod otvori putanja cmux.json Postavke… otvoren"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences app generelt indstillinger adfærd dock menulinje status sidepanel konfiguration fil skema dokumentation reference præferencer kode åbn sti cmux.json Indstillinger… åben"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences app generelt indstillinger adfærd dock menulinje status sidepanel konfiguration fil skema dokumentation reference præferencer kode åbn sti cmux.json Indstillinger… åben"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences app allgemein einstellungen verhalten dock menüleiste status seitenleiste konfiguration datei schema dokumentation referenz präferenzen code öffnen pfad cmux.json … offen"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences app allgemein einstellungen verhalten dock menüleiste status seitenleiste konfiguration datei schema dokumentation referenz präferenzen code öffnen pfad cmux.json … offen"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences aplicación general preferencias comportamiento dock barra de menú estado lateral ajustes configuración archivo esquema documentación referencia código abrir ruta cmux.json Ajustes… Preferencias… abierto"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences aplicación general preferencias comportamiento dock barra de menú estado lateral ajustes configuración archivo esquema documentación referencia código abrir ruta cmux.json Ajustes… Preferencias… abierto"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences application général préférences comportement dock barre de menus état latérale réglages configuration fichier schéma documentation référence éditeur code ouvrir chemin cmux.json les Réglages... Préférences... ouverte"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences application général préférences comportement dock barre de menus état latérale réglages configuration fichier schéma documentation référence éditeur code ouvrir chemin cmux.json les Réglages... Préférences... ouverte"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences app generale preferenze comportamento dock barra menu stato laterale impostazioni configurazione schema documentazione riferimento codice apri percorso cmux.json Impostazioni… Preferenze… aperta"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences app generale preferenze comportamento dock barra menu stato laterale impostazioni configurazione schema documentazione riferimento codice apri percorso cmux.json Impostazioni… Preferenze… aperta"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 설정 구성 파일 스키마 문서 참조 편집기 코드 열기 경로 cmux.json 설정… settings.json 환경설정… 열림"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 설정 구성 파일 스키마 문서 참조 편집기 코드 열기 경로 cmux.json 설정… cmux.json 환경설정… 열림"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences app generelt innstillinger oppførsel dock menylinje status sidepanel konfigurasjon fil skjema dokumentasjon referanse preferanser redigerer kode åpne bane cmux.json … åpen"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences app generelt innstillinger oppførsel dock menylinje status sidepanel konfigurasjon fil skjema dokumentasjon referanse preferanser redigerer kode åpne bane cmux.json … åpen"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences aplikacja ogólne preferencje zachowanie dock pasek menu status boczny ustawienia konfiguracja plik schemat dokumentacja referencja edytor kod otwórz ścieżka cmux.json Ustawienia… Preferencje… otwarty"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences aplikacja ogólne preferencje zachowanie dock pasek menu status boczny ustawienia konfiguracja plik schemat dokumentacja referencja edytor kod otwórz ścieżka cmux.json Ustawienia… Preferencje… otwarty"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences app geral preferências comportamento dock barra de menu status lateral configurações configuração arquivo esquema documentação referência código abrir caminho cmux.json Ajustes Ajustes… Preferências… aberto"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences app geral preferências comportamento dock barra de menu status lateral configurações configuração arquivo esquema documentação referência código abrir caminho cmux.json Ajustes Ajustes… Preferências… aberto"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences приложение общие настройки поведение док строка меню статус боковая панель конфигурация файл схема документация справочник предпочтения редактор код открыть путь cmux.json Настройки... открыт"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences приложение общие настройки поведение док строка меню статус боковая панель конфигурация файл схема документация справочник предпочтения редактор код открыть путь cmux.json Настройки... открыт"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง การตั้งค่า การกำหนดค่า ไฟล์ สคีมา เอกสาร อ้างอิง ตัวแก้ไข โค้ด เปิด เส้นทาง cmux.json เปิดการตั้งค่า การตั้งค่า..."
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง การตั้งค่า การกำหนดค่า ไฟล์ สคีมา เอกสาร อ้างอิง ตัวแก้ไข โค้ด เปิด เส้นทาง cmux.json เปิดการตั้งค่า การตั้งค่า..."
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences uygulama genel tercihler davranış dock menü çubuğu durum kenar ayarlar yapılandırma dosya şema belgeler başvuru düzenleyici kod aç yol cmux.json Ayarları Ayarlar… Tercihler… açık"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences uygulama genel tercihler davranış dock menü çubuğu durum kenar ayarlar yapılandırma dosya şema belgeler başvuru düzenleyici kod aç yol cmux.json Ayarları Ayarlar… Tercihler… açık"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 设置 配置 文件 架构 文档 参考 编辑器 代码 打开 路径 cmux.json 打开设置 设置... 偏好设置..."
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 设置 配置 文件 架构 文档 参考 编辑器 代码 打开 路径 cmux.json 打开设置 设置... 偏好设置..."
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 設定 設定檔 檔案 結構描述 文件 參考 編輯器 程式碼 開啟 路徑 cmux.json 開啟設定 設定... 偏好設定..."
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 設定 設定檔 檔案 結構描述 文件 參考 編輯器 程式碼 開啟 路徑 cmux.json 開啟設定 設定... 偏好設定..."
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "open settings file json jsonc config editor ~/.config cmux preferences програма загальні параметри поведінка док рядок меню статус бічна панель налаштування конфігурація файл схема документація довідник редактор код відкрити шлях cmux.json Налаштування… Параметри… відкритий"
+                    "value": "open config file json jsonc config editor ~/.config cmux preferences програма загальні параметри поведінка док рядок меню статус бічна панель налаштування конфігурація файл схема документація довідник редактор код відкрити шлях cmux.json Налаштування… Параметри… відкритий"
                 }
             }
         }
@@ -79514,115 +79543,115 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration"
+                    "value": "docs documentation schema reference cmux json keys configuration"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration ドキュメント スキーマ リファレンス settings json キー 構成"
+                    "value": "docs documentation schema reference cmux json keys configuration ドキュメント スキーマ リファレンス cmux json キー 構成"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل إعدادات تكوين ملف مخطط وثائق مرجع تفضيلات المستندات الإعدادات… الإعدادات"
+                    "value": "docs documentation schema reference cmux json keys configuration لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل إعدادات تكوين ملف مخطط وثائق مرجع تفضيلات المستندات الإعدادات… الإعدادات"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration tastatura prečica prečice hotkey komande tipke snimač postavke konfiguracija datoteka šema dokumentacija referenca preferencije Postavke…"
+                    "value": "docs documentation schema reference cmux json keys configuration tastatura prečica prečice hotkey komande tipke snimač postavke konfiguracija datoteka šema dokumentacija referenca preferencije Postavke…"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration tastatur genvej genveje hotkey kommandoer taster optager indstillinger konfiguration fil skema dokumentation præferencer Indstillinger…"
+                    "value": "docs documentation schema reference cmux json keys configuration tastatur genvej genveje hotkey kommandoer taster optager indstillinger konfiguration fil skema dokumentation præferencer Indstillinger…"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder einstellungen konfiguration datei dokumentation referenz präferenzen …"
+                    "value": "docs documentation schema reference cmux json keys configuration tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder einstellungen konfiguration datei dokumentation referenz präferenzen …"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration teclado atajo atajos tecla rápida comandos teclas grabador ajustes configuración archivo esquema documentación referencia preferencias Ajustes…"
+                    "value": "docs documentation schema reference cmux json keys configuration teclado atajo atajos tecla rápida comandos teclas grabador ajustes configuración archivo esquema documentación referencia preferencias Ajustes…"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration clavier raccourci raccourcis touche globale commandes touches enregistreur réglages fichier schéma référence préférences Réglages..."
+                    "value": "docs documentation schema reference cmux json keys configuration clavier raccourci raccourcis touche globale commandes touches enregistreur réglages fichier schéma référence préférences Réglages..."
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore impostazioni configurazione file documentazione riferimento preferenze Impostazioni…"
+                    "value": "docs documentation schema reference cmux json keys configuration tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore impostazioni configurazione file documentazione riferimento preferenze Impostazioni…"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration 키보드 단축키 핫키 명령 키 기록기 설정 구성 파일 스키마 문서 참조 환경설정 설정… settings.json"
+                    "value": "docs documentation schema reference cmux json keys configuration 키보드 단축키 핫키 명령 키 기록기 설정 구성 파일 스키마 문서 참조 환경설정 설정… cmux.json"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration tastatur snarvei snarveier hurtigtast kommandoer taster opptaker innstillinger konfigurasjon fil skjema dokumentasjon referanse preferanser …"
+                    "value": "docs documentation schema reference cmux json keys configuration tastatur snarvei snarveier hurtigtast kommandoer taster opptaker innstillinger konfigurasjon fil skjema dokumentasjon referanse preferanser …"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration klawiatura skrót skróty klawisz polecenia klawisze rejestrator ustawienia konfiguracja plik schemat dokumentacja referencja preferencje Ustawienia…"
+                    "value": "docs documentation schema reference cmux json keys configuration klawiatura skrót skróty klawisz polecenia klawisze rejestrator ustawienia konfiguracja plik schemat dokumentacja referencja preferencje Ustawienia…"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration teclado atalho atalhos tecla rápida comandos teclas gravador configurações configuração arquivo esquema documentação referência preferências Ajustes… Ajustes"
+                    "value": "docs documentation schema reference cmux json keys configuration teclado atalho atalhos tecla rápida comandos teclas gravador configurações configuração arquivo esquema documentação referência preferências Ajustes… Ajustes"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration клавиатура сочетание клавиш горячая клавиша команды клавиши запись настройки конфигурация файл схема документация справочник предпочтения Настройки..."
+                    "value": "docs documentation schema reference cmux json keys configuration клавиатура сочетание клавиш горячая клавиша команды клавиши запись настройки конфигурация файл схема документация справочник предпочтения Настройки..."
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก การตั้งค่า การกำหนดค่า ไฟล์ สคีมา เอกสาร อ้างอิง ค่ากำหนด การตั้งค่า..."
+                    "value": "docs documentation schema reference cmux json keys configuration แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก การตั้งค่า การกำหนดค่า ไฟล์ สคีมา เอกสาร อ้างอิง ค่ากำหนด การตั้งค่า..."
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici ayarlar yapılandırma dosya şema belgeler başvuru tercihler Ayarlar…"
+                    "value": "docs documentation schema reference cmux json keys configuration klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici ayarlar yapılandırma dosya şema belgeler başvuru tercihler Ayarlar…"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration 键盘 快捷键 热键 命令 按键 录制器 设置 配置 文件 架构 文档 参考 偏好设置 设置..."
+                    "value": "docs documentation schema reference cmux json keys configuration 键盘 快捷键 热键 命令 按键 录制器 设置 配置 文件 架构 文档 参考 偏好设置 设置..."
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 設定 設定檔 檔案 結構描述 文件 參考 偏好設定 設定..."
+                    "value": "docs documentation schema reference cmux json keys configuration 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 設定 設定檔 檔案 結構描述 文件 參考 偏好設定 設定..."
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "docs documentation schema reference settings json keys configuration клавіатура скорочення гарячі клавіші команди записувач налаштування конфігурація файл схема документація довідник параметри Налаштування…"
+                    "value": "docs documentation schema reference cmux json keys configuration клавіатура скорочення гарячі клавіші команди записувач налаштування конфігурація файл схема документація довідник параметри Налаштування…"
                 }
             }
         }
@@ -80047,19 +80076,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit settings.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries."
+            "value": "Edit cmux.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "名前付きカラーの追加や削除は settings.json を編集してください。「カスタムカラーを選択…」は引き続きローカルの Custom N エントリを追加します。"
+            "value": "名前付きカラーの追加や削除は cmux.json を編集してください。「カスタムカラーを選択…」は引き続きローカルの Custom N エントリを追加します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "settings.json을 편집하여 이름이 지정된 색상을 추가하거나 제거하세요. \"사용자 지정 색상 선택...\"으로 로컬 Custom N 항목을 추가할 수 있습니다."
+            "value": "cmux.json을 편집하여 이름이 지정된 색상을 추가하거나 제거하세요. \"사용자 지정 색상 선택...\"으로 로컬 Custom N 항목을 추가할 수 있습니다."
           }
         }
       }
@@ -80070,19 +80099,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No palette entries. Add colors in settings.json or use \"Choose Custom Color...\" from a workspace context menu."
+            "value": "No palette entries. Add colors in cmux.json or use \"Choose Custom Color...\" from a workspace context menu."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パレット項目はありません。settings.json でカラーを追加するか、ワークスペースのコンテキストメニューから「カスタムカラーを選択…」を使ってください。"
+            "value": "パレット項目はありません。cmux.json でカラーを追加するか、ワークスペースのコンテキストメニューから「カスタムカラーを選択…」を使ってください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "팔레트 항목이 없습니다. settings.json에서 색상을 추가하거나 워크스페이스 컨텍스트 메뉴의 \"사용자 지정 색상 선택...\"을 사용하세요."
+            "value": "팔레트 항목이 없습니다. cmux.json에서 색상을 추가하거나 워크스페이스 컨텍스트 메뉴의 \"사용자 지정 색상 선택...\"을 사용하세요."
           }
         }
       }

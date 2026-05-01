@@ -21,9 +21,10 @@ final class CmuxSettingsFileStore {
     static let shared = CmuxSettingsFileStore()
 
     static let currentSchemaVersion = 1
-    static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
+    static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
+    private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
     // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
-    // validate against this set so new persisted settings need an explicit settings.json review.
+    // validate against this set so new persisted settings need an explicit cmux.json review.
     static let supportedSettingsJSONPaths: Set<String> = [
         "app.language",
         "app.appearance",
@@ -100,10 +101,15 @@ final class CmuxSettingsFileStore {
 
     static var defaultPrimaryPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".config/cmux/settings.json")
+        return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
     }
 
     static var defaultFallbackPath: String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return (home as NSString).appendingPathComponent(".config/cmux/settings.json")
+    }
+
+    static var defaultApplicationSupportFallbackPath: String? {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -117,13 +123,13 @@ final class CmuxSettingsFileStore {
     }
 
     private let primaryPath: String
-    private let fallbackPath: String?
+    private let fallbackPaths: [String]
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
     private let stateLock = NSLock()
 
     private var primaryWatcher: ShortcutSettingsFileWatcher?
-    private var fallbackWatcher: ShortcutSettingsFileWatcher?
+    private var fallbackWatchers: [ShortcutSettingsFileWatcher] = []
     private var defaultsCancellable: AnyCancellable?
     private var socketPasswordObserver: NSObjectProtocol?
 
@@ -136,12 +142,14 @@ final class CmuxSettingsFileStore {
     init(
         primaryPath: String = CmuxSettingsFileStore.defaultPrimaryPath,
         fallbackPath: String? = CmuxSettingsFileStore.defaultFallbackPath,
+        additionalFallbackPaths: [String] = [CmuxSettingsFileStore.defaultApplicationSupportFallbackPath].compactMap { $0 },
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
         startWatching: Bool = true
     ) {
         self.primaryPath = primaryPath
-        self.fallbackPath = fallbackPath
+        self.fallbackPaths = ([fallbackPath].compactMap { $0 } + additionalFallbackPaths)
+            .filter { $0 != primaryPath }
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
 
@@ -154,8 +162,8 @@ final class CmuxSettingsFileStore {
                 self?.reload()
             }
         }
-        if let fallbackPath {
-            fallbackWatcher = ShortcutSettingsFileWatcher(path: fallbackPath, fileManager: fileManager) { [weak self] in
+        fallbackWatchers = fallbackPaths.map { fallbackPath in
+            ShortcutSettingsFileWatcher(path: fallbackPath, fileManager: fileManager) { [weak self] in
                 DispatchQueue.main.async {
                     self?.reload()
                 }
@@ -177,7 +185,7 @@ final class CmuxSettingsFileStore {
 
     deinit {
         primaryWatcher?.stop()
-        fallbackWatcher?.stop()
+        fallbackWatchers.forEach { $0.stop() }
         defaultsCancellable?.cancel()
         if let socketPasswordObserver {
             notificationCenter.removeObserver(socketPasswordObserver)
@@ -210,30 +218,16 @@ final class CmuxSettingsFileStore {
     }
 
     func settingsFileURLForEditing() -> URL {
-        if let activeSourcePath = synchronized({ activeSourcePath }) {
-            return URL(fileURLWithPath: activeSourcePath)
-        }
-
         bootstrapPrimaryTemplateIfNeeded()
-        reload()
-
-        if let activeSourcePath = synchronized({ activeSourcePath }) {
-            return URL(fileURLWithPath: activeSourcePath)
-        }
-
         return URL(fileURLWithPath: primaryPath)
     }
 
     func settingsFileDisplayPath() -> String {
-        let path = synchronized { activeSourcePath } ?? primaryPath
-        return (path as NSString).abbreviatingWithTildeInPath
+        (primaryPath as NSString).abbreviatingWithTildeInPath
     }
 
     private func bootstrapPrimaryTemplateIfNeeded() {
         guard !fileManager.fileExists(atPath: primaryPath) else { return }
-        if let fallbackPath, fileManager.fileExists(atPath: fallbackPath) {
-            return
-        }
 
         let fileURL = URL(fileURLWithPath: primaryPath)
         let directoryURL = fileURL.deletingLastPathComponent()
@@ -244,12 +238,29 @@ final class CmuxSettingsFileStore {
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o755]
             )
-            let template = Self.defaultTemplate()
-            try template.write(to: fileURL, atomically: true, encoding: .utf8)
+            let contents = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
+            try contents.write(to: fileURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
             NSLog("[CmuxSettingsFileStore] failed to bootstrap %@: %@", primaryPath, String(describing: error))
         }
+    }
+
+    private func legacySettingsDataForBootstrap() -> Data? {
+        for fallbackPath in fallbackPaths {
+            guard let data = fileManager.contents(atPath: fallbackPath), !data.isEmpty else {
+                continue
+            }
+            guard case .parsed = loadSettings(at: fallbackPath) else {
+                continue
+            }
+            guard let source = String(data: data, encoding: .utf8) else {
+                return data
+            }
+            let updated = source.replacingOccurrences(of: Self.legacySchemaURLString, with: Self.schemaURLString)
+            return Data(updated.utf8)
+        }
+        return nil
     }
 
     private func reapplyManagedSettingsIfNeeded() {
@@ -277,7 +288,8 @@ final class CmuxSettingsFileStore {
 
     private func resolveSettings() -> ResolvedSettingsSnapshot {
         switch loadSettings(at: primaryPath) {
-        case .parsed(let snapshot):
+        case .parsed(var snapshot):
+            mergeFallbackSettings(into: &snapshot)
             return snapshot
         case .invalid:
             return ResolvedSettingsSnapshot(path: primaryPath)
@@ -285,17 +297,17 @@ final class CmuxSettingsFileStore {
             break
         }
 
-        guard let fallbackPath else {
-            return ResolvedSettingsSnapshot(path: nil)
-        }
+        var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
+        mergeFallbackSettings(into: &fallbackSnapshot)
+        return fallbackSnapshot
+    }
 
-        switch loadSettings(at: fallbackPath) {
-        case .parsed(let snapshot):
-            return snapshot
-        case .invalid:
-            return ResolvedSettingsSnapshot(path: fallbackPath)
-        case .missing:
-            return ResolvedSettingsSnapshot(path: nil)
+    private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
+        for fallbackPath in fallbackPaths {
+            guard case .parsed(let fallbackSnapshot) = loadSettings(at: fallbackPath) else {
+                continue
+            }
+            snapshot.fillMissingSettings(from: fallbackSnapshot)
         }
     }
 
@@ -1172,8 +1184,8 @@ final class CmuxSettingsFileStore {
             "  // This file uses JSON with comments (JSONC).",
             "  // Uncomment and edit any setting to make it file-managed.",
             "  // Remove a setting to fall back to the value saved in Settings.",
-            "  // cmux creates this template on launch when both settings file locations are missing.",
-            "  // ~/.config/cmux/settings.json takes precedence over the Application Support fallback.",
+            "  // cmux creates this template on launch when ~/.config/cmux/cmux.json is missing.",
+            "  // Legacy settings.json files are read only as fallback for keys not present here.",
             "",
         ]
 
@@ -1354,6 +1366,21 @@ private struct ResolvedSettingsSnapshot {
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
     var managedCustomSettings = ManagedCustomSettings()
+
+    mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
+        if path == nil && (!fallback.shortcuts.isEmpty ||
+            !fallback.managedUserDefaults.isEmpty ||
+            !fallback.managedCustomSettings.isEmpty) {
+            path = fallback.path
+        }
+        for (action, shortcut) in fallback.shortcuts where shortcuts[action] == nil {
+            shortcuts[action] = shortcut
+        }
+        for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
+            managedUserDefaults[key] = value
+        }
+        managedCustomSettings.fillMissingSettings(from: fallback.managedCustomSettings)
+    }
 }
 
 private enum ManagedStringOverride: Equatable {
@@ -1374,6 +1401,12 @@ private struct ManagedCustomSettings: Equatable {
             identifiers.insert(CmuxSettingsFileStore.socketPasswordBackupIdentifier)
         }
         return identifiers
+    }
+
+    mutating func fillMissingSettings(from fallback: ManagedCustomSettings) {
+        if socketPassword == nil {
+            socketPassword = fallback.socketPassword
+        }
     }
 }
 
@@ -1460,132 +1493,6 @@ private enum BackupValue: Codable, Equatable {
             try container.encode(Kind.stringDictionary, forKey: .kind)
             try container.encode(value, forKey: .stringDictionaryValue)
         }
-    }
-}
-
-private enum JSONCParser {
-    static func preprocess(data: Data) throws -> Data {
-        guard let source = String(data: data, encoding: .utf8) else {
-            throw JSONCError.invalidUTF8
-        }
-        let withoutBOM = source.hasPrefix("\u{feff}") ? String(source.dropFirst()) : source
-        let stripped = stripComments(from: withoutBOM)
-        let normalized = stripTrailingCommas(from: stripped)
-        return Data(normalized.utf8)
-    }
-
-    private static func stripComments(from source: String) -> String {
-        var result = ""
-        var index = source.startIndex
-        var inString = false
-        var isEscaped = false
-
-        while index < source.endIndex {
-            let character = source[index]
-
-            if inString {
-                result.append(character)
-                if isEscaped {
-                    isEscaped = false
-                } else if character == "\\" {
-                    isEscaped = true
-                } else if character == "\"" {
-                    inString = false
-                }
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                result.append(character)
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "/" {
-                let nextIndex = source.index(after: index)
-                if nextIndex < source.endIndex {
-                    let next = source[nextIndex]
-                    if next == "/" {
-                        index = source.index(after: nextIndex)
-                        while index < source.endIndex && source[index] != "\n" {
-                            index = source.index(after: index)
-                        }
-                        continue
-                    }
-                    if next == "*" {
-                        index = source.index(after: nextIndex)
-                        while index < source.endIndex {
-                            let current = source[index]
-                            let followingIndex = source.index(after: index)
-                            if current == "*" && followingIndex < source.endIndex && source[followingIndex] == "/" {
-                                index = source.index(after: followingIndex)
-                                break
-                            }
-                            index = followingIndex
-                        }
-                        continue
-                    }
-                }
-            }
-
-            result.append(character)
-            index = source.index(after: index)
-        }
-
-        return result
-    }
-
-    private static func stripTrailingCommas(from source: String) -> String {
-        var result = ""
-        var index = source.startIndex
-        var inString = false
-        var isEscaped = false
-
-        while index < source.endIndex {
-            let character = source[index]
-
-            if inString {
-                result.append(character)
-                if isEscaped {
-                    isEscaped = false
-                } else if character == "\\" {
-                    isEscaped = true
-                } else if character == "\"" {
-                    inString = false
-                }
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                result.append(character)
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "," {
-                var lookahead = source.index(after: index)
-                while lookahead < source.endIndex && source[lookahead].isWhitespace {
-                    lookahead = source.index(after: lookahead)
-                }
-                if lookahead < source.endIndex && (source[lookahead] == "}" || source[lookahead] == "]") {
-                    index = source.index(after: index)
-                    continue
-                }
-            }
-
-            result.append(character)
-            index = source.index(after: index)
-        }
-
-        return result
-    }
-
-    private enum JSONCError: Error {
-        case invalidUTF8
     }
 }
 

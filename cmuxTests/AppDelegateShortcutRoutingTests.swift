@@ -276,7 +276,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try """
         {
           "shortcuts": {
@@ -325,7 +325,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertEqual(manager.tabs.count, initialCount + 1, "settings.json chord should dispatch the configured shortcut")
+        XCTAssertEqual(manager.tabs.count, initialCount + 1, "cmux.json chord should dispatch the configured shortcut")
     }
 
     func testConfiguredChordPrefixIsClearedWhenAppResignsActive() {

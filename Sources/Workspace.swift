@@ -7583,22 +7583,6 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    nonisolated static let bonsplitSplitButtonBackdropSoftness: CGFloat = 0.60
-
-    nonisolated static func bonsplitSplitButtonBackdropEffect() -> BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
-        .init(
-            style: .translucentChrome,
-            fadeWidth: 99.75,
-            contentFadeWidth: 28.875,
-            solidWidth: 23.875,
-            fadeRampStartFraction: bonsplitSplitButtonBackdropSoftness,
-            leadingOpacity: 0,
-            trailingOpacity: 0.8625,
-            contentOcclusionFraction: 0.6875,
-            masksTabContent: true
-        )
-    }
-
     nonisolated static func resolvedChromeColors(
         from backgroundColor: NSColor,
         sharesWindowBackdrop: Bool = false,
@@ -7949,6 +7933,12 @@ final class Workspace: Identifiable, ObservableObject {
         var configuration = bonsplitController.configuration
         guard configuration.appearance.splitButtonTooltips != tooltips else { return }
         configuration.appearance.splitButtonTooltips = tooltips
+        bonsplitController.configuration = configuration
+    }
+
+    func refreshSplitButtonBackdropEffect() {
+        var configuration = bonsplitController.configuration
+        configuration.appearance.splitButtonBackdropEffect = Self.bonsplitSplitButtonBackdropEffect()
         bonsplitController.configuration = configuration
     }
 

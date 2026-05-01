@@ -5187,6 +5187,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }?.tabManager
     }
 
+    func allMainWindowTabManagersForDebug() -> [TabManager] {
+        Array(mainWindowContexts.values).compactMap { context in
+            resolvedWindow(for: context) == nil ? nil : context.tabManager
+        }
+    }
 #if DEBUG
     private func debugManagerToken(_ manager: TabManager?) -> String {
         guard let manager else { return "nil" }
@@ -10172,7 +10177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         configuredShortcutChordActions = KeyboardShortcutSettings.Action.allCases.filter { action in
             // showHideAllWindows is dispatched via Carbon RegisterEventHotKey
             // (SystemWideHotkeyController) and never routed through AppKit's
-            // local key handler. If a managed settings.json entry happened to
+            // local key handler. If a managed cmux.json entry happened to
             // store it as a chord, arming the prefix here would swallow the
             // first stroke and leave the second one orphaned, breaking that
             // keystroke for the focused terminal/browser input.

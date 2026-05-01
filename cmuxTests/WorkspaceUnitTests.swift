@@ -632,7 +632,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -671,7 +671,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -744,7 +744,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -821,7 +821,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -883,7 +883,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -911,7 +911,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
-    func testSettingsFileStoreUsesFallbackOnlyWhenPrimaryIsMissing() throws {
+    func testSettingsFileStoreUsesLegacyFallbackWhenCanonicalConfigHasNoSetting() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -920,6 +920,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         try writeSettingsFile(
             """
             {
+              "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
               "shortcuts": {
                 "showNotifications": "cmd+i"
               }
@@ -937,7 +938,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             fallbackStore.override(for: .showNotifications),
             StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
         )
-        XCTAssertEqual(fallbackStore.activeSourcePath, fallbackURL.path)
+        XCTAssertEqual(fallbackStore.activeSourcePath, primaryURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: primaryURL.path))
 
         try writeSettingsFile("{ not valid json", to: primaryURL)
 
@@ -954,7 +956,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -990,7 +992,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1036,7 +1038,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         let missingSettingsFileURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
         let persistedShortcut = StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
         let managedShortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
@@ -1083,7 +1085,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1152,7 +1154,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         let settingsFileURL = directoryURL
             .appendingPathComponent(".config/cmux", isDirectory: true)
-            .appendingPathComponent("settings.json", isDirectory: false)
+            .appendingPathComponent("cmux.json", isDirectory: false)
 
         let store = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
@@ -1165,7 +1167,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNil(store.override(for: .newTab))
 
         let contents = try String(contentsOf: settingsFileURL, encoding: .utf8)
-        XCTAssertTrue(contents.contains(#""$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json""#))
+        XCTAssertTrue(contents.contains(#""$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json""#))
         XCTAssertTrue(contents.contains(#""schemaVersion": 1,"#))
         XCTAssertTrue(contents.contains(#"//   "app" : {"#))
         XCTAssertTrue(contents.contains(#"//     "colors" : {"#))
@@ -1173,74 +1175,12 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertTrue(contents.contains(#"//   "shortcuts" : {"#))
     }
 
-    func testBootstrapDoesNotCreatePrimaryWhenFallbackAlreadyExists() throws {
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
-        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
-        try FileManager.default.createDirectory(
-            at: fallbackURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "showNotifications": "cmd+i"
-              }
-            }
-            """,
-            to: fallbackURL
-        )
-
-        let store = KeyboardShortcutSettingsFileStore(
-            primaryPath: primaryURL.path,
-            fallbackPath: fallbackURL.path,
-            startWatching: false
-        )
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
-        XCTAssertEqual(store.activeSourcePath, fallbackURL.path)
-    }
-
-    func testSettingsFileURLForEditingUsesActiveFallbackWithoutCreatingPrimary() throws {
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
-        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
-        try FileManager.default.createDirectory(
-            at: fallbackURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "showNotifications": "cmd+i"
-              }
-            }
-            """,
-            to: fallbackURL
-        )
-
-        let store = KeyboardShortcutSettingsFileStore(
-            primaryPath: primaryURL.path,
-            fallbackPath: fallbackURL.path,
-            startWatching: false
-        )
-
-        XCTAssertEqual(store.settingsFileURLForEditing().path, fallbackURL.path)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
-    }
-
     func testSettingsFileURLForEditingPrefersInvalidPrimaryForRepair() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
-        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
+        let primaryURL = directoryURL.appendingPathComponent("primary/cmux.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback/cmux.json", isDirectory: false)
         try FileManager.default.createDirectory(
             at: primaryURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -1275,11 +1215,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
-              "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
+              "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
               "schemaVersion": 1,
               // tmux-like prefix
               "shortcuts": {
@@ -1311,7 +1251,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1422,7 +1362,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1541,7 +1481,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {
@@ -1603,7 +1543,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try writeSettingsFile(
             """
             {

@@ -98,15 +98,15 @@ enum SettingsSearchAliasIndex {
         "browser:history": localized("settings.search.alias.setting.browser.history", defaultValue: "clear browser history visited pages suggestions omnibar"),
         "globalHotkey:enable-hotkey": localized("settings.search.alias.setting.globalHotkey.enable-hotkey", defaultValue: "global hotkey enable system wide show hide all windows"),
         "globalHotkey:shortcut": localized("settings.search.alias.setting.globalHotkey.shortcut", defaultValue: "global hotkey shortcut recorder key command option control"),
-        "keyboardShortcuts:shortcut-chords": localized("settings.search.alias.setting.keyboardShortcuts.shortcut-chords", defaultValue: "tmux prefix ctrl-b control-b multi key sequence chord settings json"),
+        "keyboardShortcuts:shortcut-chords": localized("settings.search.alias.setting.keyboardShortcuts.shortcut-chords", defaultValue: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
         "keyboardShortcuts:show-hints": localized("settings.search.alias.setting.keyboardShortcuts.show-hints", defaultValue: "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills"),
-        "keyboardShortcuts:shortcuts": localized("settings.search.alias.setting.keyboardShortcuts.shortcuts", defaultValue: "hotkeys keybindings key bindings commands keyboard accelerators shortcuts settings json"),
+        "keyboardShortcuts:shortcuts": localized("settings.search.alias.setting.keyboardShortcuts.shortcuts", defaultValue: "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json"),
         "workspaceColors:indicator": localized("settings.search.alias.setting.workspaceColors.indicator", defaultValue: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
         "workspaceColors:selection": localized("settings.search.alias.setting.workspaceColors.selection", defaultValue: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
         "workspaceColors:badge": localized("settings.search.alias.setting.workspaceColors.badge", defaultValue: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
         "workspaceColors:palette": localized("settings.search.alias.setting.workspaceColors.palette", defaultValue: "workspaceColors.colors workspace palette named colors custom color reset built-in"),
-        "settingsJSON:open-file": localized("settings.search.alias.setting.settingsJSON.open-file", defaultValue: "open settings file json jsonc config editor ~/.config cmux preferences"),
-        "settingsJSON:documentation": localized("settings.search.alias.setting.settingsJSON.documentation", defaultValue: "docs documentation schema reference settings json keys configuration"),
+        "settingsJSON:open-file": localized("settings.search.alias.setting.settingsJSON.open-file", defaultValue: "open config file json jsonc config editor ~/.config cmux preferences"),
+        "settingsJSON:documentation": localized("settings.search.alias.setting.settingsJSON.documentation", defaultValue: "docs documentation schema reference cmux json keys configuration"),
         "reset:reset-all": localized("settings.search.alias.setting.reset.reset-all", defaultValue: "factory reset restore defaults clear preferences")
     ]
 
