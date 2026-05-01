@@ -29,6 +29,14 @@ private func helpMenuResetMenuBarOnlyDefault() {
     }
 }
 
+private let helpMenuMainWindowLaunchArguments = [
+    "-AppleLanguages", "(en)",
+    "-AppleLocale", "en_US",
+    "-ApplePersistenceIgnoreState", "YES",
+    "-NSQuitAlwaysKeepsWindows", "NO",
+    "-menuBarOnly", "false",
+]
+
 final class HelpMenuUITests: XCTestCase {
     override func setUp() {
         super.setUp()
@@ -37,6 +45,12 @@ final class HelpMenuUITests: XCTestCase {
 
     func testSidebarHelpMenuOpensKeyboardShortcutsSection() {
         let app = XCUIApplication()
+        helpMenuResetMenuBarOnlyDefault()
+        addTeardownBlock {
+            app.terminate()
+            helpMenuResetMenuBarOnlyDefault()
+        }
+        app.launchArguments += helpMenuMainWindowLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
 
@@ -66,11 +80,7 @@ final class HelpMenuUITests: XCTestCase {
             app.terminate()
             helpMenuResetMenuBarOnlyDefault()
         }
-        app.launchArguments += [
-            "-AppleLanguages", "(en)",
-            "-AppleLocale", "en_US",
-            "-menuBarOnly", "false",
-        ]
+        app.launchArguments += helpMenuMainWindowLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
 
