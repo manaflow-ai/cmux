@@ -28,10 +28,6 @@ struct WindowBackdropPlan {
         hostingPhase == .windowGlass
     }
 
-    var shouldClearContentViewHierarchy: Bool {
-        false
-    }
-
     var appKitMutationID: String {
         [
             hostingPhase.rawValue,
@@ -90,6 +86,8 @@ enum WindowBackdropController {
                     tintColor: glass.tintColor,
                     style: glass.style
                 )
+            } else {
+                didChangeGlassRoot = WindowGlassEffect.remove(from: window)
             }
         }
 

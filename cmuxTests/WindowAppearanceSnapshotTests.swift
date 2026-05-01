@@ -72,7 +72,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(plan.hostingPhase, .transparentRootBackdrop)
         XCTAssertTrue(plan.usesTransparentWindow)
         XCTAssertFalse(plan.usesWindowGlass)
-        XCTAssertFalse(plan.shouldClearContentViewHierarchy)
         assertTerminalBackdrop(plan.rootPolicy, expectedOpacity: 0.9)
 
         guard case let .sidebarMaterial(sidebarPolicy) = snapshot.policy(for: .leftSidebar) else {
@@ -108,7 +107,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
         XCTAssertEqual(plan.hostingPhase, .opaqueWindowFill)
         XCTAssertFalse(plan.usesTransparentWindow)
-        XCTAssertFalse(plan.shouldClearContentViewHierarchy)
         XCTAssertEqual(plan.windowBackgroundColor.hexString(includeAlpha: true), "#272822FF")
     }
 
@@ -124,7 +122,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(plan.hostingPhase, .windowGlass)
         XCTAssertTrue(plan.usesTransparentWindow)
         XCTAssertTrue(plan.usesWindowGlass)
-        XCTAssertFalse(plan.shouldClearContentViewHierarchy)
     }
 
     private func makeSnapshot(
