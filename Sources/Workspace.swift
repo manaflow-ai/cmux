@@ -7301,6 +7301,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
+    /// Mirrors `focusedPanelId` (which is computed) so subscribers can observe
+    /// focus changes via Combine. Updated from `applyTabSelectionNow` after the
+    /// effective focused panel has been resolved.
+    @Published var focusedPanelIdSignal: UUID?
     @Published var panelTitles: [UUID: String] = [:]
     @Published private(set) var panelCustomTitles: [UUID: String] = [:]
     @Published private(set) var pinnedPanelIds: Set<UUID> = []
@@ -12933,6 +12937,13 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
+        // Publish the focused panel id so Combine subscribers (e.g. the per-turn
+        // diff registry) can react to focus changes. Computed `focusedPanelId`
+        // alone is not observable.
+        if focusedPanelIdSignal != effectiveFocusedPanelId {
+            focusedPanelIdSignal = effectiveFocusedPanelId
+        }
+
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
                 terminalPanel.requestViewReattach()
@@ -13889,7 +13900,22 @@ extension Workspace: BonsplitDelegate {
             "pane=\(pane.id.uuidString.prefix(5)) identifier=\(identifier)"
         )
 #endif
+        if identifier == "togglePerTurnDiff" {
+            togglePerTurnDiffPanel(inPane: pane)
+            return
+        }
         executeSurfaceTabBarCommandButton(identifier: identifier, inPane: pane)
+    }
+
+    private func togglePerTurnDiffPanel(inPane pane: PaneID) {
+        let presentingWindow = selectedTerminalPanel(inPane: pane)?.hostedView.window
+            ?? NSApp.keyWindow
+            ?? NSApp.mainWindow
+        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: .diff,
+            focusFirstItem: true,
+            preferredWindow: presentingWindow
+        )
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {

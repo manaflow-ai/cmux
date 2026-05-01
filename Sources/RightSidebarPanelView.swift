@@ -212,7 +212,7 @@ struct RightSidebarPanelView: View {
         let _ = keyboardShortcutSettingsObserver.revision
         let showsModeShortcutHints = alwaysShowShortcutHints || modeShortcutHintMonitor.isModifierPressed
         return HStack(spacing: 4) {
-            ForEach(RightSidebarMode.allCases, id: \.rawValue) { mode in
+            ForEach(RightSidebarMode.allCases.filter { $0 != .diff }, id: \.rawValue) { mode in
                 ModeBarButton(
                     mode: mode,
                     isSelected: fileExplorerState.mode == mode,
