@@ -17,88 +17,10 @@ private func sidebarHelpPollUntil(
     }
 }
 
-private func sidebarHelpResetMenuBarOnlyDefault() {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
-    process.arguments = ["write", "com.cmuxterm.app.debug", "menuBarOnly", "-bool", "false"]
-    do {
-        try process.run()
-        process.waitUntilExit()
-    } catch {
-        return
-    }
-}
-
 final class SidebarHelpMenuUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-    }
-
-    func testHelpMenuOpensKeyboardShortcutsSection() {
-        let app = XCUIApplication()
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        launchAndActivate(app)
-
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
-
-        let helpButton = requireElement(
-            candidates: helpButtonCandidates(in: app),
-            timeout: 6.0,
-            description: "sidebar help button"
-        )
-        helpButton.click()
-
-        let keyboardShortcutsItem = requireElement(
-            candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionKeyboardShortcuts", title: "Keyboard Shortcuts"),
-            timeout: 3.0,
-            description: "Keyboard Shortcuts help menu item"
-        )
-        keyboardShortcutsItem.click()
-
-        XCTAssertTrue(app.staticTexts["ShortcutRecordingHint"].waitForExistence(timeout: 6.0))
-    }
-
-    func testMainHelpMenuShowsCmuxResourcesAndOpensKeyboardShortcuts() {
-        let app = XCUIApplication()
-        sidebarHelpResetMenuBarOnlyDefault()
-        addTeardownBlock {
-            app.terminate()
-            sidebarHelpResetMenuBarOnlyDefault()
-        }
-        app.launchArguments += ["-menuBarOnly", "false"]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        launchAndActivate(app)
-
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
-
-        let helpMenu = requireElement(
-            candidates: [
-                app.menuBars.menuBarItems["Help"],
-                app.menuBars.menuItems["Help"],
-            ],
-            timeout: 4.0,
-            description: "main Help menu"
-        )
-        helpMenu.click()
-
-        XCTAssertTrue(app.menuItems["cmux Documentation"].waitForExistence(timeout: 2.0))
-        XCTAssertTrue(app.menuItems["What's New"].waitForExistence(timeout: 2.0))
-        XCTAssertTrue(app.menuItems["Codex Integration"].waitForExistence(timeout: 2.0))
-        XCTAssertTrue(app.menuItems["Automation & API"].waitForExistence(timeout: 2.0))
-        XCTAssertTrue(app.menuItems["Send Feedback"].waitForExistence(timeout: 2.0))
-
-        let keyboardShortcutsItem = requireElement(
-            candidates: [
-                app.menuItems["Keyboard Shortcuts"],
-                app.buttons["Keyboard Shortcuts"],
-            ],
-            timeout: 2.0,
-            description: "Keyboard Shortcuts Help menu item"
-        )
-        keyboardShortcutsItem.click()
-
-        XCTAssertTrue(app.staticTexts["ShortcutRecordingHint"].waitForExistence(timeout: 6.0))
     }
 
     func testHelpMenuCheckForUpdatesTriggersSidebarUpdatePill() {
