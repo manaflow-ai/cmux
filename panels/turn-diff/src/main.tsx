@@ -2,7 +2,6 @@ import React from "react"
 import { createRoot } from "react-dom/client"
 import { App } from "./App"
 import "./styles.css"
-import "diff2html/bundles/css/diff2html.min.css"
 
 declare global {
   interface Window {

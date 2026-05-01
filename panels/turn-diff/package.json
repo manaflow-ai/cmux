@@ -9,11 +9,14 @@
     "dev": "node node_modules/.bin/vite"
   },
   "dependencies": {
+    "diff": "^5.2.0",
+    "parse-diff": "^0.11.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "diff2html": "^3.4.51"
+    "shiki": "^1.24.0"
   },
   "devDependencies": {
+    "@types/diff": "^5.2.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
