@@ -16,21 +16,25 @@ protocol TurnCheckpointManagerWorkspace: AnyObject {
 }
 
 /// Lazy-snapshot orchestrator for one workspace.
-/// Subscribes to claude_code status entry; on idle→running captures T_start tree;
-/// on running→idle compares T_end and updates the in-memory baseline iff something changed.
+/// Subscribes to claude_code status entry; on idle→running snapshots a
+/// pre-turn baseline tree for EVERY visited repo; on running→idle diffs each
+/// visited repo's current tree against its pre-turn baseline and caches the
+/// resulting diff text only for repos that were actually modified.
 ///
 /// The git root tracked here is dynamic: callers (TurnCheckpointRegistry) update
 /// it whenever the focused terminal pane's pwd changes, by walking up to the
 /// nearest `.git` ancestor. While `currentRoot == nil` the manager is idle.
 ///
-/// Baselines used to be stored as refs/cmux/session-<wsId>/last-turn-base in
-/// the user's `.git/refs/`, with parent-less commits/trees in the user's
-/// `.git/objects/`. That polluted `git fsck`/`for-each-ref` and accumulated
-/// disk inside the user's repo. The current design keeps tree/commit objects
-/// inside cmux's per-(ws, repo) object store under
-/// `~/Library/Application Support/cmux/diff-state/...`, and tracks the
-/// per-repo baseline tree SHA in `baselineTreesByRoot` here. No `update-ref`
-/// calls are ever made against the user's repo.
+/// We don't try to predict which repo a prompt will touch. At idle→running we
+/// snapshot every visited repo's current state into `pendingPreTurnBaselines`.
+/// At running→idle we diff each visited repo's now-state against that pre-turn
+/// snapshot. If a repo was modified, we cache its diff in `cachedDiffByRoot`
+/// (and persist it). If the diff is empty, we LEAVE the previous cached diff
+/// in place so the panel keeps showing that repo's most recent modifying turn.
+///
+/// All cmux-owned tree/commit objects live under
+/// `~/Library/Application Support/cmux/diff-state/...`. No `update-ref` calls
+/// are ever made against the user's repo.
 @MainActor
 final class TurnCheckpointManager {
     /// Status-key the snapshot algorithm watches. Constant for v1 (Claude Code only).
@@ -50,10 +54,18 @@ final class TurnCheckpointManager {
     /// end without creating a duplicate entry.
     private(set) var visitedRoots: [String] = []
 
-    /// Per-repo baseline tree SHA (cmux store object), keyed by repo path.
-    /// Replaces the old `refs/cmux/session-<wsId>/last-turn-base` storage.
-    /// nil entry / missing entry => Tier 1 unavailable, fall through to HEAD.
-    private var baselineTreesByRoot: [String: String] = [:]
+    /// Per-repo pre-turn baseline tree SHA (cmux store object), keyed by repo
+    /// path. Populated at idle→running (or when a new root appears mid-running)
+    /// and cleared at running→idle after the diff is computed and cached. While
+    /// the agent is idle this dict is empty.
+    private var pendingPreTurnBaselines: [String: String] = [:]
+
+    /// Per-repo cached unified-diff text, keyed by repo path. Updated at
+    /// running→idle for each repo whose tree changed during the turn; left
+    /// AS IS for repos whose tree was unchanged. Persisted to disk so cmux
+    /// restarts continue to display each repo's last-modified diff.
+    /// This is the source of truth for what we render in the panel.
+    private var cachedDiffByRoot: [String: String] = [:]
 
     /// One root + its rendered diff, for the multi-repo grouped view.
     /// Emitted to the React panel via `onMultiDiffChanged`.
@@ -62,15 +74,6 @@ final class TurnCheckpointManager {
         let diff: String
         let isActive: Bool
     }
-
-    /// Cached tree SHA captured at last idle→running. nil while agent is idle.
-    private var pendingStartTree: String?
-
-    /// Root that was active at idle→running. Used at captureEnd to detect
-    /// whether the turn actually modified that repo before committing the
-    /// pre-turn snapshot as the new baseline. May differ from `currentRoot`
-    /// if the agent switches roots mid-turn (transcript tail detection lags).
-    private var pendingStartRoot: String?
 
     /// Most recent status string seen.
     private var lastStatus: String?
@@ -113,14 +116,14 @@ final class TurnCheckpointManager {
         if let root = currentRoot, !root.isEmpty {
             TurnCheckpointStore.deleteLegacySessionRef(workspaceId: session, in: root)
         }
-        // Cold start: hydrate baselines persisted from previous sessions so
-        // the first turn after a cmux restart shows just that turn's delta
-        // instead of falling through to Tier 2 (HEAD diff = everything since
-        // initial commit). We merge keeping current in-memory entries (they
-        // shouldn't exist yet at start() time, but be defensive about reinit).
-        let restored = TurnCheckpointStore.enumerateBaselineTrees(workspaceId: session)
+        // Cold start: hydrate per-repo cached diffs persisted from previous
+        // sessions so the panel renders each repo's last-modified diff
+        // immediately instead of falling through to Tier 2 (HEAD diff). The
+        // pre-turn baseline tree concept is now ephemeral (snapshotted per
+        // turn), so there's nothing else to restore here.
+        let restored = TurnCheckpointStore.enumerateCachedDiffs(workspaceId: session)
         if !restored.isEmpty {
-            baselineTreesByRoot.merge(restored) { current, _ in current }
+            cachedDiffByRoot.merge(restored) { current, _ in current }
             // Seed visitedRoots so the multi-repo grouped panel shows every
             // previously-touched repo on cold start, not just the seed root.
             // The active root (if any) belongs at the END so React's
@@ -140,8 +143,7 @@ final class TurnCheckpointManager {
                 visitedRoots.append(active)
             }
             #if DEBUG
-            cmuxDebugLog("turn-diff: baselines hydrated workspace=\(session.uuidString) count=\(restored.count)")
-            cmuxDebugLog("turn-diff: hydrated \(restored.count) baselines from disk roots=[\(restored.keys.sorted().joined(separator: ", "))]")
+            cmuxDebugLog("turn-diff: hydrated \(restored.count) cached diffs for repos=[\(restored.keys.sorted().joined(separator: ", "))]")
             #endif
         }
         workspace.statusEntriesPublisher
@@ -156,10 +158,12 @@ final class TurnCheckpointManager {
     func stop() {
         stopLiveWatcher()
         cancellables.removeAll()
-        // Drop in-memory baselines; nothing on disk in the user's repo to clean.
-        baselineTreesByRoot.removeAll()
+        // Drop in-memory caches; persisted state is wiped below.
+        pendingPreTurnBaselines.removeAll()
+        cachedDiffByRoot.removeAll()
         // Best-effort: blow away the workspace's diff-state dir so it doesn't
-        // accumulate forever. Cheap enough that doing it here beats writing a
+        // accumulate forever. This also removes per-repo `cached-diff.txt`
+        // sidecar files. Cheap enough that doing it here beats writing a
         // separate gc routine.
         TurnCheckpointStore.removeDiffStateDirectory(workspaceId: session)
     }
@@ -175,15 +179,10 @@ final class TurnCheckpointManager {
             return
         }
 
-        // Tear down any in-flight per-turn state tied to the old root.
-        // NOTE: do NOT clear the old root's baseline entry — keep it so returning
-        // to a previously-visited repo finds its baseline intact (e.g., after a
-        // /clear in Claude or hopping between two repos).
+        // Tear down any in-flight live watcher tied to the old root.
+        // NOTE: do NOT clear cached diffs — the user expects each repo's last
+        // modifying-turn diff to remain visible across root hops.
         stopLiveWatcher()
-        // pendingStartTree was captured against the old root; it is invalid for
-        // the new root. Dropping it here is what lets bestEffortDiff fall through
-        // to tier 2/3 on the next idle (per spec step 3).
-        pendingStartTree = nil
 
         currentRoot = newRoot
         let hasRoot = (newRoot?.isEmpty == false)
@@ -211,39 +210,34 @@ final class TurnCheckpointManager {
         #endif
         onRootChanged?(newRoot, hasRoot, observedCwd)
 
-        // Re-emit the full multi-repo diff payload. The newly-active repo's
-        // diff for the moment of the swap is whatever bestEffortDiff returns
-        // for it (likely empty until the user makes more edits). Previously
-        // visited repos still show their last diff so the user retains context.
+        // Re-emit the full multi-repo diff payload using the cached-diff dict.
+        // Newly-visited repos with no entry render an empty group; previously
+        // visited repos keep their last cached diff so the user retains context.
         emitMultiDiff()
 
-        // Snapshot the new root's working tree as the in-memory baseline ONLY
-        // when the agent is idle. If we're currently Running, the root was
-        // likely detected via the transcript tailer AFTER Claude already
-        // edited a file there — snapshotting now would capture the post-edit
-        // state and the diff at running→idle would show nothing. Instead,
-        // leave the baseline unset so bestEffortDiff falls through to Tier 2
-        // (HEAD diff) and shows uncommitted changes. captureEnd will write a
-        // fresh baseline afterward so the next turn produces a clean delta.
-        if hasRoot, let root = newRoot, !root.isEmpty, lastStatus != "Running" {
+        // If we discover a new root while the agent is Running, snapshot it
+        // NOW (best-effort) and add it to pendingPreTurnBaselines so the
+        // running→idle diff has a baseline to compare against. Claude may
+        // have already edited files here before we noticed (transcript tail
+        // detection lags) — snapshotting now is still the best reference
+        // point we have. captureEnd's diff will under-report any pre-detection
+        // edits, but that's acceptable for the first detection turn.
+        if hasRoot,
+           let root = newRoot,
+           !root.isEmpty,
+           lastStatus == "Running",
+           pendingPreTurnBaselines[root] == nil {
             do {
                 let tree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: root)
-                baselineTreesByRoot[root] = tree
-                try? TurnCheckpointStore.writeBaselineTree(tree, workspaceId: session, repoRoot: root)
+                pendingPreTurnBaselines[root] = tree
                 #if DEBUG
-                cmuxDebugLog("turn-diff: baseline cached root=\(root) tree=\(String(tree.prefix(7)))")
-                cmuxDebugLog("turn-diff: baseline persisted root=\(root) tree=\(String(tree.prefix(7)))")
-                cmuxDebugLog("turn-diff: root changed (idle), baseline saved newRoot=\(root) tree=\(String(tree.prefix(7)))")
+                cmuxDebugLog("turn-diff: mid-run baseline snapshot root=\(root) tree=\(String(tree.prefix(7)))")
                 #endif
             } catch {
                 #if DEBUG
-                cmuxDebugLog("turn-diff: baseline snapshot failed in \(root): \(error)")
+                cmuxDebugLog("turn-diff: mid-run baseline snapshot failed in \(root): \(error)")
                 #endif
             }
-        } else if hasRoot, lastStatus == "Running" {
-            #if DEBUG
-            cmuxDebugLog("turn-diff: root changed while running, deferring baseline to captureEnd newRoot=\(newRoot ?? "(nil)")")
-            #endif
             // Restart the live watcher in the new root so live updates still
             // fire while the rest of the turn plays out.
             startLiveWatcher()
@@ -270,114 +264,71 @@ final class TurnCheckpointManager {
     }
 
     private func captureStart() {
-        guard let worktree = currentRoot, !worktree.isEmpty else { return }
-        do {
-            let tree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: worktree)
-            pendingStartTree = tree
-            pendingStartRoot = worktree
-            // NOTE: do NOT write the baseline here. We commit the pre-turn
-            // snapshot as the new baseline only at captureEnd, and only if the
-            // turn actually modified this repo (endTree != startTree). That
-            // prevents resetting a repo's baseline to "now" when the agent
-            // switches roots mid-turn and never actually edits files in this
-            // one — which would otherwise make this repo's diff incorrectly
-            // show "no changes" instead of preserving its previous turn's delta.
-        } catch {
-            pendingStartTree = nil
-            pendingStartRoot = nil
+        // We don't know which repo the agent will touch this turn. Snapshot
+        // EVERY visited repo's current state as a pre-turn baseline so the
+        // diff at running→idle has a reference point for whichever repo (or
+        // repos) ends up modified. Per-repo write-tree failures (e.g., dir
+        // vanished, permissions) are silently skipped — the running→idle path
+        // will fall through to Tier 2 (HEAD diff) for those.
+        pendingPreTurnBaselines.removeAll()
+        for repo in visitedRoots {
+            guard !repo.isEmpty,
+                  FileManager.default.fileExists(atPath: repo) else { continue }
+            do {
+                let tree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: repo)
+                pendingPreTurnBaselines[repo] = tree
+            } catch {
+                #if DEBUG
+                cmuxDebugLog("turn-diff: pre-turn snapshot failed in \(repo): \(error)")
+                #endif
+                continue
+            }
         }
         #if DEBUG
-        cmuxDebugLog("turn-diff: idle->running workspace=\(session.uuidString) root=\(worktree) snapshot=\(pendingStartTree ?? "(nil)")")
+        cmuxDebugLog("turn-diff: idle->running workspace=\(session.uuidString) snapshotted=\(pendingPreTurnBaselines.count)/\(visitedRoots.count)")
         #endif
     }
 
     private func captureEnd() {
-        // Policy: a repo's baseline = "state at the start of that repo's last
-        // turn that ACTUALLY MODIFIED IT". So we only commit the pre-turn
-        // snapshot (captured at captureStart) as the new baseline if the
-        // turn-end tree differs from the turn-start tree for the root that
-        // was active at idle→running. That root may differ from `currentRoot`
-        // if the agent swapped roots mid-turn (transcript tail detection lags).
-        if let pendingRoot = pendingStartRoot,
-           !pendingRoot.isEmpty,
-           FileManager.default.fileExists(atPath: pendingRoot) {
-            do {
-                let endTreeForPending = try TurnCheckpointStore.writeTreeIsolated(
-                    workspaceId: session,
-                    in: pendingRoot
-                )
-                if let startTree = pendingStartTree, endTreeForPending != startTree {
-                    // The turn modified files in pendingRoot. Commit the
-                    // pre-turn snapshot as the new baseline so this repo's
-                    // diff for the next turn starts from this exact state.
-                    baselineTreesByRoot[pendingRoot] = startTree
-                    try? TurnCheckpointStore.writeBaselineTree(
-                        startTree,
-                        workspaceId: session,
-                        repoRoot: pendingRoot
-                    )
-                    #if DEBUG
-                    cmuxDebugLog("turn-diff: baseline committed (changed) root=\(pendingRoot) tree=\(String(startTree.prefix(7)))")
-                    #endif
-                } else {
-                    #if DEBUG
-                    cmuxDebugLog("turn-diff: baseline unchanged (no work) root=\(pendingRoot)")
-                    #endif
-                }
-            } catch {
-                #if DEBUG
-                cmuxDebugLog("turn-diff: end-tree probe failed in \(pendingRoot): \(error)")
-                #endif
-            }
-        }
-
-        // First-time fallback for `currentRoot` (which may differ from
-        // pendingStartRoot due to a mid-running root swap). If no baseline
-        // exists for this repo yet (none in memory and none restored from
-        // disk), snapshot now so the NEXT turn produces a clean delta.
-        // This turn's diff in currentRoot will fall through to Tier 2 /
-        // synthetic, which is acceptable for "never-seen-before" repos.
-        if let worktree = currentRoot,
-           !worktree.isEmpty,
-           baselineTreesByRoot[worktree] == nil {
-            do {
-                let endTree = try TurnCheckpointStore.writeTreeIsolated(
-                    workspaceId: session,
-                    in: worktree
-                )
-                baselineTreesByRoot[worktree] = endTree
-                try? TurnCheckpointStore.writeBaselineTree(
-                    endTree,
-                    workspaceId: session,
-                    repoRoot: worktree
-                )
-                #if DEBUG
-                cmuxDebugLog("turn-diff: first-time baseline (no prior state) root=\(worktree) tree=\(String(endTree.prefix(7)))")
-                #endif
-            } catch {
-                #if DEBUG
-                cmuxDebugLog("turn-diff: first-time baseline failed in \(worktree): \(error)")
-                #endif
-            }
-        }
-
-        pendingStartTree = nil
-        pendingStartRoot = nil
-
-        if let worktree = currentRoot, !worktree.isEmpty {
-            let baseline = baselineTreesByRoot[worktree]
+        // For each visited repo, diff its current tree against the pre-turn
+        // baseline we snapshotted at captureStart. Three cases:
+        //   1. Baseline present + diff non-empty -> repo was modified this
+        //      turn. Update cachedDiffByRoot and persist.
+        //   2. Baseline present + diff empty -> repo was NOT modified this
+        //      turn. LEAVE cachedDiffByRoot[repo] AS IS (preserve previous
+        //      turn's display).
+        //   3. Baseline missing (first-ever visit, never snapshotted) ->
+        //      no reference. Fall through to Tier 2 (git diff HEAD^{tree})
+        //      so the user sees uncommitted-vs-HEAD as a best-effort show.
+        for repo in visitedRoots {
+            guard !repo.isEmpty,
+                  FileManager.default.fileExists(atPath: repo) else { continue }
+            let baseline = pendingPreTurnBaselines[repo]
             let (diff, tier) = TurnCheckpointStore.bestEffortDiff(
                 workspaceId: session,
                 baselineTreeSha: baseline,
-                in: worktree
+                in: repo
             )
-            #if DEBUG
-            cmuxDebugLog("turn-diff: running->idle workspace=\(session.uuidString) root=\(worktree) diffBytes=\(diff.utf8.count) tier=\(Self.tierLabel(tier))")
-            #endif
+            if !diff.isEmpty {
+                cachedDiffByRoot[repo] = diff
+                TurnCheckpointStore.writeCachedDiff(diff, workspaceId: session, repoRoot: repo)
+                #if DEBUG
+                cmuxDebugLog("turn-diff: cached diff updated repo=\(repo) bytes=\(diff.utf8.count) tier=\(Self.tierLabel(tier))")
+                #endif
+            } else {
+                #if DEBUG
+                cmuxDebugLog("turn-diff: turn was no-op for repo=\(repo)")
+                #endif
+            }
         }
+
+        // Pre-turn baselines are single-turn ephemeral. Wipe them so the next
+        // captureStart re-snapshots from a clean slate.
+        pendingPreTurnBaselines.removeAll()
+
         // Re-emit the full multi-repo payload so every visited repo's group
-        // refreshes on turn end (e.g., the active repo's new diff plus any
-        // stale entries for previously-visited repos).
+        // refreshes on turn end. The dispatched diffs come straight from the
+        // cache so unchanged repos keep their previous turn's display.
         emitMultiDiff()
     }
 
@@ -385,10 +336,10 @@ final class TurnCheckpointManager {
         guard let cwd = currentRoot, !cwd.isEmpty else { return }
         watcher = WorktreeWatcher(path: cwd) { [weak self] in
             guard let self else { return }
-            // Live diff uses the same tiered fallback so a fresh root / bare repo
-            // still shows uncommitted edits while the agent is running. Emit the
-            // full multi-repo payload so the active repo group updates and any
-            // stale-but-still-visible groups for prior repos remain consistent.
+            // Live diff for the watched repo uses the SAME pre-turn baseline
+            // we'll use at captureEnd, so live updates and the final cached
+            // diff agree. Other repos in the payload show their cached diff
+            // (stable across turns) so the user retains context.
             self.emitLiveMultiDiff()
         }
         watcher?.start()
@@ -396,37 +347,52 @@ final class TurnCheckpointManager {
 
     /// Compute one RepoDiff per visited root and fire the multi-diff callback.
     /// Active repo (matches `currentRoot`) is flagged so the React panel knows
-    /// which group to expand by default.
+    /// which group to expand by default. Diffs come from the cache so other
+    /// repos' displays stay stable when this fires between turns.
     private func emitMultiDiff() {
         let payload = computeMultiDiff()
         onMultiDiffChanged?(payload)
     }
 
-    /// Live-watcher variant: same payload, dispatched on the live channel so
-    /// the React panel can distinguish "turn ended" updates from intra-turn
-    /// keystrokes if it wants to (currently both are treated identically).
+    /// Live-watcher variant: dispatched on the live channel during a Running
+    /// turn. For the watched repo we recompute from its pendingPreTurnBaseline
+    /// so the panel sees in-progress edits in real time; for every other repo
+    /// we serve the cached diff (don't churn unrelated groups).
     private func emitLiveMultiDiff() {
-        let payload = computeMultiDiff()
+        let active = currentRoot
+        let payload: [RepoDiff] = visitedRoots.compactMap { root -> RepoDiff? in
+            guard !root.isEmpty else { return nil }
+            if root == active, let baseline = pendingPreTurnBaselines[root] {
+                let (live, _) = TurnCheckpointStore.bestEffortDiff(
+                    workspaceId: session,
+                    baselineTreeSha: baseline,
+                    in: root
+                )
+                return RepoDiff(root: root, diff: live, isActive: true)
+            }
+            return RepoDiff(
+                root: root,
+                diff: cachedDiffByRoot[root] ?? "",
+                isActive: root == active
+            )
+        }
         onLiveMultiDiffChanged?(payload)
     }
 
     /// Snapshot helper. Used by emitMultiDiff and exposed to the panel host
     /// for the initial load (`.ready` message) so the first paint already has
-    /// every repo's diff baked in.
+    /// every repo's diff baked in. Returns the cached diff for each visited
+    /// repo — never recomputes from git, so calls between turns are fast and
+    /// deterministic.
     func computeMultiDiff() -> [RepoDiff] {
         let active = currentRoot
         return visitedRoots.compactMap { root -> RepoDiff? in
             guard !root.isEmpty else { return nil }
-            // bestEffortDiff is per-root and stateless; it's safe to call once
-            // per visited repo even if no edits have happened there recently —
-            // it returns "" and the React side renders an empty group.
-            let baseline = baselineTreesByRoot[root]
-            let (diff, _) = TurnCheckpointStore.bestEffortDiff(
-                workspaceId: session,
-                baselineTreeSha: baseline,
-                in: root
+            return RepoDiff(
+                root: root,
+                diff: cachedDiffByRoot[root] ?? "",
+                isActive: root == active
             )
-            return RepoDiff(root: root, diff: diff, isActive: root == active)
         }
     }
 

@@ -203,6 +203,80 @@ enum TurnCheckpointStore {
         return result
     }
 
+    // MARK: - Persistent cached diff (per repo)
+
+    /// Sibling of `baseline.txt`. Stores the unified-diff text computed at the
+    /// end of the most recent turn that ACTUALLY MODIFIED this repo. Persisted
+    /// so cmux restarts continue to display each repo's last-modified diff
+    /// instead of recomputing from a stale baseline.
+    static func cachedDiffFileURL(workspaceId: UUID, repoRoot: String) -> URL {
+        return diffStateDirectory(workspaceId: workspaceId, repoRoot: repoRoot)
+            .deletingLastPathComponent()
+            .appendingPathComponent("cached-diff.txt", isDirectory: false)
+    }
+
+    /// Persist the per-repo cached diff (the unified-diff text we render in the
+    /// React panel) for a (workspace, repo) pair to disk. Also writes the
+    /// repo path sibling file so cold-start enumeration can reconstruct the
+    /// dict keyed by repo path.
+    static func writeCachedDiff(_ diff: String, workspaceId: UUID, repoRoot: String) {
+        // Touching diffStateDirectory ensures the parent tree exists.
+        _ = diffStateDirectory(workspaceId: workspaceId, repoRoot: repoRoot)
+        let diffURL = cachedDiffFileURL(workspaceId: workspaceId, repoRoot: repoRoot)
+        let repoPathURL = diffStateDirectory(workspaceId: workspaceId, repoRoot: repoRoot)
+            .deletingLastPathComponent()
+            .appendingPathComponent("repo-path.txt", isDirectory: false)
+        try? diff.write(to: diffURL, atomically: true, encoding: .utf8)
+        try? repoRoot.write(to: repoPathURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Read a previously-persisted cached diff string, or nil if absent.
+    static func readCachedDiff(workspaceId: UUID, repoRoot: String) -> String? {
+        let url = cachedDiffFileURL(workspaceId: workspaceId, repoRoot: repoRoot)
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Scan `~/Library/Application Support/cmux/diff-state/<wsId>/` and rebuild
+    /// the `[repoPath: cachedDiffText]` dict from the per-repo `cached-diff.txt`
+    /// + `repo-path.txt` sibling files. Returns an empty dict if the workspace
+    /// has no persisted state.
+    static func enumerateCachedDiffs(workspaceId: UUID) -> [String: String] {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        let workspaceDir = appSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("diff-state", isDirectory: true)
+            .appendingPathComponent(workspaceId.uuidString.lowercased(), isDirectory: true)
+
+        guard let entries = try? fm.contentsOfDirectory(
+            at: workspaceDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return [:]
+        }
+
+        var result: [String: String] = [:]
+        for entry in entries {
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: entry.path, isDirectory: &isDir), isDir.boolValue else {
+                continue
+            }
+            let diffURL = entry.appendingPathComponent("cached-diff.txt", isDirectory: false)
+            let repoPathURL = entry.appendingPathComponent("repo-path.txt", isDirectory: false)
+            guard let diffRaw = try? String(contentsOf: diffURL, encoding: .utf8),
+                  let repoPathRaw = try? String(contentsOf: repoPathURL, encoding: .utf8) else {
+                continue
+            }
+            let repoPath = repoPathRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !repoPath.isEmpty else { continue }
+            result[repoPath] = diffRaw
+        }
+        return result
+    }
+
     /// Build the env dict that points git at our cmux-owned object store while
     /// keeping the user's `.git/objects/` available for read (HEAD-relative
     /// references resolve through the alternate). `GIT_INDEX_FILE` is left to
