@@ -3,6 +3,7 @@ import {
   buildLlmsText,
   resolveAgentPageVariant,
 } from "../lib/agent-page-paths";
+import { headersForCanonicalFetch } from "../lib/agent-page-canonical-fetch";
 import {
   headersForAgentPage,
   headersForLlmsTxt,
@@ -36,10 +37,10 @@ export async function GET(request: NextRequest) {
 
   const htmlResponse = await fetch(htmlUrl, {
     cache: "no-store",
-    headers: {
-      accept: "text/html",
-      "x-cmux-agent-page-variant": "canonical-html",
-    },
+    headers: headersForCanonicalFetch({
+      requestHeaders: request.headers,
+      searchParams: request.nextUrl.searchParams,
+    }),
     redirect: "follow",
   });
 

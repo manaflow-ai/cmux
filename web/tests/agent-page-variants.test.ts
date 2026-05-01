@@ -8,6 +8,7 @@ import {
   headersForAgentPage,
   markdownFromHtml,
 } from "../app/lib/agent-page-markdown";
+import { headersForCanonicalFetch } from "../app/lib/agent-page-canonical-fetch";
 
 describe("agent page variants", () => {
   test("maps Markdown and text extension paths to canonical HTML pages", () => {
@@ -82,6 +83,26 @@ describe("agent page variants", () => {
     expect(headers.get("link")).toBe(
       '<https://cmux.com/docs/getting-started>; rel="canonical"',
     );
+  });
+
+  test("forwards protected preview auth headers to canonical HTML fetches", () => {
+    const requestHeaders = new Headers({
+      cookie: "_vercel_sso_nonce=abc; NEXT_LOCALE=ja",
+      "accept-language": "ja,en;q=0.9",
+      authorization: "Bearer token",
+    });
+    const searchParams = new URLSearchParams({
+      "x-vercel-protection-bypass": "secret",
+      "x-vercel-set-bypass-cookie": "true",
+    });
+    const headers = headersForCanonicalFetch({ requestHeaders, searchParams });
+
+    expect(headers.get("accept")).toBe("text/html");
+    expect(headers.get("cookie")).toContain("_vercel_sso_nonce=abc");
+    expect(headers.get("accept-language")).toBe("ja,en;q=0.9");
+    expect(headers.get("authorization")).toBe("Bearer token");
+    expect(headers.get("x-vercel-protection-bypass")).toBe("secret");
+    expect(headers.get("x-vercel-set-bypass-cookie")).toBe("true");
   });
 
   test("lists agent-readable Markdown and text variants", () => {
