@@ -66,6 +66,12 @@ final class TurnCheckpointManager {
     /// Cached tree SHA captured at last idle→running. nil while agent is idle.
     private var pendingStartTree: String?
 
+    /// Root that was active at idle→running. Used at captureEnd to detect
+    /// whether the turn actually modified that repo before committing the
+    /// pre-turn snapshot as the new baseline. May differ from `currentRoot`
+    /// if the agent switches roots mid-turn (transcript tail detection lags).
+    private var pendingStartRoot: String?
+
     /// Most recent status string seen.
     private var lastStatus: String?
 
@@ -135,6 +141,7 @@ final class TurnCheckpointManager {
             }
             #if DEBUG
             cmuxDebugLog("turn-diff: baselines hydrated workspace=\(session.uuidString) count=\(restored.count)")
+            cmuxDebugLog("turn-diff: hydrated \(restored.count) baselines from disk roots=[\(restored.keys.sorted().joined(separator: ", "))]")
             #endif
         }
         workspace.statusEntriesPublisher
@@ -267,19 +274,17 @@ final class TurnCheckpointManager {
         do {
             let tree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: worktree)
             pendingStartTree = tree
-            // Move baseline write to captureStart (was: captureEnd). The
-            // baseline is now "state at the start of this repo's last turn",
-            // frozen until that repo gets another turn. captureEnd no longer
-            // overwrites this — so other repos retain their last-turn diff
-            // when the active repo cycles, and the active repo's diff
-            // accumulates across the turn instead of being flushed to empty.
-            baselineTreesByRoot[worktree] = tree
-            try? TurnCheckpointStore.writeBaselineTree(tree, workspaceId: session, repoRoot: worktree)
-            #if DEBUG
-            cmuxDebugLog("turn-diff: baseline persisted root=\(worktree) tree=\(String(tree.prefix(7)))")
-            #endif
+            pendingStartRoot = worktree
+            // NOTE: do NOT write the baseline here. We commit the pre-turn
+            // snapshot as the new baseline only at captureEnd, and only if the
+            // turn actually modified this repo (endTree != startTree). That
+            // prevents resetting a repo's baseline to "now" when the agent
+            // switches roots mid-turn and never actually edits files in this
+            // one — which would otherwise make this repo's diff incorrectly
+            // show "no changes" instead of preserving its previous turn's delta.
         } catch {
             pendingStartTree = nil
+            pendingStartRoot = nil
         }
         #if DEBUG
         cmuxDebugLog("turn-diff: idle->running workspace=\(session.uuidString) root=\(worktree) snapshot=\(pendingStartTree ?? "(nil)")")
@@ -287,53 +292,89 @@ final class TurnCheckpointManager {
     }
 
     private func captureEnd() {
-        guard let worktree = currentRoot, !worktree.isEmpty else {
-            pendingStartTree = nil
-            return
-        }
-
-        // Important: do NOT overwrite baselineTreesByRoot[worktree] here.
-        // The baseline was set at captureStart (or seeded by updateRoot/start)
-        // and represents "state at the start of this repo's last turn". It
-        // stays frozen until this repo gets another turn so that:
-        //  - the active repo's per-turn diff stays visible after captureEnd
-        //  - other repos' diffs are stable (= their own last-turn delta)
-        //
-        // The exception is the mid-running root-change case: updateRoot can
-        // set currentRoot to a brand-new repo while we're still Running, in
-        // which case captureStart never fired for this root. Without a
-        // baseline, the next turn would fall through to Tier 2 (HEAD diff)
-        // and show every uncommitted change as part of that turn. So if and
-        // only if no baseline exists yet, write one now from the current
-        // working tree — the NEXT turn then produces a clean delta.
-        pendingStartTree = nil
-
-        if baselineTreesByRoot[worktree] == nil {
+        // Policy: a repo's baseline = "state at the start of that repo's last
+        // turn that ACTUALLY MODIFIED IT". So we only commit the pre-turn
+        // snapshot (captured at captureStart) as the new baseline if the
+        // turn-end tree differs from the turn-start tree for the root that
+        // was active at idle→running. That root may differ from `currentRoot`
+        // if the agent swapped roots mid-turn (transcript tail detection lags).
+        if let pendingRoot = pendingStartRoot,
+           !pendingRoot.isEmpty,
+           FileManager.default.fileExists(atPath: pendingRoot) {
             do {
-                let endTree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: worktree)
-                baselineTreesByRoot[worktree] = endTree
-                try? TurnCheckpointStore.writeBaselineTree(endTree, workspaceId: session, repoRoot: worktree)
-                #if DEBUG
-                cmuxDebugLog("turn-diff: baseline cached root=\(worktree) tree=\(String(endTree.prefix(7)))")
-                cmuxDebugLog("turn-diff: baseline persisted root=\(worktree) tree=\(String(endTree.prefix(7)))")
-                cmuxDebugLog("turn-diff: post-turn baseline (mid-running root change) root=\(worktree) tree=\(String(endTree.prefix(7)))")
-                #endif
+                let endTreeForPending = try TurnCheckpointStore.writeTreeIsolated(
+                    workspaceId: session,
+                    in: pendingRoot
+                )
+                if let startTree = pendingStartTree, endTreeForPending != startTree {
+                    // The turn modified files in pendingRoot. Commit the
+                    // pre-turn snapshot as the new baseline so this repo's
+                    // diff for the next turn starts from this exact state.
+                    baselineTreesByRoot[pendingRoot] = startTree
+                    try? TurnCheckpointStore.writeBaselineTree(
+                        startTree,
+                        workspaceId: session,
+                        repoRoot: pendingRoot
+                    )
+                    #if DEBUG
+                    cmuxDebugLog("turn-diff: baseline committed (changed) root=\(pendingRoot) tree=\(String(startTree.prefix(7)))")
+                    #endif
+                } else {
+                    #if DEBUG
+                    cmuxDebugLog("turn-diff: baseline unchanged (no work) root=\(pendingRoot)")
+                    #endif
+                }
             } catch {
                 #if DEBUG
-                cmuxDebugLog("turn-diff: post-turn baseline failed in \(worktree): \(error)")
+                cmuxDebugLog("turn-diff: end-tree probe failed in \(pendingRoot): \(error)")
                 #endif
             }
         }
 
-        let baseline = baselineTreesByRoot[worktree]
-        let (diff, tier) = TurnCheckpointStore.bestEffortDiff(
-            workspaceId: session,
-            baselineTreeSha: baseline,
-            in: worktree
-        )
-        #if DEBUG
-        cmuxDebugLog("turn-diff: running->idle workspace=\(session.uuidString) root=\(worktree) diffBytes=\(diff.utf8.count) tier=\(Self.tierLabel(tier))")
-        #endif
+        // First-time fallback for `currentRoot` (which may differ from
+        // pendingStartRoot due to a mid-running root swap). If no baseline
+        // exists for this repo yet (none in memory and none restored from
+        // disk), snapshot now so the NEXT turn produces a clean delta.
+        // This turn's diff in currentRoot will fall through to Tier 2 /
+        // synthetic, which is acceptable for "never-seen-before" repos.
+        if let worktree = currentRoot,
+           !worktree.isEmpty,
+           baselineTreesByRoot[worktree] == nil {
+            do {
+                let endTree = try TurnCheckpointStore.writeTreeIsolated(
+                    workspaceId: session,
+                    in: worktree
+                )
+                baselineTreesByRoot[worktree] = endTree
+                try? TurnCheckpointStore.writeBaselineTree(
+                    endTree,
+                    workspaceId: session,
+                    repoRoot: worktree
+                )
+                #if DEBUG
+                cmuxDebugLog("turn-diff: first-time baseline (no prior state) root=\(worktree) tree=\(String(endTree.prefix(7)))")
+                #endif
+            } catch {
+                #if DEBUG
+                cmuxDebugLog("turn-diff: first-time baseline failed in \(worktree): \(error)")
+                #endif
+            }
+        }
+
+        pendingStartTree = nil
+        pendingStartRoot = nil
+
+        if let worktree = currentRoot, !worktree.isEmpty {
+            let baseline = baselineTreesByRoot[worktree]
+            let (diff, tier) = TurnCheckpointStore.bestEffortDiff(
+                workspaceId: session,
+                baselineTreeSha: baseline,
+                in: worktree
+            )
+            #if DEBUG
+            cmuxDebugLog("turn-diff: running->idle workspace=\(session.uuidString) root=\(worktree) diffBytes=\(diff.utf8.count) tier=\(Self.tierLabel(tier))")
+            #endif
+        }
         // Re-emit the full multi-repo payload so every visited repo's group
         // refreshes on turn end (e.g., the active repo's new diff plus any
         // stale entries for previously-visited repos).
