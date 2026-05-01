@@ -1084,6 +1084,26 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
+    private struct CodexThreadRecord: Sendable {
+        let sessionId: String
+        let rolloutPath: String
+        let cwd: String?
+        let titleField: String
+        let model: String?
+        let gitBranch: String?
+        let approvalMode: String?
+        let sandboxJSON: String?
+        let reasoningEffort: String?
+        let firstUserMessage: String
+        let updatedMs: Int64
+
+        var normalizedRolloutPath: String? {
+            let trimmed = rolloutPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return (trimmed as NSString).standardizingPath
+        }
+    }
+
     /// Cheap cwd peek for Codex rollouts. `session_meta` is always the first line
     /// of the file, but the line itself can be 30+ KB (it embeds the full system
     /// prompt). Read up to 64 KB to cover that, parse the JSON, return cwd.
@@ -1591,7 +1611,7 @@ final class SessionIndexStore: ObservableObject {
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag
     ) async -> [SessionEntry] {
-        if let viaSQL = loadCodexEntriesViaSQL(
+        if let viaSQL = await loadCodexEntriesViaSQL(
             needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit,
             errorBag: errorBag
         ) {
@@ -1610,7 +1630,7 @@ final class SessionIndexStore: ObservableObject {
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag,
         dbPath: String = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath
-    ) -> [SessionEntry]? {
+    ) async -> [SessionEntry]? {
         let fm = FileManager.default
         guard fm.fileExists(atPath: dbPath) else { return nil }
 
@@ -1644,17 +1664,17 @@ final class SessionIndexStore: ObservableObject {
             WHERE archived = 0
             """
         var conditions: [String] = []
-        if !needle.isEmpty {
-            // Match against title, first_user_message, cwd, and git_branch.
-            conditions.append("(LOWER(title) LIKE ?1 OR LOWER(first_user_message) LIKE ?1 OR LOWER(cwd) LIKE ?1 OR LOWER(git_branch) LIKE ?1)")
-        }
         if cwdFilter != nil {
-            conditions.append("cwd = ?\(needle.isEmpty ? 1 : 2)")
+            conditions.append("cwd = ?1")
         }
         if !conditions.isEmpty {
             sql += " AND " + conditions.joined(separator: " AND ")
         }
-        sql += " ORDER BY updated_at_ms DESC LIMIT \(limit) OFFSET \(offset)"
+        if needle.isEmpty {
+            sql += " ORDER BY updated_at_ms DESC LIMIT \(limit) OFFSET \(offset)"
+        } else {
+            sql += " ORDER BY updated_at_ms DESC LIMIT \(searchMaxFiles)"
+        }
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
@@ -1665,65 +1685,36 @@ final class SessionIndexStore: ObservableObject {
         defer { sqlite3_finalize(stmt) }
 
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        if !needle.isEmpty {
-            sqlite3_bind_text(stmt, 1, "%\(needle)%", -1, SQLITE_TRANSIENT_FN)
-        }
         if let cwdFilter {
-            sqlite3_bind_text(stmt, needle.isEmpty ? 1 : 2, cwdFilter, -1, SQLITE_TRANSIENT_FN)
+            sqlite3_bind_text(stmt, 1, cwdFilter, -1, SQLITE_TRANSIENT_FN)
         }
 
-        var results: [SessionEntry] = []
+        var records: [CodexThreadRecord] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let sid = sqliteText(stmt, 0) ?? ""
-            let rollout = sqliteText(stmt, 1) ?? ""
-            let cwd = sqliteText(stmt, 2)
-            let titleField = sqliteText(stmt, 3) ?? ""
-            let model = sqliteText(stmt, 4)
-            let branch = sqliteText(stmt, 5)
-            let approval = sqliteText(stmt, 6)
-            let sandboxJSON = sqliteText(stmt, 7)
-            let effort = sqliteText(stmt, 8)
-            let firstMsg = sqliteText(stmt, 9) ?? ""
-            let updatedMs = sqlite3_column_int64(stmt, 10)
-            let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
-
-            // Codex stores sandbox_policy as JSON like {"type":"danger-full-access"}.
-            let sandboxMode = sandboxJSON
-                .flatMap { $0.data(using: .utf8) }
-                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                .flatMap { $0["type"] as? String }
-
-            // Prefer Codex's curated `title`. Fall back to first_user_message,
-            // skipping envelope wrappers (<environment_context>, etc.).
-            let displayTitle: String
-            if !titleField.isEmpty {
-                displayTitle = titleField
-            } else if let real = realCodexUserMessage(firstMsg) {
-                displayTitle = real
-            } else {
-                displayTitle = ""
-            }
-
-            let fileURL: URL? = rollout.isEmpty ? nil : URL(fileURLWithPath: rollout)
-            results.append(SessionEntry(
-                id: "codex:" + (fileURL?.path ?? sid),
-                agent: .codex,
-                sessionId: sid,
-                title: displayTitle,
-                cwd: cwd,
-                gitBranch: branch?.isEmpty == false ? branch : nil,
-                pullRequest: nil,
-                modified: modified,
-                fileURL: fileURL,
-                specifics: .codex(
-                    model: model?.isEmpty == false ? model : nil,
-                    approvalPolicy: approval?.isEmpty == false ? approval : nil,
-                    sandboxMode: sandboxMode,
-                    effort: effort?.isEmpty == false ? effort : nil
-                )
+            records.append(CodexThreadRecord(
+                sessionId: sqliteText(stmt, 0) ?? "",
+                rolloutPath: sqliteText(stmt, 1) ?? "",
+                cwd: sqliteText(stmt, 2),
+                titleField: sqliteText(stmt, 3) ?? "",
+                model: sqliteText(stmt, 4),
+                gitBranch: sqliteText(stmt, 5),
+                approvalMode: sqliteText(stmt, 6),
+                sandboxJSON: sqliteText(stmt, 7),
+                reasoningEffort: sqliteText(stmt, 8),
+                firstUserMessage: sqliteText(stmt, 9) ?? "",
+                updatedMs: sqlite3_column_int64(stmt, 10)
             ))
         }
-        return results
+        guard !needle.isEmpty else {
+            return records.map(codexEntry(from:))
+        }
+
+        let rgMatchedPaths = await codexRolloutPathsMatchingNeedle(needle)
+        let matched = records.filter { record in
+            codexRecordMatchesMetadata(record, needle: needle)
+                || codexRecordMatchesRolloutContent(record, needle: needle, rgMatchedPaths: rgMatchedPaths)
+        }
+        return Array(matched.dropFirst(offset).prefix(limit).map(codexEntry(from:)))
     }
 
     #if DEBUG
@@ -1735,7 +1726,7 @@ final class SessionIndexStore: ObservableObject {
         limit: Int = 100
     ) async -> SearchOutcome {
         let bag = ErrorBag()
-        let entries = loadCodexEntriesViaSQL(
+        let entries = await loadCodexEntriesViaSQL(
             needle: needle.lowercased(),
             cwdFilter: cwdFilter,
             offset: offset,
@@ -1746,6 +1737,93 @@ final class SessionIndexStore: ObservableObject {
         return SearchOutcome(entries: entries, errors: bag.snapshot())
     }
     #endif
+
+    nonisolated private static func codexEntry(from record: CodexThreadRecord) -> SessionEntry {
+        // Codex stores sandbox_policy as JSON like {"type":"danger-full-access"}.
+        let sandboxMode = record.sandboxJSON
+            .flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            .flatMap { $0["type"] as? String }
+
+        // Prefer Codex's curated `title`. Fall back to first_user_message,
+        // skipping envelope wrappers (<environment_context>, etc.).
+        let displayTitle: String
+        if !record.titleField.isEmpty {
+            displayTitle = record.titleField
+        } else if let real = realCodexUserMessage(record.firstUserMessage) {
+            displayTitle = real
+        } else {
+            displayTitle = ""
+        }
+
+        let fileURL = record.normalizedRolloutPath.map { URL(fileURLWithPath: $0) }
+        return SessionEntry(
+            id: "codex:" + (fileURL?.path ?? record.sessionId),
+            agent: .codex,
+            sessionId: record.sessionId,
+            title: displayTitle,
+            cwd: record.cwd,
+            gitBranch: record.gitBranch?.isEmpty == false ? record.gitBranch : nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: TimeInterval(record.updatedMs) / 1000.0),
+            fileURL: fileURL,
+            specifics: .codex(
+                model: record.model?.isEmpty == false ? record.model : nil,
+                approvalPolicy: record.approvalMode?.isEmpty == false ? record.approvalMode : nil,
+                sandboxMode: sandboxMode,
+                effort: record.reasoningEffort?.isEmpty == false ? record.reasoningEffort : nil
+            )
+        )
+    }
+
+    nonisolated private static func codexRecordMatchesMetadata(_ record: CodexThreadRecord, needle: String) -> Bool {
+        [
+            record.sessionId,
+            record.rolloutPath,
+            record.cwd ?? "",
+            record.titleField,
+            record.firstUserMessage,
+            record.gitBranch ?? "",
+            record.model ?? "",
+            record.approvalMode ?? "",
+            record.reasoningEffort ?? "",
+        ].contains { field in
+            field.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+        }
+    }
+
+    nonisolated private static func codexRolloutPathsMatchingNeedle(_ needle: String) async -> Set<String>? {
+        guard !needle.isEmpty else { return [] }
+        let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
+        guard let matches = await ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") else {
+            return nil
+        }
+        return Set(matches.map { ($0.path as NSString).standardizingPath })
+    }
+
+    nonisolated private static func codexRecordMatchesRolloutContent(
+        _ record: CodexThreadRecord,
+        needle: String,
+        rgMatchedPaths: Set<String>?
+    ) -> Bool {
+        guard let path = record.normalizedRolloutPath else { return false }
+        let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
+        let normalizedRoot = (root as NSString).standardizingPath
+        let isUnderDefaultRoot = path == normalizedRoot || path.hasPrefix(normalizedRoot + "/")
+        if let rgMatchedPaths, isUnderDefaultRoot {
+            return rgMatchedPaths.contains(path)
+        }
+        return fileContainsNeedle(url: URL(fileURLWithPath: path), needle: needle)
+    }
+
+    nonisolated private static func fileContainsNeedle(url: URL, needle: String) -> Bool {
+        guard !needle.isEmpty,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              let text = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return text.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+    }
 
     /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old
     /// Codex installs, or non-default config). Same shape as the original loader.
