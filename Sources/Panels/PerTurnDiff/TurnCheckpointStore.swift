@@ -103,17 +103,41 @@ enum TurnCheckpointStore {
 
     /// Diff between session's last-turn-base ref and the working tree.
     /// Returns unified diff text suitable for diff2html.
+    ///
+    /// We avoid `git diff <ref>` because that command compares the ref against
+    /// the user's `.git/index`, and cmux never `git add`s on the user's behalf.
+    /// In a typical session the index is empty, which makes every file in the
+    /// snapshot ref look "deleted" — exactly the symptom this method has to
+    /// avoid. Instead we snapshot the current working tree into a fresh
+    /// throwaway tree object (via `writeTreeIsolated`) and diff the ref's tree
+    /// against that fresh tree. Pure plumbing, index-state-independent, and
+    /// untracked files are included because `writeTreeIsolated` runs
+    /// `git add -A` against an isolated `GIT_INDEX_FILE`.
     static func diffAgainstWorkingTree(session: UUID, in worktree: String) throws -> String {
-        try runGit(
+        let freshTree = try writeTreeIsolated(in: worktree)
+        let ref = refName(for: session)
+        let diff = try runGit(
             in: worktree,
             arguments: [
                 "diff",
                 "--no-color",
                 "--no-ext-diff",
                 "--unified=3",
-                refName(for: session)
-            ]
+                "\(ref)^{tree}",
+                freshTree
+            ],
+            allowExitOne: true
         )
+        #if DEBUG
+        let baseTree = (try? runGit(
+            in: worktree,
+            arguments: ["rev-parse", "\(ref)^{tree}"]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
+        cmuxDebugLog(
+            "turn-diff: tier1 diff-tree base=\(baseTree.prefix(7)) now=\(freshTree.prefix(7)) bytes=\(diff.utf8.count)"
+        )
+        #endif
+        return diff
     }
 
     /// Which tier `bestEffortDiff` ended up using.
@@ -148,9 +172,12 @@ enum TurnCheckpointStore {
             }
         }
 
-        // Tier 2: HEAD
+        // Tier 2: HEAD. Same tree-vs-tree approach as tier 1 — `git diff HEAD`
+        // would compare HEAD against the index (empty for cmux users), missing
+        // every untracked file and falsely reporting tracked files as deleted.
         if refExists("HEAD", in: trimmedRoot) {
             do {
+                let freshTree = try writeTreeIsolated(in: trimmedRoot)
                 let diff = try runGit(
                     in: trimmedRoot,
                     arguments: [
@@ -158,21 +185,21 @@ enum TurnCheckpointStore {
                         "--no-color",
                         "--no-ext-diff",
                         "--unified=3",
-                        "HEAD"
-                    ]
+                        "HEAD^{tree}",
+                        freshTree
+                    ],
+                    allowExitOne: true
                 )
-                // `git diff HEAD` shows tracked-file changes only. Append untracked
-                // files as additions so the panel matches what the user sees.
-                let untracked = syntheticAddedDiff(in: trimmedRoot, untrackedOnly: true)
-                let combined: String
-                if diff.isEmpty {
-                    combined = untracked
-                } else if untracked.isEmpty {
-                    combined = diff
-                } else {
-                    combined = diff + (diff.hasSuffix("\n") ? "" : "\n") + untracked
-                }
-                return (combined, .head)
+                #if DEBUG
+                let baseTree = (try? runGit(
+                    in: trimmedRoot,
+                    arguments: ["rev-parse", "HEAD^{tree}"]
+                ).trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
+                cmuxDebugLog(
+                    "turn-diff: tier2 diff-tree base=HEAD^{tree}=\(baseTree.prefix(7)) now=\(freshTree.prefix(7)) bytes=\(diff.utf8.count)"
+                )
+                #endif
+                return (diff, .head)
             } catch {
                 #if DEBUG
                 cmuxDebugLog("turn-diff: bestEffortDiff failed in \(trimmedRoot): tier2 HEAD-diff error \(error)")
