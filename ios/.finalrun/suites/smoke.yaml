@@ -1,0 +1,8 @@
+name: smoke
+description: Core smoke tests for the cmux iOS app.
+tests:
+  - app_launch.yaml
+  - auth/dev_login.yaml
+  - auth/sign_out.yaml
+  - sidebar_browse.yaml
+  - search_workspaces.yaml

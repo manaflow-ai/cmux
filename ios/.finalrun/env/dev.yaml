@@ -1,0 +1,6 @@
+secrets:
+  dev_login_code: ${DEV_LOGIN_CODE}
+
+variables:
+  bundle_id: dev.cmux.app.dev
+  app_name: cmux DEV

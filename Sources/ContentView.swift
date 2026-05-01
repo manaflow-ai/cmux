@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXMarkdown
 import Combine
 import ImageIO
 import SwiftUI
@@ -3188,6 +3189,17 @@ struct ContentView: View {
                             .padding(.leading, 10)
                             .padding(.top, 4)
                     }
+                }
+                .overlay(alignment: .top) {
+#if DEBUG
+                    // Daemon supervisor banner (PR 3 of the SSOT refactor).
+                    // Hidden when daemon is healthy; slides in when
+                    // reconnecting / failed. Positioned at top-center so it
+                    // doesn't collide with the sidebar fullscreen controls.
+                    DaemonHealthBanner()
+                        .padding(.top, 4)
+                        .animation(.easeInOut(duration: 0.15), value: MobileDaemonBridgeInline.shared.healthState)
+#endif
                 }
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
@@ -14404,10 +14416,15 @@ private struct SidebarWorkspaceDescriptionText: View {
 
 enum SidebarMarkdownRenderer {
     static func renderWorkspaceDescription(_ markdown: String) -> AttributedString? {
-        try? AttributedString(
-            markdown: markdown,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )
+        CMUXMarkdown.attributedString(fromMarkdown: markdown)
+    }
+
+    static func renderInlineMetadata(_ markdown: String) -> AttributedString? {
+        CMUXMarkdown.attributedString(fromMarkdown: markdown)
+    }
+
+    static func renderMetadataBlock(_ markdown: String) -> AttributedString? {
+        CMUXMarkdown.attributedString(fromMarkdown: markdown, mode: .fullDocumentPlain)
     }
 }
 
@@ -14545,10 +14562,7 @@ private struct SidebarMetadataEntryRow: View {
         let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
         let display = trimmed.isEmpty ? entry.key : trimmed
         if entry.format == .markdown,
-           let attributed = try? AttributedString(
-                markdown: display,
-                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-           ) {
+           let attributed = SidebarMarkdownRenderer.renderInlineMetadata(display) {
             Text(attributed)
                 .underline(underlined)
                 .foregroundColor(foregroundColor)
@@ -14636,10 +14650,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     }
 
     private func renderMarkdown() {
-        renderedMarkdown = try? AttributedString(
-            markdown: block.markdown,
-            options: .init(interpretedSyntax: .full)
-        )
+        renderedMarkdown = SidebarMarkdownRenderer.renderMetadataBlock(block.markdown)
     }
 }
 
@@ -15709,6 +15720,11 @@ enum WindowChromeSeparatorColor {
     static func current() -> NSColor {
         color(forChromeBackground: GhosttyBackgroundTheme.currentColor())
     }
+}
+
+/// Shared terminal chrome separator color for layer-backed AppKit callers.
+func cmuxTerminalChromeSeparatorNSColor() -> NSColor {
+    WindowChromeSeparatorColor.current()
 }
 
 struct WindowChromeBorder: View {

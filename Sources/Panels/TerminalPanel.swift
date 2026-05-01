@@ -22,6 +22,11 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Published directory from the terminal
     @Published private(set) var directory: String = ""
 
+    /// Daemon session ID from a previous app session. Set during restore
+    /// so the surface can reattach to the same daemon session (preserving
+    /// running TUIs like vim/btop) instead of creating a new one.
+    var savedDaemonSessionID: String?
+
     @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
 
     /// Search state for find functionality

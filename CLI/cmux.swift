@@ -2141,6 +2141,11 @@ struct CMUXCLI {
             return
         }
 
+        if command == "login" {
+            try runLogin(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg)
+            return
+        }
+
         if command == "claude-teams" {
             try runClaudeTeams(
                 commandArgs: commandArgs,
@@ -2591,6 +2596,41 @@ struct CMUXCLI {
             }
             let response = try client.sendV2(method: "system.identify", params: params)
             print(jsonString(formatIDs(response, mode: idFormat)))
+
+        case "daemon-status", "daemon":
+            let subcommand = commandArgs.first?.lowercased() ?? "status"
+            if subcommand == "stop" {
+                let response = try client.sendV2(method: "daemon.stop")
+                if jsonOutput {
+                    print(jsonString(response))
+                } else {
+                    print("Daemon stopped.")
+                }
+            } else {
+                let response = try client.sendV2(method: "daemon.status")
+                if jsonOutput {
+                    print(jsonString(response))
+                } else {
+                    if let bridge = response["bridge"] as? [String: Any] {
+                        let status = bridge["status"] as? String ?? "unknown"
+                        let socketPath = bridge["socket_path"] as? String ?? "unknown"
+                        let syncCount = bridge["sync_count"] as? Int ?? 0
+                        let lastSync = bridge["last_sync"] as? String ?? "never"
+                        print("Bridge: \(status)")
+                        print("  Socket: \(socketPath)")
+                        print("  Syncs: \(syncCount)")
+                        print("  Last sync: \(lastSync)")
+                    }
+                    if let daemon = response["daemon"] as? [String: Any] {
+                        let running = daemon["running"] as? Bool ?? false
+                        let wsPort = daemon["ws_port"] as? Int
+                        let daemonSocket = daemon["socket_path"] as? String
+                        print("Daemon: \(running ? "running" : "stopped")")
+                        if let wsPort { print("  WebSocket port: \(wsPort)") }
+                        if let daemonSocket { print("  Socket: \(daemonSocket)") }
+                    }
+                }
+            }
 
         case "list-windows":
             let response = try sendV1Command("list_windows", client: client)
@@ -3632,6 +3672,189 @@ struct CMUXCLI {
 
         // Bring the app to front
         try activateApp()
+    }
+
+    // MARK: - Login (Stack Auth CLI flow)
+
+    private func runLogin(commandArgs: [String], socketPath: String, explicitPassword: String?) throws {
+        let noOpen = hasFlag(commandArgs, name: "--no-open")
+
+        // Resolve Stack Auth config from environment (mirrors AuthEnvironment.swift)
+        let env = ProcessInfo.processInfo.environment
+        let stackBaseURL = env["CMUX_STACK_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "https://api.stack-auth.com"
+        #if DEBUG
+        let devProjectID = "1467bed0-8522-45ee-a8d8-055de324118c"
+        let devClientKey = "pck_pt4nwry6sdskews2pxk4g2fbe861ak2zvaf3mqendspa0"
+        #else
+        let devProjectID = "8a877114-b905-47c5-8b64-3a2d90679577"
+        let devClientKey = "pck_pqghntgd942k1hg066m7htjakb8g4ybaj66hqj2g2frj0"
+        #endif
+        let projectID = env["CMUX_STACK_PROJECT_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? devProjectID
+        let clientKey = env["CMUX_STACK_PUBLISHABLE_CLIENT_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? devClientKey
+
+        // Resolve the handler URL (where the browser opens).
+        let handlerOrigin: String
+        if let override = env["CMUX_AUTH_WWW_ORIGIN"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            handlerOrigin = override
+        } else {
+            #if DEBUG
+            let cmuxPort = env["CMUX_PORT"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "3000"
+            handlerOrigin = "http://localhost:\(cmuxPort)"
+            #else
+            handlerOrigin = "https://cmux.com"
+            #endif
+        }
+
+        // Step 1: Initiate CLI auth session
+        let initURL = URL(string: "\(stackBaseURL)/api/v1/auth/cli")!
+        var initRequest = URLRequest(url: initURL)
+        initRequest.httpMethod = "POST"
+        initRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        initRequest.setValue(projectID, forHTTPHeaderField: "x-stack-project-id")
+        initRequest.setValue(clientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
+        initRequest.setValue("client", forHTTPHeaderField: "x-stack-access-type")
+        initRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+            "expires_in_millis": 7_200_000, // 2 hours
+        ])
+
+        let initResult = try syncHTTPRequest(initRequest)
+        guard let initJSON = initResult as? [String: Any],
+              let pollingCode = initJSON["polling_code"] as? String,
+              let loginCode = initJSON["login_code"] as? String else {
+            throw CLIError(message: "login: failed to initiate auth session")
+        }
+
+        // Step 2: Open browser (or print URL)
+        let confirmURL = "\(handlerOrigin)/handler/cli-auth-confirm?login_code=\(loginCode)"
+        if noOpen {
+            cliPrint("Open this URL to sign in:")
+            cliPrint(confirmURL)
+        } else {
+            cliPrint("Opening browser for sign-in...")
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            // Open in Safari explicitly to avoid cmux's built-in browser intercepting
+            proc.arguments = ["-a", "Safari", confirmURL]
+            try proc.run()
+            proc.waitUntilExit()
+        }
+
+        // Step 3: Poll for completion
+        cliPrint("Waiting for sign-in to complete...")
+        let pollURL = URL(string: "\(stackBaseURL)/api/v1/auth/cli/poll")!
+        let pollBody = try JSONSerialization.data(withJSONObject: [
+            "polling_code": pollingCode,
+        ])
+
+        let startTime = Date()
+        let timeout: TimeInterval = 300 // 5 minutes
+        while Date().timeIntervalSince(startTime) < timeout {
+            Thread.sleep(forTimeInterval: 2.0)
+
+            var pollRequest = URLRequest(url: pollURL)
+            pollRequest.httpMethod = "POST"
+            pollRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            pollRequest.setValue(projectID, forHTTPHeaderField: "x-stack-project-id")
+            pollRequest.setValue(clientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
+            pollRequest.setValue("client", forHTTPHeaderField: "x-stack-access-type")
+            pollRequest.httpBody = pollBody
+
+            guard let pollJSON = try? syncHTTPRequest(pollRequest) as? [String: Any],
+                  let status = pollJSON["status"] as? String else {
+                continue
+            }
+
+            switch status {
+            case "success":
+                guard let refreshToken = pollJSON["refresh_token"] as? String else {
+                    throw CLIError(message: "login: got success but no refresh token")
+                }
+                // Send token to the running app via socket
+                try seedTokenViaSocket(refreshToken: refreshToken, socketPath: socketPath, explicitPassword: explicitPassword)
+                cliPrint("OK Signed in successfully.")
+                return
+            case "expired":
+                throw CLIError(message: "login: session expired. Run `cmux login` again.")
+            case "used":
+                throw CLIError(message: "login: session already used.")
+            case "waiting":
+                continue
+            default:
+                continue
+            }
+        }
+
+        throw CLIError(message: "login: timed out waiting for sign-in (5 minutes)")
+    }
+
+    private func cliPrint(_ message: String) {
+        fputs(message + "\n", stdout)
+        fflush(stdout)
+    }
+
+    private func syncHTTPRequest(_ request: URLRequest) throws -> Any {
+        let semaphore = DispatchSemaphore(value: 0)
+        var responseData: Data?
+        var responseError: Error?
+
+        let task = URLSession.shared.dataTask(with: request) { data, _, error in
+            responseData = data
+            responseError = error
+            semaphore.signal()
+        }
+        task.resume()
+        semaphore.wait()
+
+        if let error = responseError {
+            throw CLIError(message: "login: network error: \(error.localizedDescription)")
+        }
+        guard let data = responseData else {
+            throw CLIError(message: "login: empty response")
+        }
+        return try JSONSerialization.jsonObject(with: data)
+    }
+
+    private func seedTokenViaSocket(refreshToken: String, socketPath: String, explicitPassword: String?) throws {
+        let client = SocketClient(path: socketPath)
+        try client.connect()
+        defer { client.close() }
+        try? authenticateClientIfNeeded(client, explicitPassword: explicitPassword, socketPath: socketPath)
+        let result = try client.sendV2(method: "account.seed_tokens", params: [
+            "refresh_token": refreshToken,
+        ])
+        if let error = result["error"] as? [String: Any],
+           let message = error["message"] as? String {
+            throw CLIError(message: "login: app rejected token: \(message)")
+        }
+    }
+
+    private func storeAuthToken(refreshToken: String, projectID: String) throws {
+        // Use the same keychain service and account names as the app's KeychainStackTokenStore
+        let service = "com.cmuxterm.app.auth"
+        let account = "cmux-auth-refresh-token"
+        let tokenData = refreshToken.data(using: .utf8)!
+
+        // Delete existing
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        // Add new
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: tokenData,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw CLIError(message: "login: failed to store token in keychain (error \(status))")
+        }
     }
 
     private func runFeedback(
@@ -8334,6 +8557,20 @@ struct CMUXCLI {
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
         switch command {
+        case "daemon", "daemon-status":
+            return """
+            Usage: cmux daemon [status|stop] [--json]
+
+            Show the sync daemon status (bridge connection, WebSocket port, sync count).
+
+            Subcommands:
+              status   Show daemon status (default)
+              stop     Stop the daemon process
+
+            The daemon syncs workspace state to iOS via WebSocket. It persists
+            across app restarts so terminal sessions survive upgrades. Use
+            'cmux daemon stop' to kill it explicitly.
+            """
         case "ping":
             return """
             Usage: cmux ping
@@ -8397,6 +8634,17 @@ struct CMUXCLI {
 
             Show top-level CLI usage and command list.
             Also works without a running cmux app or socket.
+            """
+        case "login":
+            return """
+            Usage: cmux login [--no-open]
+
+            Sign in to your cmux account using browser-based authentication.
+            Opens a browser for sign-in, then polls until complete.
+            Tokens are stored in the system keychain.
+
+            Flags:
+              --no-open   Print the sign-in URL instead of opening the browser.
             """
         case "docs":
             return docsUsage()
@@ -20347,6 +20595,7 @@ export default CMUXSessionRestore;
           Use printed curl commands to fetch the latest docs/schema, and prefer Ghostty config for terminal behavior Ghostty already supports.
 
         Commands:
+          login [--no-open]
           welcome
           docs [settings|shortcuts|api|browser|agents|dock]
           settings [open|path|docs|target]
@@ -20371,6 +20620,7 @@ export default CMUXSessionRestore;
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
+          daemon [status|stop]
           list-windows
           current-window
           new-window

@@ -1,0 +1,4 @@
+{"id":1,"method":"proxy.open","params":{"host":"127.0.0.1","port":{{port}},"timeout_ms":1000}}
+{"id":2,"method":"proxy.write","params":{"stream_id":"{{stream_id}}","data_base64":"aGVsbG8K","timeout_ms":1000}}
+{"id":3,"method":"proxy.read","params":{"stream_id":"{{stream_id}}","max_bytes":1024,"timeout_ms":1000}}
+{"id":4,"method":"proxy.close","params":{"stream_id":"{{stream_id}}"}}

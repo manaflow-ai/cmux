@@ -8,3 +8,7 @@
 [submodule "vendor/bonsplit"]
 	path = vendor/bonsplit
 	url = https://github.com/manaflow-ai/bonsplit.git
+[submodule "vendor/tls.zig"]
+	path = vendor/tls.zig
+	url = https://github.com/ianic/tls.zig
+	branch = zig-0.15.x

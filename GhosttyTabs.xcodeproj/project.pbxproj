@@ -40,6 +40,7 @@
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */; };
 		FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */; };
+		6C4D0001A1B2C3D4E5F60718 /* CMUXMarkdown in Frameworks */ = {isa = PBXBuildFile; productRef = 6C4D0002A1B2C3D4E5F60718 /* CMUXMarkdown */; };
 		698944F99A6ADFBA24A7BFB9 /* AuthSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1EA8948C5F126FE63CFB4E /* AuthSettingsStore.swift */; };
 		6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
@@ -110,7 +111,6 @@
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
 		A5001250 /* Sentry-Dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = A5001253 /* Sentry-Dynamic */; };
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
-		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 		A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
 		A50012F7 /* KeyboardShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F6 /* KeyboardShortcutRecorder.swift */; };
@@ -160,7 +160,7 @@
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
 		A5001623 /* cmux.sdef in Resources */ = {isa = PBXBuildFile; fileRef = A5001622 /* cmux.sdef */; };
 		A5001640 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
-		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
+		A5001662 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
 		A5001650 /* CmuxConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001651 /* CmuxConfig.swift */; };
 		E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
@@ -259,6 +259,11 @@
 		FE003101 /* SessionIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003001 /* SessionIndexStore.swift */; };
 		FE003102 /* SessionIndexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003002 /* SessionIndexView.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
+		A5001663 /* WorkspaceDaemonBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001660 /* WorkspaceDaemonBridge.swift */; };
+		A50016D1 /* DaemonTerminalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016D0 /* DaemonTerminalBridge.swift */; };
+		A50016D3 /* TerminalSessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016D2 /* TerminalSessionRegistry.swift */; };
+		A50016E1 /* DaemonConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016E0 /* DaemonConnection.swift */; };
+		B9MOBILE02A1B2C3D4E5F602 /* MobileDaemonBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9MOBILE01A1B2C3D4E5F601 /* MobileDaemonBridge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -578,6 +583,11 @@
 		FE003001 /* SessionIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStore.swift; sourceTree = "<group>"; };
 		FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
+		A5001660 /* WorkspaceDaemonBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sync/WorkspaceDaemonBridge.swift; sourceTree = "<group>"; };
+		A50016D0 /* DaemonTerminalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sync/DaemonTerminalBridge.swift; sourceTree = "<group>"; };
+		A50016D2 /* TerminalSessionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sync/TerminalSessionRegistry.swift; sourceTree = "<group>"; };
+		A50016E0 /* DaemonConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sync/DaemonConnection.swift; sourceTree = "<group>"; };
+		B9MOBILE01A1B2C3D4E5F601 /* MobileDaemonBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileDaemonBridge.swift; sourceTree = "<group>"; };
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -590,9 +600,9 @@
 				A5001230 /* Sparkle in Frameworks */,
 				A5001250 /* Sentry-Dynamic in Frameworks */,
 				A5001270 /* PostHog in Frameworks */,
-				A5001290 /* MarkdownUI in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
+				6C4D0001A1B2C3D4E5F60718 /* CMUXMarkdown in Frameworks */,
 				F20F85FC5900550685FA33AD /* StackAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -863,6 +873,11 @@
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
 				B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
+				A5001660 /* WorkspaceDaemonBridge.swift */,
+				A50016D0 /* DaemonTerminalBridge.swift */,
+				A50016D2 /* TerminalSessionRegistry.swift */,
+				A50016E0 /* DaemonConnection.swift */,
+				B9MOBILE01A1B2C3D4E5F601 /* MobileDaemonBridge.swift */,
 				D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */,
 				D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */,
 				105D8421DF4E2E09D255D785 /* Auth */,
@@ -985,10 +1000,10 @@
 				A5001253 /* Sentry-Dynamic */,
 				A5001271 /* PostHog */,
 				A5001261 /* Bonsplit */,
-				A5001291 /* MarkdownUI */,
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				AA11BB22CC33DD44EE550002 /* CMUXWorkstream */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
+				6C4D0002A1B2C3D4E5F60718 /* CMUXMarkdown */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 			);
 			productName = GhosttyTabs;
@@ -1107,11 +1122,11 @@
 				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
-				A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
+				6C4D0003A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXMarkdown" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 			);
 			productRefGroup = A5001042 /* Products */;
@@ -1309,7 +1324,7 @@
 				A5001240 /* WindowDecorationsController.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
-				A5001660 /* RestorableAgentSession.swift in Sources */,
+				A5001662 /* RestorableAgentSession.swift in Sources */,
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
 				A5001650 /* CmuxConfig.swift in Sources */,
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
@@ -1335,6 +1350,11 @@
 				D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
 				350DAC5EBD38642A3E81471A /* AuthManager.swift in Sources */,
 				698944F99A6ADFBA24A7BFB9 /* AuthSettingsStore.swift in Sources */,
+				A5001663 /* WorkspaceDaemonBridge.swift in Sources */,
+				A50016D1 /* DaemonTerminalBridge.swift in Sources */,
+				A50016D3 /* TerminalSessionRegistry.swift in Sources */,
+				A50016E1 /* DaemonConnection.swift in Sources */,
+				B9MOBILE02A1B2C3D4E5F602 /* MobileDaemonBridge.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
 			);
@@ -1856,6 +1876,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXDebugLog;
 		};
+		6C4D0003A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXMarkdown" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CMUXMarkdown;
+		};
 		A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = vendor/bonsplit;
@@ -1887,14 +1911,6 @@
 				minimumVersion = 3.41.0;
 			};
 		};
-		A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.4.1;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1912,6 +1928,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */;
 			productName = CMUXDebugLog;
+		};
+		6C4D0002A1B2C3D4E5F60718 /* CMUXMarkdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6C4D0003A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXMarkdown" */;
+			productName = CMUXMarkdown;
 		};
 		A5001231 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -1937,11 +1958,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */;
 			productName = PostHog;
-		};
-		A5001291 /* MarkdownUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
-			productName = MarkdownUI;
 		};
 		A8BD195031FC4B82B4354297 /* StackAuth */ = {
 			isa = XCSwiftPackageProductDependency;

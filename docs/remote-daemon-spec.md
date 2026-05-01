@@ -19,7 +19,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 `cmux ssh` should provide:
 1. durable remote terminals with reconnect/reuse
 2. browser traffic that egresses from the remote host via proxying
-3. tmux-style PTY resize semantics (`smallest screen wins`)
+3. smallest-live-client PTY resize semantics for shared desktop/iOS sessions
 
 ## 3. Current State (Implemented)
 
@@ -93,14 +93,16 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 4.4 Explicit Non-Goal
 1. Automatic mirroring of every remote listening port to local loopback is not a goal for browser support.
 
-## 5. PTY Resize Semantics (tmux-style)
+## 5. PTY Resize Semantics (smallest-live-client)
 
 ### 5.1 Core Rule
-For each session with multiple attachments, the effective PTY size is:
-1. `cols = min(cols_i over attached clients)`
-2. `rows = min(rows_i over attached clients)`
+For each session with multiple attachments, the effective PTY size is the
+smallest reported live grid:
+1. `cols = min(live_attachment.cols)`
+2. `rows = min(live_attachment.rows)`
 
-This is the `smallest screen wins` rule.
+This keeps one shared PTY visible on every attached renderer. If no
+attachments remain, the session keeps its last-known size.
 
 ### 5.2 State Model
 Per session track:
@@ -133,7 +135,7 @@ Recompute effective size on:
 | M-006 | Transport-scoped local proxy broker (SOCKS5 + CONNECT) | DONE | Identical SSH transports now reuse one local proxy endpoint |
 | M-007 | Remote proxy stream RPC in `cmuxd-remote` | DONE | `proxy.open/close/write/proxy.stream.subscribe` plus pushed stream events implemented |
 | M-008 | WebView proxy auto-wiring for remote workspaces | DONE | Workspace-scoped `WKWebsiteDataStore.proxyConfigurations` wiring is active |
-| M-009 | PTY resize coordinator (`smallest screen wins`) | DONE | Daemon session RPC now tracks attachments and applies min cols/rows semantics with unit tests |
+| M-009 | PTY resize coordinator (smallest live client constrains size) | DONE | Daemon session RPC now tracks attachments and applies smallest-live-attachment sizing with unit tests |
 | M-010 | Resize + proxy reconnect e2e test suites | DONE | `tests_v2/test_ssh_remote_docker_forwarding.py` validates HTTP/websocket egress plus SOCKS pipelined-payload handling; `tests_v2/test_ssh_remote_docker_reconnect.py` verifies reconnect recovery and repeats SOCKS pipelined-payload checks after host restart; `tests_v2/test_ssh_remote_proxy_bind_conflict.py` validates structured `proxy_unavailable` bind-conflict surfacing and `local_proxy_port` status retention under bind conflict; `tests_v2/test_ssh_remote_daemon_resize_stdio.py` validates session resize semantics over real stdio RPC process boundaries; `tests_v2/test_ssh_remote_cli_metadata.py` validates `workspace.remote.configure` numeric-string compatibility, explicit `null` clear semantics (including `workspace.remote.status` reflection), strict `port`/`local_proxy_port` validation (bounds/type), case-insensitive SSH option override precedence for StrictHostKeyChecking/control-socket keys, and `local_proxy_port` payload echo for deterministic bind-conflict test hook behavior |
 
 ## 7. Acceptance Test Matrix (With Status)
@@ -176,9 +178,9 @@ Recompute effective size on:
 
 | ID | Scenario | Status |
 |---|---|---|
-| RZ-001 | two attachments, smallest wins | DONE |
-| RZ-002 | grow one attachment, PTY stays bounded by smallest | DONE |
-| RZ-003 | detach smallest, PTY expands to next smallest | DONE |
+| RZ-001 | two attachments use the smallest live effective size | DONE |
+| RZ-002 | resizing any attachment recomputes min cols/rows across live attachments | DONE |
+| RZ-003 | detaching the smallest attachment lets the session grow to the next smallest live size | DONE |
 | RZ-004 | reconnect preserves session + applies recomputed size | DONE |
 | RZ-005 | daemon stdio RPC round-trip enforces resize semantics end-to-end | DONE |
 

@@ -67,25 +67,17 @@ if [[ -z "$VERSION" || -z "$RELEASE_TAG" || -z "$REPO" || -z "$OUTPUT_DIR" ]]; t
   exit 1
 fi
 
-if ! command -v go >/dev/null 2>&1; then
-  echo "error: go is required to build cmuxd-remote release assets" >&2
+if ! command -v zig >/dev/null 2>&1; then
+  echo "error: zig is required to build cmuxd-remote release assets" >&2
   exit 1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DAEMON_ROOT="${REPO_ROOT}/daemon/remote"
+DAEMON_ROOT="${REPO_ROOT}/daemon/remote/zig"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 rm -f "$OUTPUT_DIR"/cmuxd-remote-* "$OUTPUT_DIR"/cmuxd-remote-checksums.txt "$OUTPUT_DIR"/cmuxd-remote-manifest.json
-
-DAEMON_GO_LDFLAGS="-s -w -X main.version=${VERSION}"
-DAEMON_GO_BUILD_ARGS=(
-  build
-  -trimpath
-  -buildvcs=false
-  -ldflags "$DAEMON_GO_LDFLAGS"
-)
 
 SUFFIX_TAG=""
 if [[ -n "$ASSET_SUFFIX" ]]; then
@@ -112,20 +104,41 @@ for target in "${TARGETS[@]}"; do
   read -r GOOS GOARCH <<<"$target"
   ASSET_NAME="cmuxd-remote-${GOOS}-${GOARCH}${SUFFIX_TAG}"
   OUTPUT_PATH="${OUTPUT_DIR}/${ASSET_NAME}"
+  case "${GOOS}-${GOARCH}" in
+    darwin-arm64)
+      ZIG_TARGET="aarch64-macos"
+      ;;
+    darwin-amd64)
+      ZIG_TARGET="x86_64-macos"
+      ;;
+    linux-arm64)
+      ZIG_TARGET="aarch64-linux-gnu"
+      ;;
+    linux-amd64)
+      ZIG_TARGET="x86_64-linux-gnu"
+      ;;
+    *)
+      echo "error: unsupported target ${GOOS}-${GOARCH}" >&2
+      exit 1
+      ;;
+  esac
 
-  # Build into a temp path first, then rename (the binary content is the same
-  # regardless of suffix, so we build once and move).
-  BUILD_PATH="${OUTPUT_DIR}/cmuxd-remote-${GOOS}-${GOARCH}.build"
+  BUILD_PREFIX="$(mktemp -d "${TMPDIR:-/tmp}/cmuxd-remote-prefix.${GOOS}-${GOARCH}.XXXXXX")"
+  BUILD_CACHE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmuxd-remote-cache.${GOOS}-${GOARCH}.XXXXXX")"
+  BUILD_GLOBAL_CACHE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmuxd-remote-global-cache.${GOOS}-${GOARCH}.XXXXXX")"
+
   (
     cd "$DAEMON_ROOT"
-    GOOS="$GOOS" \
-    GOARCH="$GOARCH" \
-    CGO_ENABLED=0 \
-    go "${DAEMON_GO_BUILD_ARGS[@]}" \
-      -o "$BUILD_PATH" \
-      ./cmd/cmuxd-remote
+    zig build \
+      -Doptimize=ReleaseFast \
+      -Dtarget="${ZIG_TARGET}" \
+      -Dversion="${VERSION}" \
+      --prefix "$BUILD_PREFIX" \
+      --cache-dir "$BUILD_CACHE_DIR" \
+      --global-cache-dir "$BUILD_GLOBAL_CACHE_DIR"
   )
-  mv "$BUILD_PATH" "$OUTPUT_PATH"
+  cp "${BUILD_PREFIX}/bin/cmuxd-remote" "$OUTPUT_PATH"
+  rm -rf "$BUILD_PREFIX" "$BUILD_CACHE_DIR" "$BUILD_GLOBAL_CACHE_DIR"
   chmod 755 "$OUTPUT_PATH"
 
   SHA256="$(shasum -a 256 "$OUTPUT_PATH" | awk '{print $1}')"

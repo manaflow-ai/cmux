@@ -105,7 +105,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
     }
 
     @MainActor
-    func testTmuxWorkspacePaneUnreadRectsIncludeFocusedReadIndicator() {
+    func testTmuxWorkspacePaneUnreadRectsIncludeFocusedReadIndicator() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
         let store = TerminalNotificationStore.shared
@@ -135,17 +135,22 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
 
         store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
 
+        let paneIDString = paneId.id.uuidString
+        let surfaceIDUUID = try XCTUnwrap(
+            Mirror(reflecting: surfaceId).children.first(where: { $0.label == "id" })?.value as? UUID
+        )
+        let surfaceIDString = surfaceIDUUID.uuidString
+        let paneFrame = PixelRect(x: 877.5, y: 32, width: 500, height: 320)
+        let paneGeometry = PaneGeometry(
+            paneId: paneIDString,
+            frame: paneFrame,
+            selectedTabId: surfaceIDString,
+            tabIds: [surfaceIDString]
+        )
         let snapshot = LayoutSnapshot(
             containerFrame: PixelRect(x: 200, y: 32, width: 1200, height: 800),
-            panes: [
-                PaneGeometry(
-                    paneId: paneId.id.uuidString,
-                    frame: PixelRect(x: 877.5, y: 32, width: 500, height: 320),
-                    selectedTabId: surfaceId.uuid.uuidString,
-                    tabIds: [surfaceId.uuid.uuidString]
-                )
-            ],
-            focusedPaneId: paneId.id.uuidString,
+            panes: [paneGeometry],
+            focusedPaneId: paneIDString,
             timestamp: 0
         )
 

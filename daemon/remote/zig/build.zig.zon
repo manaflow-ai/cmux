@@ -1,0 +1,15 @@
+.{
+    .name = .cmuxd_remote,
+    .version = "0.0.0",
+    .fingerprint = 0x8e0a65b7ea4c478f,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{
+        .ghostty = .{ .path = "../../../ghostty" },
+        .tls = .{ .path = "../../../vendor/tls.zig" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

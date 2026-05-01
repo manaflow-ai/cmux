@@ -1084,6 +1084,58 @@ final class WorkspaceRemoteDaemonManifestTests: XCTestCase {
     }
 }
 
+final class WorkspaceRemoteDaemonLocalBuildTests: XCTestCase {
+    func testFindRepoRootAcceptsZigDaemonMarkerWithoutGoModule() throws {
+        let repoRoot = try makeFakeRemoteDaemonRepo()
+        defer { try? FileManager.default.removeItem(at: repoRoot) }
+
+        let detected = Workspace.findRepoRoot(
+            startingAtCandidates: [repoRoot],
+            fileManager: .default
+        )
+
+        XCTAssertEqual(detected?.standardizedFileURL, repoRoot.standardizedFileURL)
+    }
+
+    func testLocalRemoteDaemonBuildPlanUsesZigToolchain() throws {
+        let repoRoot = try makeFakeRemoteDaemonRepo()
+        defer { try? FileManager.default.removeItem(at: repoRoot) }
+
+        let binDir = repoRoot.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        let zigPath = binDir.appendingPathComponent("zig", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: zigPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: zigPath.path)
+
+        let plan = try Workspace.localRemoteDaemonBuildPlan(
+            repoRoot: repoRoot,
+            goOS: "linux",
+            goArch: "amd64",
+            version: "0.62.0-dev",
+            environment: ["PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin"],
+            fileManager: .default
+        )
+
+        XCTAssertEqual(URL(fileURLWithPath: plan.executable).lastPathComponent, "zig")
+        XCTAssertEqual(plan.currentDirectory.standardizedFileURL, repoRoot.appendingPathComponent("daemon/remote/zig", isDirectory: true).standardizedFileURL)
+        XCTAssertTrue(plan.arguments.contains("-Doptimize=ReleaseFast"))
+        XCTAssertTrue(plan.arguments.contains("-Dtarget=x86_64-linux-gnu"))
+    }
+
+    private func makeFakeRemoteDaemonRepo() throws -> URL {
+        let repoRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let zigRoot = repoRoot.appendingPathComponent("daemon/remote/zig", isDirectory: true)
+        try FileManager.default.createDirectory(at: zigRoot, withIntermediateDirectories: true)
+        try "// fake zig build file\n".write(
+            to: zigRoot.appendingPathComponent("build.zig", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        return repoRoot
+    }
+}
+
 final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
     func testRewritesLoopbackAliasHostHeadersToLocalhost() {
         let original = Data(
@@ -1292,6 +1344,155 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["PATH"], "/usr/bin")
         XCTAssertEqual(merged["CMUX_SURFACE_ID"], "managed-surface")
         XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
+    }
+
+    func testStartupEnvironmentOverridesDumbTermAndSetsGhosttyTerminalIdentity() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-startup-env-\(UUID().uuidString)")
+        let appBundleURL = root.appendingPathComponent("cmux DEV.app", isDirectory: true)
+        let contentsDir = appBundleURL.appendingPathComponent("Contents", isDirectory: true)
+        let resourcesDir = contentsDir.appendingPathComponent("Resources", isDirectory: true)
+        let macOSDir = contentsDir.appendingPathComponent("MacOS", isDirectory: true)
+        let infoPlistURL = contentsDir.appendingPathComponent("Info.plist", isDirectory: false)
+        let ghosttyDir = resourcesDir.appendingPathComponent("ghostty", isDirectory: true)
+        let ghosttyThemesDir = ghosttyDir.appendingPathComponent("themes", isDirectory: true)
+        let terminfoDir = resourcesDir.appendingPathComponent("terminfo", isDirectory: true)
+        let shellIntegrationDir = resourcesDir.appendingPathComponent("shell-integration", isDirectory: true)
+        let executableURL = macOSDir.appendingPathComponent("cmux DEV", isDirectory: false)
+        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: ghosttyThemesDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: terminfoDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: shellIntegrationDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: macOSDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: executableURL.path, contents: Data())
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executableURL.path
+        )
+        let infoPlist: [String: Any] = [
+            "CFBundleIdentifier": "com.cmuxterm.app.debug.test",
+            "CFBundleShortVersionString": "1.2.3",
+            "CFBundleExecutable": "cmux DEV",
+        ]
+        let plistData = try PropertyListSerialization.data(
+            fromPropertyList: infoPlist,
+            format: .xml,
+            options: 0
+        )
+        try plistData.write(to: infoPlistURL)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try XCTUnwrap(Bundle(url: appBundleURL))
+
+        var baseEnvironment = [
+            "TERM": "dumb",
+            "SHELL": "/bin/zsh",
+        ]
+        var protectedKeys: Set<String> = []
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &baseEnvironment,
+            protectedKeys: &protectedKeys
+        )
+        CmuxBundleTerminalEnvironment.applyCurrentBundle(
+            to: &baseEnvironment,
+            protectedKeys: &protectedKeys,
+            processEnvironment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-startup-env.sock",
+                "COLORTERM": "24bit",
+                "TERM_PROGRAM": "Apple_Terminal",
+                "TERM_PROGRAM_VERSION": "999",
+            ],
+            bundle: bundle
+        )
+        baseEnvironment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-startup-env.sock"
+        protectedKeys.insert("CMUX_SOCKET_PATH")
+        baseEnvironment["CMUX_SOCKET"] = "/tmp/cmux-debug-startup-env.sock"
+        protectedKeys.insert("CMUX_SOCKET")
+
+        let env = TerminalSurface.mergedStartupEnvironment(
+            base: baseEnvironment,
+            protectedKeys: protectedKeys,
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:]
+        )
+
+        XCTAssertEqual(env["CMUX_SOCKET_PATH"], "/tmp/cmux-debug-startup-env.sock")
+        XCTAssertEqual(env["CMUX_SOCKET"], "/tmp/cmux-debug-startup-env.sock")
+        XCTAssertEqual(env["CMUX_BUNDLE_ID"], bundle.bundleIdentifier)
+        XCTAssertEqual(env["CMUX_SHELL_INTEGRATION_DIR"], shellIntegrationDir.path)
+        XCTAssertEqual(env["GHOSTTY_BIN_DIR"], macOSDir.path)
+        XCTAssertEqual(env["GHOSTTY_RESOURCES_DIR"], ghosttyDir.path)
+        XCTAssertEqual(env["TERMINFO"], terminfoDir.path)
+        XCTAssertEqual(env["TERM"], TerminalSurface.managedTerminalType)
+        XCTAssertEqual(env["COLORTERM"], TerminalSurface.managedColorTerm)
+        XCTAssertEqual(env["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        XCTAssertEqual(env["TERM_PROGRAM_VERSION"], "1.2.3")
+    }
+}
+
+final class GhosttyAppEnvironmentOverrideTests: XCTestCase {
+    func testGhosttyEnvironmentOverridesPreferCurrentBundlePathsOverContaminatedParentEnvironment() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-app-env-\(UUID().uuidString)", isDirectory: true)
+        let resourcesDir = root.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let ghosttyDir = resourcesDir.appendingPathComponent("ghostty", isDirectory: true)
+        let ghosttyThemesDir = ghosttyDir.appendingPathComponent("themes", isDirectory: true)
+        let shellIntegrationDir = resourcesDir.appendingPathComponent("shell-integration", isDirectory: true)
+        let terminfoDir = resourcesDir.appendingPathComponent("terminfo", isDirectory: true)
+        let binDir = resourcesDir.appendingPathComponent("bin", isDirectory: true)
+        let bundledCLIURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        let executableURL = root.appendingPathComponent("Contents/MacOS/cmux DEV")
+
+        try FileManager.default.createDirectory(at: ghosttyThemesDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: shellIntegrationDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: terminfoDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: executableURL.path, contents: Data())
+        FileManager.default.createFile(atPath: bundledCLIURL.path, contents: Data())
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: bundledCLIURL.path
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let overrides = cmuxApp.ghosttyEnvironmentOverrides(
+            processEnvironment: [
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app",
+                "CMUX_SHELL_INTEGRATION_DIR": "/Applications/cmux.app/Contents/Resources/shell-integration",
+                "GHOSTTY_BIN_DIR": "/Applications/cmux.app/Contents/MacOS",
+                "GHOSTTY_RESOURCES_DIR": "/Applications/Ghostty.app/Contents/Resources/ghostty",
+                "TERM": "dumb",
+                "COLORTERM": "24bit",
+                "TERM_PROGRAM": "Apple_Terminal",
+                "TERM_PROGRAM_VERSION": "999",
+                "MANPATH": "/Applications/Ghostty.app/Contents/Resources/man:/usr/share/man",
+                "XDG_DATA_DIRS": "/Applications/Ghostty.app/Contents/Resources:/usr/local/share:/usr/share",
+                "PATH": "/usr/bin:/bin",
+            ],
+            resourceURL: resourcesDir,
+            executableURL: executableURL,
+            bundleIdentifier: "com.cmuxterm.app.debug.test",
+            bundleVersion: "1.2.3"
+        )
+
+        XCTAssertEqual(overrides["CMUX_BUNDLE_ID"], "com.cmuxterm.app.debug.test")
+        XCTAssertEqual(overrides["CMUX_SHELL_INTEGRATION_DIR"], shellIntegrationDir.path)
+        XCTAssertEqual(overrides["GHOSTTY_BIN_DIR"], executableURL.deletingLastPathComponent().path)
+        XCTAssertEqual(overrides["GHOSTTY_RESOURCES_DIR"], ghosttyDir.path)
+        XCTAssertEqual(overrides["TERMINFO"], terminfoDir.path)
+        XCTAssertEqual(overrides["CMUX_BUNDLED_CLI_PATH"], bundledCLIURL.path)
+        XCTAssertEqual(overrides["PATH"], "\(binDir.path):/usr/bin:/bin")
+        XCTAssertEqual(overrides["TERM"], TerminalSurface.managedTerminalType)
+        XCTAssertEqual(overrides["TERM_PROGRAM"], "ghostty")
+        XCTAssertEqual(overrides["TERM_PROGRAM_VERSION"], "1.2.3")
+        XCTAssertEqual(overrides["COLORTERM"], TerminalSurface.managedColorTerm)
+        XCTAssertEqual(
+            overrides["MANPATH"],
+            "\(resourcesDir.appendingPathComponent("man").path):/Applications/Ghostty.app/Contents/Resources/man:/usr/share/man"
+        )
+        XCTAssertEqual(
+            overrides["XDG_DATA_DIRS"],
+            "\(resourcesDir.path):/Applications/Ghostty.app/Contents/Resources:/usr/local/share:/usr/share"
+        )
     }
 
     func testMergedStartupEnvironmentProtectsManagedTerminalIdentity() {
@@ -1573,6 +1774,334 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+    }
+}
+
+@MainActor
+final class LocalTerminalDaemonBridgeTests: XCTestCase {
+    override func tearDown() {
+        LocalTerminalDaemonBridge.testingConfiguration = nil
+        LocalTerminalDaemonBridge.testingEnsureDaemonListening = nil
+        super.tearDown()
+    }
+
+    func testConfigurationReturnsNilWhenSocketPathDoesNotExist() {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fakeDaemonBinary = temporaryDirectory.appendingPathComponent("cmuxd-remote")
+        FileManager.default.createFile(atPath: fakeDaemonBinary.path, contents: Data())
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeDaemonBinary.path
+        )
+
+        let configuration = LocalTerminalDaemonBridge.configuration(
+            environment: [
+                "CMUXD_UNIX_PATH": temporaryDirectory.appendingPathComponent("missing.sock").path,
+                "CMUX_REMOTE_DAEMON_BINARY": fakeDaemonBinary.path,
+            ],
+            fileManager: .default
+        )
+
+        XCTAssertNil(configuration)
+    }
+
+    func testConfigurationReturnsNilWhenSocketExistsButNoListenerIsAlive() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fakeDaemonBinary = temporaryDirectory.appendingPathComponent("cmuxd-remote")
+        FileManager.default.createFile(atPath: fakeDaemonBinary.path, contents: Data())
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeDaemonBinary.path
+        )
+
+        let socketPath = temporaryDirectory.appendingPathComponent("stale.sock").path
+        let listener = try makeListeningUnixSocket(at: socketPath)
+        Darwin.close(listener)
+
+        let configuration = LocalTerminalDaemonBridge.configuration(
+            environment: [
+                "CMUXD_UNIX_PATH": socketPath,
+                "CMUX_REMOTE_DAEMON_BINARY": fakeDaemonBinary.path,
+            ],
+            fileManager: .default
+        )
+
+        XCTAssertNil(configuration)
+    }
+
+    func testConfigurationReturnsConfigurationWhenSocketListenerIsAlive() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fakeDaemonBinary = temporaryDirectory.appendingPathComponent("cmuxd-remote")
+        FileManager.default.createFile(atPath: fakeDaemonBinary.path, contents: Data())
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeDaemonBinary.path
+        )
+
+        let socketPath = temporaryDirectory.appendingPathComponent("live.sock").path
+        let listener = try makeListeningUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listener)
+            unlink(socketPath)
+        }
+
+        let configuration = try XCTUnwrap(
+            LocalTerminalDaemonBridge.configuration(
+                environment: [
+                    "CMUXD_UNIX_PATH": socketPath,
+                    "CMUX_REMOTE_DAEMON_BINARY": fakeDaemonBinary.path,
+                ],
+                fileManager: .default
+            )
+        )
+
+        XCTAssertEqual(configuration.socketPath, socketPath)
+        XCTAssertEqual(configuration.daemonBinaryPath, fakeDaemonBinary.path)
+    }
+
+    func testWorkspaceInitialTerminalUsesLocalDaemonStartupCommandWhenConfigured() throws {
+        LocalTerminalDaemonBridge.testingConfiguration = LocalTerminalDaemonConfiguration(
+            socketPath: "/tmp/cmuxd-test.sock",
+            daemonBinaryPath: "/tmp/cmuxd-remote-test"
+        )
+
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-local-daemon-workspace")
+            .path
+        let workspace = Workspace(
+            workingDirectory: workingDirectory,
+            initialTerminalEnvironment: ["EXPLICIT_ENV": "present"]
+        )
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let command = try XCTUnwrap(terminalPanel.surface.debugInitialCommand())
+
+        XCTAssertTrue(
+            command.hasPrefix("sh -c '"),
+            "Expected local daemon startup command to be shell wrapped, got: \(command)"
+        )
+        XCTAssertTrue(
+            command.contains("/tmp/cmuxd-remote-test"),
+            "Expected local daemon binary path in startup command, got: \(command)"
+        )
+        XCTAssertTrue(
+            command.contains("amux new"),
+            "Expected daemon session creation in startup command, got: \(command)"
+        )
+        XCTAssertTrue(
+            command.contains("--quiet"),
+            "Expected app daemon startup command to suppress session UUID output, got: \(command)"
+        )
+        XCTAssertTrue(
+            command.contains(terminalPanel.id.uuidString),
+            "Expected panel UUID in startup command, got: \(command)"
+        )
+        XCTAssertTrue(
+            command.contains("/tmp/cmuxd-test.sock"),
+            "Expected local daemon startup command, got: \(command)"
+        )
+        XCTAssertTrue(command.contains("CMUX_SURFACE_ID="), "Expected surface export in daemon command, got: \(command)")
+        XCTAssertTrue(command.contains(terminalPanel.id.uuidString), "Expected surface UUID in daemon command, got: \(command)")
+        XCTAssertTrue(command.contains("CMUX_WORKSPACE_ID="), "Expected workspace export in daemon command, got: \(command)")
+        XCTAssertTrue(command.contains(workspace.id.uuidString), "Expected workspace UUID in daemon command, got: \(command)")
+        XCTAssertTrue(command.contains("EXPLICIT_ENV="), "Expected initial environment export in daemon command, got: \(command)")
+        XCTAssertTrue(command.contains("present"), "Expected initial environment value in daemon command, got: \(command)")
+        XCTAssertTrue(command.contains("cd "), "Expected working-directory hop in daemon command, got: \(command)")
+        XCTAssertTrue(command.contains(workingDirectory), "Expected working-directory path in daemon command, got: \(command)")
+        XCTAssertTrue(command.contains("CMUX_SHELL_INTEGRATION="), "Expected daemon command to preserve cmux shell integration, got: \(command)")
+        XCTAssertTrue(command.contains("CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION="), "Expected daemon command to preserve Ghostty shell integration, got: \(command)")
+        XCTAssertTrue(command.contains("CMUX_SHELL_INTEGRATION_DIR="), "Expected daemon command to export shell integration directory, got: \(command)")
+        XCTAssertTrue(command.contains("ZDOTDIR="), "Expected daemon command to preserve ZDOTDIR override, got: \(command)")
+        XCTAssertTrue(command.contains("TERM="), "Expected daemon command to export TERM, got: \(command)")
+        XCTAssertTrue(command.contains("COLORTERM="), "Expected daemon command to export COLORTERM, got: \(command)")
+        XCTAssertTrue(command.contains("TERM_PROGRAM="), "Expected daemon command to export TERM_PROGRAM, got: \(command)")
+    }
+
+    func testWorkspaceInitialTerminalPreservesRequestedInitialCommandInsideLocalDaemonSession() throws {
+        LocalTerminalDaemonBridge.testingConfiguration = LocalTerminalDaemonConfiguration(
+            socketPath: "/tmp/cmuxd-test.sock",
+            daemonBinaryPath: "/tmp/cmuxd-remote-test"
+        )
+
+        let workspace = Workspace(initialTerminalCommand: "printf READY")
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let command = try XCTUnwrap(terminalPanel.surface.debugInitialCommand())
+
+        XCTAssertTrue(command.contains("printf READY"), "Expected initial command inside daemon launch, got: \(command)")
+    }
+
+    func testStartupCommandStartsManagedDaemonWhenSocketIsConfiguredButOffline() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fakeDaemonBinary = temporaryDirectory.appendingPathComponent("cmuxd-remote")
+        FileManager.default.createFile(atPath: fakeDaemonBinary.path, contents: Data())
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeDaemonBinary.path
+        )
+
+        let socketPath = temporaryDirectory.appendingPathComponent("autostart.sock").path
+        var startedConfiguration: LocalTerminalDaemonConfiguration?
+        LocalTerminalDaemonBridge.testingEnsureDaemonListening = { configuration in
+            startedConfiguration = configuration
+            return true
+        }
+
+        let sessionID = UUID()
+        let workspaceID = UUID()
+        let command = try XCTUnwrap(
+            LocalTerminalDaemonBridge.startupCommand(
+                sessionID: sessionID,
+                workspaceID: workspaceID,
+                portOrdinal: 0,
+                workingDirectory: temporaryDirectory.path,
+                intendedCommand: nil,
+                initialEnvironmentOverrides: [:],
+                additionalEnvironment: [:],
+                environment: [
+                    "CMUXD_UNIX_PATH": socketPath,
+                    "CMUX_REMOTE_DAEMON_BINARY": fakeDaemonBinary.path,
+                    "SHELL": "/bin/zsh",
+                ],
+                fileManager: .default
+            )
+        )
+
+        XCTAssertEqual(startedConfiguration?.socketPath, socketPath)
+        XCTAssertEqual(startedConfiguration?.daemonBinaryPath, fakeDaemonBinary.path)
+        XCTAssertTrue(
+            (52101...52199).contains(try XCTUnwrap(startedConfiguration?.wsPort)),
+            "Expected local daemon autostart to expose a discoverable mobile WebSocket port"
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(startedConfiguration?.wsSecret).isEmpty,
+            "Expected local daemon autostart to set a mobile WebSocket secret"
+        )
+        XCTAssertTrue(command.contains(fakeDaemonBinary.path), "Expected daemon binary path in startup command, got: \(command)")
+        XCTAssertTrue(command.contains(socketPath), "Expected daemon socket path in startup command, got: \(command)")
+        XCTAssertTrue(command.contains(sessionID.uuidString), "Expected session ID in startup command, got: \(command)")
+        XCTAssertTrue(command.contains(workspaceID.uuidString), "Expected workspace ID in startup command, got: \(command)")
+    }
+
+    func testStartupCommandPrefersCurrentBundleCLIEnvironment() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let appBundleURL = temporaryDirectory.appendingPathComponent("cmux DEV star.app", isDirectory: true)
+        let contentsDir = appBundleURL.appendingPathComponent("Contents", isDirectory: true)
+        let resourcesDir = contentsDir.appendingPathComponent("Resources", isDirectory: true)
+        let macOSDir = contentsDir.appendingPathComponent("MacOS", isDirectory: true)
+        let binDir = resourcesDir.appendingPathComponent("bin", isDirectory: true)
+        let bundledCLIURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        let executableURL = macOSDir.appendingPathComponent("cmux DEV star", isDirectory: false)
+        let infoPlistURL = contentsDir.appendingPathComponent("Info.plist", isDirectory: false)
+
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: macOSDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: bundledCLIURL.path, contents: Data())
+        FileManager.default.createFile(atPath: executableURL.path, contents: Data())
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledCLIURL.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+        let infoPlist: [String: Any] = [
+            "CFBundleIdentifier": "com.cmuxterm.app.debug.star",
+            "CFBundleShortVersionString": "1.2.3",
+            "CFBundleExecutable": "cmux DEV star",
+        ]
+        let plistData = try PropertyListSerialization.data(
+            fromPropertyList: infoPlist,
+            format: .xml,
+            options: 0
+        )
+        try plistData.write(to: infoPlistURL)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fakeDaemonBinary = temporaryDirectory.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        FileManager.default.createFile(atPath: fakeDaemonBinary.path, contents: Data())
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonBinary.path)
+        let bundle = try XCTUnwrap(Bundle(url: appBundleURL))
+        LocalTerminalDaemonBridge.testingConfiguration = LocalTerminalDaemonConfiguration(
+            socketPath: temporaryDirectory.appendingPathComponent("cmuxd.sock").path,
+            daemonBinaryPath: fakeDaemonBinary.path
+        )
+        LocalTerminalDaemonBridge.testingEnsureDaemonListening = { _ in true }
+
+        let command = try XCTUnwrap(
+            LocalTerminalDaemonBridge.startupCommand(
+                sessionID: UUID(),
+                workspaceID: UUID(),
+                portOrdinal: 0,
+                workingDirectory: temporaryDirectory.path,
+                intendedCommand: "which cmux",
+                initialEnvironmentOverrides: [:],
+                additionalEnvironment: [:],
+                environment: [
+                    "CMUXD_UNIX_PATH": temporaryDirectory.appendingPathComponent("cmuxd.sock").path,
+                    "CMUX_REMOTE_DAEMON_BINARY": fakeDaemonBinary.path,
+                    "PATH": "/Applications/cmux.app/Contents/Resources/bin:/usr/bin:/bin",
+                    "SHELL": "/bin/zsh",
+                ],
+                bundle: bundle,
+                fileManager: .default
+            )
+        )
+
+        XCTAssertTrue(command.contains("CMUX_BUNDLED_CLI_PATH"), "Expected bundled CLI export, got: \(command)")
+        XCTAssertTrue(command.contains(bundledCLIURL.path), "Expected current tagged bundle CLI path, got: \(command)")
+        XCTAssertTrue(command.contains("GHOSTTY_BIN_DIR"), "Expected current bundle binary directory export, got: \(command)")
+        XCTAssertTrue(command.contains(macOSDir.path), "Expected current tagged bundle MacOS path, got: \(command)")
+        XCTAssertTrue(command.contains("export PATH="), "Expected PATH export, got: \(command)")
+        XCTAssertTrue(command.contains(binDir.path), "Expected PATH to include current tagged bundle bin path, got: \(command)")
+    }
+
+    private func makeListeningUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+
+        let bytes = Array(path.utf8)
+        let maxPathLen = MemoryLayout.size(ofValue: address.sun_path)
+        XCTAssertLessThan(bytes.count, maxPathLen)
+
+        withUnsafeMutablePointer(to: &address.sun_path) { pathPointer in
+            let cPath = UnsafeMutableRawPointer(pathPointer).assumingMemoryBound(to: CChar.self)
+            cPath.initialize(repeating: 0, count: maxPathLen)
+            for (index, byte) in bytes.enumerated() {
+                cPath[index] = CChar(bitPattern: byte)
+            }
+        }
+
+        let addressLength = socklen_t(MemoryLayout<sa_family_t>.size + bytes.count + 1)
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, addressLength)
+            }
+        }
+        XCTAssertEqual(bindResult, 0)
+
+        let listenResult = Darwin.listen(fd, 1)
+        XCTAssertEqual(listenResult, 0)
+
+        return fd
     }
 }
 

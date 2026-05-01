@@ -1429,6 +1429,111 @@ final class TabManagerNotificationFocusTests: XCTestCase {
     }
 }
 
+@MainActor
+final class BonsplitZoomCompatibilityTests: XCTestCase {
+    func testTabIDCompatibilityRoundTripPreservesUUID() throws {
+        let uuid = UUID()
+        let tabId = TabID(uuid: uuid)
+
+        XCTAssertEqual(try tabUUID(tabId), uuid)
+    }
+
+    func testContextMenuShortcutsCanBeStored() {
+        let controller = BonsplitController()
+        let shortcut = KeyboardShortcut("r", modifiers: [.command, .shift])
+
+        controller.contextMenuShortcuts = [.rename: shortcut]
+
+        XCTAssertEqual(controller.contextMenuShortcuts[.rename], shortcut)
+    }
+
+    func testExternalTabDropHandlerCanBeStoredAndInvoked() throws {
+        let controller = BonsplitController()
+        guard let paneId = controller.allPaneIds.first else {
+            XCTFail("Expected a default Bonsplit pane")
+            return
+        }
+        let requestTabUUID = UUID()
+
+        let request = BonsplitController.ExternalTabDropRequest(
+            tabId: TabID(uuid: requestTabUUID),
+            sourcePaneId: paneId,
+            destination: .insert(targetPane: paneId, targetIndex: nil)
+        )
+
+        controller.onExternalTabDrop = { incoming in
+            XCTAssertEqual(try? self.tabUUID(incoming.tabId), requestTabUUID)
+            XCTAssertEqual(incoming.sourcePaneId, request.sourcePaneId)
+
+            guard case let .insert(targetPane, targetIndex) = incoming.destination else {
+                XCTFail("Expected insert destination")
+                return false
+            }
+
+            XCTAssertEqual(targetPane, paneId)
+            XCTAssertNil(targetIndex)
+            return true
+        }
+
+        XCTAssertTrue(controller.onExternalTabDrop?(request) ?? false)
+    }
+
+    func testTabCloseRequestHandlerCanBeStoredAndInvoked() throws {
+        let controller = BonsplitController()
+        let tabUUIDValue = UUID()
+        let tabId = TabID(uuid: tabUUIDValue)
+
+        var receivedTabId: TabID?
+        var receivedPaneId: PaneID?
+
+        controller.onTabCloseRequest = { incomingTabId, incomingPaneId in
+            receivedTabId = incomingTabId
+            receivedPaneId = incomingPaneId
+        }
+
+        let paneId = try XCTUnwrap(controller.allPaneIds.first)
+        controller.onTabCloseRequest?(tabId, paneId)
+
+        let actualReceivedTabId = try XCTUnwrap(receivedTabId)
+        XCTAssertEqual(try tabUUID(actualReceivedTabId), tabUUIDValue)
+        XCTAssertEqual(receivedPaneId, paneId)
+    }
+
+    func testTogglePaneZoomTracksZoomedPaneAndClears() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId),
+              let rightPaneId = workspace.paneId(forPanelId: rightPanel.id) else {
+            XCTFail("Expected split workspace setup")
+            return
+        }
+
+        XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertNil(workspace.bonsplitController.zoomedPaneId)
+
+        XCTAssertTrue(workspace.bonsplitController.togglePaneZoom(inPane: leftPaneId))
+        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertEqual(workspace.bonsplitController.zoomedPaneId, leftPaneId)
+
+        XCTAssertTrue(workspace.bonsplitController.togglePaneZoom(inPane: rightPaneId))
+        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertEqual(workspace.bonsplitController.zoomedPaneId, rightPaneId)
+
+        XCTAssertTrue(workspace.bonsplitController.clearPaneZoom())
+        XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertNil(workspace.bonsplitController.zoomedPaneId)
+        XCTAssertFalse(workspace.bonsplitController.clearPaneZoom())
+    }
+
+    private func tabUUID(_ tabID: TabID) throws -> UUID {
+        try XCTUnwrap(
+            Mirror(reflecting: tabID).children.first(where: { $0.label == "id" })?.value as? UUID
+        )
+    }
+}
+
 
 @MainActor
 final class TabManagerPendingUnfocusPolicyTests: XCTestCase {

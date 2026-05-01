@@ -10,8 +10,20 @@ enum SessionPersistencePolicy {
     static let defaultSidebarWidth: Double = 200
     static let minimumSidebarWidth: Double = 180
     static let maximumSidebarWidth: Double = 600
-    static let minimumWindowWidth: Double = 300
-    static let minimumWindowHeight: Double = 200
+    // cmux's layout eats ~180pt of sidebar + ~62pt of vertical chrome
+    // before the terminal gets any space. 300×200 as a minimum left the
+    // terminal at ~120×138 — not usable. 720×520 guarantees the terminal
+    // always has at least ~540×460pt (~70 cols × 32 rows at default font).
+    static let minimumWindowWidth: Double = 720
+    static let minimumWindowHeight: Double = 520
+    /// A "comfortable terminal" threshold used when restoring persisted
+    /// frames on launch. Frames smaller than this on either axis get
+    /// enlarged to this size. One-shot migration: the resized frame is
+    /// saved back, so subsequent launches honor the user's next resize.
+    /// Matches `WindowGroup.defaultSize` in cmuxApp so a fresh install
+    /// and a migrated install land at the same geometry.
+    static let comfortableWindowWidth: Double = 1280
+    static let comfortableWindowHeight: Double = 820
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
@@ -256,6 +268,11 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
     var ttyName: String?
+    /// Daemon session ID for this panel. Persisted so the macOS app can
+    /// reattach to the same daemon session after quit+reopen (when the
+    /// daemon was kept alive). Without this, new surface UUIDs produce
+    /// new session IDs and the old sessions with running TUIs are orphaned.
+    var daemonSessionID: String?
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?

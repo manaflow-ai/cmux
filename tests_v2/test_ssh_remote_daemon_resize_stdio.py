@@ -110,7 +110,7 @@ def main() -> int:
         _must(hello.get("ok") is True, f"hello should return ok=true: {hello}")
         capabilities = {str(item) for item in ((hello.get("result") or {}).get("capabilities") or [])}
         _must("session.basic" in capabilities, f"hello missing session.basic capability: {hello}")
-        _must("session.resize.min" in capabilities, f"hello missing session.resize.min capability: {hello}")
+        _must("session.resize.owner" in capabilities, f"hello missing session.resize.owner capability: {hello}")
 
         open_resp = _rpc(proc, 2, "session.open", {"session_id": "sess-e2e"})
         _assert_effective(open_resp, 0, 0, "session.open")
@@ -129,7 +129,7 @@ def main() -> int:
             "session.attach",
             {"session_id": "sess-e2e", "attachment_id": "a-large", "cols": 140, "rows": 50},
         )
-        _assert_effective(attach_large, 90, 30, "session.attach(a-large)")
+        _assert_effective(attach_large, 140, 50, "session.attach(a-large)")
 
         resize_large = _rpc(
             proc,
@@ -137,11 +137,19 @@ def main() -> int:
             "session.resize",
             {"session_id": "sess-e2e", "attachment_id": "a-large", "cols": 200, "rows": 80},
         )
-        _assert_effective(resize_large, 90, 30, "session.resize(a-large)")
+        _assert_effective(resize_large, 200, 80, "session.resize(a-large)")
+
+        resize_small = _rpc(
+            proc,
+            6,
+            "session.resize",
+            {"session_id": "sess-e2e", "attachment_id": "a-small", "cols": 90, "rows": 30},
+        )
+        _assert_effective(resize_small, 90, 30, "session.resize(a-small)")
 
         detach_small = _rpc(
             proc,
-            6,
+            7,
             "session.detach",
             {"session_id": "sess-e2e", "attachment_id": "a-small"},
         )
@@ -149,7 +157,7 @@ def main() -> int:
 
         detach_large = _rpc(
             proc,
-            7,
+            8,
             "session.detach",
             {"session_id": "sess-e2e", "attachment_id": "a-large"},
         )
@@ -157,18 +165,18 @@ def main() -> int:
 
         reattach = _rpc(
             proc,
-            8,
+            9,
             "session.attach",
             {"session_id": "sess-e2e", "attachment_id": "a-reconnect", "cols": 110, "rows": 40},
         )
         _assert_effective(reattach, 110, 40, "session.attach(a-reconnect)")
 
-        status = _rpc(proc, 9, "session.status", {"session_id": "sess-e2e"})
+        status = _rpc(proc, 10, "session.status", {"session_id": "sess-e2e"})
         _assert_effective(status, 110, 40, "session.status")
         attachments = (status.get("result") or {}).get("attachments") or []
         _must(len(attachments) == 1, f"session.status should report one active attachment after reattach: {status}")
 
-        print("PASS: cmuxd-remote stdio session.resize coordinator enforces smallest-screen-wins semantics")
+        print("PASS: cmuxd-remote stdio session.resize coordinator enforces active-owner semantics")
         return 0
     finally:
         try:

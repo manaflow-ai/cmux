@@ -1,0 +1,4 @@
+{"id":1,"method":"session.open","params":{"cols":120,"rows":40}}
+{"id":2,"method":"session.attach","params":{"session_id":"{{session_id}}","attachment_id":"att-fixture","cols":120,"rows":40}}
+{"id":3,"method":"session.status","params":{"session_id":"{{session_id}}"}}
+{"id":4,"method":"session.detach","params":{"session_id":"{{session_id}}","attachment_id":"att-fixture"}}

@@ -8,6 +8,60 @@ import Darwin
 import Network
 import CoreText
 
+func cmuxCurrentProcessEnvironment() -> [String: String] {
+    var environment: [String: String] = [:]
+    var cursor = environ
+
+    while let entry = cursor.pointee {
+        let assignment = String(cString: entry)
+        if let separator = assignment.firstIndex(of: "=") {
+            let key = String(assignment[..<separator])
+            let value = String(assignment[assignment.index(after: separator)...])
+            environment[key] = value
+        }
+        cursor = cursor.advanced(by: 1)
+    }
+
+    return environment
+}
+
+func cmuxCurrentExecutableURL() -> URL? {
+    var size: UInt32 = 0
+    _ = _NSGetExecutablePath(nil, &size)
+    guard size > 0 else {
+        return Bundle.main.executableURL?.standardizedFileURL
+    }
+
+    var buffer = Array<CChar>(repeating: 0, count: Int(size))
+    guard _NSGetExecutablePath(&buffer, &size) == 0 else {
+        return Bundle.main.executableURL?.standardizedFileURL
+    }
+
+    return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
+}
+
+func cmuxCurrentResourceURL(fileManager: FileManager = .default) -> URL? {
+    if let executableURL = cmuxCurrentExecutableURL() {
+        let candidate = executableURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources", isDirectory: true)
+        if fileManager.fileExists(atPath: candidate.path) {
+            return candidate.standardizedFileURL
+        }
+    }
+    return Bundle.main.resourceURL?.standardizedFileURL
+}
+
+func cmuxCurrentBundleIdentifier(environment: [String: String] = cmuxCurrentProcessEnvironment()) -> String? {
+    let envIdentifier = environment["__CFBundleIdentifier"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let envIdentifier, !envIdentifier.isEmpty {
+        return envIdentifier
+    }
+    let bundleIdentifier = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return bundleIdentifier?.isEmpty == false ? bundleIdentifier : nil
+}
+
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
     guard let text else { return "nil" }
@@ -55,23 +109,6 @@ struct CmuxSurfaceConfigTemplate {
         }
         waitAfterCommand = cConfig.wait_after_command
     }
-}
-
-enum WorkspacePendingTerminalInputReason {
-    case configurationCommand
-}
-
-enum WorkspacePendingTerminalInputPolicy {
-    static func timeout(for reason: WorkspacePendingTerminalInputReason) -> TimeInterval? {
-        switch reason {
-        case .configurationCommand:
-            return 3.0
-        }
-    }
-}
-
-private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
-    var observer: NSObjectProtocol?
 }
 
 func cmuxSurfaceContextName(_ context: ghostty_surface_context_e) -> String {
@@ -243,8 +280,31 @@ struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
     }
 }
 
+private struct BonsplitCompatibilityTabIDPayload: Codable {
+    let id: UUID
+}
+
+extension TabID {
+    var uuid: UUID {
+        if let id = Mirror(reflecting: self).children.first(where: { $0.label == "id" })?.value as? UUID {
+            return id
+        }
+
+        let decoder = JSONDecoder()
+        let encoder = JSONEncoder()
+
+        do {
+            let data = try encoder.encode(self)
+            return try decoder.decode(BonsplitCompatibilityTabIDPayload.self, from: data).id
+        } catch {
+            preconditionFailure("Failed to read Bonsplit TabID compatibility payload: \(error)")
+        }
+    }
+}
+
 extension Workspace {
     nonisolated static let remoteDaemonManifestInfoKey = WorkspaceRemoteSessionController.remoteDaemonManifestInfoKey
+    typealias LocalRemoteDaemonBuildPlan = WorkspaceRemoteSessionController.LocalRemoteDaemonBuildPlan
 
     nonisolated static func remoteDaemonManifest(from infoDictionary: [String: Any]?) -> WorkspaceRemoteDaemonManifest? {
         WorkspaceRemoteSessionController.remoteDaemonManifest(from: infoDictionary)
@@ -262,6 +322,112 @@ extension Workspace {
             goArch: goArch,
             fileManager: fileManager
         )
+    }
+
+    nonisolated static func localRemoteDaemonBuildPlan(
+        repoRoot: URL,
+        goOS: String,
+        goArch: String,
+        version: String,
+        environment: [String: String] = cmuxCurrentProcessEnvironment(),
+        fileManager: FileManager = .default
+    ) throws -> LocalRemoteDaemonBuildPlan {
+        try WorkspaceRemoteSessionController.localRemoteDaemonBuildPlan(
+            repoRoot: repoRoot,
+            goOS: goOS,
+            goArch: goArch,
+            version: version,
+            environment: environment,
+            fileManager: fileManager
+        )
+    }
+
+    nonisolated static func findRepoRoot(
+        startingAtCandidates candidates: [URL],
+        fileManager: FileManager
+    ) -> URL? {
+        WorkspaceRemoteSessionController.findRepoRoot(
+            startingAtCandidates: candidates,
+            fileManager: fileManager
+        )
+    }
+
+    fileprivate static func makeTerminalPanel(
+        workspaceId: UUID,
+        context: ghostty_surface_context_e,
+        configTemplate: CmuxSurfaceConfigTemplate? = nil,
+        workingDirectory: String? = nil,
+        portOrdinal: Int = 0,
+        startupCommandOverride: String? = nil,
+        intendedInitialCommand: String? = nil,
+        initialInput: String? = nil,
+        initialEnvironmentOverrides: [String: String] = [:],
+        additionalEnvironment: [String: String] = [:]
+    ) -> TerminalPanel {
+        let surfaceID = UUID()
+        let effectiveInitialCommand: String?
+        let localDaemonCommandApplied: Bool
+        if let startupCommandOverride {
+            effectiveInitialCommand = startupCommandOverride
+            localDaemonCommandApplied = false
+        } else if let localDaemonStartupCommand = LocalTerminalDaemonBridge.startupCommand(
+            sessionID: surfaceID,
+            workspaceID: workspaceId,
+            portOrdinal: portOrdinal,
+            workingDirectory: workingDirectory,
+            intendedCommand: intendedInitialCommand,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: additionalEnvironment
+        ) {
+            effectiveInitialCommand = localDaemonStartupCommand
+            localDaemonCommandApplied = true
+        } else {
+            effectiveInitialCommand = intendedInitialCommand
+            localDaemonCommandApplied = false
+        }
+
+        let surface = TerminalSurface(
+            id: surfaceID,
+            tabId: workspaceId,
+            context: context,
+            configTemplate: configTemplate,
+            workingDirectory: workingDirectory,
+            initialCommand: effectiveInitialCommand,
+            initialInput: initialInput,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: additionalEnvironment
+        )
+#if DEBUG
+        dlog(
+            "localDaemon.panel.make " +
+            "surface=\(surface.id.uuidString.prefix(8)) " +
+            "workspace=\(workspaceId.uuidString.prefix(8)) " +
+            "context=\(cmuxSurfaceContextName(context)) " +
+            "override=\(startupCommandOverride != nil ? 1 : 0) " +
+            "intended=\(intendedInitialCommand?.isEmpty == false ? 1 : 0)"
+        )
+#endif
+        if localDaemonCommandApplied {
+#if DEBUG
+            dlog(
+                "localDaemon.panel.command " +
+                "surface=\(surface.id.uuidString.prefix(8)) " +
+                "workspace=\(workspaceId.uuidString.prefix(8)) " +
+                "applied=1"
+            )
+#endif
+        } else {
+#if DEBUG
+            dlog(
+                "localDaemon.panel.command " +
+                "surface=\(surface.id.uuidString.prefix(8)) " +
+                "workspace=\(workspaceId.uuidString.prefix(8)) " +
+                "applied=0"
+            )
+#endif
+        }
+        surface.portOrdinal = portOrdinal
+        return TerminalPanel(workspaceId: workspaceId, surface: surface)
     }
 
     func sessionSnapshot(
@@ -398,7 +564,94 @@ extension Workspace {
         } else {
             scheduleFocusReconcile()
         }
+
+        #if DEBUG
+        // Pre-create daemon sessions for all restored terminal panels so iOS
+        // clients can attach to them before the user opens them on desktop
+        // (Ghostty surface creation is lazy).
+        preCreateDaemonSessionsForRestoredPanels()
+        #endif
     }
+
+    #if DEBUG
+    private func preCreateDaemonSessionsForRestoredPanels() {
+        restoredDaemonPreCreateCancellable?.cancel()
+        restoredDaemonPreCreateCancellable = nil
+
+        let terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
+        guard !terminalPanels.isEmpty else { return }
+        // Collect surface IDs and any saved daemon session IDs (from previous quit).
+        // Saved IDs are used so pre-created sessions match the IDs the bridge
+        // will use on attach — whether the daemon was reused or restarted fresh.
+        let panelInfo: [(surfaceID: UUID, savedSessionID: String?)] = terminalPanels.map {
+            ($0.surface.id, $0.surface.savedDaemonSessionID)
+        }
+        guard panelInfo.contains(where: { $0.savedSessionID != nil }) else { return }
+
+        let workspaceID = self.id
+        dlog("preCreateDaemonSessions.scheduled workspace=\(workspaceID.uuidString.prefix(8)) panels=\(panelInfo.count)")
+
+        if MobileDaemonBridgeInline.shared.isRunning {
+            Self.performPreCreateDaemonSessions(workspaceID: workspaceID, panelInfo: panelInfo)
+            return
+        }
+
+        restoredDaemonPreCreateCancellable = NotificationCenter.default
+            .publisher(for: .cmuxDaemonHealthChanged)
+            .compactMap { $0.userInfo?["state"] as? DaemonHealthState }
+            .filter { $0 == .healthy }
+            .prefix(1)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.restoredDaemonPreCreateCancellable = nil
+                Self.performPreCreateDaemonSessions(workspaceID: workspaceID, panelInfo: panelInfo)
+            }
+    }
+
+    private static func performPreCreateDaemonSessions(
+        workspaceID: UUID,
+        panelInfo: [(surfaceID: UUID, savedSessionID: String?)]
+    ) {
+        dlog("preCreateDaemonSessions.ready workspace=\(workspaceID.uuidString.prefix(8))")
+        for info in panelInfo {
+            // Only pre-create when we have a persisted daemon session id to
+            // restore. Fresh panels get their id minted by `workspace.open_pane`.
+            guard let sessionID = info.savedSessionID else { continue }
+            let shellCommand = buildPreCreateShellCommand(
+                workspaceID: workspaceID,
+                surfaceID: info.surfaceID
+            )
+            DaemonConnection.ensureSession(
+                sessionID: sessionID,
+                shellCommand: shellCommand
+            )
+        }
+    }
+
+    /// Build the shell command for a pre-created daemon session with the same
+    /// per-surface env vars the regular createSurface path sets (ZDOTDIR for
+    /// shell integration, CMUX_*, TERM, etc.). Must stay in sync with the env
+    /// var injection in GhosttyTerminalView.createSurface().
+    private static func buildPreCreateShellCommand(workspaceID: UUID, surfaceID: UUID) -> String {
+        let env = TerminalSurface.managedStartupEnvironment(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            portOrdinal: 0,
+            baseEnvironment: [:],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:]
+        )
+        let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
+            ?? ProcessInfo.processInfo.environment["SHELL"]
+            ?? "/bin/zsh"
+        return TerminalSurface.daemonShellCommand(
+            environment: env,
+            workingDirectory: nil,
+            command: nil,
+            fallbackShell: shell
+        )
+    }
+    #endif
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
         switch node {
@@ -550,6 +803,18 @@ extension Workspace {
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
         }
 
+        // Save the daemon session ID so it persists across quit+reopen.
+        // Prefer the saved ID (from a previous restore) over the live
+        // bridge id so round-trip restarts keep the same daemon session.
+        // Nil is valid: fresh panels whose bridge hasn't yet received a
+        // daemon-minted id (via `workspace.open_pane`) snapshot without
+        // a daemonSessionID, and restore will re-open a fresh pane.
+        let daemonSID: String? = {
+            guard let terminalPanel = panel as? TerminalPanel else { return nil }
+            return terminalPanel.surface.savedDaemonSessionID
+                ?? terminalPanel.surface.daemonBridge?.sessionID
+        }()
+
         return SessionPanelSnapshot(
             id: panelId,
             type: panel.panelType,
@@ -561,6 +826,7 @@ extension Workspace {
             gitBranch: branchSnapshot,
             listeningPorts: listeningPorts,
             ttyName: ttyName,
+            daemonSessionID: daemonSID,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot,
@@ -673,6 +939,16 @@ extension Workspace {
         var createdPanelIds: [UUID] = []
         for oldPanelId in desiredOldPanelIds {
             guard let panelSnapshot = panelSnapshotsById[oldPanelId] else { continue }
+            // Restore every persisted panel. If `daemonSessionID` is
+            // absent (legacy snapshots written before the daemon SSOT
+            // landed, or mid-flight panels whose `workspace.open_pane`
+            // hadn't completed at save time), `createPanel` opens a
+            // fresh daemon session via the normal open-pane path. An
+            // earlier version of this loop `continue`d to drop these
+            // panels because open_pane was suspected to race workspace
+            // restore; that fix caused user-visible data loss and the
+            // race is handled by the bridge's deferred-subscribe path
+            // now, so honor the saved panel list as-is.
             guard let createdPanelId = createPanel(from: panelSnapshot, inPane: paneId) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -803,6 +1079,14 @@ extension Workspace {
     private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
+        }
+
+        // Restore the daemon session ID so the surface can reattach to
+        // the same daemon session (preserving running TUIs).
+        if let savedSID = snapshot.daemonSessionID,
+           let terminalPanel = panels[panelId] as? TerminalPanel {
+            terminalPanel.savedDaemonSessionID = savedSID
+            terminalPanel.surface.savedDaemonSessionID = savedSID
         }
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle)
@@ -1074,92 +1358,21 @@ extension Workspace {
         }
     }
 
-    private func sendInputWhenReady(
-        _ text: String,
-        to panel: TerminalPanel,
-        reason: WorkspacePendingTerminalInputReason = .configurationCommand
-    ) {
+    private func sendInputWhenReady(_ text: String, to panel: TerminalPanel) {
         if panel.surface.surface != nil {
             panel.sendInput(text)
             return
         }
 
-        let timeout = WorkspacePendingTerminalInputPolicy.timeout(for: reason)
-        let panelId = panel.id
-        let registration = WorkspacePendingTerminalInputObserver()
-
-        registration.observer = NotificationCenter.default.addObserver(
-            forName: .terminalSurfaceDidBecomeReady,
-            object: panel.surface,
-            queue: .main
-        ) { [weak self, registration] _ in
-            Task { @MainActor [weak self, registration] in
-                guard
-                    let self,
-                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
-                else {
-                    return
-                }
-
-                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
-                if let panel = self.panels[panelId] as? TerminalPanel {
-                    panel.sendInput(text)
-                }
+        let pendingInputID = UUID()
+        pendingSurfaceInputCancellables[pendingInputID] = NotificationCenter.default
+            .publisher(for: .terminalSurfaceDidBecomeReady, object: panel.surface)
+            .prefix(1)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak panel] _ in
+                self?.pendingSurfaceInputCancellables[pendingInputID] = nil
+                panel?.sendInput(text)
             }
-        }
-        pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
-
-        guard let timeout else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
-            Task { @MainActor [weak self, registration] in
-                guard
-                    let self,
-                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
-                else {
-                    return
-                }
-
-                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
-                NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
-            }
-        }
-    }
-
-    private func hasPendingTerminalInputObserver(
-        _ registration: WorkspacePendingTerminalInputObserver,
-        forPanelId panelId: UUID
-    ) -> Bool {
-        pendingTerminalInputObserversByPanelId[panelId]?.contains {
-            $0 === registration
-        } == true
-    }
-
-    private func removePendingTerminalInputObserver(
-        _ registration: WorkspacePendingTerminalInputObserver,
-        forPanelId panelId: UUID
-    ) {
-        if let observer = registration.observer {
-            NotificationCenter.default.removeObserver(observer)
-            registration.observer = nil
-        }
-        pendingTerminalInputObserversByPanelId[panelId]?.removeAll {
-            $0 === registration
-        }
-        if pendingTerminalInputObserversByPanelId[panelId]?.isEmpty == true {
-            pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId)
-        }
-    }
-
-    private func removePendingTerminalInputObservers(forPanelId panelId: UUID) {
-        guard let observers = pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId) else {
-            return
-        }
-        for registration in observers {
-            if let observer = registration.observer {
-                NotificationCenter.default.removeObserver(observer)
-                registration.observer = nil
-            }
-        }
     }
 
 }
@@ -5185,17 +5398,26 @@ final class WorkspaceRemoteSessionController {
             .appendingPathComponent("cmuxd-remote", isDirectory: false)
     }
 
+    struct LocalRemoteDaemonBuildPlan {
+        let executable: String
+        let arguments: [String]
+        let environment: [String: String]
+        let currentDirectory: URL
+        let builtBinary: URL
+        let outputURL: URL
+    }
+
     private static func sha256Hex(forFile url: URL) throws -> String {
         let data = try Data(contentsOf: url)
         let digest = SHA256.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func allowLocalDaemonBuildFallback(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+    private static func allowLocalDaemonBuildFallback(environment: [String: String] = cmuxCurrentProcessEnvironment()) -> Bool {
         environment["CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD"] == "1"
     }
 
-    private static func explicitRemoteDaemonBinaryURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+    private static func explicitRemoteDaemonBinaryURL(environment: [String: String] = cmuxCurrentProcessEnvironment()) -> URL? {
         guard allowLocalDaemonBuildFallback(environment: environment) else { return nil }
         guard let path = environment["CMUX_REMOTE_DAEMON_BINARY"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !path.isEmpty else {
@@ -5344,48 +5566,41 @@ final class WorkspaceRemoteSessionController {
                 NSLocalizedDescriptionKey: "cannot locate cmux repo root for dev-only cmuxd-remote build fallback",
             ])
         }
-        let daemonRoot = repoRoot.appendingPathComponent("daemon/remote", isDirectory: true)
-        let goModPath = daemonRoot.appendingPathComponent("go.mod").path
-        guard FileManager.default.fileExists(atPath: goModPath) else {
-            throw NSError(domain: "cmux.remote.daemon", code: 21, userInfo: [
-                NSLocalizedDescriptionKey: "missing daemon module at \(goModPath)",
-            ])
-        }
-        guard let goBinary = Self.which("go") else {
-            throw NSError(domain: "cmux.remote.daemon", code: 22, userInfo: [
-                NSLocalizedDescriptionKey: "go is required for the dev-only cmuxd-remote build fallback",
-            ])
-        }
+        let plan = try Self.localRemoteDaemonBuildPlan(
+            repoRoot: repoRoot,
+            goOS: goOS,
+            goArch: goArch,
+            version: version
+        )
+        try FileManager.default.createDirectory(at: plan.outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-        let output = Self.versionedRemoteDaemonBuildURL(goOS: goOS, goArch: goArch, version: version)
-        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        var env = ProcessInfo.processInfo.environment
-        env["GOOS"] = goOS
-        env["GOARCH"] = goArch
-        env["CGO_ENABLED"] = "0"
-        let ldflags = "-s -w -X main.version=\(version)"
         let result = try runProcess(
-            executable: goBinary,
-            arguments: ["build", "-trimpath", "-buildvcs=false", "-ldflags", ldflags, "-o", output.path, "./cmd/cmuxd-remote"],
-            environment: env,
-            currentDirectory: daemonRoot,
+            executable: plan.executable,
+            arguments: plan.arguments,
+            environment: plan.environment,
+            currentDirectory: plan.currentDirectory,
             stdin: nil,
             timeout: 90
         )
         guard result.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "go build failed with status \(result.status)"
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "zig build failed with status \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 23, userInfo: [
                 NSLocalizedDescriptionKey: "failed to build cmuxd-remote: \(detail)",
             ])
         }
-        guard FileManager.default.isExecutableFile(atPath: output.path) else {
+        if FileManager.default.fileExists(atPath: plan.outputURL.path) {
+            try? FileManager.default.removeItem(at: plan.outputURL)
+        }
+        try FileManager.default.copyItem(at: plan.builtBinary, to: plan.outputURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: plan.outputURL.path)
+
+        guard FileManager.default.isExecutableFile(atPath: plan.outputURL.path) else {
             throw NSError(domain: "cmux.remote.daemon", code: 24, userInfo: [
                 NSLocalizedDescriptionKey: "cmuxd-remote build output is not executable",
             ])
         }
-        debugLog("remote.build.output path=\(output.path)")
-        return output
+        debugLog("remote.build.output path=\(plan.outputURL.path)")
+        return plan.outputURL
     }
 
     private func uploadRemoteDaemonBinaryLocked(localBinary: URL, remotePath: String) throws {
@@ -5736,7 +5951,12 @@ final class WorkspaceRemoteSessionController {
             }
 
             let relativePath = fileURL.path.replacingOccurrences(of: daemonRoot.path + "/", with: "")
-            if relativePath == "go.mod" || relativePath == "go.sum" || relativePath.hasSuffix(".go") {
+            if relativePath == "go.mod" ||
+                relativePath == "go.sum" ||
+                relativePath == "zig/build.zig" ||
+                relativePath == "zig/build.zig.zon" ||
+                relativePath.hasSuffix(".go") ||
+                relativePath.hasSuffix(".zig") {
                 relativePaths.append(relativePath)
             }
         }
@@ -5801,6 +6021,104 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
+    static func localRemoteDaemonBuildPlan(
+        repoRoot: URL,
+        goOS: String,
+        goArch: String,
+        version: String,
+        environment: [String: String] = cmuxCurrentProcessEnvironment(),
+        fileManager: FileManager = .default
+    ) throws -> LocalRemoteDaemonBuildPlan {
+        let daemonRoot = repoRoot.appendingPathComponent("daemon/remote/zig", isDirectory: true)
+        let buildZigPath = daemonRoot.appendingPathComponent("build.zig", isDirectory: false).path
+        guard fileManager.fileExists(atPath: buildZigPath) else {
+            throw NSError(domain: "cmux.remote.daemon", code: 21, userInfo: [
+                NSLocalizedDescriptionKey: "missing daemon build at \(buildZigPath)",
+            ])
+        }
+        guard let zigBinary = which("zig", environment: environment, fileManager: fileManager) else {
+            throw NSError(domain: "cmux.remote.daemon", code: 22, userInfo: [
+                NSLocalizedDescriptionKey: "zig is required for the dev-only cmuxd-remote build fallback",
+            ])
+        }
+        guard let target = remoteDaemonZigTarget(goOS: goOS, goArch: goArch) else {
+            throw NSError(domain: "cmux.remote.daemon", code: 21, userInfo: [
+                NSLocalizedDescriptionKey: "unsupported cmuxd-remote target \(goOS)-\(goArch)",
+            ])
+        }
+        let buildEnvironment = localRemoteDaemonBuildEnvironment(
+            baseEnvironment: environment,
+            goOS: goOS,
+            goArch: goArch,
+            fileManager: fileManager
+        )
+        return LocalRemoteDaemonBuildPlan(
+            executable: zigBinary,
+            arguments: [
+                "build",
+                "-Doptimize=ReleaseFast",
+                "-Dtarget=\(target)",
+                "-Dversion=\(version)",
+            ],
+            environment: buildEnvironment,
+            currentDirectory: daemonRoot,
+            builtBinary: daemonRoot.appendingPathComponent("zig-out/bin/cmuxd-remote", isDirectory: false),
+            outputURL: versionedRemoteDaemonBuildURL(goOS: goOS, goArch: goArch, version: version)
+        )
+    }
+
+    private static func localRemoteDaemonBuildEnvironment(
+        baseEnvironment: [String: String],
+        goOS: String,
+        goArch: String,
+        fileManager: FileManager
+    ) -> [String: String] {
+        guard goOS == "darwin", goArch == "arm64" else {
+            return baseEnvironment
+        }
+
+        let xcodeTBD = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libSystem.B.tbd"
+        let cltSDKRoot = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+        let cltTBD = "\(cltSDKRoot)/usr/lib/libSystem.B.tbd"
+
+        guard
+            fileManager.fileExists(atPath: xcodeTBD),
+            fileManager.fileExists(atPath: cltTBD),
+            localRemoteDaemonSDKSupportsArm64(path: cltTBD),
+            !localRemoteDaemonSDKSupportsArm64(path: xcodeTBD)
+        else {
+            return baseEnvironment
+        }
+
+        var environment = baseEnvironment
+        environment["DEVELOPER_DIR"] = "/Library/Developer/CommandLineTools"
+        environment["SDKROOT"] = cltSDKRoot
+        return environment
+    }
+
+    private static func localRemoteDaemonSDKSupportsArm64(path: String) -> Bool {
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return false
+        }
+        let prefix = contents.split(separator: "\n", omittingEmptySubsequences: false).prefix(8).joined(separator: "\n")
+        return prefix.contains("arm64-macos")
+    }
+
+    private static func remoteDaemonZigTarget(goOS: String, goArch: String) -> String? {
+        switch (goOS, goArch) {
+        case ("darwin", "arm64"):
+            return "aarch64-macos"
+        case ("darwin", "amd64"):
+            return "x86_64-macos"
+        case ("linux", "arm64"):
+            return "aarch64-linux-gnu"
+        case ("linux", "amd64"):
+            return "x86_64-linux-gnu"
+        default:
+            return nil
+        }
+    }
+
     private static func captureCommandStandardOutput(
         executablePath: String,
         arguments: [String]
@@ -5826,6 +6144,21 @@ final class WorkspaceRemoteSessionController {
             // Best effort cleanup only.
             return nil
         }
+    }
+
+    static func which(
+        _ executable: String,
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> String? {
+        let path = environment["PATH"] ?? ""
+        for component in path.split(separator: ":") {
+            let candidate = String(component) + "/" + executable
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private static func parsePSLine(_ line: Substring) -> (pid: Int, ppid: Int, command: String)? {
@@ -5984,7 +6317,7 @@ final class WorkspaceRemoteSessionController {
             .deletingLastPathComponent() // Sources
             .deletingLastPathComponent() // repo root
         candidates.append(compileTimeRoot)
-        let environment = ProcessInfo.processInfo.environment
+        let environment = cmuxCurrentProcessEnvironment()
         if let envRoot = environment["CMUX_REMOTE_DAEMON_SOURCE_ROOT"],
            !envRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             candidates.append(URL(fileURLWithPath: envRoot, isDirectory: true))
@@ -5999,14 +6332,21 @@ final class WorkspaceRemoteSessionController {
             candidates.append(executable.deletingLastPathComponent())
             candidates.append(executable.deletingLastPathComponent().deletingLastPathComponent())
         }
+        return findRepoRoot(startingAtCandidates: candidates, fileManager: .default)
+    }
 
-        let fm = FileManager.default
+    static func findRepoRoot(
+        startingAtCandidates candidates: [URL],
+        fileManager: FileManager
+    ) -> URL? {
         for base in candidates {
             var cursor = base.standardizedFileURL
             for _ in 0..<10 {
-                let marker = cursor.appendingPathComponent("daemon/remote/go.mod").path
-                if fm.fileExists(atPath: marker) {
-                    return cursor
+                for marker in remoteDaemonRepoMarkers {
+                    let markerPath = cursor.appendingPathComponent(marker, isDirectory: false).path
+                    if fileManager.fileExists(atPath: markerPath) {
+                        return cursor
+                    }
                 }
                 let parent = cursor.deletingLastPathComponent()
                 if parent.path == cursor.path {
@@ -6017,6 +6357,11 @@ final class WorkspaceRemoteSessionController {
         }
         return nil
     }
+
+    private static let remoteDaemonRepoMarkers = [
+        "daemon/remote/zig/build.zig",
+        "daemon/remote/go.mod",
+    ]
 
     private static func bestErrorLine(stderr: String, stdout: String = "") -> String? {
         if let stderrLine = meaningfulErrorLine(in: stderr) {
@@ -7202,6 +7547,437 @@ struct ClosedBrowserPanelRestoreSnapshot {
     let fallbackAnchorPaneId: UUID?
 }
 
+struct LocalTerminalDaemonConfiguration: Equatable {
+    let socketPath: String
+    let daemonBinaryPath: String
+    var wsPort: Int?
+    var wsSecret: String?
+}
+
+enum LocalTerminalDaemonBridge {
+    static var testingConfiguration: LocalTerminalDaemonConfiguration?
+    static var testingEnsureDaemonListening: ((LocalTerminalDaemonConfiguration) -> Bool)?
+
+    private static let stateLock = NSLock()
+    private static var managedProcess: Process?
+    private static var managedConfiguration: LocalTerminalDaemonConfiguration?
+    private static var terminationObserver: NSObjectProtocol?
+
+    static func configuration(
+        environment: [String: String] = cmuxCurrentProcessEnvironment(),
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default
+    ) -> LocalTerminalDaemonConfiguration? {
+        if let testingConfiguration {
+            return testingConfiguration
+        }
+
+        guard let candidate = candidateConfiguration(
+            environment: environment,
+            bundle: bundle,
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
+        guard fileManager.fileExists(atPath: candidate.socketPath),
+              isReachableUnixSocket(atPath: candidate.socketPath) else {
+            return nil
+        }
+        return candidate
+    }
+
+    private static func candidateConfiguration(
+        environment: [String: String] = cmuxCurrentProcessEnvironment(),
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default
+    ) -> LocalTerminalDaemonConfiguration? {
+        guard let rawSocketPath = environment["CMUXD_UNIX_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawSocketPath.isEmpty else {
+            return nil
+        }
+
+        var config: LocalTerminalDaemonConfiguration?
+
+        if let rawBinaryPath = environment["CMUX_REMOTE_DAEMON_BINARY"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawBinaryPath.isEmpty,
+           fileManager.isExecutableFile(atPath: rawBinaryPath) {
+            config = LocalTerminalDaemonConfiguration(
+                socketPath: rawSocketPath,
+                daemonBinaryPath: rawBinaryPath
+            )
+        }
+
+        if config == nil,
+           let repoRoot = environment["CMUXTERM_REPO_ROOT"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !repoRoot.isEmpty {
+            let candidate = URL(fileURLWithPath: repoRoot, isDirectory: true)
+                .appendingPathComponent("daemon/remote/zig/zig-out/bin/cmuxd-remote", isDirectory: false)
+                .path
+            if fileManager.isExecutableFile(atPath: candidate) {
+                config = LocalTerminalDaemonConfiguration(
+                    socketPath: rawSocketPath,
+                    daemonBinaryPath: candidate
+                )
+            }
+        }
+
+        if config == nil,
+           let bundledBinaryURL = bundle.resourceURL?.appendingPathComponent("bin/cmuxd-remote", isDirectory: false),
+           fileManager.isExecutableFile(atPath: bundledBinaryURL.path) {
+            config = LocalTerminalDaemonConfiguration(
+                socketPath: rawSocketPath,
+                daemonBinaryPath: bundledBinaryURL.path
+            )
+        }
+
+        guard config != nil else { return nil }
+
+        // Auto-enable WebSocket listener for mobile connections. The iOS app
+        // scans 52100-52199 for daemons (see TerminalServerDiscovery), so the
+        // port MUST land in that range or the scanner never sees it. Use a
+        // stable per-tag / per-bundle-id hash within 52101-52199. The helper
+        // is shared with MobileDaemonBridgeInline so both daemon startup paths
+        // pick the same port.
+        //
+        // `CMUX_PORT` (used historically as the base here) is the shell's
+        // workspace port range — it bleeds in through inherited environment
+        // when the app is launched from a cmux terminal, producing out-of-
+        // range values like 9121. That silently breaks iOS discovery even
+        // when everything else is wired up correctly.
+        let wsPort = CmuxMobileWebSocketPortResolver.resolvePort(
+            environment: environment,
+            bundle: bundle,
+            fallbackSeed: URL(fileURLWithPath: rawSocketPath).deletingPathExtension().lastPathComponent
+        )
+        config?.wsPort = wsPort
+        config?.wsSecret = resolveWebSocketSecret(environment: environment)
+
+        return config
+    }
+
+    private static func resolveWebSocketSecret(environment: [String: String]) -> String {
+        if let explicit = environment["CMUX_MOBILE_WS_SECRET"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            return explicit
+        }
+        return persistedWebSocketSecret()
+    }
+
+    private static func persistedWebSocketSecret() -> String {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let secretDir = appSupport.appendingPathComponent("cmux", isDirectory: true)
+        let secretFile = secretDir.appendingPathComponent("mobile-ws-secret")
+
+        if let existing = try? String(contentsOf: secretFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+           existing.count >= 32 {
+            return existing
+        }
+
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let secret = bytes.map { String(format: "%02x", $0) }.joined()
+
+        try? FileManager.default.createDirectory(at: secretDir, withIntermediateDirectories: true)
+        try? secret.write(to: secretFile, atomically: true, encoding: .utf8)
+
+        return secret
+    }
+
+    private static func ensureReachableConfiguration(
+        environment: [String: String] = cmuxCurrentProcessEnvironment(),
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default
+    ) -> LocalTerminalDaemonConfiguration? {
+        if let testingConfiguration {
+            return testingConfiguration
+        }
+        guard let candidate = candidateConfiguration(
+            environment: environment,
+            bundle: bundle,
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
+        if shouldDeferToMobileDaemonSupervisor(environment: environment, bundle: bundle),
+           !isReachableUnixSocket(atPath: candidate.socketPath) {
+            return nil
+        }
+        guard ensureDaemonListening(candidate, fileManager: fileManager) else {
+            return nil
+        }
+        return candidate
+    }
+
+    private static func shouldDeferToMobileDaemonSupervisor(
+        environment: [String: String],
+        bundle: Bundle
+    ) -> Bool {
+        if let tag = environment["CMUX_TAG"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !tag.isEmpty {
+            return true
+        }
+        if let tag = environment["CMUX_LAUNCH_TAG"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !tag.isEmpty {
+            return true
+        }
+        if let bundleID = bundle.bundleIdentifier,
+           bundleID.hasPrefix("com.cmuxterm.app.debug.") {
+            return true
+        }
+        return false
+    }
+
+    private static func isReachableUnixSocket(atPath path: String) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            return false
+        }
+        defer { Darwin.close(fd) }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+
+        let pathBytes = Array(path.utf8)
+        let maxPathLen = MemoryLayout.size(ofValue: address.sun_path)
+        guard pathBytes.count < maxPathLen else {
+            return false
+        }
+
+        withUnsafeMutablePointer(to: &address.sun_path) { pathPointer in
+            let cPath = UnsafeMutableRawPointer(pathPointer).assumingMemoryBound(to: CChar.self)
+            cPath.initialize(repeating: 0, count: maxPathLen)
+            for (index, byte) in pathBytes.enumerated() {
+                cPath[index] = CChar(bitPattern: byte)
+            }
+        }
+
+        let addressLength = socklen_t(MemoryLayout<sa_family_t>.size + pathBytes.count + 1)
+        let connectResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, addressLength)
+            }
+        }
+        return connectResult == 0
+    }
+
+    private static func ensureDaemonListening(
+        _ configuration: LocalTerminalDaemonConfiguration,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        if let testingEnsureDaemonListening {
+            return testingEnsureDaemonListening(configuration)
+        }
+
+        if isReachableUnixSocket(atPath: configuration.socketPath) {
+            return true
+        }
+
+        stateLock.lock()
+        defer { stateLock.unlock() }
+
+        if isReachableUnixSocket(atPath: configuration.socketPath) {
+            managedConfiguration = configuration
+            return true
+        }
+
+        if let process = managedProcess,
+           process.isRunning,
+           managedConfiguration == configuration {
+            return waitUntilSocketReachable(
+                atPath: configuration.socketPath,
+                process: process,
+                timeout: 2.0
+            )
+        }
+
+        if fileManager.fileExists(atPath: configuration.socketPath) {
+            try? fileManager.removeItem(atPath: configuration.socketPath)
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: configuration.daemonBinaryPath)
+        var args = ["serve", "--unix", "--socket", configuration.socketPath]
+        if let wsPort = configuration.wsPort {
+            args += ["--ws-port", String(wsPort)]
+        }
+        if let wsSecret = configuration.wsSecret, !wsSecret.isEmpty {
+            args += ["--ws-secret", wsSecret]
+        }
+        args += [
+            "--instance-id",
+            URL(fileURLWithPath: configuration.socketPath).deletingPathExtension().lastPathComponent,
+            "--parent-pid",
+            String(ProcessInfo.processInfo.processIdentifier),
+        ]
+        process.arguments = args
+        process.standardInput = FileHandle.nullDevice
+
+        let logURL = managedLogURL(for: configuration.socketPath)
+        if let logDirectory = logURL.deletingLastPathComponent().path.removingPercentEncoding {
+            try? fileManager.createDirectory(
+                atPath: logDirectory,
+                withIntermediateDirectories: true
+            )
+        }
+        fileManager.createFile(atPath: logURL.path, contents: nil)
+        if let logHandle = FileHandle(forWritingAtPath: logURL.path) {
+            try? logHandle.truncate(atOffset: 0)
+            process.standardOutput = logHandle
+            process.standardError = logHandle
+        }
+
+        process.terminationHandler = { terminated in
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            if managedProcess === terminated {
+                managedProcess = nil
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+
+        managedProcess = process
+        managedConfiguration = configuration
+        installTerminationObserverIfNeeded()
+        return waitUntilSocketReachable(
+            atPath: configuration.socketPath,
+            process: process,
+            timeout: 2.0
+        )
+    }
+
+    private static func waitUntilSocketReachable(
+        atPath socketPath: String,
+        process: Process,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isReachableUnixSocket(atPath: socketPath) {
+                return true
+            }
+            if !process.isRunning {
+                return false
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+        return isReachableUnixSocket(atPath: socketPath)
+    }
+
+    private static func installTerminationObserverIfNeeded() {
+        guard terminationObserver == nil else { return }
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            terminateManagedDaemon()
+        }
+    }
+
+    private static func terminateManagedDaemon() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if let process = managedProcess, process.isRunning {
+            process.terminate()
+        }
+        managedProcess = nil
+    }
+
+    private static func managedLogURL(for socketPath: String) -> URL {
+        let baseName = URL(fileURLWithPath: socketPath).deletingPathExtension().lastPathComponent
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxd-\(baseName).log", isDirectory: false)
+    }
+
+    static func startupCommand(
+        sessionID: UUID,
+        workspaceID: UUID,
+        portOrdinal: Int,
+        workingDirectory: String?,
+        intendedCommand: String?,
+        initialEnvironmentOverrides: [String: String],
+        additionalEnvironment: [String: String],
+        environment: [String: String] = cmuxCurrentProcessEnvironment(),
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let configuration = ensureReachableConfiguration(
+            environment: environment,
+            bundle: bundle,
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
+
+        let managedEnvironment = TerminalSurface.managedStartupEnvironment(
+            surfaceID: sessionID,
+            workspaceID: workspaceID,
+            portOrdinal: portOrdinal,
+            baseEnvironment: environment,
+            additionalEnvironment: additionalEnvironment,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            processEnvironment: environment,
+            bundle: bundle,
+            fileManager: fileManager
+        )
+
+        let shell = (managedEnvironment["SHELL"]?.isEmpty == false ? managedEnvironment["SHELL"] : nil)
+            ?? (environment["SHELL"]?.isEmpty == false ? environment["SHELL"] : nil)
+            ?? "/bin/zsh"
+        let daemonCommand = TerminalSurface.daemonShellCommandBody(
+            environment: sanitizedDaemonEnvironment(managedEnvironment),
+            workingDirectory: workingDirectory,
+            command: intendedCommand,
+            fallbackShell: shell
+        )
+
+#if DEBUG
+        dlog(
+            "localDaemon.startup " +
+            "socket=\(configuration.socketPath) " +
+            "binary=\(configuration.daemonBinaryPath) " +
+            "cmuxBundle=\(managedEnvironment["CMUX_BUNDLE_ID"] ?? "nil") " +
+            "shellDir=\(managedEnvironment["CMUX_SHELL_INTEGRATION_DIR"] ?? "nil") " +
+            "ghosttyBin=\(managedEnvironment["GHOSTTY_BIN_DIR"] ?? "nil") " +
+            "ghosttyResources=\(managedEnvironment["GHOSTTY_RESOURCES_DIR"] ?? "nil") " +
+            "terminfo=\(managedEnvironment["TERMINFO"] ?? "nil") " +
+            "socketPath=\(managedEnvironment["CMUX_SOCKET_PATH"] ?? "nil")"
+        )
+#endif
+
+        let startupScript = """
+        exec \(shellSingleQuoted(configuration.daemonBinaryPath)) amux new \(shellSingleQuoted(sessionID.uuidString)) --quiet --socket \(shellSingleQuoted(configuration.socketPath)) -- \(shellSingleQuoted(daemonCommand))
+        """
+        return "sh -c \(shellSingleQuoted(startupScript))"
+    }
+
+    private static func sanitizedDaemonEnvironment(_ environment: [String: String]) -> [String: String] {
+        environment.filter { key, _ in
+            switch key {
+            case "CMUXD_UNIX_PATH",
+                 "CMUX_REMOTE_DAEMON_BINARY",
+                 "CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD",
+                 "CMUXTERM_REPO_ROOT",
+                 "CMUX_DEBUG_LOG",
+                 "CMUX_TAG":
+                return false
+            default:
+                return true
+            }
+        }
+    }
+
+    fileprivate static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+}
+
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
@@ -7250,6 +8026,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     private var panelSubscriptions: [UUID: AnyCancellable] = [:]
+    private var pendingSurfaceInputCancellables: [UUID: AnyCancellable] = [:]
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
@@ -7263,6 +8040,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Per-panel inherited zoom lineage. Descendants reuse this root value unless
     /// a panel is explicitly re-zoomed by the user.
     private var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
+    #if DEBUG
+    private var restoredDaemonPreCreateCancellable: AnyCancellable?
+    #endif
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
@@ -7372,8 +8152,6 @@ final class Workspace: Identifiable, ObservableObject {
     private var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     private var restoredAgentAutoResumePendingPanelIds: Set<UUID> = []
     private var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
-    private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
-
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher
     ) -> AnyPublisher<Void, Never> {
@@ -7789,15 +8567,18 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     init(
+        id: UUID = UUID(),
         title: String = "Terminal",
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
+        initialTerminalEnvironment: [String: String] = [:],
+        adoptedDaemonSessionID: String? = nil,
+        initialDetachedSurface: DetachedSurfaceTransfer? = nil
     ) {
-        self.id = UUID()
+        self.id = id
         self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title
@@ -7862,16 +8643,23 @@ final class Workspace: Identifiable, ObservableObject {
             }
         } else {
             // Create initial terminal panel
-            let terminalPanel = TerminalPanel(
+            let terminalPanel = Self.makeTerminalPanel(
                 workspaceId: id,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
                 configTemplate: resolvedConfigTemplate,
                 workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
                 portOrdinal: portOrdinal,
-                initialCommand: initialTerminalCommand,
+                intendedInitialCommand: initialTerminalCommand,
                 initialInput: initialTerminalInput,
                 initialEnvironmentOverrides: initialTerminalEnvironment
             )
+            // When materializing a daemon-originated workspace (e.g. iOS created
+            // it), adopt the daemon's existing session id so the bridge attaches
+            // to the running shell instead of asking the daemon to mint a fresh
+            // one via openPane.
+            if let adoptedDaemonSessionID {
+                terminalPanel.surface.savedDaemonSessionID = adoptedDaemonSessionID
+            }
             configureTerminalPanel(terminalPanel)
             panels[terminalPanel.id] = terminalPanel
             panelTitles[terminalPanel.id] = terminalPanel.displayTitle
@@ -7933,13 +8721,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     deinit {
-        for registrations in pendingTerminalInputObserversByPanelId.values {
-            for registration in registrations {
-                if let observer = registration.observer {
-                    NotificationCenter.default.removeObserver(observer)
-                }
-            }
-        }
+        #if DEBUG
+        restoredDaemonPreCreateCancellable?.cancel()
+        #endif
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
     }
@@ -8560,6 +9344,9 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customColor = nil
         }
+        if WorkspaceDaemonBridge.customColorOwnedByDaemon {
+            DaemonConnection.shared.sendWorkspaceSetColor(workspaceID: id, color: customColor)
+        }
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {
@@ -8588,6 +9375,9 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customTitle = trimmed
             self.title = trimmed
+        }
+        if WorkspaceDaemonBridge.customTitleOwnedByDaemon {
+            DaemonConnection.shared.sendWorkspaceRename(workspaceID: id, title: self.title)
         }
     }
 
@@ -8654,6 +9444,16 @@ final class Workspace: Identifiable, ObservableObject {
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         guard previousState != state else { return }
         panelShellActivityStates[panelId] = state
+        NotificationCenter.default.post(
+            name: .terminalSurfaceShellActivityDidChange,
+            object: self,
+            userInfo: [
+                "workspaceId": id,
+                "surfaceId": panelId,
+                "state": state.rawValue
+            ]
+        )
+
         if state == .commandRunning, let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             if restoredAgentAutoResumePendingPanelIds.remove(panelId) == nil {
                 let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restoredAgent)
@@ -8673,6 +9473,10 @@ final class Workspace: Identifiable, ObservableObject {
             "panel=\(panelId.uuidString.prefix(5)) from=\(previousState.rawValue) to=\(state.rawValue)"
         )
 #endif
+    }
+
+    func panelShellActivityState(panelId: UUID) -> PanelShellActivityState {
+        panelShellActivityStates[panelId] ?? .unknown
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
@@ -8876,9 +9680,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
-        for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
-            removePendingTerminalInputObservers(forPanelId: panelId)
-        }
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
@@ -9992,13 +10793,13 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
         // Create the new terminal panel.
-        let newPanel = TerminalPanel(
+        let newPanel = Self.makeTerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: remoteTerminalStartupCommand
+            startupCommandOverride: remoteTerminalStartupCommand
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -10115,13 +10916,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         // Create new terminal panel
-        let newPanel = TerminalPanel(
+        let newPanel = Self.makeTerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: remoteTerminalStartupCommand,
+            startupCommandOverride: remoteTerminalStartupCommand,
             initialInput: initialInput,
             additionalEnvironment: startupEnvironment
         )
@@ -10626,7 +11427,6 @@ final class Workspace: Identifiable, ObservableObject {
 
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
-            removePendingTerminalInputObservers(forPanelId: panelId)
             panelSubscriptions.removeValue(forKey: panelId)
             PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
             panel.close()
@@ -10635,10 +11435,10 @@ final class Workspace: Identifiable, ObservableObject {
         panels.removeAll(keepingCapacity: false)
         surfaceIdToPanelId.removeAll(keepingCapacity: false)
         panelSubscriptions.removeAll(keepingCapacity: false)
+        pendingSurfaceInputCancellables.removeAll(keepingCapacity: false)
         pendingRemoteTerminalChildExitSurfaceIds.removeAll(keepingCapacity: false)
         pruneSurfaceMetadata(validSurfaceIds: [])
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
-        pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
@@ -11561,8 +12361,8 @@ final class Workspace: Identifiable, ObservableObject {
         var shortcuts: [TabContextAction: KeyboardShortcut] = [:]
         let mappings: [(TabContextAction, KeyboardShortcutSettings.Action)] = [
             (.rename, .renameTab),
-            (.toggleZoom, .toggleSplitZoom),
             (.newTerminalToRight, .newSurface),
+            (.toggleZoom, .toggleSplitZoom),
         ]
         for (contextAction, settingsAction) in mappings {
             let stored = KeyboardShortcutSettings.shortcut(for: settingsAction)
@@ -11716,12 +12516,12 @@ final class Workspace: Identifiable, ObservableObject {
         let bannerTarget = pendingReplacementBannerRemoteTarget
         pendingReplacementBannerRemoteTarget = nil
         let replacementInitialCommand: String? = bannerTarget.map { Self.replacementShellScriptWithBanner(target: $0) }
-        let newPanel = TerminalPanel(
+        let newPanel = Self.makeTerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal,
-            initialCommand: replacementInitialCommand
+            startupCommandOverride: replacementInitialCommand
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -13178,6 +13978,10 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        if shouldTreatCurrentEventAsExplicitFocusIntent() {
+            controller.onTabCloseRequest?(tab.id, pane)
+        }
+
         func recordPostCloseSelection() {
             let tabs = controller.tabs(inPane: pane)
             guard let idx = tabs.firstIndex(where: { $0.id == tab.id }) else {
@@ -13303,7 +14107,6 @@ extension Workspace: BonsplitDelegate {
         #endif
 
         let panel = panels[panelId]
-        removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
 
         if isDetaching, let panel {
@@ -13506,7 +14309,6 @@ extension Workspace: BonsplitDelegate {
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
-                removePendingTerminalInputObservers(forPanelId: panelId)
                 panels[panelId]?.close()
                 panels.removeValue(forKey: panelId)
                 untrackRemoteTerminalSurface(panelId)
@@ -13647,7 +14449,7 @@ extension Workspace: BonsplitDelegate {
                     // empty pane during drag-to-split of a single-tab pane.
                     let inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
 
-                    let replacementPanel = TerminalPanel(
+                    let replacementPanel = Self.makeTerminalPanel(
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
@@ -13714,7 +14516,7 @@ extension Workspace: BonsplitDelegate {
             inPane: originalPane
         )
 
-        let newPanel = TerminalPanel(
+        let newPanel = Self.makeTerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,

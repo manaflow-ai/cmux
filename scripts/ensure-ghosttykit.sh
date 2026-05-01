@@ -256,4 +256,5 @@ if [[ -f "$MACOS_ARCHIVE" ]]; then
 fi
 
 echo "==> Creating symlink for GhosttyKit.xcframework..."
-ln -sfn "$CACHE_XCFRAMEWORK" GhosttyKit.xcframework
+rm -rf GhosttyKit.xcframework
+ln -s "$CACHE_XCFRAMEWORK" GhosttyKit.xcframework

@@ -1,0 +1,4 @@
+{"id":1,"method":"terminal.open","params":{"command":"printf READY; stty raw -echo -onlcr; exec cat","cols":120,"rows":40}}
+{"id":2,"method":"terminal.read","params":{"session_id":"{{session_id}}","offset":0,"max_bytes":1024,"timeout_ms":1000}}
+{"id":3,"method":"terminal.write","params":{"session_id":"{{session_id}}","data":"aGVsbG8K"}}
+{"id":4,"method":"terminal.read","params":{"session_id":"{{session_id}}","offset":{{offset}},"max_bytes":1024,"timeout_ms":1000}}

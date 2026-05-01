@@ -27,6 +27,13 @@ export const env = createEnv({
     RESEND_API_KEY: z.string().min(1),
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1),
+    CMUX_DAEMON_PUSH_SECRET: z.string().min(1).optional(),
+    APNS_TEAM_ID: z.string().min(1).optional(),
+    APNS_KEY_ID: z.string().min(1).optional(),
+    APNS_BUNDLE_ID: z.string().min(1).optional(),
+    APNS_PRIVATE_KEY_BASE64: z.string().min(1).optional(),
+    APNS_PRIVATE_KEY_PATH: z.string().min(1).optional(),
+    APNS_PRODUCTION: z.enum(["0", "1"]).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
   },
   client: {
@@ -37,6 +44,13 @@ export const env = createEnv({
     RESEND_API_KEY: trimEnv(process.env.RESEND_API_KEY),
     CMUX_FEEDBACK_FROM_EMAIL: trimEnv(process.env.CMUX_FEEDBACK_FROM_EMAIL),
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
+    CMUX_DAEMON_PUSH_SECRET: trimEnv(process.env.CMUX_DAEMON_PUSH_SECRET),
+    APNS_TEAM_ID: trimEnv(process.env.APNS_TEAM_ID),
+    APNS_KEY_ID: trimEnv(process.env.APNS_KEY_ID),
+    APNS_BUNDLE_ID: trimEnv(process.env.APNS_BUNDLE_ID),
+    APNS_PRIVATE_KEY_BASE64: trimEnv(process.env.APNS_PRIVATE_KEY_BASE64),
+    APNS_PRIVATE_KEY_PATH: trimEnv(process.env.APNS_PRIVATE_KEY_PATH),
+    APNS_PRODUCTION: trimEnv(process.env.APNS_PRODUCTION),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
       "00000000-0000-4000-8000-000000000000"

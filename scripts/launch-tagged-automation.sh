@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/zig-build-env.sh"
+
 usage() {
   cat <<'EOF'
 Usage: ./scripts/launch-tagged-automation.sh <tag> [options]
@@ -34,6 +37,19 @@ sanitize_path() {
   echo "$cleaned"
 }
 
+wait_for_process_pattern_exit() {
+  local pattern="$1"
+  local timeout_s="${2:-10}"
+  local deadline=$((SECONDS + timeout_s))
+  while (( SECONDS < deadline )); do
+    if ! pgrep -f "$pattern" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
 if [[ $# -lt 1 ]]; then
   usage
   exit 1
@@ -44,6 +60,7 @@ MODE="automation"
 SHELL_LOG=""
 WAIT_SOCKET="10"
 EXTRA_ENV=()
+EXTRA_ENV_COUNT=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -61,6 +78,7 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       EXTRA_ENV+=("${2}")
+      EXTRA_ENV_COUNT=$((EXTRA_ENV_COUNT + 1))
       shift 2
       ;;
     --shell-log)
@@ -109,17 +127,22 @@ BID="com.cmuxterm.app.debug.${TAG_ID}"
 SOCK="/tmp/cmux-debug-${TAG_SLUG}.sock"
 DSOCK="$HOME/Library/Application Support/cmux/cmuxd-dev-${TAG_SLUG}.sock"
 LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
+DAEMON_BIN="$PWD/daemon/remote/zig/zig-out/bin/cmuxd-remote"
 
 if [[ ! -d "$APP" ]]; then
   echo "error: tagged app not found at $APP" >&2
   exit 1
 fi
 
-/usr/bin/osascript -e "tell application id \"${BID}\" to quit" >/dev/null 2>&1 || true
-sleep 0.5
+if [[ -d "$PWD/daemon/remote/zig" ]]; then
+  (cd "$PWD/daemon/remote/zig" && cmux_run_zig build -Doptimize=ReleaseFast)
+fi
+
 pkill -f "cmux DEV ${TAG}.app/Contents/MacOS/cmux DEV" || true
+wait_for_process_pattern_exit "cmux DEV ${TAG}.app/Contents/MacOS/cmux DEV" 10 || true
+pkill -f "cmuxd-remote serve --unix --socket ${DSOCK}" || true
+wait_for_process_pattern_exit "cmuxd-remote serve --unix --socket ${DSOCK}" 10 || true
 rm -f "$SOCK" "$DSOCK"
-sleep 0.5
 
 OPEN_ENV=(
   env
@@ -130,6 +153,7 @@ OPEN_ENV=(
   -u CMUX_SURFACE_ID
   -u CMUX_WORKSPACE_ID
   -u CMUXD_UNIX_PATH
+  -u CMUX_REMOTE_DAEMON_BINARY
   -u CMUX_TAG
   -u CMUX_PORT
   -u CMUX_PORT_END
@@ -139,22 +163,35 @@ OPEN_ENV=(
   -u CMUX_SHELL_INTEGRATION
   -u CMUX_SHELL_INTEGRATION_DIR
   -u CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION
+  -u CMUX_LOAD_GHOSTTY_BASH_INTEGRATION
+  -u CMUX_BUNDLED_CLI_PATH
   -u GHOSTTY_BIN_DIR
   -u GHOSTTY_RESOURCES_DIR
   -u GHOSTTY_SHELL_FEATURES
+  -u GHOSTTY_ZSH_INTEGRATION_LOG
   -u GIT_PAGER
   -u GH_PAGER
+  -u TERM
+  -u TERM_PROGRAM
+  -u TERM_PROGRAM_VERSION
+  -u COLORTERM
   -u TERMINFO
+  -u MANPATH
   -u XDG_DATA_DIRS
   "CMUX_SOCKET_MODE=${MODE}"
   "CMUX_SOCKET_PATH=${SOCK}"
   "CMUXD_UNIX_PATH=${DSOCK}"
   "CMUX_DEBUG_LOG=${LOG}"
 )
+if [[ -x "$DAEMON_BIN" ]]; then
+  OPEN_ENV+=("CMUX_REMOTE_DAEMON_BINARY=${DAEMON_BIN}")
+fi
 
-for kv in "${EXTRA_ENV[@]}"; do
-  OPEN_ENV+=("${kv}")
-done
+if (( EXTRA_ENV_COUNT > 0 )); then
+  for kv in "${EXTRA_ENV[@]}"; do
+    OPEN_ENV+=("${kv}")
+  done
+fi
 if [[ -n "$SHELL_LOG" ]]; then
   OPEN_ENV+=("GHOSTTY_ZSH_INTEGRATION_LOG=${SHELL_LOG}")
 fi
@@ -181,7 +218,7 @@ echo "socket_ready: $(if [[ -S "$SOCK" ]]; then echo yes; else echo no; fi)"
 if [[ -n "$SHELL_LOG" ]]; then
   echo "shell_log: $SHELL_LOG"
 fi
-if [[ "${#EXTRA_ENV[@]}" -gt 0 ]]; then
+if (( EXTRA_ENV_COUNT > 0 )); then
   echo "extra_env:"
   for kv in "${EXTRA_ENV[@]}"; do
     echo "  $kv"

@@ -55,12 +55,20 @@ jobs:
           xcrun --sdk macosx --show-sdk-path
           sw_vers
 
+      - name: Compute GhosttyKit cache key
+        id: ghosttykit-cache-key
+        run: |
+          set -euo pipefail
+          ghostty_sha="$(git -C ghostty rev-parse HEAD)"
+          xcode_fingerprint="$(xcodebuild -version | shasum -a 256 | awk '{print $1}')"
+          echo "key=ghosttykit-${ghostty_sha}-${xcode_fingerprint}" >> "$GITHUB_OUTPUT"
+
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ${{ steps.ghosttykit-cache-key.outputs.key }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'

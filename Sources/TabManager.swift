@@ -2154,7 +2154,97 @@ class TabManager: ObservableObject {
                     sendWelcomeWhenReady(to: newWorkspace)
                 }
             }
+            // Register the workspace with the daemon BEFORE the surface
+            // lazy-renders and fires workspace.open_pane. Without this the
+            // openPane RPC races sync: sync is queued on a 50ms debounce,
+            // SwiftUI renders the surface within that window, openPane sees
+            // the workspace missing and exhausts its 5 retries. Firing
+            // workspace.create here guarantees the daemon has the workspace
+            // by the time openPane lands. pendingCreate dedupes the
+            // inbound workspace.changed echo.
+            DaemonConnection.shared.markPendingCreate(workspaceID: newWorkspace.id)
+            DaemonConnection.shared.sendWorkspaceCreate(
+                workspaceID: newWorkspace.id,
+                title: newWorkspace.title,
+                directory: newWorkspace.currentDirectory
+            )
             return newWorkspace
+        }
+    }
+
+    /// Daemon-authority insertion. Bypasses the inheritance machinery used by
+    /// the user-initiated `addWorkspace(...)` path (no port ordinal bump, no
+    /// font/placement inheritance, no welcome command, no eager focus). Always
+    /// appended to the end. Caller is responsible for picking selection if the
+    /// daemon's payload calls for it.
+    @discardableResult
+    func addWorkspaceFromDaemon(
+        id: UUID,
+        title: String,
+        directory: String?,
+        color: String?,
+        pinned: Bool,
+        adoptedDaemonSessionID: String? = nil
+    ) -> Workspace {
+        let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Terminal" : title
+        let workspace = Workspace(
+            id: id,
+            title: resolvedTitle,
+            workingDirectory: directory,
+            adoptedDaemonSessionID: adoptedDaemonSessionID
+        )
+        workspace.owningTabManager = self
+        if pinned {
+            workspace.isPinned = true
+        }
+        if let color, !color.isEmpty {
+            workspace.customColor = color
+        }
+        wireClosedBrowserTracking(for: workspace)
+        tabs.append(workspace)
+        if pinned {
+            reorderTabForPinnedState(workspace)
+        }
+        if selectedTabId == nil {
+            selectedTabId = workspace.id
+        }
+        return workspace
+    }
+
+    /// Daemon-authority removal. Mirrors the bulk of `closeWorkspace(_:)` but
+    /// skips the `tabs.count > 1` guard (the daemon, not the user, decided the
+    /// workspace is gone) and falls back to a placeholder workspace if the
+    /// removal would leave the window empty (the UI assumes one tab minimum).
+    /// Does NOT add to pending_deletes or send `workspace.close` RPC: the
+    /// daemon initiated this removal.
+    func closeWorkspaceFromDaemon(_ workspace: Workspace) {
+        sentryBreadcrumb("workspace.close.daemon", data: ["tabCount": tabs.count - 1])
+        clearWorkspaceGitProbes(workspaceId: workspace.id)
+        clearWorkspacePullRequestTracking(workspaceId: workspace.id)
+        sidebarSelectedWorkspaceIds.remove(workspace.id)
+
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        workspace.teardownAllPanels()
+        workspace.teardownRemoteConnection()
+        unwireClosedBrowserTracking(for: workspace)
+        workspace.owningTabManager = nil
+
+        guard let index = tabs.firstIndex(where: { $0.id == workspace.id }) else { return }
+        tabs.remove(at: index)
+
+        if tabs.isEmpty {
+            // The macOS UI assumes each window holds at least one workspace.
+            // Spawn a fallback locally; the daemon will see it on the next
+            // workspace.sync push (or via workspace.create if the existence
+            // flag is on, which echoes through pending_creates dedup).
+            _ = addWorkspace()
+            return
+        }
+
+        if selectedTabId == workspace.id {
+            let newIndex = min(index, max(0, tabs.count - 1))
+            selectedTabId = tabs[newIndex].id
         }
     }
 
@@ -3888,6 +3978,9 @@ class TabManager: ObservableObject {
         guard tab.isPinned != pinned else { return }
         tab.isPinned = pinned
         reorderTabForPinnedState(tab)
+        if WorkspaceDaemonBridge.pinnedOwnedByDaemon {
+            DaemonConnection.shared.sendWorkspacePin(workspaceID: tab.id, pinned: pinned)
+        }
     }
 
     private func reorderTabForPinnedState(_ tab: Workspace) {
@@ -4103,16 +4196,27 @@ class TabManager: ObservableObject {
         unwireClosedBrowserTracking(for: workspace)
         workspace.owningTabManager = nil
 
-        if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
+        let workspaceID = workspace.id
+
+        if let index = tabs.firstIndex(where: { $0.id == workspaceID }) {
             tabs.remove(at: index)
 
-            if selectedTabId == workspace.id {
+            if selectedTabId == workspaceID {
                 // Keep the "focused index" stable when possible:
                 // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
                 // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
                 let newIndex = min(index, max(0, tabs.count - 1))
                 selectedTabId = tabs[newIndex].id
             }
+        }
+
+        // When the daemon owns workspace existence, mirror the local close to
+        // the daemon. The pending_deletes entry suppresses the daemon-authority
+        // re-instantiation path while the close propagates and is reconciled
+        // out on the next workspace.changed echo.
+        if WorkspaceDaemonBridge.existenceOwnedByDaemon {
+            DaemonConnection.shared.markPendingDelete(workspaceID: workspaceID)
+            DaemonConnection.shared.sendWorkspaceClose(workspaceID: workspaceID)
         }
     }
 

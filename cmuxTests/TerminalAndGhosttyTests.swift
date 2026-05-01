@@ -13,6 +13,37 @@ import UserNotifications
 @testable import cmux
 #endif
 
+final class TerminalGridCellCountTests: XCTestCase {
+    func testMeasuredGhosttyCellHeightDoesNotDropExactFullRow() {
+        let cellHeight = CGFloat(1796) / CGFloat(63)
+
+        XCTAssertEqual(
+            cmuxTerminalGridCellCount(containerPixels: 1796, cellPixels: cellHeight),
+            63
+        )
+    }
+
+    func testRealPartialCellStillFloors() {
+        let cellHeight = CGFloat(1796) / CGFloat(63)
+
+        XCTAssertEqual(
+            cmuxTerminalGridCellCount(containerPixels: 1795.9, cellPixels: cellHeight),
+            62
+        )
+    }
+
+    func testGhosttyWindowPaddingIsSubtractedBeforeDividing() {
+        XCTAssertEqual(
+            cmuxTerminalGridCellCount(containerPixels: 2040, cellPixels: 14, paddingPixels: 8),
+            145
+        )
+        XCTAssertEqual(
+            cmuxTerminalGridCellCount(containerPixels: 1476, cellPixels: 28, paddingPixels: 8),
+            52
+        )
+    }
+}
+
 @MainActor
 final class GhosttyPasteboardHelperTests: XCTestCase {
     private func make1x1PNG(color: NSColor) throws -> Data {
@@ -3206,6 +3237,45 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTWaiter().wait(for: [expectation], timeout: 1.0)
     }
 
+    func testHostedTerminalReportsNaturalCapacityWhenContainerGrows() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
+        )
+        hosted.frame = NSRect(x: 0, y: 0, width: 360, height: 180)
+        contentView.addSubview(hosted)
+        hosted.needsLayout = true
+        hosted.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            hosted.debugNaturalCapacityContainerReportSizes().last,
+            CGSize(width: 360, height: 180),
+            "Initial layout should report the full host container, not only the rendered surface"
+        )
+
+        hosted.frame.size.height = 320
+        hosted.needsLayout = true
+        hosted.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            hosted.debugNaturalCapacityContainerReportSizes().last,
+            CGSize(width: 360, height: 320),
+            "A vertical grow must report the new natural host height even if the rendered terminal frame stayed pinned"
+        )
+    }
+
     func testPortalHostInstallsAboveContentViewForVisibility() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -4291,6 +4361,80 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
                 interactiveGeometryResizeActive: true
             ),
             "Interactive resize should use the immediate portal sync path"
+        )
+    }
+
+    func testSurfaceResizeDeferralRequiresRealDragOutsideLiveResize() {
+        XCTAssertTrue(
+            GhosttyNSView.shouldDeferSurfaceResizeForActiveDrag(
+                hasTabDragPasteboardTypes: true,
+                eventType: .leftMouseDragged,
+                interactiveGeometryResizeActive: false
+            )
+        )
+    }
+
+    func testSurfaceResizeDeferralSkipsInteractiveGeometryResizeEvenWithTabDragPasteboard() {
+        XCTAssertFalse(
+            GhosttyNSView.shouldDeferSurfaceResizeForActiveDrag(
+                hasTabDragPasteboardTypes: true,
+                eventType: .leftMouseDragged,
+                interactiveGeometryResizeActive: true
+            )
+        )
+    }
+
+    func testSurfaceResizeDeferralSkipsNonDragEvents() {
+        XCTAssertFalse(
+            GhosttyNSView.shouldDeferSurfaceResizeForActiveDrag(
+                hasTabDragPasteboardTypes: true,
+                eventType: .leftMouseUp,
+                interactiveGeometryResizeActive: false
+            )
+        )
+    }
+
+    func testCoreSurfaceTargetSizePrefersLiveScrollBoundsOverStaleContentSizeWidth() {
+        XCTAssertEqual(
+            GhosttySurfaceScrollView.synchronizedCoreSurfaceFrame(
+                currentOrigin: CGPoint(x: 12, y: 34),
+                containerSize: CGSize(width: 600, height: 388),
+                letterboxRect: nil
+            ),
+            CGRect(x: 12, y: 34, width: 600, height: 388)
+        )
+    }
+
+    func testCoreSurfaceTargetSizePrefersLiveScrollBoundsOverStaleContentSizeHeight() {
+        XCTAssertEqual(
+            GhosttySurfaceScrollView.synchronizedCoreSurfaceFrame(
+                currentOrigin: CGPoint(x: 8, y: 16),
+                containerSize: CGSize(width: 700, height: 420),
+                letterboxRect: nil
+            ),
+            CGRect(x: 8, y: 16, width: 700, height: 420)
+        )
+    }
+
+    func testCoreSurfaceTargetSizeKeepsCurrentOriginWhenUnconstrained() {
+        XCTAssertEqual(
+            GhosttySurfaceScrollView.synchronizedCoreSurfaceFrame(
+                currentOrigin: CGPoint(x: 20, y: 30),
+                containerSize: CGSize(width: 700, height: 588),
+                letterboxRect: CGRect(x: 0, y: 0, width: 700, height: 588)
+            ),
+            CGRect(x: 20, y: 30, width: 700, height: 588)
+        )
+    }
+
+    func testCoreSurfaceTargetSizeUsesPinnedLetterboxWhenSmallerThanContainer() {
+        XCTAssertEqual(
+            GhosttySurfaceScrollView.synchronizedCoreSurfaceFrame(
+                currentOrigin: CGPoint(x: 20, y: 30),
+                containerSize: CGSize(width: 1000, height: 738),
+                letterboxRect: CGRect(x: 0, y: 0, width: 700, height: 388)
+            ),
+            CGRect(x: 0, y: 0, width: 700, height: 388)
         )
     }
 }

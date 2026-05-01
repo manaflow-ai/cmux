@@ -263,14 +263,14 @@ print_tag_cleanup_reminder() {
     for tag in "${stale_tags[@]}"; do
       echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
       echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
-      echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
+      echo "  rm -f \"/tmp/cmux-debug-${tag}.log\" \"/tmp/cmux-debug-${tag}.wsport\" \"/tmp/cmux-debug-${tag}-daemon.sock\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
     done
   fi
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
   echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
-  echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
+  echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\" \"/tmp/cmux-debug-${current_slug}.wsport\" \"/tmp/cmux-debug-${current_slug}-daemon.sock\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
 
@@ -440,6 +440,42 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
 fi
 XCODEBUILD_ARGS+=(build)
 
+# Kick off zig builds in parallel with xcodebuild. The mac app and the
+# zig daemon (cmuxd-remote) are independent compilation units — running
+# them sequentially doubles wall time for no reason. Their outputs are
+# collected after xcodebuild finishes and copied into the .app bundle.
+ZIG_DAEMON_LOG="/tmp/cmux-zig-daemon-${TAG_SLUG}.log"
+ZIG_CMUXD_LOG="/tmp/cmux-zig-cmuxd-${TAG_SLUG}.log"
+ZIG_GHOSTTY_LOG="/tmp/cmux-zig-ghostty-${TAG_SLUG}.log"
+ZIG_PIDS=()
+ZIG_LABELS=()
+ZIG_LOGS=()
+if [[ -d "$PWD/cmuxd" ]]; then
+  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast) >"$ZIG_CMUXD_LOG" 2>&1 &
+  ZIG_PIDS+=($!)
+  ZIG_LABELS+=("cmuxd")
+  ZIG_LOGS+=("$ZIG_CMUXD_LOG")
+fi
+if [[ -d "$PWD/daemon/remote/zig" ]]; then
+  # ReleaseSafe for the daemon so safety-check panics land as named
+  # crashes with a stack trace. PTY-throughput-bound workload eats the
+  # ~10-15% cost without user-visible effect.
+  (cd "$PWD/daemon/remote/zig" && zig build -Doptimize=ReleaseSafe) >"$ZIG_DAEMON_LOG" 2>&1 &
+  ZIG_PIDS+=($!)
+  ZIG_LABELS+=("cmuxd-remote")
+  ZIG_LOGS+=("$ZIG_DAEMON_LOG")
+fi
+if [[ -d "$PWD/ghostty" ]]; then
+  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+    echo "Skipping direct ghostty CLI helper zig build (CMUX_SKIP_ZIG_BUILD=1)"
+  else
+    (cd "$PWD/ghostty" && zig build cli-helper -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Doptimize=ReleaseFast) >"$ZIG_GHOSTTY_LOG" 2>&1 &
+    ZIG_PIDS+=($!)
+    ZIG_LABELS+=("ghostty-cli-helper")
+    ZIG_LOGS+=("$ZIG_GHOSTTY_LOG")
+  fi
+fi
+
 XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
 # Xcode 26's SWBBuildService is a per-user singleton. Concurrent xcodebuild
 # invocations (even with separate -derivedDataPath) share that daemon and can
@@ -488,7 +524,29 @@ try:
     os.execvp(command[0], command)
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}"
+' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}" || {
+  xcode_exit=$?
+  echo "error: xcodebuild failed with exit code $xcode_exit" >&2
+  # Don't leave orphaned zig builds running if xcodebuild failed.
+  for pid in "${ZIG_PIDS[@]}"; do
+    kill "$pid" 2>/dev/null || true
+  done
+  exit "$xcode_exit"
+}
+
+# Wait on all zig builds. Surface failures without aborting the rest
+# (some stages like ghostty CLI helper are optional).
+ZIG_FAILED=0
+for idx in "${!ZIG_PIDS[@]}"; do
+  if ! wait "${ZIG_PIDS[$idx]}"; then
+    echo "warning: zig build ${ZIG_LABELS[$idx]} failed (log: ${ZIG_LOGS[$idx]})" >&2
+    ZIG_FAILED=1
+  fi
+done
+if [[ "$ZIG_FAILED" -eq 1 ]]; then
+  echo "error: one or more zig builds failed; see logs above" >&2
+  exit 1
+fi
 sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
@@ -602,28 +660,10 @@ if [[ -x "$CLI_PATH" ]]; then
   fi
 fi
 
-# Build cmuxd and ghostty helper binaries (needed for both launch and no-launch).
+# Collect outputs from the zig builds that ran in parallel with
+# xcodebuild above and stage them into the .app bundle.
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 GHOSTTY_HELPER_SRC="$PWD/ghostty/zig-out/bin/ghostty"
-if [[ -d "$PWD/cmuxd" ]]; then
-  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
-fi
-if [[ -d "$PWD/ghostty" ]]; then
-  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
-    echo "Skipping direct ghostty CLI helper zig build (CMUX_SKIP_ZIG_BUILD=1)"
-  else
-    GHOSTTY_HELPER_TARGET=""
-    case "$(/usr/bin/arch)" in
-      arm64) GHOSTTY_HELPER_TARGET="aarch64-macos" ;;
-      i386|x86_64) GHOSTTY_HELPER_TARGET="x86_64-macos" ;;
-    esac
-    if [[ -n "$GHOSTTY_HELPER_TARGET" ]]; then
-      "$PWD/scripts/build-ghostty-cli-helper.sh" --target "$GHOSTTY_HELPER_TARGET" --output "$GHOSTTY_HELPER_SRC"
-    else
-      "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_SRC"
-    fi
-  fi
-fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   mkdir -p "$BIN_DIR"
@@ -636,9 +676,10 @@ if [[ -x "$GHOSTTY_HELPER_SRC" ]]; then
   cp "$GHOSTTY_HELPER_SRC" "$BIN_DIR/ghostty"
   chmod +x "$BIN_DIR/ghostty"
 fi
-if command -v xattr >/dev/null 2>&1; then
-  xattr -cr "$APP_PATH" || true
-fi
+# macOS 26 can attach provenance/Finder metadata when the tagged .app copy is
+# created. codesign rejects app bundles with that detritus, so clear it before
+# the final ad-hoc signature.
+xattr -cr "$APP_PATH" 2>/dev/null || true
 if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
   if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
     echo "warning: codesign failed for $APP_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
@@ -652,24 +693,36 @@ if [[ -x "$CLI_PATH" ]]; then
   echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
 fi
 
-# Tag mode: always terminate the existing same-tag instance after a successful build,
-# even without --launch. A stale tagged app pinned to this bundle id would otherwise
-# keep running against freshly-overwritten resources, and macOS would foreground it
-# instead of launching the newly built binary when the user cmd-clicks the .app.
+# Tag mode: always terminate the existing same-tag mac app AND the
+# tagged zig daemon after a successful build, even without --launch.
+# A stale tagged app pinned to this bundle id would otherwise keep
+# running against freshly-overwritten resources, and macOS would
+# foreground it instead of launching the newly built binary when the
+# user cmd-clicks the .app. Killing the daemon too makes the mac app's
+# supervisor respawn with the freshly built cmuxd-remote binary — a
+# reload of the zig daemon, not just the Swift app.
 if [[ -n "$TAG" ]]; then
-  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-  sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+  if pkill -f "cmuxd-remote.*--socket.*cmuxd-dev-${TAG_SLUG}" >/dev/null 2>&1; then
+    echo "Killed tagged cmuxd-remote; mac supervisor will respawn with the new binary."
+  fi
+  rm -f "$HOME/Library/Application Support/cmux/cmuxd-dev-${TAG_SLUG}.sock" || true
   sleep 0.3
 fi
 
 if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
-    /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-    sleep 0.3
     pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
     sleep 0.3
+  fi
+
+  # Kill the tagged daemon so the new build starts a fresh one
+  if [[ -n "$TAG" ]]; then
+    pkill -f "cmuxd-remote.*--socket.*cmuxd-dev-${TAG}" || true
+    rm -f "$HOME/Library/Application Support/cmux/cmuxd-dev-${TAG}.sock"
+  else
+    pkill -f "cmuxd-remote.*--socket.*cmuxd\.sock" || true
   fi
 
   # Avoid inheriting cmux/ghostty environment variables from the terminal that

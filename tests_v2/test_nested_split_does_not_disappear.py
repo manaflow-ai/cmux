@@ -61,50 +61,54 @@ def main() -> int:
 
         # Run a few iterations to make intermittent issues deterministic.
         for it in range(8):
-            c.new_workspace()
+            workspace_id = c.new_workspace()
+            c.select_workspace(workspace_id)
             time.sleep(0.25)
 
-            surfaces0 = c.list_surfaces()
-            if not surfaces0:
-                raise cmuxError("expected initial surface")
-            left_panel = surfaces0[0][1]
+            try:
+                surfaces0 = c.list_surfaces(workspace_id)
+                if not surfaces0:
+                    raise cmuxError("expected initial surface")
+                left_panel = surfaces0[0][1]
 
-            # Create first split to the right.
-            right_panel = c.new_split("right")
-            time.sleep(0.05)
+                # Create first split to the right.
+                right_panel = c.new_split("right")
+                time.sleep(0.05)
 
-            # Focus the right panel, then split it again to create a nested split.
-            c.focus_surface(right_panel)
-            time.sleep(0.02)
-            new_right_panel = c.new_split("right")
+                # Focus the right panel, then split it again to create a nested split.
+                c.focus_surface(right_panel)
+                time.sleep(0.02)
+                new_right_panel = c.new_split("right")
 
-            panel_ids = [left_panel, right_panel, new_right_panel]
+                panel_ids = [left_panel, right_panel, new_right_panel]
 
-            # Stress window: assert repeatedly during the first second after the nested split.
-            deadline = time.time() + 1.2
-            last_err = None
-            while time.time() < deadline:
-                try:
-                    _assert_all_panels_visible(c, panel_ids)
-                    last_err = None
-                except cmuxError as e:
-                    last_err = str(e)
-                    time.sleep(0.03)
-                else:
-                    time.sleep(0.03)
+                # Stress window: assert repeatedly during the first second after the nested split.
+                deadline = time.time() + 1.2
+                last_err = None
+                while time.time() < deadline:
+                    try:
+                        _assert_all_panels_visible(c, panel_ids)
+                        last_err = None
+                    except cmuxError as e:
+                        last_err = str(e)
+                        time.sleep(0.03)
+                    else:
+                        time.sleep(0.03)
 
-            # If the final sample in the stress window was bad, allow a short settle window
-            # before failing. This keeps real persistent regressions while reducing end-of-window
-            # sampling flakes.
-            if last_err:
-                try:
-                    _wait_until_all_panels_visible(c, panel_ids, timeout_s=0.8)
-                    last_err = None
-                except cmuxError as e:
-                    last_err = str(e)
+                # If the final sample in the stress window was bad, allow a short settle window
+                # before failing. This keeps real persistent regressions while reducing end-of-window
+                # sampling flakes.
+                if last_err:
+                    try:
+                        _wait_until_all_panels_visible(c, panel_ids, timeout_s=0.8)
+                        last_err = None
+                    except cmuxError as e:
+                        last_err = str(e)
 
-            if last_err:
-                raise cmuxError(f"iteration {it}: nested split caused disappearance: {last_err}")
+                if last_err:
+                    raise cmuxError(f"iteration {it}: nested split caused disappearance: {last_err}")
+            finally:
+                c.close_workspace(workspace_id)
 
         print("PASS: nested split does not detach/collapse panels")
         return 0

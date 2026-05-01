@@ -1,0 +1,9 @@
+name: search_workspaces
+description: Verify the workspace list loads and displays either workspace items or an empty state.
+
+steps:
+  - Launch the app.
+  - If the sign-in screen is shown, tap the email field, type "${secrets.dev_login_code}", and tap continue.
+  - On the Workspaces screen, verify the list is visible. It may show workspace items or a "No Workspaces" empty state. Either is valid.
+  - If workspace items are visible, scroll down and back up to verify the list is scrollable.
+  - Verify the Workspaces screen is still visible and functional.

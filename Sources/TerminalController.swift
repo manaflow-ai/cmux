@@ -9,6 +9,7 @@ extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     static let terminalSurfaceDidBecomeReady = Notification.Name("cmux.terminalSurfaceDidBecomeReady")
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
+    static let terminalSurfaceShellActivityDidChange = Notification.Name("cmux.terminalSurfaceShellActivityDidChange")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
@@ -2374,8 +2375,14 @@ class TerminalController {
 
         case "system.identify":
             return v2Ok(id: id, result: v2Identify(params: params))
+        case "daemon.status":
+            return v2Result(id: id, self.v2DaemonStatus(params: params))
+        case "daemon.stop":
+            return v2Result(id: id, self.v2DaemonStop(params: params))
         case "system.tree":
             return v2Result(id: id, self.v2SystemTree(params: params))
+        case "system.top":
+            return v2Result(id: id, self.v2SystemTop(params: params))
         case "auth.login":
             return v2Ok(
                 id: id,
@@ -2426,6 +2433,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceLast(params: params))
         case "workspace.equalize_splits":
             return v2Result(id: id, self.v2WorkspaceEqualizeSplits(params: params))
+        case "workspace.ensure_surfaces":
+            return v2Result(id: id, self.v2WorkspaceEnsureSurfaces(params: params))
         case "workspace.remote.configure":
             return v2Result(id: id, self.v2WorkspaceRemoteConfigure(params: params))
         case "workspace.remote.foreground_auth_ready":
@@ -2448,8 +2457,20 @@ class TerminalController {
         // Feedback
         case "feedback.open":
             return v2Result(id: id, self.v2FeedbackOpen(params: params))
+        case "feedback.submit":
+            return v2Result(id: id, self.v2FeedbackSubmit(params: params))
+        case "account.seed_tokens":
+            return v2Result(id: id, self.v2AccountSeedTokens(params: params))
 
         // Feed (workstream)
+        case "feed.push":
+            return v2Result(id: id, self.v2FeedPush(params: params))
+        case "feed.permission.reply":
+            return v2Result(id: id, self.v2FeedPermissionReply(params: params))
+        case "feed.question.reply":
+            return v2Result(id: id, self.v2FeedQuestionReply(params: params))
+        case "feed.exit_plan.reply":
+            return v2Result(id: id, self.v2FeedExitPlanReply(params: params))
         case "feed.jump":
             return v2Result(id: id, self.v2FeedJump(params: params))
         case "feed.list":
@@ -2782,6 +2803,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugPanelSnapshot(params: params))
         case "debug.panel_snapshot.reset":
             return v2Result(id: id, self.v2DebugPanelSnapshotReset(params: params))
+        case "debug.window.frame":
+            return v2Result(id: id, self.v2DebugWindowFrame(params: params))
+        case "debug.window.set_frame":
+            return v2Result(id: id, self.v2DebugSetWindowFrame(params: params))
         case "debug.window.screenshot":
             return v2Result(id: id, self.v2DebugScreenshot(params: params))
 #endif
@@ -2838,6 +2863,7 @@ class TerminalController {
             "settings.open",
             "feedback.open",
             "feedback.submit",
+            "account.seed_tokens",
             "feed.push",
             "feed.permission.reply",
             "feed.question.reply",
@@ -3002,6 +3028,8 @@ class TerminalController {
             "debug.flash.reset",
             "debug.panel_snapshot",
             "debug.panel_snapshot.reset",
+            "debug.window.frame",
+            "debug.window.set_frame",
             "debug.window.screenshot",
         ])
 #endif
@@ -3099,6 +3127,44 @@ class TerminalController {
             "focused": focused.isEmpty ? NSNull() : focused,
             "caller": v2OrNull(resolvedCaller)
         ]
+    }
+
+    private func v2DaemonStatus(params: [String: Any]) -> V2CallResult {
+        var result: [String: Any] = [:]
+        v2MainSync {
+            guard let appDelegate = AppDelegate.shared else { return }
+
+            // WorkspaceDaemonBridge status
+            let bridge = appDelegate.workspaceDaemonBridgeForStatus
+            result["bridge"] = [
+                "status": bridge.statusDescription,
+                "socket_path": bridge.socketPath,
+                "sync_count": bridge.syncCount,
+                "last_sync": bridge.lastSyncTime.map {
+                    ISO8601DateFormatter().string(from: $0)
+                } as Any? ?? NSNull(),
+            ] as [String: Any]
+
+#if DEBUG
+            // MobileDaemonBridgeInline status
+            let daemon = MobileDaemonBridgeInline.shared
+            result["daemon"] = [
+                "running": daemon.isRunning,
+                "ws_port": daemon.wsPort as Any? ?? NSNull(),
+                "socket_path": daemon.daemonSocketPath as Any? ?? NSNull(),
+            ] as [String: Any]
+#endif
+        }
+        return .ok(result)
+    }
+
+    private func v2DaemonStop(params: [String: Any]) -> V2CallResult {
+        v2MainSync {
+#if DEBUG
+            MobileDaemonBridgeInline.shared.killDaemon()
+#endif
+        }
+        return .ok(["stopped": true])
     }
 
     private func v2SystemTree(params: [String: Any]) -> V2CallResult {
@@ -4188,6 +4254,59 @@ class TerminalController {
             ])
     }
 
+    private func v2DebugWindowFrame(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        guard let frame = v2MainSync({ AppDelegate.shared?.mainWindowFrame(windowId: windowId) }) else {
+            return .err(code: "not_found", message: "Window not found", data: [
+                "window_id": windowId.uuidString,
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+            ])
+        }
+        return .ok(v2WindowFramePayload(windowId: windowId, frame: frame))
+    }
+
+    private func v2DebugSetWindowFrame(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        guard let x = v2Int(params, "x"),
+              let y = v2Int(params, "y"),
+              let width = v2Int(params, "width"),
+              let height = v2Int(params, "height"),
+              width > 0,
+              height > 0 else {
+            return .err(code: "invalid_params", message: "Missing or invalid x, y, width, or height", data: nil)
+        }
+        let requestedFrame = CGRect(x: x, y: y, width: width, height: height)
+        guard let actualFrame = v2MainSync({
+            AppDelegate.shared?.setMainWindowFrame(windowId: windowId, frame: requestedFrame)
+        }) else {
+            return .err(code: "not_found", message: "Window not found", data: [
+                "window_id": windowId.uuidString,
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+            ])
+        }
+        var payload = v2WindowFramePayload(windowId: windowId, frame: actualFrame)
+        payload["requested_x"] = x
+        payload["requested_y"] = y
+        payload["requested_width"] = width
+        payload["requested_height"] = height
+        return .ok(payload)
+    }
+
+    private func v2WindowFramePayload(windowId: UUID, frame: CGRect) -> [String: Any] {
+        [
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "x": Int(frame.origin.x.rounded()),
+            "y": Int(frame.origin.y.rounded()),
+            "width": Int(frame.size.width.rounded()),
+            "height": Int(frame.size.height.rounded()),
+        ]
+    }
+
     // MARK: - V2 Workspace Methods
 
     private func v2WorkspaceSummaryPayload(
@@ -4298,6 +4417,8 @@ class TerminalController {
             ws.setCustomDescription(description)
             if let layoutNode {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
+            } else if !shouldFocus {
+                ws.focusedTerminalPanel?.surface.openDaemonPaneHeadlesslyIfNeeded()
             }
             newId = ws.id
         }
@@ -4672,6 +4793,65 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    /// Force-create all Ghostty surfaces for a workspace's terminal panels.
+    /// Normally surfaces are created lazily when the view appears in a window.
+    /// This command bypasses that for headless testing (SSH, CI) so the
+    /// DaemonTerminalBridge starts and attaches to saved sessions.
+    private func v2WorkspaceEnsureSurfaces(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var created = 0
+        var total = 0
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let terminalPanels = ws.panels.values.compactMap { $0 as? TerminalPanel }
+            total = terminalPanels.count
+            for panel in terminalPanels {
+                let surface = panel.surface
+                if surface.daemonBridge != nil {
+                    created += 1
+                    continue
+                }
+                // The DaemonTerminalBridge normally starts inside
+                // createSurface() which is triggered by the SwiftUI
+                // view lifecycle. For headless testing, start the
+                // bridge directly if the daemon is running.
+                guard MobileDaemonBridgeInline.shared.isRunning else { continue }
+                let savedSessionID = surface.savedDaemonSessionID
+                let bridge = DaemonTerminalBridge(
+                    surfaceID: surface.id,
+                    sessionID: savedSessionID,
+                    shellCommand: "/bin/zsh -l"
+                )
+                surface.daemonBridge = bridge
+                bridge.start(cols: 80, rows: 24)
+                if savedSessionID == nil {
+                    // Mint a daemon-owned session bound to a pane in this workspace.
+                    // Buffered start+writes flush when assignSessionID lands.
+                    DaemonConnection.shared.openPane(
+                        workspaceID: ws.id,
+                        command: "/bin/zsh -l",
+                        cols: 80,
+                        rows: 24
+                    ) { [weak surface, weak bridge] sid, _ in
+                        guard let sid else { return }
+                        DispatchQueue.main.async {
+                            surface?.savedDaemonSessionID = sid
+                            bridge?.assignSessionID(sid)
+                        }
+                    }
+                }
+                created += 1
+            }
+        }
+        return .ok([
+            "total": total,
+            "created": created,
+        ])
     }
 
     private func v2WorkspaceEqualizeSplits(params: [String: Any]) -> V2CallResult {
@@ -6682,19 +6862,14 @@ class TerminalController {
             #if DEBUG
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
-            let queued: Bool
-            if let surface = terminalPanel.surface.surface {
-                sendSocketText(text, surface: surface)
+            let surfaceWasReady = terminalPanel.surface.surface != nil
+            terminalPanel.sendText(text)
+            let queued = !surfaceWasReady
+            if surfaceWasReady {
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
                 // change to trigger a draw.
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
-                queued = false
-            } else {
-                // Avoid blocking the main actor waiting for view/surface attachment.
-                terminalPanel.sendText(text)
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-                queued = true
             }
 #if DEBUG
             let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
@@ -8034,6 +8209,51 @@ class TerminalController {
 
         if semaphore.wait(timeout: .now() + 35) == .timedOut {
             return .err(code: "timeout", message: "Feedback submission timed out", data: nil)
+        }
+
+        return result
+    }
+
+    // MARK: - Account
+
+    private func v2AccountSeedTokens(params: [String: Any]) -> V2CallResult {
+        let email = params["email"] as? String
+        let password = params["password"] as? String
+        let refreshToken = params["refresh_token"] as? String
+
+        guard (email != nil && password != nil) || refreshToken != nil else {
+            return .err(code: "invalid_params", message: "Provide email+password or refresh_token", data: nil)
+        }
+
+        // Do the network call on a detached task to avoid MainActor deadlock with the socket handler.
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: V2CallResult = .err(code: "internal_error", message: "Sign-in failed", data: nil)
+
+        Task.detached {
+            do {
+                if let email, let password, !email.isEmpty, !password.isEmpty {
+                    // Sign in via Stack Auth API directly (no MainActor needed)
+                    let authResult = try await AuthManager.signInWithCredentialDirectly(email: email, password: password)
+                    // Update UI state on main actor (non-async, won't deadlock)
+                    await MainActor.run {
+                        AuthManager.shared.applySignInResult(authResult)
+                    }
+                    result = .ok(["authenticated": true, "email": authResult.email as Any])
+                } else if let refreshToken, !refreshToken.isEmpty {
+                    await AuthManager.shared.seedTokensFromCLI(
+                        refreshToken: refreshToken,
+                        accessToken: params["access_token"] as? String
+                    )
+                    result = .ok(["seeded": true])
+                }
+            } catch {
+                result = .err(code: "auth_failed", message: error.localizedDescription, data: nil)
+            }
+            semaphore.signal()
+        }
+
+        if semaphore.wait(timeout: .now() + 30) == .timedOut {
+            return .err(code: "timeout", message: "Sign-in timed out", data: nil)
         }
 
         return result

@@ -1,0 +1,12 @@
+name: sidebar_browse
+description: After login, verify the terminal sidebar is browsable and shows workspace items.
+
+steps:
+  - Launch the app.
+  - Tap the email input field.
+  - Type "${secrets.dev_login_code}" into the email field.
+  - Tap the continue or submit button.
+  - Wait for the main screen to load.
+  - Verify the sidebar or workspace list is visible.
+  - If there are workspace items listed, tap the first one.
+  - Verify a workspace detail or terminal view opens.

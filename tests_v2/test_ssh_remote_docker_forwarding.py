@@ -607,7 +607,7 @@ def main() -> int:
             _must("proxy.stream" in capabilities, f"daemon hello capabilities missing proxy.stream: {daemon}")
             _must("proxy.socks5" in capabilities, f"daemon hello capabilities missing proxy.socks5: {daemon}")
             _must("session.basic" in capabilities, f"daemon hello capabilities missing session.basic: {daemon}")
-            _must("session.resize.min" in capabilities, f"daemon hello capabilities missing session.resize.min: {daemon}")
+            _must("session.resize.owner" in capabilities, f"daemon hello capabilities missing session.resize.owner: {daemon}")
             remote_path = str(daemon.get("remote_path") or "").strip()
             _must(bool(remote_path), f"daemon ready state should include remote_path: {daemon}")
 

@@ -219,8 +219,7 @@ if [[ -f "$INFO_PLIST" ]]; then
 fi
 APP_PATH="$STAGING_APP_PATH"
 
-# Ensure any running instance is fully terminated, regardless of DerivedData path.
-/usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
+# Ensure any running staging instance is fully terminated, regardless of DerivedData path.
 sleep 0.3
 # Kill any running staging instance; allow side-by-side with the main and dev apps.
 pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true

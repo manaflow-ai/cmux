@@ -1,0 +1,9 @@
+name: dev_login
+description: Sign in using the dev shortcut code and verify landing on the main screen.
+
+steps:
+  - Launch the app.
+  - Tap the email input field.
+  - Type "${secrets.dev_login_code}" into the email field.
+  - Tap the continue or submit button.
+  - Verify the app navigates past the sign-in screen to the main terminal sidebar or workspace list.
