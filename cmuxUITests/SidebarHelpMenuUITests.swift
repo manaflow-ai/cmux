@@ -17,6 +17,18 @@ private func sidebarHelpPollUntil(
     }
 }
 
+private func sidebarHelpResetMenuBarOnlyDefault() {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+    process.arguments = ["write", "com.cmuxterm.app.debug", "menuBarOnly", "-bool", "false"]
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
+        return
+    }
+}
+
 final class SidebarHelpMenuUITests: XCTestCase {
     override func setUp() {
         super.setUp()
@@ -49,7 +61,12 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
     func testMainHelpMenuShowsCmuxResourcesAndOpensKeyboardShortcuts() {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        sidebarHelpResetMenuBarOnlyDefault()
+        addTeardownBlock {
+            app.terminate()
+            sidebarHelpResetMenuBarOnlyDefault()
+        }
+        app.launchArguments += ["-menuBarOnly", "false"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
 
