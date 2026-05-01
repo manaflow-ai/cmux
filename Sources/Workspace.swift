@@ -7914,7 +7914,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Ensure bonsplit has a focused pane and our didSelectTab handler runs for the
         // initial terminal. bonsplit's createTab selects internally but does not emit
         // didSelectTab, and focusedPaneId can otherwise be nil until user interaction.
-        if let initialTabId {
+        if let initialTabId, initialDetachedSurface == nil {
             // Focus the pane containing the initial tab (or the first pane as fallback).
             let paneToFocus: PaneID? = {
                 for paneId in bonsplitController.allPaneIds {

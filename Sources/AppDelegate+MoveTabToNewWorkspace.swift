@@ -77,7 +77,8 @@ extension AppDelegate {
             fromDetachedSurface: detached,
             title: destinationTitle,
             select: false,
-            placementOverride: placementOverride
+            placementOverride: placementOverride,
+            focusIntent: activationIntent
         ) else {
             rollbackDetachedSurface(
                 detached,
@@ -129,6 +130,8 @@ extension AppDelegate {
 
     private func focusIntentForNewWorkspaceMove(panel: any Panel) -> PanelFocusIntent {
         if panel is BrowserPanel {
+            // Moving a browser tab into a standalone workspace should expose browser chrome,
+            // even if web content was the last in-panel responder before the drag.
             return .browser(.addressBar)
         }
         return panel.preferredFocusIntentForActivation()

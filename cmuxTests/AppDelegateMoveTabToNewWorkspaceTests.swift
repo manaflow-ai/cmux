@@ -58,6 +58,8 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             )
         )
         let browserTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(browserPanel.id)?.uuid)
+        browserPanel.noteWebViewFocused()
+        XCTAssertEqual(browserPanel.preferredFocusIntentForActivation(), .browser(.webView))
 
         let result = try XCTUnwrap(app.moveBonsplitTabToNewWorkspace(
             tabId: browserTabId,
@@ -66,10 +68,11 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         ))
 
         let destinationWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+        let movedBrowserPanel = try XCTUnwrap(destinationWorkspace.panels[browserPanel.id] as? BrowserPanel)
         XCTAssertEqual(destinationWorkspace.panels.count, 1)
-        XCTAssertTrue(destinationWorkspace.panels[browserPanel.id] is BrowserPanel)
         XCTAssertFalse(destinationWorkspace.panels.values.contains { $0 is TerminalPanel })
-        XCTAssertEqual(browserPanel.preferredFocusIntentForActivation(), .browser(.addressBar))
+        XCTAssertEqual(destinationWorkspace.focusedPanelId, movedBrowserPanel.id)
+        XCTAssertEqual(movedBrowserPanel.preferredFocusIntentForActivation(), .browser(.addressBar))
     }
 
     func testMoveSurfaceToNewWorkspaceRejectsOnlyPanel() throws {
