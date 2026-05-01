@@ -831,6 +831,29 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.windowGlassSettings.style, .clear)
         XCTAssertEqual(snapshot.windowGlassSettings.tintColor.hexString(includeAlpha: true), "#272822FF")
         assertClearBackdrop(snapshot.policy(for: .windowRoot))
+        XCTAssertEqual(snapshot.backdropPlan(glassEffectAvailable: true).hostingPhase, .windowGlass)
+    }
+
+    func testTranslucentTerminalWithSidebarTintKeepsRootBackdropOwner() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundOpacity: 0.9,
+            sidebarTintHexDark: "#FF0000",
+            sidebarTintOpacity: 0.4
+        )
+        let plan = snapshot.backdropPlan(glassEffectAvailable: false)
+
+        XCTAssertEqual(plan.hostingPhase, .transparentRootBackdrop)
+        XCTAssertTrue(plan.usesTransparentWindow)
+        XCTAssertFalse(plan.usesWindowGlass)
+        XCTAssertFalse(plan.shouldClearContentViewHierarchy)
+        assertTerminalBackdrop(plan.rootPolicy, expectedOpacity: 0.9)
+
+        guard case let .sidebarMaterial(sidebarPolicy) = snapshot.policy(for: .leftSidebar) else {
+            XCTFail("left sidebar should keep its own tint material")
+            return
+        }
+        XCTAssertEqual(sidebarPolicy.tintColor.hexString(includeAlpha: true), "#FF000066")
     }
 
     func testSidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {
@@ -848,17 +871,44 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            red.appKitWindowMutationID,
-            blue.appKitWindowMutationID
+            red.backdropPlan(glassEffectAvailable: false).appKitMutationID,
+            blue.backdropPlan(glassEffectAvailable: false).appKitMutationID
         )
+    }
+
+    func testOpaqueTerminalUsesOpaqueWindowFill() {
+        let snapshot = makeSnapshot(unifySurfaceBackdrops: false, backgroundOpacity: 1.0)
+        let plan = snapshot.backdropPlan(glassEffectAvailable: false)
+
+        XCTAssertEqual(plan.hostingPhase, .opaqueWindowFill)
+        XCTAssertFalse(plan.usesTransparentWindow)
+        XCTAssertFalse(plan.shouldClearContentViewHierarchy)
+        XCTAssertEqual(plan.windowBackgroundColor.hexString(includeAlpha: true), "#272822FF")
+    }
+
+    func testDebugBackgroundGlassUsesWindowGlassPhase() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundOpacity: 1.0,
+            sidebarBlendMode: SidebarBlendModeOption.behindWindow.rawValue,
+            bgGlassEnabled: true
+        )
+        let plan = snapshot.backdropPlan(glassEffectAvailable: true)
+
+        XCTAssertEqual(plan.hostingPhase, .windowGlass)
+        XCTAssertTrue(plan.usesTransparentWindow)
+        XCTAssertTrue(plan.usesWindowGlass)
+        XCTAssertFalse(plan.shouldClearContentViewHierarchy)
     }
 
     private func makeSnapshot(
         unifySurfaceBackdrops: Bool,
         backgroundOpacity: CGFloat = 0.6,
         backgroundBlur: GhosttyBackgroundBlur = .disabled,
+        sidebarBlendMode: String = SidebarBlendModeOption.withinWindow.rawValue,
         sidebarTintHexDark: String? = nil,
-        sidebarTintOpacity: Double = 0.18
+        sidebarTintOpacity: Double = 0.18,
+        bgGlassEnabled: Bool = false
     ) -> WindowAppearanceSnapshot {
         WindowAppearanceSnapshot(
             terminalBackgroundColor: NSColor(hex: "#272822") ?? .black,
@@ -868,7 +918,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             unifySurfaceBackdrops: unifySurfaceBackdrops,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
                 materialRawValue: SidebarMaterialOption.sidebar.rawValue,
-                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                blendModeRawValue: sidebarBlendMode,
                 stateRawValue: SidebarStateOption.followWindow.rawValue,
                 tintHex: "#000000",
                 tintHexLight: nil,
@@ -879,8 +929,8 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
                 colorScheme: .dark
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
-                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
-                isEnabled: false,
+                sidebarBlendModeRawValue: sidebarBlendMode,
+                isEnabled: bgGlassEnabled,
                 tintHex: "#000000",
                 tintOpacity: 0.03,
                 terminalBackgroundBlur: backgroundBlur,
@@ -892,6 +942,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
     private func assertTerminalBackdrop(
         _ policy: WindowBackdropPolicy,
+        expectedOpacity: CGFloat = 0.6,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -900,7 +951,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             return
         }
         XCTAssertEqual(color.hexString(), "#272822", file: file, line: line)
-        XCTAssertEqual(opacity, 0.6, accuracy: 0.0001, file: file, line: line)
+        XCTAssertEqual(opacity, expectedOpacity, accuracy: 0.0001, file: file, line: line)
         XCTAssertEqual(renderingMode, .windowHostBackdrop, file: file, line: line)
     }
 

@@ -170,11 +170,22 @@ struct GhosttyConfig {
         guard rawSidebarBackground != nil else {
             if let opacity = sidebarTintOpacity {
                 UserDefaults.standard.set(opacity, forKey: "sidebarTintOpacity")
+#if DEBUG
+                cmuxDebugLog(
+                    "settings.sidebarAppearance.configApply raw=nil wrote=opacity opacity=\(String(format: "%.3f", opacity))"
+                )
+#endif
             }
             return
         }
 
         let defaults = UserDefaults.standard
+
+#if DEBUG
+        cmuxDebugLog(
+            "settings.sidebarAppearance.configApply raw=sidebarBackground light=\(sidebarBackgroundLight?.hexString() ?? "nil") dark=\(sidebarBackgroundDark?.hexString() ?? "nil") base=\(sidebarBackground?.hexString() ?? "nil") opacity=\(sidebarTintOpacity.map { String(format: "%.3f", $0) } ?? "nil")"
+        )
+#endif
 
         if let light = sidebarBackgroundLight {
             defaults.set(light.hexString(), forKey: "sidebarTintHexLight")

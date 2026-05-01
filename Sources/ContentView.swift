@@ -615,6 +615,18 @@ private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
 let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
+private func windowContentOverlayInstallationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
+    if let glassTarget = WindowGlassEffect.contentOverlayInstallationTarget(for: window) {
+        return glassTarget
+    }
+
+    guard let contentView = window.contentView,
+          let themeFrame = contentView.superview else {
+        return nil
+    }
+    return (themeFrame, contentView)
+}
+
 enum CommandPaletteOverlayPromotionPolicy {
     static func shouldPromote(previouslyVisible: Bool, isVisible: Bool) -> Bool {
         isVisible && !previouslyVisible
@@ -725,7 +737,8 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private let containerView = CommandPaletteOverlayContainerView(frame: .zero)
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     private var installConstraints: [NSLayoutConstraint] = []
-    private weak var installedThemeFrame: NSView?
+    private weak var installedContainerView: NSView?
+    private weak var installedReferenceView: NSView?
     private var focusLockTimer: DispatchSourceTimer?
     private var scheduledFocusWorkItem: DispatchWorkItem?
     private var isPaletteVisible = false
@@ -760,31 +773,38 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     @discardableResult
     private func ensureInstalled() -> Bool {
         guard let window,
-              let contentView = window.contentView,
-              let themeFrame = contentView.superview else { return false }
+              let target = windowContentOverlayInstallationTarget(for: window) else { return false }
 
-        if containerView.superview !== themeFrame {
+        if containerView.superview !== target.container || installedReferenceView !== target.reference {
             NSLayoutConstraint.deactivate(installConstraints)
             installConstraints.removeAll()
             containerView.removeFromSuperview()
-            themeFrame.addSubview(containerView, positioned: .above, relativeTo: nil)
+            target.container.addSubview(containerView, positioned: .above, relativeTo: nil)
             installConstraints = [
-                containerView.topAnchor.constraint(equalTo: contentView.topAnchor),
-                containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-                containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-                containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                containerView.topAnchor.constraint(equalTo: target.reference.topAnchor),
+                containerView.bottomAnchor.constraint(equalTo: target.reference.bottomAnchor),
+                containerView.leadingAnchor.constraint(equalTo: target.reference.leadingAnchor),
+                containerView.trailingAnchor.constraint(equalTo: target.reference.trailingAnchor),
             ]
             NSLayoutConstraint.activate(installConstraints)
-            installedThemeFrame = themeFrame
+            installedContainerView = target.container
+            installedReferenceView = target.reference
+#if DEBUG
+            cmuxDebugLog(
+                "palette.overlay.install container=\(String(describing: type(of: target.container))) " +
+                "reference=\(String(describing: type(of: target.reference))) " +
+                "glass=\(WindowGlassEffect.contentOverlayInstallationTarget(for: window) != nil ? 1 : 0)"
+            )
+#endif
         }
 
         return true
     }
 
     private func promoteOverlayAboveSiblingsIfNeeded() {
-        guard let themeFrame = installedThemeFrame,
-              containerView.superview === themeFrame else { return }
-        themeFrame.addSubview(containerView, positioned: .above, relativeTo: nil)
+        guard let container = installedContainerView,
+              containerView.superview === container else { return }
+        container.addSubview(containerView, positioned: .above, relativeTo: nil)
     }
 
     private func isPaletteResponder(_ responder: NSResponder?) -> Bool {
@@ -1179,8 +1199,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func underlyingResponder(atWindowPoint windowPoint: NSPoint) -> NSResponder? {
         guard let window,
-              let contentView = window.contentView,
-              let themeFrame = contentView.superview else {
+              let target = windowContentOverlayInstallationTarget(for: window) else {
             return nil
         }
 
@@ -1190,8 +1209,8 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             containerView.capturesMouseEvents = previousCapturesMouseEvents
         }
 
-        let pointInTheme = themeFrame.convert(windowPoint, from: nil)
-        return themeFrame.hitTest(pointInTheme)
+        let pointInContainer = target.container.convert(windowPoint, from: nil)
+        return target.container.hitTest(pointInContainer)
     }
 }
 
@@ -1212,6 +1231,7 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private let model = TmuxWorkspacePaneOverlayModel()
     private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayView>
     private var installConstraints: [NSLayoutConstraint] = []
+    private weak var installedReferenceView: NSView?
     private var lastRenderState: TmuxWorkspacePaneOverlayRenderState?
 
     init(window: NSWindow) {
@@ -1247,21 +1267,21 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     @discardableResult
     private func ensureInstalled() -> Bool {
         guard let window,
-              let contentView = window.contentView,
-              let themeFrame = contentView.superview else { return false }
+              let target = windowContentOverlayInstallationTarget(for: window) else { return false }
 
-        if containerView.superview !== themeFrame {
+        if containerView.superview !== target.container || installedReferenceView !== target.reference {
             NSLayoutConstraint.deactivate(installConstraints)
             installConstraints.removeAll()
             containerView.removeFromSuperview()
-            themeFrame.addSubview(containerView, positioned: .above, relativeTo: contentView)
+            target.container.addSubview(containerView, positioned: .above, relativeTo: target.reference)
             installConstraints = [
-                containerView.topAnchor.constraint(equalTo: contentView.topAnchor),
-                containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-                containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-                containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                containerView.topAnchor.constraint(equalTo: target.reference.topAnchor),
+                containerView.bottomAnchor.constraint(equalTo: target.reference.bottomAnchor),
+                containerView.leadingAnchor.constraint(equalTo: target.reference.leadingAnchor),
+                containerView.trailingAnchor.constraint(equalTo: target.reference.trailingAnchor),
             ]
             NSLayoutConstraint.activate(installConstraints)
+            installedReferenceView = target.reference
         }
 
         return true
@@ -1477,26 +1497,34 @@ private func configureFileDropOverlay(_ overlay: FileDropOverlayView, tabManager
     }
 }
 
-private func attachFileDropOverlay(_ overlay: FileDropOverlayView, to contentView: NSView, in themeFrame: NSView) {
+private func attachFileDropOverlay(
+    _ overlay: FileDropOverlayView,
+    to referenceView: NSView,
+    in containerView: NSView
+) {
     overlay.translatesAutoresizingMaskIntoConstraints = false
-    themeFrame.addSubview(overlay, positioned: .above, relativeTo: contentView)
+    containerView.addSubview(overlay, positioned: .above, relativeTo: referenceView)
     NSLayoutConstraint.activate([
-        overlay.topAnchor.constraint(equalTo: contentView.topAnchor),
-        overlay.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-        overlay.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-        overlay.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
+        overlay.topAnchor.constraint(equalTo: referenceView.topAnchor),
+        overlay.bottomAnchor.constraint(equalTo: referenceView.bottomAnchor),
+        overlay.leadingAnchor.constraint(equalTo: referenceView.leadingAnchor),
+        overlay.trailingAnchor.constraint(equalTo: referenceView.trailingAnchor)
     ])
 }
 
-private func fileDropOverlay(_ overlay: FileDropOverlayView, isAttachedTo contentView: NSView, in themeFrame: NSView) -> Bool {
-    guard overlay.superview === themeFrame else { return false }
+private func fileDropOverlay(
+    _ overlay: FileDropOverlayView,
+    isAttachedTo referenceView: NSView,
+    in containerView: NSView
+) -> Bool {
+    guard overlay.superview === containerView else { return false }
     let requiredAttributes: [NSLayoutConstraint.Attribute] = [.top, .bottom, .leading, .trailing]
     return requiredAttributes.allSatisfy { attribute in
-        themeFrame.constraints.contains { constraint in
+        containerView.constraints.contains { constraint in
             let firstView = constraint.firstItem as? NSView
             let secondView = constraint.secondItem as? NSView
             return firstView === overlay &&
-                secondView === contentView &&
+                secondView === referenceView &&
                 constraint.firstAttribute == attribute &&
                 constraint.secondAttribute == attribute
         }
@@ -1505,30 +1533,29 @@ private func fileDropOverlay(_ overlay: FileDropOverlayView, isAttachedTo conten
 
 @discardableResult
 func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool {
-    guard let contentView = window.contentView,
-          let themeFrame = contentView.superview else { return false }
+    guard let target = windowContentOverlayInstallationTarget(for: window) else { return false }
 
     let existingOverlay =
         (objc_getAssociatedObject(window, &fileDropOverlayKey) as? FileDropOverlayView)
-        ?? findFileDropOverlayView(in: themeFrame)
+        ?? findFileDropOverlayView(in: target.container)
 
     if let existingOverlay {
         configureFileDropOverlay(existingOverlay, tabManager: tabManager)
         objc_setAssociatedObject(window, &fileDropOverlayKey, existingOverlay, .OBJC_ASSOCIATION_RETAIN)
-        guard !fileDropOverlay(existingOverlay, isAttachedTo: contentView, in: themeFrame) else {
+        guard !fileDropOverlay(existingOverlay, isAttachedTo: target.reference, in: target.container) else {
             return true
         }
         existingOverlay.removeFromSuperview()
-        attachFileDropOverlay(existingOverlay, to: contentView, in: themeFrame)
+        attachFileDropOverlay(existingOverlay, to: target.reference, in: target.container)
         return true
     }
 
-    let overlay = FileDropOverlayView(frame: contentView.frame)
+    let overlay = FileDropOverlayView(frame: target.reference.frame)
     configureFileDropOverlay(overlay, tabManager: tabManager)
     // Publish the overlay before mutating the view tree so any re-entrant lookup resolves
     // the in-flight view instead of installing a second overlay during layout.
     objc_setAssociatedObject(window, &fileDropOverlayKey, overlay, .OBJC_ASSOCIATION_RETAIN)
-    attachFileDropOverlay(overlay, to: contentView, in: themeFrame)
+    attachFileDropOverlay(overlay, to: target.reference, in: target.container)
     return true
 }
 
@@ -2785,6 +2812,16 @@ struct ContentView: View {
         )
     }
 
+#if DEBUG
+    private func debugLogSidebarAppearanceContentChange(_ action: String) {
+        let appearance = windowAppearanceSnapshot
+        let policy = appearance.sidebarSettings.materialPolicy
+        cmuxDebugLog(
+            "settings.sidebarAppearance.content action=\(action) match=\(sidebarMatchTerminalBackground ? 1 : 0) scheme=\(colorScheme == .dark ? "dark" : "light") material=\(sidebarMaterial) blend=\(sidebarBlendMode) state=\(sidebarStateSetting) base=\(sidebarTintHex) light=\(sidebarTintHexLight ?? "nil") dark=\(sidebarTintHexDark ?? "nil") opacity=\(String(format: "%.3f", sidebarTintOpacity)) resolved=\(policy.tintColor.hexString(includeAlpha: true)) policy=\(policy.usesWindowLevelGlass ? "windowGlass" : "sidebarLayer") blur=\(String(format: "%.3f", policy.opacity))"
+        )
+    }
+#endif
+
     private func fakeTitlebarTextColor(appearance: WindowAppearanceSnapshot) -> Color {
         let ghosttyBackground = appearance.terminalBackgroundColor
         return ghosttyBackground.isLightColor
@@ -3682,10 +3719,37 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
+#if DEBUG
+            debugLogSidebarAppearanceContentChange("matchTerminal.changed")
+#endif
             tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")
             guard sidebarState.isVisible,
                   sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
             schedulePortalGeometrySynchronize()
+        })
+
+        view = AnyView(view.onChange(of: sidebarTintHexLight) { _ in
+#if DEBUG
+            debugLogSidebarAppearanceContentChange("lightTint.changed")
+#endif
+        })
+
+        view = AnyView(view.onChange(of: sidebarTintHex) { _ in
+#if DEBUG
+            debugLogSidebarAppearanceContentChange("baseTint.changed")
+#endif
+        })
+
+        view = AnyView(view.onChange(of: sidebarTintHexDark) { _ in
+#if DEBUG
+            debugLogSidebarAppearanceContentChange("darkTint.changed")
+#endif
+        })
+
+        view = AnyView(view.onChange(of: sidebarTintOpacity) { _ in
+#if DEBUG
+            debugLogSidebarAppearanceContentChange("opacity.changed")
+#endif
         })
 
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
@@ -3765,47 +3829,27 @@ struct ContentView: View {
             // User settings decide whether window glass is active. The native Tahoe
             // NSGlassEffectView path vs the older NSVisualEffectView fallback is chosen
             // inside WindowGlassEffect.apply.
-            let currentThemeBackground = appearance.compositedTerminalBackgroundColor
-            let shouldApplyWindowGlass = appearance.windowGlassSettings.shouldApply()
-            let shouldForceTransparentHosting = appearance.shouldUseTransparentHosting()
+            let backdropPlan = appearance.backdropPlan()
+#if DEBUG
+            let sidebarPolicy = appearance.sidebarSettings.materialPolicy
+            cmuxDebugLog(
+                "settings.sidebarAppearance.windowApply win=\(window.windowNumber) match=\(appearance.unifySurfaceBackdrops ? 1 : 0) scheme=\(appearance.sidebarSettings.colorScheme == .dark ? "dark" : "light") material=\(appearance.sidebarSettings.materialRawValue) blend=\(appearance.sidebarSettings.blendModeRawValue) state=\(appearance.sidebarSettings.stateRawValue) base=\(appearance.sidebarSettings.tintHex) light=\(appearance.sidebarSettings.tintHexLight ?? "nil") dark=\(appearance.sidebarSettings.tintHexDark ?? "nil") opacity=\(String(format: "%.3f", appearance.sidebarSettings.tintOpacity)) resolved=\(sidebarPolicy.tintColor.hexString(includeAlpha: true)) policy=\(sidebarPolicy.usesWindowLevelGlass ? "windowGlass" : "sidebarLayer") phase=\(backdropPlan.hostingPhase.rawValue) glass=\(backdropPlan.usesWindowGlass ? 1 : 0) transparent=\(backdropPlan.usesTransparentWindow ? 1 : 0) clearHierarchy=\(backdropPlan.shouldClearContentViewHierarchy ? 1 : 0)"
+            )
+#endif
             removeNativeTitlebarBackdrop(in: window)
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                 UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
             }
 #endif
-            if shouldForceTransparentHosting {
-                window.isOpaque = false
-                // Keep the window clear whenever translucency is active. Relying only on
-                // terminal focus-driven updates can leave stale opaque window fills.
-                window.backgroundColor = NSColor.white.withAlphaComponent(0.001)
-                // Configure contentView hierarchy for transparency.
-                if let contentView = WindowGlassEffect.originalContentView(for: window) ?? window.contentView {
-                    makeViewHierarchyTransparent(contentView)
-                }
-            } else {
-                // Browser-focused workspaces may not have an active terminal panel to refresh
-                // the NSWindow background. Keep opaque theme changes applied here as well.
-                window.backgroundColor = currentThemeBackground
-                window.isOpaque = currentThemeBackground.alphaComponent >= 0.999
-            }
-
-            if shouldApplyWindowGlass {
-                // Apply liquid glass effect to the window with tint from settings
-                let didChangeGlassRoot = WindowGlassEffect.apply(
-                    to: window,
-                    tintColor: appearance.windowGlassSettings.tintColor,
-                    style: appearance.windowGlassSettings.style
-                )
-                if didChangeGlassRoot {
-                    TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
-                    BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
-                }
-            } else {
-                if WindowGlassEffect.remove(from: window) {
-                    TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
-                    BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
-                }
+            let backdropResult = WindowBackdropController.apply(plan: backdropPlan, to: window)
+            if backdropResult.didChangeGlassRoot {
+                let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
+                tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
+                commandPaletteWindowOverlayController(for: window)
+                    .update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+                BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
             }
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)
@@ -3814,7 +3858,7 @@ struct ContentView: View {
             syncNativeTitlebarBackdrop(
                 in: window,
                 enabled: true,
-                usesGlassStyle: shouldApplyWindowGlass
+                usesGlassStyle: backdropResult.usesWindowGlass
             )
             AppDelegate.shared?.registerMainWindow(
                 window,
@@ -4069,21 +4113,19 @@ struct ContentView: View {
         sidebarSelectionState.selection = .tabs
     }
 
-    private func makeViewHierarchyTransparent(_ root: NSView) {
-        var stack: [NSView] = [root]
-        while let view = stack.popLast() {
-            view.wantsLayer = true
-            view.layer?.backgroundColor = NSColor.clear.cgColor
-            view.layer?.isOpaque = false
-            stack.append(contentsOf: view.subviews)
-        }
-    }
-
     private func updateWindowGlassTint() {
         // Find this view's main window by identifier (keyWindow might be a debug panel/settings).
-        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
+        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else {
+#if DEBUG
+            cmuxDebugLog("settings.windowGlass.contentTintUpdate result=noWindow win=0 base=\(bgGlassTintHex) opacity=\(String(format: "%.3f", bgGlassTintOpacity))")
+#endif
+            return
+        }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
-        WindowGlassEffect.updateTint(to: window, color: tintColor)
+#if DEBUG
+        cmuxDebugLog("settings.windowGlass.contentTintUpdate result=window win=\(window.windowNumber) base=\(bgGlassTintHex) opacity=\(String(format: "%.3f", bgGlassTintOpacity)) resolved=\(tintColor.hexString(includeAlpha: true))")
+#endif
+        WindowBackdropController.updateGlassTint(to: window, color: tintColor)
     }
 
     private func removeNativeTitlebarBackdrop(in window: NSWindow) {
@@ -15549,6 +15591,14 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
         NSClassFromString("NSGlassEffectView") != nil
     }
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        var lastDebugSignature: String?
+    }
+
     func makeNSView(context: Context) -> NSView {
         // Try NSGlassEffectView if preferred or if we want to test availability
         if preferLiquidGlass, let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
@@ -15567,10 +15617,11 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        let clampedOpacity = max(0.0, min(1.0, opacity))
         // Configure based on view type
         if nsView.className == "NSGlassEffectView" {
             // NSGlassEffectView configuration via private API
-            nsView.alphaValue = max(0.0, min(1.0, opacity))
+            nsView.alphaValue = clampedOpacity
             nsView.layer?.cornerRadius = cornerRadius
             nsView.layer?.masksToBounds = cornerRadius > 0
 
@@ -15586,11 +15637,29 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
             visualEffect.material = material
             visualEffect.blendingMode = blendingMode
             visualEffect.state = state
-            visualEffect.alphaValue = max(0.0, min(1.0, opacity))
+            visualEffect.alphaValue = clampedOpacity
             visualEffect.layer?.cornerRadius = cornerRadius
             visualEffect.layer?.masksToBounds = cornerRadius > 0
             visualEffect.needsDisplay = true
         }
+#if DEBUG
+        let signature = [
+            nsView.className,
+            String(describing: material),
+            String(describing: blendingMode),
+            String(describing: state),
+            String(format: "%.3f", clampedOpacity),
+            tintColor?.hexString(includeAlpha: true) ?? "nil",
+            String(format: "%.1f", cornerRadius),
+            preferLiquidGlass ? "preferGlass" : "visualEffect",
+        ].joined(separator: "|")
+        if context.coordinator.lastDebugSignature != signature {
+            context.coordinator.lastDebugSignature = signature
+            cmuxDebugLog(
+                "settings.sidebarAppearance.effectUpdate kind=\(nsView.className == "NSGlassEffectView" ? "nativeGlass" : "visualEffect") material=\(String(describing: material)) blend=\(String(describing: blendingMode)) state=\(String(describing: state)) opacity=\(String(format: "%.3f", clampedOpacity)) resolved=\(tintColor?.hexString(includeAlpha: true) ?? "nil") corner=\(String(format: "%.1f", cornerRadius)) prefer=\(preferLiquidGlass ? 1 : 0)"
+            )
+        }
+#endif
     }
 }
 

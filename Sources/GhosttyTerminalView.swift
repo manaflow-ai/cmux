@@ -183,7 +183,7 @@ func cmuxResetCompositorBackgroundBlur(on window: NSWindow) {
     )
 }
 
-private func cmuxTransparentWindowBaseColor() -> NSColor {
+func cmuxTransparentWindowBaseColor() -> NSColor {
     // A tiny non-zero alpha matches Ghostty's window compositing behavior on macOS and
     // avoids visual artifacts that can happen with a fully clear window background.
     NSColor.white.withAlphaComponent(0.001)
@@ -3886,28 +3886,13 @@ class GhosttyApp {
 
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
-        if cmuxShouldUseClearWindowBackground(
-            for: defaultBackgroundOpacity,
-            usesGhosttyGlassStyle: defaultBackgroundBlur.isMacOSGlassStyle
-        ) {
-            window.backgroundColor = cmuxTransparentWindowBaseColor()
-            window.isOpaque = false
-            if defaultBackgroundBlur.isMacOSGlassStyle {
-                cmuxResetCompositorBackgroundBlur(on: window)
-            } else {
-                applyWindowBlurIfNeeded(window)
-            }
-            if backgroundLogEnabled {
-                logBackground("applied transparent window background opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur)")
-            }
-        } else {
-            let color = defaultBackgroundColor.withAlphaComponent(defaultBackgroundOpacity)
-            window.backgroundColor = color
-            window.isOpaque = color.alphaComponent >= 1.0
-            cmuxResetCompositorBackgroundBlur(on: window)
-            if backgroundLogEnabled {
-                logBackground("applied default window background color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
-            }
+        let snapshot = WindowAppearanceSnapshot.currentFromUserDefaults(app: self)
+        let plan = snapshot.backdropPlan()
+        _ = WindowBackdropController.apply(plan: plan, to: window)
+        if backgroundLogEnabled {
+            logBackground(
+                "applied window backdrop phase=\(plan.hostingPhase.rawValue) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur)"
+            )
         }
     }
 
@@ -6060,26 +6045,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         let color = effectiveBackgroundColor()
-        let usesGhosttyGlassStyle = GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle
-        let shouldUseClearWindowBackground = cmuxShouldUseClearWindowBackground(
-            for: color.alphaComponent,
-            usesGhosttyGlassStyle: usesGhosttyGlassStyle
-        )
-        if shouldUseClearWindowBackground {
-            window.backgroundColor = cmuxTransparentWindowBaseColor()
-            window.isOpaque = false
-            if usesGhosttyGlassStyle {
-                cmuxResetCompositorBackgroundBlur(on: window)
-            } else {
-                GhosttyApp.shared.applyWindowBlurIfNeeded(window)
-            }
-        } else {
-            window.backgroundColor = color
-            window.isOpaque = color.alphaComponent >= 1.0
-            cmuxResetCompositorBackgroundBlur(on: window)
-        }
+        let snapshot = WindowAppearanceSnapshot
+            .currentFromUserDefaults(app: GhosttyApp.shared)
+            .replacingTerminalBackgroundColor(backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor)
+        let plan = snapshot.backdropPlan()
+        _ = WindowBackdropController.apply(plan: plan, to: window)
         if GhosttyApp.shared.backgroundLogEnabled {
-            let signature = "\(shouldUseClearWindowBackground ? "transparent" : color.hexString()):\(String(format: "%.3f", color.alphaComponent)):\(GhosttyApp.shared.defaultBackgroundBlur)"
+            let signature = "\(plan.hostingPhase.rawValue):\(color.hexString()):\(String(format: "%.3f", color.alphaComponent)):\(GhosttyApp.shared.defaultBackgroundBlur)"
             if signature != lastLoggedWindowBackgroundSignature {
                 lastLoggedWindowBackgroundSignature = signature
                 let hasOverride = backgroundColor != nil
@@ -6087,7 +6059,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
                 let source = hasOverride ? "surfaceOverride" : "defaultBackground"
                 GhosttyApp.shared.logBackground(
-                    "window background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) transparent=\(shouldUseClearWindowBackground) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent)) blur=\(GhosttyApp.shared.defaultBackgroundBlur)"
+                    "window background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) phase=\(plan.hostingPhase.rawValue) transparent=\(plan.usesTransparentWindow) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent)) blur=\(GhosttyApp.shared.defaultBackgroundBlur)"
                 )
             }
         }
