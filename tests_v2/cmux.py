@@ -954,6 +954,12 @@ class cmux:
     def activate_app(self) -> None:
         self._call("debug.app.activate")
 
+    def open_settings(self, target: Optional[str] = None, activate: bool = True) -> None:
+        params: Dict[str, Any] = {"activate": bool(activate)}
+        if target is not None:
+            params["target"] = str(target)
+        self._call("settings.open", params)
+
     def open_command_palette_rename_tab_input(self, window_id: Optional[str] = None) -> None:
         params: Dict[str, Any] = {}
         if window_id is not None:
