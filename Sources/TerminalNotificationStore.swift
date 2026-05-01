@@ -710,6 +710,12 @@ final class TerminalNotificationStore: ObservableObject {
     private var hasDeferredAuthorizationRequest = false
     private var hasPromptedForSettings = false
     private var userDefaultsObserver: NSObjectProtocol?
+    /// Delay before the initial authorization check from init, allowing the
+    /// window constraint setup phase to complete before any @Published update.
+    private static let initialAuthCheckDelay: TimeInterval = 0.2
+    /// Delay before applying authorizationState mutations from async callbacks,
+    /// ensuring the update lands outside any active Auto Layout constraint pass.
+    private static let authStateUpdateDelay: TimeInterval = 0.05
     private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
     private let settingsPromptWindowRetryLimit = 20
     private var notificationSettingsWindowProvider: () -> NSWindow? = {
@@ -751,7 +757,15 @@ final class TerminalNotificationStore: ObservableObject {
             self?.refreshDockBadge()
         }
         refreshDockBadge()
-        refreshAuthorizationStatus()
+        // Defer initial authorization check past the window constraint setup
+        // phase. When getNotificationSettings completes quickly (cached result),
+        // setting @Published authorizationState during an active Auto Layout
+        // pass triggers an infinite constraint-update cycle (NSGenericException).
+        // A real delay (not just async) is needed because the constraint pass
+        // can span multiple main-queue drain cycles.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.initialAuthCheckDelay) { [weak self] in
+            self?.refreshAuthorizationStatus()
+        }
     }
 
     deinit {
@@ -809,9 +823,24 @@ final class TerminalNotificationStore: ObservableObject {
 
     func refreshAuthorizationStatus() {
         center.getNotificationSettings { [weak self] settings in
-            DispatchQueue.main.async {
+            // Use asyncAfter to ensure the @Published update lands outside
+            // any active Auto Layout constraint pass. A plain main.async can
+            // still fire during the same display cycle that triggered the
+            // settings query, causing an infinite constraint-update loop.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.authStateUpdateDelay) {
                 guard let self else { return }
-                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+                let newState = Self.authorizationState(from: settings.authorizationStatus)
+                // Skip no-op updates to avoid triggering @Published / SwiftUI
+                // invalidation during Auto Layout constraint passes. When this
+                // fires during window setup the constraint-update cycle can
+                // exceed AppKit's limit and throw NSGenericException.
+                guard newState != self.authorizationState else {
+                    self.logAuthorization(
+                        "refresh status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(newState.statusLabel) (no change)"
+                    )
+                    return
+                }
+                self.authorizationState = newState
                 self.logAuthorization(
                     "refresh status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel)"
                 )
@@ -1210,6 +1239,9 @@ final class TerminalNotificationStore: ObservableObject {
 
         logAuthorization("ensure start origin=\(origin.rawValue)")
         center.getNotificationSettings { [weak self] settings in
+            // Safe to use plain main.async here: ensureAuthorization is only
+            // called from user-initiated actions (settings button, notification
+            // delivery) well after window constraints have converged.
             DispatchQueue.main.async {
                 guard let self else {
                     completion(false)
@@ -1272,6 +1304,9 @@ final class TerminalNotificationStore: ObservableObject {
             "request starting origin=\(origin.rawValue) automatic=\(isAutomaticRequest) hasRequestedAutomatic=\(hasRequestedAutomaticAuthorization)"
         )
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            // Safe to use plain main.async: requestAuthorization is triggered
+            // by explicit user action or automatic first-request, both after
+            // window constraint setup has completed.
             DispatchQueue.main.async {
                 if granted {
                     self.authorizationState = .authorized
