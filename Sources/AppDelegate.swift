@@ -12196,7 +12196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return numberedShortcutDigit(event: event, stroke: secondStroke)
         }
-        guard !shortcut.hasChord else { return nil }
+        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
         return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
     }
 
@@ -12381,7 +12381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
-        guard !shortcut.hasChord else { return nil }
+        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
         return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
     }
 
