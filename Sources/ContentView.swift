@@ -1613,6 +1613,13 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     }
 }
 
+func shouldShowToggleSplitZoomCommandInPalette(
+    hasFocusedPanel: Bool,
+    workspaceHasSplits: Bool
+) -> Bool {
+    hasFocusedPanel && workspaceHasSplits
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
@@ -7669,11 +7676,13 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleSplitZoom",
                 title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
-                subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
+                subtitle: workspaceSubtitle,
                 keywords: ["terminal", "pane", "split", "zoom", "maximize"],
                 when: { context in
-                    context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    context.bool(CommandPaletteContextKeys.workspaceHasSplits)
+                    shouldShowToggleSplitZoomCommandInPalette(
+                        hasFocusedPanel: context.bool(CommandPaletteContextKeys.hasFocusedPanel),
+                        workspaceHasSplits: context.bool(CommandPaletteContextKeys.workspaceHasSplits)
+                    )
                 }
             )
         )
