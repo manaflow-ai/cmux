@@ -108,8 +108,8 @@ final class BrowserOpenTabSuggestionIndex {
                 snapshot.panelId.uuidString.lowercased(),
                 snapshot.lowercasedURL,
             ].joined(separator: "|")
-            guard seenKeys.insert(key).inserted else { return }
             guard snapshotMatches(snapshot) else { return }
+            guard seenKeys.insert(key).inserted else { return }
             matches.append(
                 OmnibarOpenTabMatch(
                     tabId: snapshot.workspaceId,
@@ -126,10 +126,8 @@ final class BrowserOpenTabSuggestionIndex {
         }
 
         for panelId in suggestionOrder {
-            guard matches.count < limit,
-                  let snapshot = suggestionsByPanelId[panelId] else {
-                continue
-            }
+            guard matches.count < limit else { break }
+            guard let snapshot = suggestionsByPanelId[panelId] else { continue }
             let isCurrentPanel = snapshot.workspaceId == currentWorkspaceId && snapshot.panelId == currentPanelId
             if isCurrentPanel && !includeCurrentPanelForSingleCharacterQuery {
                 continue

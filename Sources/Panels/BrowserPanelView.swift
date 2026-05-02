@@ -713,7 +713,8 @@ struct BrowserPanelView: View {
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .commandPaletteVisibilityDidChange)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .commandPaletteVisibilityDidChange)) { notification in
+            guard commandPaletteVisibilityNotificationMatchesPanelWindow(notification) else { return }
             applyPendingAddressBarFocusRequestIfNeeded()
         }
         .onChange(of: panel.profileID) { _ in
@@ -1490,6 +1491,29 @@ struct BrowserPanelView: View {
         }
         if let mainWindow = NSApp.mainWindow, app.isCommandPaletteVisible(for: mainWindow) {
             return true
+        }
+        return false
+    }
+
+    private func commandPaletteVisibilityNotificationMatchesPanelWindow(_ notification: Notification) -> Bool {
+        if let notificationWindow = notification.object as? NSWindow,
+           panel.webView.window === notificationWindow {
+            return true
+        }
+
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let panelWindowId = app.windowId(for: manager) else {
+            return false
+        }
+
+        if let notificationWindowId = notification.userInfo?["windowId"] as? UUID {
+            return notificationWindowId == panelWindowId
+        }
+
+        if let notificationWindow = notification.object as? NSWindow,
+           let panelWindow = app.mainWindow(for: panelWindowId) {
+            return notificationWindow === panelWindow
         }
         return false
     }
@@ -3697,17 +3721,12 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
         @discardableResult
         func applyPendingSelectAllIfPossible(
-            field: OmnibarNativeTextField,
-            startEditingIfNeeded: Bool = false
+            field: OmnibarNativeTextField
         ) -> Bool {
             guard let requestId = pendingSelectAllRequestId,
                   requestId != 0,
                   appliedSelectAllRequestId != requestId else {
                 return false
-            }
-
-            if field.currentEditor() == nil, startEditingIfNeeded {
-                field.selectText(nil)
             }
 
             guard let editor = field.currentEditor() as? NSTextView,
@@ -3945,14 +3964,14 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                         nsView.currentEditor() != nil ||
                         ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
                     if alreadyFocused {
-                        coordinator?.applyPendingSelectAllIfPossible(field: nsView, startEditingIfNeeded: true)
+                        coordinator?.applyPendingSelectAllIfPossible(field: nsView)
                         return
                     }
 #if DEBUG
                     coordinator?.logFocusEvent("updateNSView.requestFocus.apply")
 #endif
                     window.makeFirstResponder(nsView)
-                    coordinator?.applyPendingSelectAllIfPossible(field: nsView, startEditingIfNeeded: true)
+                    coordinator?.applyPendingSelectAllIfPossible(field: nsView)
                 }
             } else if !isFocused, isFirstResponder, context.coordinator.pendingFocusRequest != false {
 #if DEBUG
@@ -3986,7 +4005,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
             }
         }
-        context.coordinator.applyPendingSelectAllIfPossible(field: nsView, startEditingIfNeeded: isFocused)
+        context.coordinator.applyPendingSelectAllIfPossible(field: nsView)
 
         if let editor = nsView.currentEditor() as? NSTextView, !editor.hasMarkedText() {
             if let activeInlineCompletion {

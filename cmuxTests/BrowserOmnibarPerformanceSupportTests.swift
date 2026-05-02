@@ -40,4 +40,38 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         XCTAssertEqual(matches(for: "docs").map(\.url), ["https://example.com/docs"])
         XCTAssertEqual(seedCallCount, 1)
     }
+
+    func testNonMatchingCurrentSnapshotDoesNotDedupeIndexedMatch() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let url = "https://example.com/"
+        let currentSnapshot = BrowserOpenTabSuggestionSnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            url: url,
+            title: nil
+        )
+        let indexedSnapshot = BrowserOpenTabSuggestionSnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            url: url,
+            title: "Docs"
+        )
+        XCTAssertNotNil(currentSnapshot)
+        XCTAssertNotNil(indexedSnapshot)
+
+        let index = BrowserOpenTabSuggestionIndex()
+        let matches = index.matching(
+            for: "d",
+            currentWorkspaceId: workspaceId,
+            currentPanelId: panelId,
+            currentPanelSnapshot: currentSnapshot,
+            includeCurrentPanelForSingleCharacterQuery: true,
+            limit: 5,
+            seedSnapshots: { [indexedSnapshot!] }
+        )
+
+        XCTAssertEqual(matches.map(\.title), ["Docs"])
+        XCTAssertEqual(matches.map(\.url), [url])
+    }
 }
