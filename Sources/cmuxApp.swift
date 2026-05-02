@@ -3,7 +3,6 @@ import SwiftUI
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
-
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -325,6 +324,14 @@ struct cmuxApp: App {
                     Button("Background Debug…") {
                         BackgroundDebugWindowController.shared.show()
                     }
+                    Button(
+                        String(
+                            localized: "debug.menu.bonsplitTabBarDebug",
+                            defaultValue: "Bonsplit Tab Bar Debug…"
+                        )
+                    ) {
+                        BonsplitTabBarDebugWindowController.shared.show()
+                    }
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
@@ -621,6 +628,7 @@ struct cmuxApp: App {
                 TaskManagerWindowController.shared.show()
             }
         }
+        helpCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
@@ -824,7 +832,7 @@ struct cmuxApp: App {
         SocketControlSettings.migrateMode(socketControlMode)
     }
 
-    private func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
+    func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: action)
     }
@@ -876,8 +884,9 @@ struct cmuxApp: App {
     }
 
     private func toggleSelectedWorkspacePinned(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        manager.setPinned(workspace, pinned: !workspace.isPinned)
+        if !WorkspacePinCommands.toggleSelectedWorkspace(in: manager) {
+            NSSound.beep()
+        }
     }
 
     private func clearSelectedWorkspaceCustomName(in manager: TabManager) {
@@ -963,15 +972,12 @@ struct cmuxApp: App {
         let workspace = manager.selectedWorkspace
         let workspaceIndex = workspace.flatMap { selectedWorkspaceIndex(in: manager, workspaceId: $0.id) }
         let windowMoveTargets = selectedWorkspaceWindowMoveTargets(in: manager)
+        let pinState = WorkspacePinCommands.selectedWorkspacePinState(in: manager)
 
-        Button(
-            workspace?.isPinned == true
-                ? String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace")
-                : String(localized: "contextMenu.pinWorkspace", defaultValue: "Pin Workspace")
-        ) {
+        Button(WorkspacePinCommands.selectedWorkspaceMenuLabel(in: manager, pinState: pinState)) {
             toggleSelectedWorkspacePinned(in: manager)
         }
-        .disabled(workspace == nil)
+        .disabled(pinState == nil)
 
         Button(String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…")) {
             _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
@@ -1061,7 +1067,7 @@ struct cmuxApp: App {
     }
 
     @ViewBuilder
-    private func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
+    func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
         if let key = shortcut.keyEquivalent {
             Button(title, action: action)
                 .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
@@ -1104,6 +1110,7 @@ struct cmuxApp: App {
         FeedPreviewWindowController.shared.show()
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
+        BonsplitTabBarDebugWindowController.shared.show()
     }
 #endif
 }
@@ -1136,6 +1143,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.menubarDebug",
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
+    "cmux.bonsplitTabBarDebug",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1733,6 +1741,14 @@ private struct DebugWindowControlsView: View {
                         }
                         Button(
                             String(
+                                localized: "debug.menu.bonsplitTabBarDebug",
+                                defaultValue: "Bonsplit Tab Bar Debug…"
+                            )
+                        ) {
+                            BonsplitTabBarDebugWindowController.shared.show()
+                        }
+                        Button(
+                            String(
                                 localized: "debug.menu.startupAppearanceDebug",
                                 defaultValue: "Startup Appearance Debug…"
                             )
@@ -1772,6 +1788,7 @@ private struct DebugWindowControlsView: View {
                             AboutTitlebarDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
                             BackgroundDebugWindowController.shared.show()
+                            BonsplitTabBarDebugWindowController.shared.show()
                             StartupAppearanceDebugWindowController.shared.show()
                             MenuBarExtraDebugWindowController.shared.show()
                             PDFPreviewChromeDebugWindowController.shared.show()
@@ -3374,26 +3391,6 @@ private final class TabBarBackdropLabWindowController: NSWindowController, NSWin
     }
 }
 
-private struct TabBarBackdropLabVariant: Identifiable {
-    let id: String
-    let title: String
-    let detail: String
-    let effect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect
-    let chromeHex: String
-    let tabBarHex: String
-    let splitButtonBackdropHex: String
-    let paneHex: String
-    let borderHex: String
-    let terminalColor: NSColor
-    let surfaceColor: NSColor
-    let separatorColor: NSColor
-    let opacity: CGFloat
-
-    var renderIdentity: String {
-        "\(id)-\(chromeHex)-\(tabBarHex)-\(splitButtonBackdropHex)-\(paneHex)-\(borderHex)-\(String(format: "%.3f", opacity))-\(String(format: "%.1f", effect.fadeWidth))-\(String(format: "%.1f", effect.contentFadeWidth))-\(String(format: "%.1f", effect.solidWidth))-\(String(format: "%.2f", effect.fadeRampStartFraction))-\(String(format: "%.2f", effect.leadingOpacity))-\(String(format: "%.2f", effect.trailingOpacity))-\(String(format: "%.2f", effect.contentOcclusionFraction))-\(effect.masksTabContent ? 1 : 0)"
-    }
-}
-
 private struct TabBarBackdropLabView: View {
     @State private var opacity: Double
     @State private var sidebarWidth: Double = 74
@@ -3435,6 +3432,7 @@ private struct TabBarBackdropLabView: View {
             fadeWidth: interpolate(strong: 20, production: production.fadeWidth, soft: 240),
             contentFadeWidth: interpolate(strong: 0, production: production.contentFadeWidth, soft: 80),
             solidWidth: interpolate(strong: 72, production: production.solidWidth, soft: 0),
+            solidSurfaceWidthAdjustment: production.solidSurfaceWidthAdjustment,
             fadeRampStartFraction: interpolate(strong: 0, production: production.fadeRampStartFraction, soft: 0.98),
             leadingOpacity: production.leadingOpacity,
             trailingOpacity: interpolate(strong: 1.0, production: production.trailingOpacity, soft: 0.25),

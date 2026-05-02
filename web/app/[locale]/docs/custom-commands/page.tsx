@@ -1,40 +1,40 @@
-import fs from "fs";
-import path from "path";
-import Image from "next/image";
+import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 
-function pngDimensions(filePath: string): { width: number; height: number } {
-  const abs = path.join(process.cwd(), "public", filePath);
-  const buf = fs.readFileSync(abs);
-  return {
-    width: buf.readUInt32BE(16),
-    height: buf.readUInt32BE(24),
-  };
+function renderRawRich(
+  message: string,
+  renderers: Record<string, (chunks: string, key: number) => ReactNode>
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const tagPattern = /<([A-Za-z][A-Za-z0-9]*)>(.*?)<\/\1>/g;
+  let lastIndex = 0;
+  let key = 0;
+
+  for (const match of message.matchAll(tagPattern)) {
+    const [fullMatch, tagName, chunks] = match;
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      nodes.push(message.slice(lastIndex, index));
+    }
+    const render = renderers[tagName];
+    nodes.push(render ? render(chunks, key) : chunks);
+    key += 1;
+    lastIndex = index + fullMatch.length;
+  }
+
+  if (lastIndex < message.length) {
+    nodes.push(message.slice(lastIndex));
+  }
+
+  return nodes;
 }
 
-function DocsImage({ src, alt, caption }: { src: string; alt: string; caption: string }) {
-  const { width, height } = pngDimensions(src);
-  return (
-    <figure className="my-6">
-      <div className="overflow-hidden rounded-lg border border-border bg-muted/20">
-        <Image
-          src={src}
-          alt={alt}
-          width={width}
-          height={height}
-          sizes="(max-width: 640px) 100vw, 640px"
-          className="block h-auto w-full"
-        />
-      </div>
-      <figcaption className="mt-2 text-sm text-muted">
-        {caption}
-      </figcaption>
-    </figure>
-  );
+function inlineCode(chunks: string, key: number) {
+  return <code key={key}>{chunks}</code>;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -166,13 +166,13 @@ export default function CustomCommandsPage() {
         })}
       </p>
       <p>
-        {t.rich("iconsDesc", {
-          buttons: (chunks) => <code>{chunks}</code>,
-          symbolIcon: (chunks) => <code>{chunks}</code>,
-          emojiIcon: (chunks) => <code>{chunks}</code>,
-          imageIcon: (chunks) => <code>{chunks}</code>,
-          scale: (chunks) => <code>{chunks}</code>,
-          defaultScale: (chunks) => <code>{chunks}</code>,
+        {renderRawRich(t.raw("iconsDesc"), {
+          buttons: inlineCode,
+          symbolIcon: inlineCode,
+          emojiIcon: inlineCode,
+          imageIcon: inlineCode,
+          scale: inlineCode,
+          defaultScale: inlineCode,
         })}
       </p>
       <p>
@@ -217,26 +217,16 @@ export default function CustomCommandsPage() {
           newTerminal: (chunks) => <code>{chunks}</code>,
         })}
       </p>
-      <DocsImage
-        src="/docs/custom-actions-command-palette.png"
-        alt={t("commandPaletteScreenshotAlt")}
-        caption={t("commandPaletteScreenshotCaption")}
-      />
 
       <h2>{t("newWorkspaceButton")}</h2>
       <p>
-        {t.rich("newWorkspaceButtonDesc", {
-          action: (chunks) => <code>{chunks}</code>,
-          contextMenu: (chunks) => <code>{chunks}</code>,
-          rightClick: (chunks) => <code>{chunks}</code>,
-          separator: (chunks) => <code>{chunks}</code>,
+        {renderRawRich(t.raw("newWorkspaceButtonDesc"), {
+          action: inlineCode,
+          contextMenu: inlineCode,
+          rightClick: inlineCode,
+          separator: inlineCode,
         })}
       </p>
-      <DocsImage
-        src="/docs/custom-actions-plus-menu.png"
-        alt={t("plusButtonScreenshotAlt")}
-        caption={t("plusButtonScreenshotCaption")}
-      />
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
     "worktree-agents": {
@@ -338,11 +328,11 @@ export default function CustomCommandsPage() {
 
       <h3>{t("simpleCommandFields")}</h3>
       <ul>
-        <li><code>name</code> &mdash; {t("fieldName")}</li>
-        <li><code>description</code> &mdash; {t("fieldDescription")}</li>
-        <li><code>keywords</code> &mdash; {t("fieldKeywords")}</li>
-        <li><code>command</code> &mdash; {t("fieldCommand")}</li>
-        <li><code>confirm</code> &mdash; {t("fieldConfirm")}</li>
+        <li><code>name</code>: {t("fieldName")}</li>
+        <li><code>description</code>: {t("fieldDescription")}</li>
+        <li><code>keywords</code>: {t("fieldKeywords")}</li>
+        <li><code>command</code>: {t("fieldCommand")}</li>
+        <li><code>confirm</code>: {t("fieldConfirm")}</li>
       </ul>
       <p>{t("simpleCommandCwdNote")} <code>{"cd \"$(git rev-parse --show-toplevel)\" &&"}</code> {t("simpleCommandCwdRepoRoot")} <code>{"cd /your/path &&"}</code> {t("simpleCommandCwdCustomPath")}</p>
 
@@ -394,19 +384,19 @@ export default function CustomCommandsPage() {
 
       <h3>{t("workspaceFields")}</h3>
       <ul>
-        <li><code>name</code> &mdash; {t("wsFieldName")}</li>
-        <li><code>cwd</code> &mdash; {t("wsFieldCwd")}</li>
-        <li><code>color</code> &mdash; {t("wsFieldColor")}</li>
-        <li><code>layout</code> &mdash; {t("wsFieldLayout")}</li>
+        <li><code>name</code>: {t("wsFieldName")}</li>
+        <li><code>cwd</code>: {t("wsFieldCwd")}</li>
+        <li><code>color</code>: {t("wsFieldColor")}</li>
+        <li><code>layout</code>: {t("wsFieldLayout")}</li>
       </ul>
 
       <h3>{t("restartBehavior")}</h3>
       <p>{t("restartBehaviorDesc")}</p>
       <ul>
-        <li><code>&quot;new&quot;</code> &mdash; {t("restartNew")}</li>
-        <li><code>&quot;ignore&quot;</code> &mdash; {t("restartIgnore")}</li>
-        <li><code>&quot;recreate&quot;</code> &mdash; {t("restartRecreate")}</li>
-        <li><code>&quot;confirm&quot;</code> &mdash; {t("restartConfirm")}</li>
+        <li><code>&quot;new&quot;</code>: {t("restartNew")}</li>
+        <li><code>&quot;ignore&quot;</code>: {t("restartIgnore")}</li>
+        <li><code>&quot;recreate&quot;</code>: {t("restartRecreate")}</li>
+        <li><code>&quot;confirm&quot;</code>: {t("restartConfirm")}</li>
       </ul>
 
       <h2>{t("layoutTree")}</h2>
@@ -415,9 +405,9 @@ export default function CustomCommandsPage() {
       <h3>{t("splitNode")}</h3>
       <p>{t("splitNodeDesc")}</p>
       <ul>
-        <li><code>direction</code> &mdash; <code>&quot;horizontal&quot;</code> {t("or")} <code>&quot;vertical&quot;</code></li>
-        <li><code>split</code> &mdash; {t("splitPosition")}</li>
-        <li><code>children</code> &mdash; {t("splitChildren")}</li>
+        <li><code>direction</code>: <code>&quot;horizontal&quot;</code> {t("or")} <code>&quot;vertical&quot;</code></li>
+        <li><code>split</code>: {t("splitPosition")}</li>
+        <li><code>children</code>: {t("splitChildren")}</li>
       </ul>
 
       <h3>{t("paneNode")}</h3>
@@ -426,21 +416,21 @@ export default function CustomCommandsPage() {
       <h2>{t("surfaceDefinition")}</h2>
       <p>{t("surfaceDefinitionDesc")}</p>
       <ul>
-        <li><code>type</code> &mdash; <code>&quot;terminal&quot;</code> {t("or")} <code>&quot;browser&quot;</code></li>
-        <li><code>name</code> &mdash; {t("surfaceName")}</li>
-        <li><code>command</code> &mdash; {t("surfaceCommand")}</li>
-        <li><code>cwd</code> &mdash; {t("surfaceCwd")}</li>
-        <li><code>env</code> &mdash; {t("surfaceEnv")}</li>
-        <li><code>url</code> &mdash; {t("surfaceUrl")}</li>
-        <li><code>focus</code> &mdash; {t("surfaceFocus")}</li>
+        <li><code>type</code>: <code>&quot;terminal&quot;</code> {t("or")} <code>&quot;browser&quot;</code></li>
+        <li><code>name</code>: {t("surfaceName")}</li>
+        <li><code>command</code>: {t("surfaceCommand")}</li>
+        <li><code>cwd</code>: {t("surfaceCwd")}</li>
+        <li><code>env</code>: {t("surfaceEnv")}</li>
+        <li><code>url</code>: {t("surfaceUrl")}</li>
+        <li><code>focus</code>: {t("surfaceFocus")}</li>
       </ul>
 
       <h3>{t("cwdResolution")}</h3>
       <ul>
-        <li><code>.</code> {t("or")} {t("omitted")} &mdash; {t("cwdRelative")}</li>
-        <li><code>./subdir</code> &mdash; {t("cwdSubdir")}</li>
-        <li><code>~/path</code> &mdash; {t("cwdHome")}</li>
-        <li>{t("absolutePath")} &mdash; {t("cwdAbsolute")}</li>
+        <li><code>.</code> {t("or")} {t("omitted")}: {t("cwdRelative")}</li>
+        <li><code>./subdir</code>: {t("cwdSubdir")}</li>
+        <li><code>~/path</code>: {t("cwdHome")}</li>
+        <li>{t("absolutePath")}: {t("cwdAbsolute")}</li>
       </ul>
 
       <h2>{t("fullExample")}</h2>

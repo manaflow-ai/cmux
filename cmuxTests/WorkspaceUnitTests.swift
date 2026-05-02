@@ -2826,7 +2826,6 @@ final class WorkspaceReorderTests: XCTestCase {
     }
 }
 
-
 @MainActor
 final class WorkspaceNotificationReorderTests: XCTestCase {
     func testNotificationAutoReorderDoesNotMovePinnedWorkspace() {
