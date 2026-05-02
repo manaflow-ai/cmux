@@ -3,7 +3,6 @@ import SwiftUI
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
-
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -629,6 +628,7 @@ struct cmuxApp: App {
                 TaskManagerWindowController.shared.show()
             }
         }
+        helpCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
@@ -832,7 +832,7 @@ struct cmuxApp: App {
         SocketControlSettings.migrateMode(socketControlMode)
     }
 
-    private func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
+    func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: action)
     }
@@ -1069,7 +1069,7 @@ struct cmuxApp: App {
     }
 
     @ViewBuilder
-    private func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
+    func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
         if let key = shortcut.keyEquivalent {
             Button(title, action: action)
                 .keyboardShortcut(key, modifiers: shortcut.eventModifiers)

@@ -54,6 +54,8 @@
 		8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 		9C1BEA3D2E6F49709A71C020 /* TerminalControllerSocketWriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C1BEA3D2E6F49709A71C021 /* TerminalControllerSocketWriteTests.swift */; };
 		A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
+		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
+		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
 		A50019B0 /* SettingsSearchAliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B1 /* SettingsSearchAliases.swift */; };
 		A50019B2 /* SettingsSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B3 /* SettingsSearchIndexTests.swift */; };
@@ -192,6 +194,7 @@
 		B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */; };
 		B6BF3DC98DB1495E57900199 /* TabManagerUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */; };
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
+		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
 		B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */; };
 		C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
@@ -384,6 +387,8 @@
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		A5001000 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
+		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
+		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
 		A50019A1 /* SettingsNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigation.swift; sourceTree = "<group>"; };
 		A50019B1 /* SettingsSearchAliases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchAliases.swift; sourceTree = "<group>"; };
 		A50019B3 /* SettingsSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchIndexTests.swift; sourceTree = "<group>"; };
@@ -522,6 +527,7 @@
 		AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeHeightUITests.swift; sourceTree = "<group>"; };
 		B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
+		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
 		B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHelpMenuUITests.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteIdentifierClipboardUITests.swift; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
@@ -701,6 +707,7 @@
 				B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */,
 					B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */,
 					818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
+					C0DE34020000000000000006 /* HelpMenuUITests.swift */,
 					B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */,
 					C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */,
 					B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */,
@@ -752,6 +759,8 @@
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
 				A5001011 /* cmuxApp.swift */,
+				C0DE34020000000000000003 /* CmuxHelpCommands.swift */,
+				C0DE34020000000000000004 /* CmuxHelpResource.swift */,
 				A50019A1 /* SettingsNavigation.swift */,
 				A50019B1 /* SettingsSearchAliases.swift */,
 				A5001012 /* ContentView.swift */,
@@ -1224,6 +1233,8 @@
 				3023A1003023A1003023A100 /* ConfigSource.swift in Sources */,
 				3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
 				A5001001 /* cmuxApp.swift in Sources */,
+				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
+				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
 				A50019B0 /* SettingsSearchAliases.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
@@ -1414,6 +1425,7 @@
 					B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */,
 					F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */,
 					B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
+					C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */,
 					B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */,
 					C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */,
 					B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */,
