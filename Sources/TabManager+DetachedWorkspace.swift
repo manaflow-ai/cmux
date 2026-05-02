@@ -52,7 +52,11 @@ extension TabManager {
             let inheritedConfig = workspaceCreationConfigTemplate(
                 inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
             )
-            let insertIndex = insertionIndexOverride ?? newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+            let insertIndex = detachedWorkspaceInsertIndex(
+                insertionIndexOverride: insertionIndexOverride,
+                snapshot: snapshot,
+                placementOverride: placementOverride
+            )
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let newWorkspace = Workspace(
@@ -100,5 +104,29 @@ extension TabManager {
 #endif
             return newWorkspace
         }
+    }
+
+    private func detachedWorkspaceInsertIndex(
+        insertionIndexOverride: Int?,
+        snapshot: WorkspaceCreationSnapshot,
+        placementOverride: NewWorkspacePlacement?
+    ) -> Int {
+        guard let insertionIndexOverride else {
+            return newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+        }
+        return Self.clampedDetachedWorkspaceInsertIndex(insertionIndexOverride, tabs: snapshot.tabs)
+    }
+
+    private static func clampedDetachedWorkspaceInsertIndex(
+        _ proposedInsertion: Int,
+        tabs: [WorkspaceCreationTabSnapshot]
+    ) -> Int {
+        let clampedInsertion = max(0, min(proposedInsertion, tabs.count))
+        let pinnedCount = tabs.reduce(into: 0) { count, tab in
+            if tab.isPinned {
+                count += 1
+            }
+        }
+        return max(clampedInsertion, pinnedCount)
     }
 }

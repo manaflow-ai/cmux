@@ -2,7 +2,10 @@ import AppKit
 import SwiftUI
 
 struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
-    let tabManager: TabManager
+    let currentSelectedTabId: () -> UUID?
+    let sidebarIndexForTabId: (UUID) -> Int?
+    let moveToExistingWorkspace: (UUID) -> Bool
+    let moveToNewWorkspace: (Int) -> UUID?
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var dropIndicator: SidebarDropIndicator?
@@ -24,50 +27,23 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
             dropIndicator = indicator
         }
         nsView.performExistingWorkspaceMove = { workspaceId in
-            guard let transfer = BonsplitTabDragPayload.currentTransfer(),
-                  let app = AppDelegate.shared else {
-                return false
-            }
-            if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
-               source.workspaceId == workspaceId {
-                syncSidebarSelection()
-                return true
-            }
-            guard app.moveBonsplitTab(
-                tabId: transfer.tab.id,
-                toWorkspace: workspaceId,
-                focus: true,
-                focusWindow: true
-            ) else {
-                return false
-            }
+            guard moveToExistingWorkspace(workspaceId) else { return false }
             selectedTabIds = [workspaceId]
             syncSidebarSelection(preferredSelectedTabId: workspaceId)
             return true
         }
         nsView.performNewWorkspaceMove = { insertionIndex, _ in
-            guard let transfer = BonsplitTabDragPayload.currentTransfer(),
-                  let app = AppDelegate.shared,
-                  let result = app.moveBonsplitTabToNewWorkspace(
-                    tabId: transfer.tab.id,
-                    destinationManager: tabManager,
-                    focus: true,
-                    focusWindow: true,
-                    insertionIndexOverride: insertionIndex
-                  ) else {
-                return false
-            }
-
-            selectedTabIds = [result.destinationWorkspaceId]
-            syncSidebarSelection(preferredSelectedTabId: result.destinationWorkspaceId)
+            guard let destinationWorkspaceId = moveToNewWorkspace(insertionIndex) else { return false }
+            selectedTabIds = [destinationWorkspaceId]
+            syncSidebarSelection(preferredSelectedTabId: destinationWorkspaceId)
             return true
         }
     }
 
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
-        let selectedId = preferredSelectedTabId ?? tabManager.selectedTabId
+        let selectedId = preferredSelectedTabId ?? currentSelectedTabId()
         if let selectedId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+            lastSidebarSelectionIndex = sidebarIndexForTabId(selectedId)
         } else {
             lastSidebarSelectionIndex = nil
         }

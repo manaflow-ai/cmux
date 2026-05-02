@@ -40,6 +40,25 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         )
     }
 
+    func testWorkspaceDropBottomEdgeCreatesWorkspaceAfterTarget() {
+        let first = UUID()
+        let second = UUID()
+        let targets = workspaceDropTargets([first, second])
+
+        let action = SidebarDropPlanner.workspaceAction(
+            for: CGPoint(x: 12, y: 65),
+            targets: targets
+        )
+
+        XCTAssertEqual(
+            action,
+            .newWorkspace(
+                insertionIndex: 2,
+                indicator: SidebarDropIndicator(tabId: nil, edge: .bottom)
+            )
+        )
+    }
+
     func testWorkspaceDropGapCreatesWorkspaceBeforeNextTarget() {
         let first = UUID()
         let second = UUID()

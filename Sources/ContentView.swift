@@ -10109,7 +10109,42 @@ struct VerticalTabsSidebar: View {
         .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
             GeometryReader { proxy in
                 SidebarBonsplitTabWorkspaceDropOverlay(
-                    tabManager: tabManager,
+                    currentSelectedTabId: {
+                        tabManager.selectedTabId
+                    },
+                    sidebarIndexForTabId: { workspaceId in
+                        tabManager.tabs.firstIndex { $0.id == workspaceId }
+                    },
+                    moveToExistingWorkspace: { workspaceId in
+                        guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+                              let app = AppDelegate.shared else {
+                            return false
+                        }
+                        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+                           source.workspaceId == workspaceId {
+                            return true
+                        }
+                        return app.moveBonsplitTab(
+                            tabId: transfer.tab.id,
+                            toWorkspace: workspaceId,
+                            focus: true,
+                            focusWindow: true
+                        )
+                    },
+                    moveToNewWorkspace: { insertionIndex in
+                        guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+                              let app = AppDelegate.shared,
+                              let result = app.moveBonsplitTabToNewWorkspace(
+                                tabId: transfer.tab.id,
+                                destinationManager: tabManager,
+                                focus: true,
+                                focusWindow: true,
+                                insertionIndexOverride: insertionIndex
+                              ) else {
+                            return nil
+                        }
+                        return result.destinationWorkspaceId
+                    },
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                     dropIndicator: $dropIndicator,

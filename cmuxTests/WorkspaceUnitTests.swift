@@ -2824,6 +2824,30 @@ final class WorkspaceReorderTests: XCTestCase {
         XCTAssertTrue(manager.reorderWorkspace(tabId: firstPinned.id, toIndex: 999))
         XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
     }
+
+    @MainActor
+    func testDetachedWorkspaceInsertionOverrideClampsAfterPinnedSegment() {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let source = manager.addWorkspace()
+        manager.selectWorkspace(source)
+
+        guard let panelId = source.focusedPanelId,
+              let detached = source.detachSurface(panelId: panelId),
+              let inserted = manager.addWorkspace(
+                fromDetachedSurface: detached,
+                insertionIndexOverride: 0
+              ) else {
+            XCTFail("Expected detached workspace insertion to succeed")
+            return
+        }
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstPinned.id, secondPinned.id, inserted.id, source.id])
+        XCTAssertFalse(inserted.isPinned)
+    }
 }
 
 @MainActor
