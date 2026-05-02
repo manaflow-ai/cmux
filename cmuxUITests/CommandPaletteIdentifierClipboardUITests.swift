@@ -97,6 +97,7 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
             .matching(predicate)
             .firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5.0), "Expected row for Open cmux.json")
+        try? FileManager.default.removeItem(atPath: capturePath)
         row.click()
 
         let openedPath = try XCTUnwrap(
@@ -117,18 +118,24 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
             app.launch()
         }
 
-        if app.state == .runningBackground {
+        if app.state == .runningForeground { return }
+
+        var reachedForeground = false
+        let activateOptions = XCTExpectedFailure.Options()
+        activateOptions.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: activateOptions) {
+            reachedForeground = pollUntil(timeout: 4.0) {
+                if app.state != .runningForeground {
+                    app.activate()
+                }
+                return app.state == .runningForeground
+            }
+            XCTAssertTrue(reachedForeground, "App did not reach runningForeground before UI interactions")
+        }
+        if reachedForeground || app.state == .runningBackground {
             return
         }
-
-        XCTAssertTrue(
-            pollUntil(timeout: 4.0) {
-                guard app.state != .runningForeground else { return true }
-                app.activate()
-                return app.state == .runningForeground
-            },
-            "App did not reach runningForeground before UI interactions"
-        )
+        XCTFail("App failed to start. state=\(app.state.rawValue)")
     }
 
     private func resetMenuBarOnlyDefault() {
@@ -138,8 +145,13 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
         do {
             try process.run()
             process.waitUntilExit()
+            XCTAssertEqual(
+                process.terminationStatus,
+                0,
+                "Failed to reset menuBarOnly default: status \(process.terminationStatus)"
+            )
         } catch {
-            return
+            XCTFail("Failed to reset menuBarOnly default: \(error.localizedDescription)")
         }
     }
 
@@ -195,18 +207,18 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
     }
 
     private func capturedOpenPath(at path: String, timeout: TimeInterval) -> String? {
-        var latest: String?
+        var captured: String?
         let matched = pollUntil(timeout: timeout) {
             guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
                 return false
             }
-            latest = contents
+            captured = contents
                 .split(separator: "\n")
                 .map(String.init)
-                .last
-            return latest != nil
+                .first
+            return captured != nil
         }
-        return matched ? latest : nil
+        return matched ? captured : nil
     }
 
     private func waitForIdentifierClipboard(keys: [String], timeout: TimeInterval) -> String? {
