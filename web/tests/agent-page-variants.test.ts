@@ -10,7 +10,10 @@ import {
   markdownFromHtml,
   plainTextFromMarkdown,
 } from "../app/lib/agent-page-markdown";
-import { headersForCanonicalFetch } from "../app/lib/agent-page-canonical-fetch";
+import {
+  hasSensitiveCanonicalAccess,
+  headersForCanonicalFetch,
+} from "../app/lib/agent-page-canonical-fetch";
 import { sameOriginRedirectUrl } from "../app/lib/agent-page-redirects";
 
 describe("agent page variants", () => {
@@ -247,6 +250,28 @@ describe("agent page variants", () => {
     expect(text).not.toContain("[API docs]");
   });
 
+  test("keeps underscores in identifiers while cleaning emphasis", () => {
+    const text = plainTextFromMarkdown(
+      "Use foo_bar_baz with _emphasis_ and __strong__ text.\n",
+    );
+
+    expect(text).toContain("foo_bar_baz");
+    expect(text).toContain("emphasis");
+    expect(text).toContain("strong");
+    expect(text).not.toContain("_emphasis_");
+    expect(text).not.toContain("__strong__");
+  });
+
+  test("removes single-column Markdown table dividers from text", () => {
+    const text = plainTextFromMarkdown(
+      ["| Name |", "| --- |", "| cmux |"].join("\n"),
+    );
+
+    expect(text).toContain("Name");
+    expect(text).toContain("cmux");
+    expect(text).not.toContain("---");
+  });
+
   test("marks alternate text responses as non-indexable canonical variants", () => {
     const headers = headersForAgentPage({
       canonicalUrl: "https://cmux.com/docs/getting-started",
@@ -293,6 +318,10 @@ describe("agent page variants", () => {
     expect(headers.get("authorization")).toBe("Bearer token");
     expect(headers.get("x-vercel-protection-bypass")).toBe("secret");
     expect(headers.get("x-vercel-set-bypass-cookie")).toBe("true");
+    expect(hasSensitiveCanonicalAccess(headers)).toBe(true);
+    expect(hasSensitiveCanonicalAccess(new Headers({ accept: "text/html" }))).toBe(
+      false,
+    );
   });
 
   test("keeps internal redirects on the same origin", () => {

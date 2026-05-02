@@ -3,7 +3,10 @@ import {
   buildLlmsText,
   resolveAgentPageVariant,
 } from "../lib/agent-page-paths";
-import { headersForCanonicalFetch } from "../lib/agent-page-canonical-fetch";
+import {
+  hasSensitiveCanonicalAccess,
+  headersForCanonicalFetch,
+} from "../lib/agent-page-canonical-fetch";
 import { sameOriginRedirectUrl } from "../lib/agent-page-redirects";
 import {
   headersForAgentPage,
@@ -59,15 +62,12 @@ export async function GET(request: NextRequest) {
   });
   const body =
     variant.format === "txt" ? plainTextFromMarkdown(markdown) : markdown;
-
   return new NextResponse(body, {
     headers: headersForAgentPage({
       canonicalUrl: sourceUrl,
       contentLanguage: localeFromCanonicalPath(new URL(sourceUrl).pathname),
       format: variant.format,
-      privateResponse:
-        canonicalFetchHeaders.has("authorization") ||
-        canonicalFetchHeaders.has("cookie"),
+      privateResponse: hasSensitiveCanonicalAccess(canonicalFetchHeaders),
       varyAcceptLanguage: canonicalFetchHeaders.has("accept-language"),
     }),
   });

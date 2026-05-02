@@ -328,9 +328,9 @@ function markdownInlineToText(markdown: string): string {
       `${label} (${url})`,
     )
     .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
+    .replace(/(^|[^\w])__([^_\n]+)__([^\w]|$)/g, "$1$2$3")
     .replace(/\*([^*]+)\*/g, "$1")
-    .replace(/_([^_]+)_/g, "$1");
+    .replace(/(^|[^\w])_([^_\n]+)_([^\w]|$)/g, "$1$2$3");
 
   return codeSpans.reduce(
     (current, code, index) =>
@@ -357,7 +357,7 @@ function tableCellsFromMarkdownLine(line: string): string[] | null {
 }
 
 function isMarkdownTableDivider(line: string): boolean {
-  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  return /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line);
 }
 
 function ensureMarkdownTitle(markdown: string, title: string): string {
