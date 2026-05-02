@@ -15,6 +15,12 @@ FEEDBACK_ENDPOINT_ENV_KEYS = (
     "CMUX_FEEDBACK_ENDPOINT",
 )
 FEEDBACK_USER_AGENT = "cmux-linux"
+SAFE_MULTIPART_MIME_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    "!#$&^_.+-/"
+)
 
 
 def feedback_endpoint_url(env: Mapping[str, str] | None = None) -> str | None:
@@ -81,18 +87,19 @@ def _feedback_file_payload(path: str) -> dict[str, Any]:
 def _multipart_body(fields: Mapping[str, str], files: list[Mapping[str, Any]], boundary: str) -> bytes:
     chunks: list[bytes] = []
     for name, value in fields.items():
+        field_name = _multipart_header_value(name)
         chunks.extend(
             [
                 f"--{boundary}\r\n".encode("utf-8"),
-                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"),
+                f'Content-Disposition: form-data; name="{field_name}"\r\n\r\n'.encode("utf-8"),
                 value.encode("utf-8"),
                 b"\r\n",
             ]
         )
     for file_payload in files:
-        field_name = str(file_payload["field_name"])
-        file_name = str(file_payload["file_name"])
-        mime_type = str(file_payload["mime_type"])
+        field_name = _multipart_header_value(str(file_payload["field_name"]))
+        file_name = _multipart_header_value(str(file_payload["file_name"]))
+        mime_type = _safe_multipart_mime_type(str(file_payload["mime_type"]))
         data = file_payload["data"]
         chunks.extend(
             [
@@ -108,3 +115,14 @@ def _multipart_body(fields: Mapping[str, str], files: list[Mapping[str, Any]], b
         )
     chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
     return b"".join(chunks)
+
+
+def _multipart_header_value(value: str) -> str:
+    sanitized = value.replace("\r", "_").replace("\n", "_")
+    return sanitized.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _safe_multipart_mime_type(value: str) -> str:
+    if "/" not in value or any(character not in SAFE_MULTIPART_MIME_CHARS for character in value):
+        return "application/octet-stream"
+    return value

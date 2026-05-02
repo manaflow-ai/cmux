@@ -201,9 +201,12 @@ jobs:
             squashfs-tools \
             xauth \
             xvfb
+          appimagetool_version="12"
+          appimagetool_sha256="d918b4df547b388ef253f3c9e7f6529ca81a885395c31f619d9aaf7030499a13"
           curl -fsSL \
-            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
+            "https://github.com/AppImage/AppImageKit/releases/download/${appimagetool_version}/appimagetool-x86_64.AppImage" \
             -o /usr/local/bin/appimagetool
+          echo "${appimagetool_sha256}  /usr/local/bin/appimagetool" | sha256sum -c -
           chmod 0755 /usr/local/bin/appimagetool
           {
             echo "APPIMAGETOOL=/usr/local/bin/appimagetool"

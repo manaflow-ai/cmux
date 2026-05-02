@@ -65,6 +65,10 @@ from .shortcuts import (  # noqa: E402
     normalize_key_name,
     shortcut_token_from_text,
 )
+from .socket_security import (  # noqa: E402
+    bind_private_unix_socket,
+    ensure_private_socket_directory,
+)
 from .capabilities import (  # noqa: E402
     REQUIRED_FAILURE_CODES,
     build_subsystem_capabilities,
@@ -1146,7 +1150,7 @@ class SocketServer:
         self.server_socket: socket.socket | None = None
 
     def start(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_private_socket_directory(self.path)
         self._remove_stale_socket()
         self.thread.start()
 
@@ -1168,7 +1172,7 @@ class SocketServer:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
                 self.server_socket = server
-                server.bind(str(self.path))
+                bind_private_unix_socket(server, self.path)
                 server.listen(SOCKET_BACKLOG)
                 server.settimeout(CLIENT_TIMEOUT_SECONDS)
                 while not self.stop_event.is_set():

@@ -14,6 +14,13 @@ RELAY_AUTH_FILE_MODE = "0600"
 RELAY_HMAC_ALGORITHM = "HMAC-SHA256"
 RELAY_AUTH_PROTOCOL = "cmux-relay-auth"
 RELAY_AUTH_VERSION = 1
+RELAY_ID_MAX_LENGTH = 128
+RELAY_ID_ALLOWED_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    "._:-"
+)
 REMOTE_CMUX_BIN_PATH = "~/.cmux/bin/cmux"
 REMOTE_DAEMON_CURRENT_PATH = "~/.cmux/bin/cmuxd-remote-current"
 DEFAULT_SSH_OPTIONS = {
@@ -40,10 +47,18 @@ def validate_relay_token(relay_token: str) -> None:
         raise ValueError("relay_token must be 64 lowercase hex characters.")
 
 
-def relay_auth_file_payload(*, relay_id: str, relay_token: str) -> dict[str, Any]:
-    validate_relay_token(relay_token)
+def validate_relay_id(relay_id: str) -> None:
     if not relay_id:
         raise ValueError("relay_id is required.")
+    if len(relay_id) > RELAY_ID_MAX_LENGTH:
+        raise ValueError("relay_id is too long.")
+    if any(character not in RELAY_ID_ALLOWED_CHARS for character in relay_id):
+        raise ValueError("relay_id contains invalid characters.")
+
+
+def relay_auth_file_payload(*, relay_id: str, relay_token: str) -> dict[str, Any]:
+    validate_relay_token(relay_token)
+    validate_relay_id(relay_id)
     return {
         "relay_id": relay_id,
         "relay_token": relay_token,
@@ -52,8 +67,7 @@ def relay_auth_file_payload(*, relay_id: str, relay_token: str) -> dict[str, Any
 
 
 def relay_auth_challenge(*, relay_id: str, nonce: str | None = None) -> dict[str, Any]:
-    if not relay_id:
-        raise ValueError("relay_id is required.")
+    validate_relay_id(relay_id)
     return {
         "protocol": RELAY_AUTH_PROTOCOL,
         "version": RELAY_AUTH_VERSION,
@@ -70,6 +84,7 @@ def compute_relay_auth_mac(
     version: int = RELAY_AUTH_VERSION,
 ) -> str:
     validate_relay_token(relay_token)
+    validate_relay_id(relay_id)
     token = bytes.fromhex(relay_token)
     message = f"relay_id={relay_id}\nnonce={nonce}\nversion={version}".encode("utf-8")
     return hmac.new(token, message, hashlib.sha256).hexdigest()
@@ -83,6 +98,7 @@ def verify_relay_auth_response(
     response: Mapping[str, Any],
     version: int = RELAY_AUTH_VERSION,
 ) -> bool:
+    validate_relay_id(relay_id)
     if response.get("relay_id") != relay_id:
         return False
     received = response.get("mac")
@@ -99,10 +115,9 @@ def verify_relay_auth_response(
 
 def build_relay_metadata(*, relay_port: int, relay_id: str, relay_token: str, daemon_path: str | None) -> dict[str, Any]:
     validate_relay_token(relay_token)
+    validate_relay_id(relay_id)
     if relay_port < 1 or relay_port > 65_535:
         raise ValueError("relay_port must be 1-65535.")
-    if not relay_id:
-        raise ValueError("relay_id is required.")
     token_sha256 = hashlib.sha256(relay_token.encode("utf-8")).hexdigest()
     return {
         "relay_id": relay_id,

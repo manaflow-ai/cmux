@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 import tempfile
 from pathlib import Path
@@ -28,6 +29,7 @@ from cmux_linux.browser import (  # noqa: E402
     BACKEND_LIMITED_BROWSER_METHODS,
     browser_backend_limit,
 )
+from cmux_linux.socket_security import bind_private_unix_socket  # noqa: E402
 from cmux_linux.feedback import (  # noqa: E402
     build_feedback_upload_request,
     feedback_endpoint_url,
@@ -66,6 +68,7 @@ from cmux_linux.remote import (  # noqa: E402
     remote_foreground_auth_transition,
     remote_proxy_runtime_status,
     ssh_option_keys,
+    validate_relay_id,
     validate_ssh_destination,
     verify_relay_auth_response,
 )
@@ -161,6 +164,13 @@ def main() -> int:
         "/tmp/cmux-flatpak/bin/cmux"
     ):
         errors.append("package validator must resolve Flatpak /app file roots")
+    with tempfile.TemporaryDirectory(prefix="cmux-socket-contract-") as temp:
+        socket_path = Path(temp) / "cmux.sock"
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            bind_private_unix_socket(server, socket_path)
+            socket_mode = socket_path.stat().st_mode & 0o777
+            if socket_mode != 0o600:
+                errors.append(f"Linux socket file mode must be 0600, got {socket_mode:o}")
     if (
         swift_cli_validation_error(b"#!/usr/bin/env python3\nprint('fallback')\n", "bin/cmux")
         != "bin/cmux must be the Swift CLI binary with auth-bridge support, not the fallback script"
@@ -453,6 +463,20 @@ for line in sys.stdin:
             errors.append(f"Linux feedback upload multipart body missing field: {field}")
     if "application/json" in content_type or request_body.strip().startswith("{"):
         errors.append("Linux feedback upload must not use the old JSON-only transport")
+    with tempfile.TemporaryDirectory(prefix="cmux-feedback-contract-") as temp:
+        injected_file = Path(temp) / "shot\r\nX-Cmux-Injected: yes.png"
+        injected_file.write_bytes(b"png")
+        injected_request = build_feedback_upload_request(
+            "https://feedback.example/upload",
+            {"id": "feedback-ci", "body": "Linux feedback"},
+            [str(injected_file)],
+            boundary="cmux-boundary",
+        )
+        injected_body = (injected_request.data or b"").decode("utf-8")
+        if "\r\nX-Cmux-Injected:" in injected_body:
+            errors.append("Linux feedback upload must strip CRLF from multipart filenames")
+        if 'filename="shot__X-Cmux-Injected: yes.png"' not in injected_body:
+            errors.append("Linux feedback upload must preserve sanitized attachment filenames")
     for method in (
         "browser.trace.start",
         "browser.network.route",
@@ -472,6 +496,17 @@ for line in sys.stdin:
             errors.append(f"{method} backend limit must identify WebKitGTK")
         if not limit.get("reason"):
             errors.append(f"{method} backend limit must include reason")
+    for invalid_relay_id in ("", "relay\nid", "relay\rid", "relay id", "../relay", "relay=id"):
+        try:
+            validate_relay_id(invalid_relay_id)
+            errors.append(f"relay_id validator must reject {invalid_relay_id!r}")
+        except ValueError:
+            pass
+    for valid_relay_id in ("relay-ci", "relay_1.2:3"):
+        try:
+            validate_relay_id(valid_relay_id)
+        except ValueError as error:
+            errors.append(f"relay_id validator must accept {valid_relay_id!r}: {error}")
     relay = build_relay_metadata(
         relay_port=43210,
         relay_id="relay-ci",
