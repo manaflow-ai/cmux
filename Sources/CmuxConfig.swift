@@ -86,6 +86,7 @@ struct CmuxConfigFile: Codable, Sendable {
         codingPath: [CodingKey]
     ) throws -> [String: CmuxConfigActionDefinition] {
         var actions: [String: CmuxConfigActionDefinition] = [:]
+        var canonicalIDs: [String: String] = [:]
         for (rawID, action) in decodedActions {
             let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
             if id.isEmpty {
@@ -104,6 +105,16 @@ struct CmuxConfigFile: Codable, Sendable {
                     )
                 )
             }
+            let canonicalID = CmuxSurfaceTabBarBuiltInAction(configID: id)?.configID ?? id
+            if let existingID = canonicalIDs[canonicalID] {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: codingPath,
+                        debugDescription: "actions must not contain duplicate aliases for '\(canonicalID)' (found '\(existingID)' and '\(id)')"
+                    )
+                )
+            }
+            canonicalIDs[canonicalID] = id
             actions[id] = action
         }
         return actions

@@ -21,7 +21,7 @@
 3840	Sources/Feed/FeedPanelView.swift
 3588	cmuxTests/BrowserConfigTests.swift
 3145	cmuxTests/BrowserPanelTests.swift
-2906	Sources/CmuxConfig.swift
+2917	Sources/CmuxConfig.swift
 2863	cmuxTests/WindowAndDragTests.swift
 2609	Sources/SessionIndexView.swift
 2491	Sources/Panels/CmuxWebView.swift
