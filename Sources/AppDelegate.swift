@@ -6013,7 +6013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         return CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
-            preferredWindow: preferredWindow ?? resolvedWindow(for: context)
+            preferredWindow: resolvedWindow(for: context) ?? preferredWindow
         )
     }
 
@@ -12435,7 +12435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .cloudVM:
                 let didStart = performCloudVMAction(
                     tabManager: context.tabManager,
-                    preferredWindow: preferredWindow ?? resolvedWindow(for: context),
+                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
                     debugSource: "configured.cmux.cloudvm"
                 )
                 if didStart { onExecuted?() }
