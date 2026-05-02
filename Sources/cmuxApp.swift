@@ -2488,6 +2488,7 @@ enum SettingsWindowPresenter {
     static let windowID = "settings"
     static let windowIdentifier = "cmux.settings"
     static let minimumSize = NSSize(width: 820, height: 540)
+    private static let visibleAreaInset: CGFloat = 18
 
     private static var openWindow: (@MainActor () -> Void)?
     private static weak var settingsWindow: NSWindow?
@@ -2505,8 +2506,10 @@ enum SettingsWindowPresenter {
     static func configure(window: NSWindow) {
         settingsWindow = window
         window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
+        window.isRestorable = false
         window.minSize = minimumSize
         window.contentMinSize = minimumSize
+        clampToVisibleAreaIfNeeded(window)
     }
 
     static func show(navigationTarget: SettingsNavigationTarget? = nil) {
@@ -2559,9 +2562,28 @@ enum SettingsWindowPresenter {
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
+        clampToVisibleAreaIfNeeded(window)
         NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+    }
+
+    private static func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        var frame = window.frame
+        let visibleFrame = screen.visibleFrame
+        let minX = visibleFrame.minX + visibleAreaInset
+        let minY = visibleFrame.minY + visibleAreaInset
+        let maxX = max(minX, visibleFrame.maxX - visibleAreaInset - frame.width)
+        let maxY = max(minY, visibleFrame.maxY - visibleAreaInset - frame.height)
+        let clampedOrigin = NSPoint(
+            x: min(max(frame.origin.x, minX), maxX),
+            y: min(max(frame.origin.y, minY), maxY)
+        )
+
+        guard clampedOrigin != frame.origin else { return }
+        frame.origin = clampedOrigin
+        window.setFrame(frame, display: true)
     }
 }
 
