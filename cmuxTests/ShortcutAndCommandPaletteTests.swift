@@ -388,7 +388,7 @@ final class FullScreenShortcutTests: XCTestCase {
 }
 
 final class ToggleSplitZoomCommandPaletteVisibilityTests: XCTestCase {
-    func testVisibleWhenWorkspaceHasSplitsAndBrowserPanelIsFocused() {
+    func testVisibleWhenWorkspaceHasSplitsAndAnyPanelIsFocused() {
         XCTAssertTrue(
             shouldShowToggleSplitZoomCommandInPalette(
                 hasFocusedPanel: true,

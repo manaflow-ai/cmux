@@ -1613,6 +1613,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     }
 }
 
+/// Shows the command when a focused pane exists in a split workspace.
 func shouldShowToggleSplitZoomCommandInPalette(
     hasFocusedPanel: Bool,
     workspaceHasSplits: Bool
