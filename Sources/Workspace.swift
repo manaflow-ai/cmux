@@ -7237,6 +7237,7 @@ final class Workspace: Identifiable, ObservableObject {
     let bonsplitController: BonsplitController
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
+        let builtInAction: CmuxSurfaceTabBarBuiltInAction?
         let workspaceCommand: CmuxResolvedCommand?
         let terminalCommandSourcePath: String?
     }
@@ -7955,6 +7956,7 @@ final class Workspace: Identifiable, ObservableObject {
                         button.id,
                         SurfaceTabBarExecutableButton(
                             button: button,
+                            builtInAction: nil,
                             workspaceCommand: nil,
                             terminalCommandSourcePath: button.actionSourcePath ?? terminalCommandSourcePaths[button.id]
                         )
@@ -7965,7 +7967,20 @@ final class Workspace: Identifiable, ObservableObject {
                         button.id,
                         SurfaceTabBarExecutableButton(
                             button: button,
+                            builtInAction: nil,
                             workspaceCommand: workspaceCommand,
+                            terminalCommandSourcePath: nil
+                        )
+                    )
+                }
+                if case .builtIn(let builtInAction) = button.action,
+                   builtInAction.bonsplitAction == nil {
+                    return (
+                        button.id,
+                        SurfaceTabBarExecutableButton(
+                            button: button,
+                            builtInAction: builtInAction,
+                            workspaceCommand: nil,
                             terminalCommandSourcePath: nil
                         )
                     )
@@ -13759,13 +13774,32 @@ extension Workspace: BonsplitDelegate {
     }
 
     private func executeSurfaceTabBarCommandButton(identifier: String, inPane pane: PaneID) {
-        guard let executable = surfaceTabBarCommandButtons[identifier],
-              let globalConfigPath = surfaceTabBarButtonGlobalConfigPath else {
+        guard let executable = surfaceTabBarCommandButtons[identifier] else {
             return
         }
         let presentingWindow = selectedTerminalPanel(inPane: pane)?.hostedView.window
             ?? NSApp.keyWindow
             ?? NSApp.mainWindow
+
+        if let builtInAction = executable.builtInAction {
+            switch builtInAction {
+            case .newWorkspace:
+                owningTabManager?.addWorkspace()
+            case .cloudVM:
+                _ = AppDelegate.shared?.performCloudVMAction(
+                    tabManager: owningTabManager,
+                    preferredWindow: presentingWindow,
+                    debugSource: "surfaceTabBar.cloudVM"
+                )
+            case .newTerminal, .newBrowser, .splitRight, .splitDown:
+                break
+            }
+            return
+        }
+
+        guard let globalConfigPath = surfaceTabBarButtonGlobalConfigPath else {
+            return
+        }
 
         if let workspaceCommand = executable.workspaceCommand {
             bonsplitController.focusPane(pane)
