@@ -3859,11 +3859,13 @@ struct ContentView: View {
             maxMounted: maxMounted
         )
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
-        hidePortalViewsForUnmountedWorkspaces(
-            removedIds,
-            tabs: currentTabs,
-            selectedId: effectiveSelectedId
-        )
+        let mountedIdSet = Set(mountedWorkspaceIds)
+        for workspace in currentTabs {
+            workspace.setPortalRenderingEnabled(
+                mountedIdSet.contains(workspace.id),
+                reason: "workspaceMount"
+            )
+        }
 #if DEBUG
         if mountedWorkspaceIds != previousMountedIds {
             let added = mountedWorkspaceIds.filter { !previousMountedIds.contains($0) }
@@ -3883,19 +3885,6 @@ struct ContentView: View {
             }
         }
 #endif
-    }
-
-    private func hidePortalViewsForUnmountedWorkspaces(
-        _ workspaceIds: [UUID],
-        tabs: [Workspace],
-        selectedId: UUID?
-    ) {
-        guard !workspaceIds.isEmpty else { return }
-        let unmountedIds = Set(workspaceIds)
-        for workspace in tabs where unmountedIds.contains(workspace.id) && workspace.id != selectedId {
-            workspace.hideAllTerminalPortalViews()
-            workspace.hideAllBrowserPortalViews()
-        }
     }
 
     private enum BackgroundWorkspacePrimeState {
@@ -4379,14 +4368,13 @@ struct ContentView: View {
         workspaceHandoffFallbackTask = nil
         let retiring = retiringWorkspaceId
 
-        // Hide portal-hosted views for the retiring workspace BEFORE clearing
+        // Disable portal rendering for the retiring workspace BEFORE clearing
         // retiringWorkspaceId. Once cleared, reconcileMountedWorkspaceIds unmounts
         // the workspace — but dismantleNSView intentionally doesn't hide portal views
-        // during transient rebuilds. Hiding here prevents stale terminal/browser
-        // portals from covering the newly selected workspace.
+        // during transient rebuilds. Disabling here also cancels stale layout follow-up
+        // loops that could re-show an old terminal above the newly selected workspace.
         if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
-            workspace.hideAllTerminalPortalViews()
-            workspace.hideAllBrowserPortalViews()
+            workspace.setPortalRenderingEnabled(false, reason: "workspaceHandoff")
         }
 
         retiringWorkspaceId = nil

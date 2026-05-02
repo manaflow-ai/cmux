@@ -2938,6 +2938,23 @@ final class WorkspaceTeardownTests: XCTestCase {
         XCTAssertTrue(workspace.pinnedPanelIds.isEmpty)
         XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
     }
+
+    func testDisabledPortalRenderingDoesNotRestoreTerminalVisibility() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        workspace.setPortalRenderingEnabled(false, reason: "test")
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
+
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 
