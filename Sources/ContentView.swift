@@ -7067,6 +7067,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.openCmuxSettingsFile",
+                title: constant(String(localized: "settings.settingsJSON.openFile", defaultValue: "Open cmux.json")),
+                subtitle: constant(String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")),
+                keywords: ["open", "cmux", "json", "config", "configuration", "settings", "file", "editor", "dotfile"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.checkForUpdates",
                 title: constant(String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates")),
                 subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
@@ -7927,6 +7935,12 @@ struct ContentView: View {
 #endif
                 AppDelegate.presentPreferencesWindow()
             }
+        }
+        registry.register(commandId: "palette.openCmuxSettingsFile") {
+#if DEBUG
+            cmuxDebugLog("palette.openCmuxSettingsFile.invoke")
+#endif
+            openCmuxSettingsFileInEditor()
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
