@@ -4552,14 +4552,14 @@ enum AppearanceSettings {
             return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
         }
 
-        switch mode(for: defaults.string(forKey: appearanceModeKey)) {
-        case .light:
+        let mode = mode(for: defaults.string(forKey: appearanceModeKey))
+        if mode == .light {
             return .light
-        case .dark:
-            return .dark
-        case .system, .auto:
-            return systemPrefersDark(defaults: defaults) ? .dark : .light
         }
+        if mode == .dark {
+            return .dark
+        }
+        return systemPrefersDark(defaults: defaults) ? .dark : .light
     }
 
     static func systemNSAppearance(defaults: UserDefaults = .standard) -> NSAppearance? {

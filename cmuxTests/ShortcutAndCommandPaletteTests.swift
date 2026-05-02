@@ -1652,6 +1652,27 @@ final class AppearanceSettingsTests: XCTestCase {
         }
     }
 
+    func testColorSchemePreferenceUsesSystemLightWhenSystemStyleIsUnset() {
+        let suiteName = "AppearanceSettingsTests.SystemLight.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        defaults.removeObject(forKey: "AppleInterfaceStyle")
+
+        XCTAssertEqual(
+            AppearanceSettings.colorSchemePreference(appAppearance: nil, defaults: defaults),
+            .light
+        )
+        XCTAssertEqual(
+            GhosttyConfig.currentColorSchemePreference(appAppearance: nil, defaults: defaults),
+            .light
+        )
+    }
+
     private func withTemporaryAppearanceDefaults(
         appearanceMode: String,
         appleInterfaceStyle: String?,
