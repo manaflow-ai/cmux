@@ -3859,11 +3859,13 @@ struct ContentView: View {
             maxMounted: maxMounted
         )
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
-        hidePortalViewsForUnmountedWorkspaces(
-            removedIds,
-            tabs: currentTabs,
-            selectedId: effectiveSelectedId
-        )
+        let mountedIdSet = Set(mountedWorkspaceIds)
+        for workspace in currentTabs {
+            workspace.setPortalRenderingEnabled(
+                mountedIdSet.contains(workspace.id),
+                reason: "workspaceMount"
+            )
+        }
 #if DEBUG
         if mountedWorkspaceIds != previousMountedIds {
             let added = mountedWorkspaceIds.filter { !previousMountedIds.contains($0) }
@@ -3883,19 +3885,6 @@ struct ContentView: View {
             }
         }
 #endif
-    }
-
-    private func hidePortalViewsForUnmountedWorkspaces(
-        _ workspaceIds: [UUID],
-        tabs: [Workspace],
-        selectedId: UUID?
-    ) {
-        guard !workspaceIds.isEmpty else { return }
-        let unmountedIds = Set(workspaceIds)
-        for workspace in tabs where unmountedIds.contains(workspace.id) && workspace.id != selectedId {
-            workspace.hideAllTerminalPortalViews()
-            workspace.hideAllBrowserPortalViews()
-        }
     }
 
     private enum BackgroundWorkspacePrimeState {
@@ -4379,14 +4368,13 @@ struct ContentView: View {
         workspaceHandoffFallbackTask = nil
         let retiring = retiringWorkspaceId
 
-        // Hide portal-hosted views for the retiring workspace BEFORE clearing
+        // Disable portal rendering for the retiring workspace BEFORE clearing
         // retiringWorkspaceId. Once cleared, reconcileMountedWorkspaceIds unmounts
         // the workspace — but dismantleNSView intentionally doesn't hide portal views
-        // during transient rebuilds. Hiding here prevents stale terminal/browser
-        // portals from covering the newly selected workspace.
+        // during transient rebuilds. Disabling here also cancels stale layout follow-up
+        // loops that could re-show an old terminal above the newly selected workspace.
         if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
-            workspace.hideAllTerminalPortalViews()
-            workspace.hideAllBrowserPortalViews()
+            workspace.setPortalRenderingEnabled(false, reason: "workspaceHandoff")
         }
 
         retiringWorkspaceId = nil
@@ -10120,6 +10108,62 @@ struct VerticalTabsSidebar: View {
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
+            GeometryReader { proxy in
+                SidebarBonsplitTabWorkspaceDropOverlay(
+                    currentSelectedTabId: {
+                        tabManager.selectedTabId
+                    },
+                    sidebarIndexForTabId: { workspaceId in
+                        tabManager.tabs.firstIndex { $0.id == workspaceId }
+                    },
+                    moveToExistingWorkspace: { workspaceId in
+                        guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+                              let app = AppDelegate.shared else {
+                            return false
+                        }
+                        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+                           source.workspaceId == workspaceId {
+                            return true
+                        }
+                        return app.moveBonsplitTab(
+                            tabId: transfer.tab.id,
+                            toWorkspace: workspaceId,
+                            focus: true,
+                            focusWindow: true
+                        )
+                    },
+                    moveToNewWorkspace: { insertionIndex in
+                        guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+                              let app = AppDelegate.shared,
+                              let result = app.moveBonsplitTabToNewWorkspace(
+                                tabId: transfer.tab.id,
+                                destinationManager: tabManager,
+                                focus: true,
+                                focusWindow: true,
+                                insertionIndexOverride: insertionIndex
+                              ) else {
+                            return nil
+                        }
+                        return result.destinationWorkspaceId
+                    },
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                    dropIndicator: $dropIndicator,
+                    updateAutoscroll: {
+                        dragAutoScrollController.updateFromDragLocation()
+                    },
+                    targets: renderContext.tabs.compactMap { tab in
+                        guard let anchor = anchors[tab.id] else { return nil }
+                        return SidebarDropPlanner.WorkspaceDropTarget(
+                            workspaceId: tab.id,
+                            isPinned: tab.isPinned,
+                            frame: proxy[anchor]
+                        )
+                    }
+                )
+            }
+        }
     }
 
     private func workspaceRow(
@@ -10210,6 +10254,9 @@ struct VerticalTabsSidebar: View {
         .id(tab.id)
         .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
+        .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
+            [tab.id: anchor]
+        }
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -10223,6 +10270,14 @@ private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
         value.formUnion(nextValue())
+    }
+}
+
+private struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [UUID: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, next in next }
     }
 }
 
@@ -13653,7 +13708,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var showsCenteredTopDropIndicator: Bool {
-        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
+        guard let indicator = dropIndicator else { return false }
         if indicator.tabId == tab.id && indicator.edge == .top {
             return true
         }
@@ -14612,144 +14667,6 @@ private struct SidebarMetadataMarkdownBlockRow: View {
             markdown: block.markdown,
             options: .init(interpretedSyntax: .full)
         )
-    }
-}
-
-enum SidebarDropEdge: Equatable {
-    case top
-    case bottom
-}
-
-struct SidebarDropIndicator: Equatable {
-    let tabId: UUID?
-    let edge: SidebarDropEdge
-}
-
-enum SidebarDropPlanner {
-    static func indicator(
-        draggedTabId: UUID?,
-        targetTabId: UUID?,
-        tabIds: [UUID],
-        pinnedTabIds: Set<UUID>,
-        pointerY: CGFloat? = nil,
-        targetHeight: CGFloat? = nil
-    ) -> SidebarDropIndicator? {
-        guard tabIds.count > 1, let draggedTabId else { return nil }
-        guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
-
-        let insertionPosition: Int
-        if let targetTabId {
-            guard let targetTabIndex = tabIds.firstIndex(of: targetTabId) else { return nil }
-            let edge: SidebarDropEdge
-            if let pointerY, let targetHeight {
-                edge = edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
-            } else {
-                edge = preferredEdge(fromIndex: fromIndex, targetTabId: targetTabId, tabIds: tabIds)
-            }
-            insertionPosition = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
-        } else {
-            insertionPosition = tabIds.count
-        }
-
-        let legalInsertionPosition = legalInsertionPosition(
-            draggedTabId: draggedTabId,
-            proposedInsertionPosition: insertionPosition,
-            tabIds: tabIds,
-            pinnedTabIds: pinnedTabIds
-        )
-        let legalTargetIndex = resolvedTargetIndex(
-            from: fromIndex,
-            insertionPosition: legalInsertionPosition,
-            totalCount: tabIds.count
-        )
-        guard legalTargetIndex != fromIndex else { return nil }
-        return indicatorForInsertionPosition(legalInsertionPosition, tabIds: tabIds)
-    }
-
-    static func targetIndex(
-        draggedTabId: UUID,
-        targetTabId: UUID?,
-        indicator: SidebarDropIndicator?,
-        tabIds: [UUID],
-        pinnedTabIds: Set<UUID>
-    ) -> Int? {
-        guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
-
-        let insertionPosition: Int
-        if let indicator, let indicatorInsertion = insertionPositionForIndicator(indicator, tabIds: tabIds) {
-            insertionPosition = indicatorInsertion
-        } else if let targetTabId {
-            guard let targetTabIndex = tabIds.firstIndex(of: targetTabId) else { return nil }
-            let edge = (indicator?.tabId == targetTabId)
-                ? (indicator?.edge ?? preferredEdge(fromIndex: fromIndex, targetTabId: targetTabId, tabIds: tabIds))
-                : preferredEdge(fromIndex: fromIndex, targetTabId: targetTabId, tabIds: tabIds)
-            insertionPosition = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
-        } else {
-            insertionPosition = tabIds.count
-        }
-
-        let legalInsertionPosition = legalInsertionPosition(
-            draggedTabId: draggedTabId,
-            proposedInsertionPosition: insertionPosition,
-            tabIds: tabIds,
-            pinnedTabIds: pinnedTabIds
-        )
-        return resolvedTargetIndex(from: fromIndex, insertionPosition: legalInsertionPosition, totalCount: tabIds.count)
-    }
-
-    private static func indicatorForInsertionPosition(_ insertionPosition: Int, tabIds: [UUID]) -> SidebarDropIndicator {
-        let clampedInsertion = max(0, min(insertionPosition, tabIds.count))
-        if clampedInsertion >= tabIds.count {
-            return SidebarDropIndicator(tabId: nil, edge: .bottom)
-        }
-        return SidebarDropIndicator(tabId: tabIds[clampedInsertion], edge: .top)
-    }
-
-    private static func insertionPositionForIndicator(_ indicator: SidebarDropIndicator, tabIds: [UUID]) -> Int? {
-        if let tabId = indicator.tabId {
-            guard let targetTabIndex = tabIds.firstIndex(of: tabId) else { return nil }
-            return indicator.edge == .bottom ? targetTabIndex + 1 : targetTabIndex
-        }
-        return tabIds.count
-    }
-
-    private static func preferredEdge(fromIndex: Int, targetTabId: UUID, tabIds: [UUID]) -> SidebarDropEdge {
-        guard let targetIndex = tabIds.firstIndex(of: targetTabId) else { return .top }
-        return fromIndex < targetIndex ? .bottom : .top
-    }
-
-    private static func legalInsertionPosition(
-        draggedTabId: UUID,
-        proposedInsertionPosition: Int,
-        tabIds: [UUID],
-        pinnedTabIds: Set<UUID>
-    ) -> Int {
-        let clampedInsertion = max(0, min(proposedInsertionPosition, tabIds.count))
-        guard !pinnedTabIds.isEmpty else { return clampedInsertion }
-
-        let pinnedCount = tabIds.reduce(into: 0) { count, tabId in
-            if pinnedTabIds.contains(tabId) {
-                count += 1
-            }
-        }
-        guard pinnedCount > 0 else { return clampedInsertion }
-
-        if pinnedTabIds.contains(draggedTabId) {
-            return min(clampedInsertion, pinnedCount)
-        }
-        return max(clampedInsertion, pinnedCount)
-    }
-
-    static func edgeForPointer(locationY: CGFloat, targetHeight: CGFloat) -> SidebarDropEdge {
-        guard targetHeight > 0 else { return .top }
-        let clampedY = min(max(locationY, 0), targetHeight)
-        return clampedY < (targetHeight / 2) ? .top : .bottom
-    }
-
-    private static func resolvedTargetIndex(from sourceIndex: Int, insertionPosition: Int, totalCount: Int) -> Int {
-        let clampedInsertion = max(0, min(insertionPosition, totalCount))
-        let adjusted = clampedInsertion > sourceIndex ? clampedInsertion - 1 : clampedInsertion
-        return max(0, min(adjusted, max(0, totalCount - 1)))
     }
 }
 

@@ -37,7 +37,7 @@ struct cmuxApp: App {
         LanguageSettings.apply(LanguageSettings.languageAtLaunch)
 
         let startupAppearance = AppearanceSettings.resolvedMode()
-        Self.applyAppearance(startupAppearance)
+        Self.applyAppearance(startupAppearance, duringLaunch: true)
         _tabManager = StateObject(wrappedValue: TabManager())
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
@@ -797,10 +797,12 @@ struct cmuxApp: App {
         Self.applyAppearance(mode)
     }
 
-    private static func applyAppearance(_ mode: AppearanceMode) {
+    private static func applyAppearance(_ mode: AppearanceMode, duringLaunch: Bool = false) {
         switch mode {
         case .system:
-            NSApplication.shared.appearance = nil
+            NSApplication.shared.appearance = duringLaunch
+                ? AppearanceSettings.systemNSAppearance()
+                : nil
         case .light:
             NSApplication.shared.appearance = NSAppearance(named: .aqua)
         case .dark:
@@ -4509,57 +4511,6 @@ private struct AboutVisualEffectBackground: NSViewRepresentable {
         let visualEffect = NSVisualEffectView()
         visualEffect.autoresizingMask = [.width, .height]
         return visualEffect
-    }
-}
-
-enum AppearanceMode: String, CaseIterable, Identifiable {
-    case system
-    case light
-    case dark
-    case auto
-
-    var id: String { rawValue }
-
-    static var visibleCases: [AppearanceMode] {
-        [.system, .light, .dark]
-    }
-
-    var displayName: String {
-        switch self {
-        case .system:
-            return String(localized: "appearance.system", defaultValue: "System")
-        case .light:
-            return String(localized: "appearance.light", defaultValue: "Light")
-        case .dark:
-            return String(localized: "appearance.dark", defaultValue: "Dark")
-        case .auto:
-            return String(localized: "appearance.auto", defaultValue: "Auto")
-        }
-    }
-}
-
-enum AppearanceSettings {
-    static let appearanceModeKey = "appearanceMode"
-    static let defaultMode: AppearanceMode = .system
-
-    static func mode(for rawValue: String?) -> AppearanceMode {
-        guard let rawValue, let mode = AppearanceMode(rawValue: rawValue) else {
-            return defaultMode
-        }
-        if mode == .auto {
-            return .system
-        }
-        return mode
-    }
-
-    @discardableResult
-    static func resolvedMode(defaults: UserDefaults = .standard) -> AppearanceMode {
-        let stored = defaults.string(forKey: appearanceModeKey)
-        let resolved = mode(for: stored)
-        if stored != resolved.rawValue {
-            defaults.set(resolved.rawValue, forKey: appearanceModeKey)
-        }
-        return resolved
     }
 }
 
