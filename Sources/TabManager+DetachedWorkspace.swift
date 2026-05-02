@@ -52,7 +52,7 @@ extension TabManager {
             let inheritedConfig = workspaceCreationConfigTemplate(
                 inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
             )
-            let insertIndex = detachedWorkspaceInsertIndex(
+            let plannedInsertIndex = detachedWorkspaceInsertIndex(
                 insertionIndexOverride: insertionIndexOverride,
                 snapshot: snapshot,
                 placementOverride: placementOverride
@@ -76,11 +76,8 @@ extension TabManager {
             wireClosedBrowserTracking(for: newWorkspace)
 
             var updatedTabs = tabs
-            if insertIndex >= 0 && insertIndex <= updatedTabs.count {
-                updatedTabs.insert(newWorkspace, at: insertIndex)
-            } else {
-                updatedTabs.append(newWorkspace)
-            }
+            let insertIndex = Self.clampedDetachedWorkspaceInsertIndex(plannedInsertIndex, workspaces: updatedTabs)
+            updatedTabs.insert(newWorkspace, at: insertIndex)
             tabs = updatedTabs
 
             if select {
@@ -121,12 +118,34 @@ extension TabManager {
         _ proposedInsertion: Int,
         tabs: [WorkspaceCreationTabSnapshot]
     ) -> Int {
-        let clampedInsertion = max(0, min(proposedInsertion, tabs.count))
         let pinnedCount = tabs.reduce(into: 0) { count, tab in
             if tab.isPinned {
                 count += 1
             }
         }
-        return max(clampedInsertion, pinnedCount)
+        return clampedDetachedWorkspaceInsertIndex(proposedInsertion, totalCount: tabs.count, pinnedCount: pinnedCount)
+    }
+
+    private static func clampedDetachedWorkspaceInsertIndex(
+        _ proposedInsertion: Int,
+        workspaces: [Workspace]
+    ) -> Int {
+        let pinnedCount = workspaces.prefix { $0.isPinned }.count
+        return clampedDetachedWorkspaceInsertIndex(
+            proposedInsertion,
+            totalCount: workspaces.count,
+            pinnedCount: pinnedCount
+        )
+    }
+
+    private static func clampedDetachedWorkspaceInsertIndex(
+        _ proposedInsertion: Int,
+        totalCount: Int,
+        pinnedCount: Int
+    ) -> Int {
+        let clampedCount = max(0, totalCount)
+        let clampedPinnedCount = max(0, min(pinnedCount, clampedCount))
+        let clampedInsertion = max(0, min(proposedInsertion, clampedCount))
+        return max(clampedInsertion, clampedPinnedCount)
     }
 }

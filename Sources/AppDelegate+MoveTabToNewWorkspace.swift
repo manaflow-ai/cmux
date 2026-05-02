@@ -25,6 +25,17 @@ extension AppDelegate {
         return canMoveSurfaceToNewWorkspace(panelId: located.panelId)
     }
 
+    func canMoveBonsplitTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
+        guard let located = locateBonsplitSurface(tabId: tabId),
+              let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+              sourceWorkspace.panels[located.panelId] != nil,
+              let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
+              destinationManager.tabs.contains(where: { $0.id == targetWorkspaceId }) else {
+            return false
+        }
+        return true
+    }
+
     @discardableResult
     func moveBonsplitTabToNewWorkspace(
         tabId: UUID,
