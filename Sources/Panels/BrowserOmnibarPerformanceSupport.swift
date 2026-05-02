@@ -81,7 +81,7 @@ final class BrowserOpenTabSuggestionIndex {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty, limit > 0 else { return [] }
 
-        seedIfNeeded(seedSnapshots())
+        seedIfNeeded(seedSnapshots)
 
         let loweredQuery = trimmedQuery.lowercased()
         let singleCharacterQuery = omnibarSingleCharacterQuery(for: trimmedQuery)
@@ -140,12 +140,12 @@ final class BrowserOpenTabSuggestionIndex {
         return matches
     }
 
-    private func seedIfNeeded(_ snapshots: [BrowserOpenTabSuggestionSnapshot]) {
+    private func seedIfNeeded(_ snapshots: () -> [BrowserOpenTabSuggestionSnapshot]) {
         guard !isSeeded else { return }
         isSeeded = true
         suggestionsByPanelId.removeAll(keepingCapacity: true)
         suggestionOrder.removeAll(keepingCapacity: true)
-        for snapshot in snapshots {
+        for snapshot in snapshots() {
             suggestionsByPanelId[snapshot.panelId] = snapshot
             suggestionOrder.append(snapshot.panelId)
         }
