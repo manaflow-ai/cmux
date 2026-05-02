@@ -7268,7 +7268,6 @@ final class Workspace: Identifiable, ObservableObject {
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
     weak var owningTabManager: TabManager?
 
-
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
 
@@ -8112,20 +8111,18 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxWorkspaceFlashToken &+= 1
     }
 
-
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
-        let subscription = Publishers.CombineLatest3(
-            browserPanel.$pageTitle.removeDuplicates(),
-            browserPanel.$isLoading.removeDuplicates(),
-            browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
+        let subscription = Publishers.CombineLatest4(
+            browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
+            browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
         )
         .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak browserPanel] _, isLoading, favicon in
+        .sink { [weak self, weak browserPanel] _, _, isLoading, favicon in
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
+            self.publishBrowserOpenTabSuggestion(for: browserPanel)
             guard let existing = self.bonsplitController.tab(tabId) else { return }
-
             let nextTitle = browserPanel.displayTitle
             if self.panelTitles[browserPanel.id] != nextTitle {
                 self.panelTitles[browserPanel.id] = nextTitle
@@ -8134,7 +8131,6 @@ final class Workspace: Identifiable, ObservableObject {
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
             let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
-
             guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
@@ -8145,6 +8141,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
         panelSubscriptions[browserPanel.id] = subscription
+        publishBrowserOpenTabSuggestion(for: browserPanel)
         setPreferredBrowserProfileID(browserPanel.profileID)
     }
 
@@ -10613,15 +10610,14 @@ final class Workspace: Identifiable, ObservableObject {
         // panel close work is still unwinding.
         hideAllTerminalPortalViews()
         hideAllBrowserPortalViews()
-
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             removePendingTerminalInputObservers(forPanelId: panelId)
+            removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
             panelSubscriptions.removeValue(forKey: panelId)
             PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
             panel.close()
         }
-
         panels.removeAll(keepingCapacity: false)
         surfaceIdToPanelId.removeAll(keepingCapacity: false)
         panelSubscriptions.removeAll(keepingCapacity: false)
@@ -11154,6 +11150,7 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
+            removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
@@ -13327,6 +13324,7 @@ extension Workspace: BonsplitDelegate {
             panel?.close()
         }
 
+        removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
@@ -13497,7 +13495,9 @@ extension Workspace: BonsplitDelegate {
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
                 removePendingTerminalInputObservers(forPanelId: panelId)
-                panels[panelId]?.close()
+                let panel = panels[panelId]
+                removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
+                panel?.close()
                 panels.removeValue(forKey: panelId)
                 untrackRemoteTerminalSurface(panelId)
                 pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)

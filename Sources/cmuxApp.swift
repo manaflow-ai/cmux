@@ -3,7 +3,6 @@ import SwiftUI
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
-
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -629,6 +628,7 @@ struct cmuxApp: App {
                 TaskManagerWindowController.shared.show()
             }
         }
+        helpCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
@@ -832,9 +832,9 @@ struct cmuxApp: App {
         SocketControlSettings.migrateMode(socketControlMode)
     }
 
-    private func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
+    func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: action)
+        return KeyboardShortcutSettings.menuShortcut(for: action)
     }
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
@@ -884,8 +884,9 @@ struct cmuxApp: App {
     }
 
     private func toggleSelectedWorkspacePinned(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        manager.setPinned(workspace, pinned: !workspace.isPinned)
+        if !WorkspacePinCommands.toggleSelectedWorkspace(in: manager) {
+            NSSound.beep()
+        }
     }
 
     private func clearSelectedWorkspaceCustomName(in manager: TabManager) {
@@ -971,15 +972,12 @@ struct cmuxApp: App {
         let workspace = manager.selectedWorkspace
         let workspaceIndex = workspace.flatMap { selectedWorkspaceIndex(in: manager, workspaceId: $0.id) }
         let windowMoveTargets = selectedWorkspaceWindowMoveTargets(in: manager)
+        let pinState = WorkspacePinCommands.selectedWorkspacePinState(in: manager)
 
-        Button(
-            workspace?.isPinned == true
-                ? String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace")
-                : String(localized: "contextMenu.pinWorkspace", defaultValue: "Pin Workspace")
-        ) {
+        Button(WorkspacePinCommands.selectedWorkspaceMenuLabel(in: manager, pinState: pinState)) {
             toggleSelectedWorkspacePinned(in: manager)
         }
-        .disabled(workspace == nil)
+        .disabled(pinState == nil)
 
         Button(String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…")) {
             _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
@@ -1069,7 +1067,7 @@ struct cmuxApp: App {
     }
 
     @ViewBuilder
-    private func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
+    func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
         if let key = shortcut.keyEquivalent {
             Button(title, action: action)
                 .keyboardShortcut(key, modifiers: shortcut.eventModifiers)

@@ -8774,7 +8774,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEquivalent: ""
         )
         splitHorizontallyItem.target = self
-        applyConfiguredMenuShortcut(KeyboardShortcutSettings.shortcut(for: .splitDown), to: splitHorizontallyItem)
+        applyConfiguredMenuShortcut(KeyboardShortcutSettings.menuShortcut(for: .splitDown), to: splitHorizontallyItem)
         splitHorizontallyItem.image = NSImage(
             systemSymbolName: "rectangle.bottomhalf.inset.filled",
             accessibilityDescription: nil
@@ -8786,7 +8786,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEquivalent: ""
         )
         splitVerticallyItem.target = self
-        applyConfiguredMenuShortcut(KeyboardShortcutSettings.shortcut(for: .splitRight), to: splitVerticallyItem)
+        applyConfiguredMenuShortcut(KeyboardShortcutSettings.menuShortcut(for: .splitRight), to: splitVerticallyItem)
         splitVerticallyItem.image = NSImage(
             systemSymbolName: "rectangle.righthalf.inset.filled",
             accessibilityDescription: nil

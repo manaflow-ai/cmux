@@ -669,6 +669,9 @@ class FeedApp {
     }
     switch (item.kind) {
       case "permissionRequest":
+        if (item.source === "codex") {
+          return "Enter once | d deny";
+        }
         return "Enter once | a always | l all | b bypass | d deny";
       case "exitPlan":
         return "Enter default | a auto | m manual | u ultra | b bypass | f replan | d deny";
@@ -711,6 +714,11 @@ class FeedApp {
     }
     switch (item.kind) {
       case "permissionRequest":
+        if (item.source === "codex") {
+          // Codex PermissionRequest hooks only accept allow/deny for this
+          // invocation. Persistent allow/bypass modes are Claude/OpenCode-only.
+          return ["deny"].includes(action);
+        }
         return ["deny", "always", "all", "bypass"].includes(action);
       case "exitPlan":
         return ["deny", "always", "manual", "ultraplan", "bypass"].includes(action);

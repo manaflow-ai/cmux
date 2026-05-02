@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
+import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -15,10 +16,26 @@ export default function middleware(request: NextRequest) {
     return NextResponse.redirect(url.toString(), 301);
   }
 
+  const { pathname } = request.nextUrl;
+
+  if (isAgentPageVariantPath(pathname)) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/agent-page-variant";
+    url.searchParams.set("path", pathname);
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-cmux-agent-page-path", pathname);
+    return NextResponse.rewrite(url, {
+      request: { headers: requestHeaders },
+    });
+  }
+
+  if (pathname.includes(".")) {
+    return NextResponse.next();
+  }
+
   // Legal pages are English-only. Redirect /<locale>/legal-page to /legal-page,
   // and skip next-intl for /legal-page so locale detection can't redirect back.
   const legalPages = new Set(["/privacy-policy", "/terms-of-service", "/eula"]);
-  const { pathname } = request.nextUrl;
   if (legalPages.has(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = `/en${pathname}`;
@@ -38,5 +55,5 @@ export default function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next|_vercel|handler|.*\\..*).*)"],
+  matcher: ["/((?!api|_next|_vercel|agent-page-variant|handler).*)"],
 };

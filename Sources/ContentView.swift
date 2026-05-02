@@ -6753,11 +6753,13 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
 
         if let workspace = tabManager.selectedWorkspace {
+            let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
+            let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
-            snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, !workspace.isPinned)
+            snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, pinState?.pinned ?? !workspace.isPinned)
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
@@ -7996,7 +7998,11 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            tabManager.setPinned(workspace, pinned: !workspace.isPinned)
+            let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
+            guard WorkspaceActionDispatcher.performPinAction(in: tabManager, target: pinTarget) != nil else {
+                NSSound.beep()
+                return
+            }
         }
         registry.register(commandId: "palette.resetWorkspaceColor") {
             guard let workspace = tabManager.selectedWorkspace else {
@@ -10138,6 +10144,14 @@ struct VerticalTabsSidebar: View {
             contextMenuWorkspaceIds.allSatisfy { workspaceId in
                 renderContext.workspaceTerminalScrollBarHiddenById[workspaceId] == true
             }
+        let contextMenuPinTarget = WorkspaceActionDispatcher.Target(
+            workspaceIds: contextMenuWorkspaceIds,
+            anchorWorkspaceId: tab.id
+        )
+        let contextMenuPinState = WorkspaceActionDispatcher.pinState(
+            in: tabManager,
+            target: contextMenuPinTarget
+        )
         let liveUnreadCount = notificationStore.unreadCount(forTabId: tab.id)
         let liveLatestNotificationText: String? = {
             guard showsSidebarNotificationMessage,
@@ -10187,6 +10201,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
+            contextMenuPinState: contextMenuPinState,
             settings: renderContext.tabItemSettings,
             livePresentation: livePresentation,
             frozenPresentation: $frozenTabItemPresentation
@@ -12580,6 +12595,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let branchLinesContainBranch: Bool
         let pullRequestRows: [PullRequestDisplay]
         let listeningPorts: [Int]
+
     }
 }
 
@@ -12612,6 +12628,7 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
+        lhs.contextMenuPinState == rhs.contextMenuPinState &&
         lhs.settings == rhs.settings
     }
 
@@ -12643,6 +12660,7 @@ private struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
     let allContextMenuWorkspacesHideTerminalScrollBar: Bool
+    let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let settings: SidebarTabItemSettingsSnapshot
     let livePresentation: SidebarTabItemPresentationSnapshot
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
@@ -13298,29 +13316,21 @@ private struct TabItemView: View, Equatable {
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+            current: workspaceSnapshotStorage,
+            next: nextSnapshot,
+            force: force,
+            contextMenuVisible: contextMenuState.isVisible
+        )
 
-        if contextMenuState.isVisible {
-            let deferredBaseline = contextMenuState.pendingWorkspaceSnapshot ?? workspaceSnapshotStorage
-            // Color changes are driven by explicit clicks in the Workspace Color
-            // submenu, and SwiftUI's context-menu content does not reliably fire
-            // `.onDisappear` after a button tap (issue #3037). Apply color
-            // changes immediately so the row reflects the user's selection
-            // instead of waiting on a flush that may never happen.
-            if deferredBaseline?.customColorHex != nextSnapshot.customColorHex {
-                workspaceSnapshotStorage = nextSnapshot
-                contextMenuState.pendingWorkspaceSnapshot = nil
-                contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
-                return
-            }
-            if force || deferredBaseline != nextSnapshot {
-                contextMenuState.hasDeferredWorkspaceObservationInvalidation = true
-                contextMenuState.pendingWorkspaceSnapshot = nextSnapshot
-            }
-            return
+        if workspaceSnapshotStorage != decision.workspaceSnapshotStorage {
+            workspaceSnapshotStorage = decision.workspaceSnapshotStorage
         }
-
-        if force || workspaceSnapshotStorage != nextSnapshot {
-            workspaceSnapshotStorage = nextSnapshot
+        if contextMenuState.pendingWorkspaceSnapshot != decision.pendingWorkspaceSnapshot {
+            contextMenuState.pendingWorkspaceSnapshot = decision.pendingWorkspaceSnapshot
+        }
+        if contextMenuState.hasDeferredWorkspaceObservationInvalidation != decision.hasDeferredWorkspaceObservationInvalidation {
+            contextMenuState.hasDeferredWorkspaceObservationInvalidation = decision.hasDeferredWorkspaceObservationInvalidation
         }
     }
 
@@ -13349,7 +13359,7 @@ private struct TabItemView: View, Equatable {
         let targetIds = contextMenuWorkspaceIds
         let isMulti = targetIds.count > 1
         let tabColorPalette = WorkspaceTabColorSettings.palette()
-        let shouldPin = !tab.isPinned
+        let shouldPin = contextMenuPinState?.pinned ?? !tab.isPinned
         let reconnectLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
             single: String(localized: "contextMenu.reconnectWorkspace", defaultValue: "Reconnect Workspace"),
@@ -13391,13 +13401,17 @@ private struct TabItemView: View, Equatable {
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
         Button(pinLabel) {
-            for id in targetIds {
-                if let tab = tabManager.tabs.first(where: { $0.id == id }) {
-                    tabManager.setPinned(tab, pinned: shouldPin)
-                }
+            guard let contextMenuPinState else {
+                NSSound.beep()
+                return
+            }
+            let result = WorkspaceActionDispatcher.performPinAction(contextMenuPinState, in: tabManager)
+            if result.changedWorkspaceIds.isEmpty {
+                refreshWorkspaceSnapshot(force: true)
             }
             syncSelectionAfterMutation()
         }
+        .disabled(contextMenuPinState == nil)
 
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
