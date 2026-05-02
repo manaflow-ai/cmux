@@ -104,11 +104,14 @@ enum SidebarDropPlanner {
             return workspaceAction(for: point, in: containingTarget, orderedTargets: orderedTargets)
         }
 
-        guard let beforeTarget = orderedTargets.first(where: { point.y < $0.frame.minY }) else {
-            return nil
+        let proposedInsertion: Int
+        if let beforeTarget = orderedTargets.first(where: { point.y < $0.frame.minY }) {
+            proposedInsertion = orderedTargets.firstIndex(of: beforeTarget) ?? 0
+        } else {
+            proposedInsertion = orderedTargets.count
         }
         let insertionIndex = legalNewWorkspaceInsertionIndex(
-            orderedTargets.firstIndex(of: beforeTarget) ?? 0,
+            proposedInsertion,
             orderedTargets: orderedTargets
         )
         return .newWorkspace(

@@ -78,15 +78,21 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         )
     }
 
-    func testWorkspaceDropAfterLastRowFallsThroughToEmptyAreaDropTarget() {
+    func testWorkspaceDropAfterLastRowCreatesWorkspaceAtEnd() {
         let first = UUID()
         let second = UUID()
         let targets = workspaceDropTargets([first, second])
 
-        XCTAssertNil(
-            SidebarDropPlanner.workspaceAction(
-                for: CGPoint(x: 12, y: 92),
-                targets: targets
+        let action = SidebarDropPlanner.workspaceAction(
+            for: CGPoint(x: 12, y: 92),
+            targets: targets
+        )
+
+        XCTAssertEqual(
+            action,
+            .newWorkspace(
+                insertionIndex: 2,
+                indicator: SidebarDropIndicator(tabId: nil, edge: .bottom)
             )
         )
     }
