@@ -5226,7 +5226,7 @@ enum CmuxRuntimeDebugCapture {
         return sequence
     }
 }
-private func openCmuxSettingsFileInEditor() {
+func openCmuxSettingsFileInEditor() {
     let url = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
     PreferredEditorSettings.open(url)
 }
