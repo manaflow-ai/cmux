@@ -368,13 +368,13 @@ describe("VM REST auth", () => {
   test("records manifest image version on create workflow input", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
-    process.env.FREESTYLE_SANDBOX_SNAPSHOT = "sc-mt237w1nd7c7673bd03m";
+    process.env.FREESTYLE_SANDBOX_SNAPSHOT = "sh-6ch5p9k23xrcx24056n8";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-manifest",
       provider: "freestyle",
-      image: "sc-mt237w1nd7c7673bd03m",
-      imageVersion: "freestyle-sc-mt237",
+      image: "sh-6ch5p9k23xrcx24056n8",
+      imageVersion: "freestyle-rpclease-20260502a",
       createdAt: 1_777_000_000_000,
     });
 
@@ -388,8 +388,8 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(200);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
-      image: "sc-mt237w1nd7c7673bd03m",
-      imageVersion: "freestyle-sc-mt237",
+      image: "sh-6ch5p9k23xrcx24056n8",
+      imageVersion: "freestyle-rpclease-20260502a",
     }));
   });
 });
