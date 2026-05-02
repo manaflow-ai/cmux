@@ -50,7 +50,7 @@ extension BrowserHistoryStore {
     }
 }
 
-private final class BrowserOpenTabSuggestionIndex {
+final class BrowserOpenTabSuggestionIndex {
     private var suggestionsByPanelId: [UUID: BrowserOpenTabSuggestionSnapshot] = [:]
     private var suggestionOrder: [UUID] = []
     private var isSeeded = false
