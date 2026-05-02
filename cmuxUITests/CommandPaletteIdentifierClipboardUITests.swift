@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import XCTest
 
 final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
@@ -104,11 +105,16 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
             capturedOpenPath(at: capturePath, timeout: 3.0),
             "Expected the palette action to attempt opening a file"
         )
-        let userHome = NSHomeDirectoryForUser(NSUserName())
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let expectedPath = (userHome as NSString)
+        let expectedPath = (loginHomeDirectoryPath() as NSString)
             .appendingPathComponent(".config/cmux/cmux.json")
         XCTAssertEqual(openedPath, expectedPath)
+    }
+
+    private func loginHomeDirectoryPath() -> String {
+        if let passwd = getpwuid(getuid()), let home = passwd.pointee.pw_dir {
+            return String(cString: home)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     private func launchAndActivate(_ app: XCUIApplication) {
