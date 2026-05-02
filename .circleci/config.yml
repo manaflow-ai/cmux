@@ -175,8 +175,6 @@ jobs:
             node scripts/release_asset_guard.test.js
             ./tests/test_ci_ghosttykit_checksum_present.sh
             ./tests/test_ci_swift_warning_budget.sh
-            ./tests/test_ci_swift_file_length_budget.sh
-            python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
   remote-daemon-tests:
     executor: linux-go

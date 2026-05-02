@@ -192,6 +192,12 @@ This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the
 - For optimistic UI or CLI updates, keep one mutation path, record pending state with a request id or previous snapshot, reconcile from the authoritative result, and handle failure with an explicit rollback or error state. Do not let each entrypoint maintain its own optimistic copy.
 - When a user says tests missed a bug, add or adjust behavior-level coverage around the exact repro path before claiming the fix is complete.
 
+## File organization
+
+Prefer new files over growing existing ones. When you add a feature, ask whether it has its own coherent surface (view, controller, store, panel, command, helper). If yes, give it its own Swift file. Don't append to an already-large file just because that's where the nearest call site is.
+
+Trigger: if the file you're about to edit is already over ~1,500 lines, default to extracting the new code into a new file. Same when adding a method to an already-large type — split the type or move the method into a focused extension file. Several core files (`Sources/ContentView.swift`, `Sources/AppDelegate.swift`, `CLI/cmux.swift`, `Sources/TerminalController.swift`, `Sources/Workspace.swift`, `Sources/GhosttyTerminalView.swift`, `Sources/Panels/BrowserPanel.swift`) are already 10k+ lines and should be shrunk over time, not grown further.
+
 ## Debug menu
 
 The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use it for visual iteration:
