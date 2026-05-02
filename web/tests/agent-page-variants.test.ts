@@ -4,6 +4,7 @@ import {
   resolveAgentPageVariant,
   variantPathForPage,
 } from "../app/lib/agent-page-paths";
+import sitemap from "../app/sitemap";
 import {
   extractReadableHtml,
   headersForAgentPage,
@@ -345,7 +346,25 @@ describe("agent page variants", () => {
     const llms = buildLlmsText("https://cmux.com");
 
     expect(llms).toContain("[Getting Started](https://cmux.com/docs/getting-started.md)");
+    expect(llms).toContain("[Skills](https://cmux.com/docs/skills.md)");
     expect(llms).toContain("Text: https://cmux.com/docs/getting-started.txt");
     expect(variantPathForPage("/", "md")).toBe("/index.md");
   });
+
+  test("supports Markdown and text variants for sitemap pages", () => {
+    for (const entry of sitemap()) {
+      const pathname = new URL(String(entry.url)).pathname || "/";
+
+      expect(
+        resolveAgentPageVariant(variantRequestPath(pathname, "md")),
+      ).not.toBeNull();
+      expect(
+        resolveAgentPageVariant(variantRequestPath(pathname, "txt")),
+      ).not.toBeNull();
+    }
+  });
 });
+
+function variantRequestPath(pathname: string, format: "md" | "txt"): string {
+  return pathname === "/" ? `/index.${format}` : `${pathname}.${format}`;
+}
