@@ -84,8 +84,9 @@ export function markdownFromHtml({
   html: string;
   sourceUrl: string;
 }): string {
-  const title = extractTitle(html);
-  const readableHtml = prepareReadableHtml(extractReadableHtml(html), sourceUrl);
+  const readableSource = extractReadableHtml(html);
+  const title = extractTitle(readableSource) ?? extractDocumentTitle(html);
+  const readableHtml = prepareReadableHtml(readableSource, sourceUrl);
   const body = title
     ? ensureMarkdownTitle(cleanMarkdown(turndown.turndown(readableHtml)), title)
     : cleanMarkdown(turndown.turndown(readableHtml));
@@ -209,6 +210,10 @@ function extractTitle(html: string): string | null {
     return cleanPlainText(turndown.turndown(h1));
   }
 
+  return null;
+}
+
+function extractDocumentTitle(html: string): string | null {
   const title = firstElementInnerHtml(html, "title");
   return title ? cleanDocumentTitle(decodeHtmlEntities(title)) : null;
 }

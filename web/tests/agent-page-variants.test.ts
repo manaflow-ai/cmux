@@ -100,6 +100,26 @@ describe("agent page variants", () => {
     expect(markdown).toStartWith("# Settings & Docs 'Guide'\n\nConfigure cmux.");
   });
 
+  test("prefers the readable page heading over shell headings", () => {
+    const markdown = markdownFromHtml({
+      html: `
+        <html>
+          <head><title>Document Title</title></head>
+          <body>
+            <header><h1>Site Shell</h1></header>
+            <main>
+              <h1>Docs</h1>
+              <p>Actual page content.</p>
+            </main>
+          </body>
+        </html>`,
+      sourceUrl: "https://cmux.com/docs",
+    });
+
+    expect(markdown).toStartWith("# Docs\n\nActual page content.");
+    expect(markdown).not.toContain("Site Shell");
+  });
+
   test("extracts readable HTML after scripts with closing tag strings", () => {
     const html = `
       <html>

@@ -46,11 +46,9 @@ export async function GET(request: NextRequest) {
 
   const htmlResponse = await fetchCanonicalHtml(htmlUrl, canonicalFetchHeaders);
 
-  if (
-    !htmlResponse ||
-    !htmlResponse.ok ||
-    !htmlResponse.headers.get("content-type")?.includes("text/html")
-  ) {
+  const contentType =
+    htmlResponse?.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!htmlResponse || !htmlResponse.ok || !contentType.includes("text/html")) {
     return new NextResponse("Not found\n", { status: 404 });
   }
 
