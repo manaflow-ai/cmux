@@ -105,17 +105,28 @@ enum WorkspaceActionDispatcher {
 
 enum WorkspacePinCommands {
     @MainActor
-    static func toggleSelectedWorkspace(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        _ = WorkspaceActionDispatcher.performPinAction(in: manager, target: .single(workspace.id))
+    static func selectedWorkspacePinState(in manager: TabManager) -> WorkspaceActionDispatcher.PinState? {
+        guard let workspace = manager.selectedWorkspace else { return nil }
+        return WorkspaceActionDispatcher.pinState(in: manager, target: .single(workspace.id))
+    }
+
+    @discardableResult
+    @MainActor
+    static func toggleSelectedWorkspace(in manager: TabManager) -> Bool {
+        guard let pinState = selectedWorkspacePinState(in: manager) else { return false }
+        let result = WorkspaceActionDispatcher.performPinAction(pinState, in: manager)
+        return !result.targetWorkspaceIds.isEmpty
     }
 
     @MainActor
-    static func selectedWorkspaceMenuLabel(in manager: TabManager) -> String {
+    static func selectedWorkspaceMenuLabel(
+        in manager: TabManager,
+        pinState: WorkspaceActionDispatcher.PinState? = nil
+    ) -> String {
         guard let workspace = manager.selectedWorkspace else {
             return singleWorkspaceMenuLabel(shouldPin: true)
         }
-        let pinState = WorkspaceActionDispatcher.pinState(in: manager, target: .single(workspace.id))
+        let pinState = pinState ?? WorkspaceActionDispatcher.pinState(in: manager, target: .single(workspace.id))
         return singleWorkspaceMenuLabel(shouldPin: pinState?.pinned ?? !workspace.isPinned)
     }
 
