@@ -37,7 +37,7 @@ struct cmuxApp: App {
         LanguageSettings.apply(LanguageSettings.languageAtLaunch)
 
         let startupAppearance = AppearanceSettings.resolvedMode()
-        Self.applyAppearance(startupAppearance)
+        Self.applyAppearance(startupAppearance, duringLaunch: true)
         _tabManager = StateObject(wrappedValue: TabManager())
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
@@ -797,10 +797,12 @@ struct cmuxApp: App {
         Self.applyAppearance(mode)
     }
 
-    private static func applyAppearance(_ mode: AppearanceMode) {
+    private static func applyAppearance(_ mode: AppearanceMode, duringLaunch: Bool = false) {
         switch mode {
         case .system:
-            NSApplication.shared.appearance = nil
+            NSApplication.shared.appearance = duringLaunch
+                ? AppearanceSettings.systemNSAppearance()
+                : nil
         case .light:
             NSApplication.shared.appearance = NSAppearance(named: .aqua)
         case .dark:
@@ -4519,6 +4521,8 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 enum AppearanceSettings {
     static let appearanceModeKey = "appearanceMode"
     static let defaultMode: AppearanceMode = .system
+    private static let appleInterfaceStyleKey = "AppleInterfaceStyle"
+    private static let darkInterfaceStyleValue = "Dark"
 
     static func mode(for rawValue: String?) -> AppearanceMode {
         guard let rawValue, let mode = AppearanceMode(rawValue: rawValue) else {
@@ -4538,6 +4542,36 @@ enum AppearanceSettings {
             defaults.set(resolved.rawValue, forKey: appearanceModeKey)
         }
         return resolved
+    }
+
+    static func colorSchemePreference(
+        appAppearance: NSAppearance? = nil,
+        defaults: UserDefaults = .standard
+    ) -> GhosttyConfig.ColorSchemePreference {
+        if let appAppearance {
+            return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        }
+
+        switch mode(for: defaults.string(forKey: appearanceModeKey)) {
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        case .system, .auto:
+            return systemPrefersDark(defaults: defaults) ? .dark : .light
+        }
+    }
+
+    static func systemNSAppearance(defaults: UserDefaults = .standard) -> NSAppearance? {
+        NSAppearance(named: systemPrefersDark(defaults: defaults) ? .darkAqua : .aqua)
+    }
+
+    static func systemPrefersDark(defaults: UserDefaults = .standard) -> Bool {
+        let directValue = defaults.string(forKey: appleInterfaceStyleKey)
+        let globalValue = defaults
+            .persistentDomain(forName: UserDefaults.globalDomain)?[appleInterfaceStyleKey] as? String
+        let value = directValue ?? globalValue
+        return value?.caseInsensitiveCompare(darkInterfaceStyleValue) == .orderedSame
     }
 }
 

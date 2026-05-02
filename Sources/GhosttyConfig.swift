@@ -535,10 +535,13 @@ struct GhosttyConfig {
     }
 
     static func currentColorSchemePreference(
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+        appAppearance: NSAppearance? = nil,
+        defaults: UserDefaults = .standard
     ) -> ColorSchemePreference {
-        let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
-        return bestMatch == .darkAqua ? .dark : .light
+        AppearanceSettings.colorSchemePreference(
+            appAppearance: appAppearance,
+            defaults: defaults
+        )
     }
 
     static func resolveThemeName(
