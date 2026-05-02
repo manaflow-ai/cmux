@@ -10106,6 +10106,25 @@ struct VerticalTabsSidebar: View {
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
+            GeometryReader { proxy in
+                SidebarBonsplitTabWorkspaceDropOverlay(
+                    tabManager: tabManager,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                    dropIndicator: $dropIndicator,
+                    dragAutoScrollController: dragAutoScrollController,
+                    targets: renderContext.tabs.compactMap { tab in
+                        guard let anchor = anchors[tab.id] else { return nil }
+                        return SidebarDropPlanner.WorkspaceDropTarget(
+                            workspaceId: tab.id,
+                            isPinned: tab.isPinned,
+                            frame: proxy[anchor]
+                        )
+                    }
+                )
+            }
+        }
     }
 
     private func workspaceRow(
@@ -10196,6 +10215,9 @@ struct VerticalTabsSidebar: View {
         .id(tab.id)
         .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
+        .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
+            [tab.id: anchor]
+        }
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -10209,6 +10231,14 @@ private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
         value.formUnion(nextValue())
+    }
+}
+
+private struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [UUID: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, next in next }
     }
 }
 
@@ -12454,6 +12484,185 @@ private struct SidebarEmptyArea: View {
     }
 }
 
+private struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
+    let tabManager: TabManager
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+    @Binding var dropIndicator: SidebarDropIndicator?
+    let dragAutoScrollController: SidebarDragAutoScrollController
+    let targets: [SidebarDropPlanner.WorkspaceDropTarget]
+
+    func makeNSView(context: Context) -> SidebarBonsplitTabWorkspaceDropView {
+        SidebarBonsplitTabWorkspaceDropView()
+    }
+
+    func updateNSView(_ nsView: SidebarBonsplitTabWorkspaceDropView, context: Context) {
+        nsView.targets = targets
+        nsView.isValidTransfer = {
+            guard let transfer = BonsplitTabDragPayload.currentTransfer() else { return false }
+            return AppDelegate.shared?.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id) ?? false
+        }
+        nsView.updateAutoscroll = {
+            dragAutoScrollController.updateFromDragLocation()
+        }
+        nsView.setDropIndicator = { indicator in
+            dropIndicator = indicator
+        }
+        nsView.performExistingWorkspaceMove = { workspaceId in
+            guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+                  let app = AppDelegate.shared else {
+                return false
+            }
+            if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+               source.workspaceId == workspaceId {
+                syncSidebarSelection()
+                return true
+            }
+            guard app.moveBonsplitTab(
+                tabId: transfer.tab.id,
+                toWorkspace: workspaceId,
+                focus: true,
+                focusWindow: true
+            ) else {
+                return false
+            }
+            selectedTabIds = [workspaceId]
+            syncSidebarSelection(preferredSelectedTabId: workspaceId)
+            return true
+        }
+        nsView.performNewWorkspaceMove = { insertionIndex, _ in
+            guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+                  let app = AppDelegate.shared,
+                  let result = app.moveBonsplitTabToNewWorkspace(
+                    tabId: transfer.tab.id,
+                    destinationManager: tabManager,
+                    focus: true,
+                    focusWindow: true,
+                    insertionIndexOverride: insertionIndex
+                  ) else {
+                return false
+            }
+
+            selectedTabIds = [result.destinationWorkspaceId]
+            syncSidebarSelection(preferredSelectedTabId: result.destinationWorkspaceId)
+            return true
+        }
+    }
+
+    private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
+        let selectedId = preferredSelectedTabId ?? tabManager.selectedTabId
+        if let selectedId {
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        } else {
+            lastSidebarSelectionIndex = nil
+        }
+    }
+}
+
+private final class SidebarBonsplitTabWorkspaceDropView: NSView {
+    private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
+
+    var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
+    var isValidTransfer: () -> Bool = { false }
+    var updateAutoscroll: () -> Void = {}
+    var setDropIndicator: (SidebarDropIndicator?) -> Void = { _ in }
+    var performExistingWorkspaceMove: (UUID) -> Bool = { _ in false }
+    var performNewWorkspaceMove: (Int, SidebarDropIndicator) -> Bool = { _, _ in false }
+
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([Self.pasteboardType])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        shouldCaptureHitTest() ? super.hitTest(point) : nil
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        updateDrag(sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        updateDrag(sender)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        setDropIndicator(nil)
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        acceptsDrag(sender) && SidebarDropPlanner.workspaceAction(for: localPoint(sender), targets: targets) != nil
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        defer { setDropIndicator(nil) }
+        guard acceptsDrag(sender),
+              let action = SidebarDropPlanner.workspaceAction(for: localPoint(sender), targets: targets) else {
+            return false
+        }
+
+        let moved: Bool
+        switch action {
+        case .existingWorkspace(let workspaceId):
+            moved = performExistingWorkspaceMove(workspaceId)
+        case .newWorkspace(let insertionIndex, let indicator):
+            moved = performNewWorkspaceMove(insertionIndex, indicator)
+        }
+
+        return moved
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        setDropIndicator(nil)
+    }
+
+    private func updateDrag(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard acceptsDrag(sender) else {
+            setDropIndicator(nil)
+            return []
+        }
+
+        updateAutoscroll()
+        let point = localPoint(sender)
+        let action = SidebarDropPlanner.workspaceAction(for: point, targets: targets)
+        switch action {
+        case .newWorkspace(_, let indicator):
+            setDropIndicator(indicator)
+        case .existingWorkspace, nil:
+            setDropIndicator(nil)
+        }
+
+        return action == nil ? [] : .move
+    }
+
+    private func acceptsDrag(_ sender: any NSDraggingInfo) -> Bool {
+        guard sender.draggingPasteboard.types?.contains(Self.pasteboardType) == true else { return false }
+        return isValidTransfer()
+    }
+
+    private func shouldCaptureHitTest() -> Bool {
+        guard BonsplitTabDragPayload.currentTransfer() != nil else { return false }
+        guard let eventType = NSApp.currentEvent?.type else { return true }
+        switch eventType {
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func localPoint(_ sender: any NSDraggingInfo) -> CGPoint {
+        convert(sender.draggingLocation, from: nil)
+    }
+}
+
 enum SidebarPathFormatter {
     static let homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
 
@@ -13639,7 +13848,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var showsCenteredTopDropIndicator: Bool {
-        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
+        guard let indicator = dropIndicator else { return false }
         if indicator.tabId == tab.id && indicator.edge == .top {
             return true
         }
@@ -14681,6 +14890,88 @@ enum SidebarDropPlanner {
             pinnedTabIds: pinnedTabIds
         )
         return resolvedTargetIndex(from: fromIndex, insertionPosition: legalInsertionPosition, totalCount: tabIds.count)
+    }
+
+    struct WorkspaceDropTarget: Equatable {
+        let workspaceId: UUID
+        let isPinned: Bool
+        let frame: CGRect
+    }
+
+    enum WorkspaceDropAction: Equatable {
+        case newWorkspace(insertionIndex: Int, indicator: SidebarDropIndicator)
+        case existingWorkspace(UUID)
+    }
+
+    static func workspaceAction(
+        for point: CGPoint,
+        targets: [WorkspaceDropTarget]
+    ) -> WorkspaceDropAction? {
+        guard !targets.isEmpty else { return nil }
+        let orderedTargets = targets.sorted { $0.frame.minY < $1.frame.minY }
+        if let containingTarget = orderedTargets.first(where: { $0.frame.contains(point) }) {
+            return workspaceAction(for: point, in: containingTarget, orderedTargets: orderedTargets)
+        }
+
+        guard let beforeTarget = orderedTargets.first(where: { point.y < $0.frame.minY }) else {
+            return nil
+        }
+        let insertionIndex = legalNewWorkspaceInsertionIndex(
+            orderedTargets.firstIndex(of: beforeTarget) ?? 0,
+            orderedTargets: orderedTargets
+        )
+        return .newWorkspace(
+            insertionIndex: insertionIndex,
+            indicator: workspaceIndicator(forInsertionIndex: insertionIndex, orderedTargets: orderedTargets)
+        )
+    }
+
+    private static func workspaceAction(
+        for point: CGPoint,
+        in target: WorkspaceDropTarget,
+        orderedTargets: [WorkspaceDropTarget]
+    ) -> WorkspaceDropAction? {
+        guard let targetIndex = orderedTargets.firstIndex(of: target) else { return nil }
+        let edgeBand = min(max(target.frame.height * 0.25, 10), target.frame.height / 2)
+        if point.y <= target.frame.minY + edgeBand {
+            let insertionIndex = legalNewWorkspaceInsertionIndex(targetIndex, orderedTargets: orderedTargets)
+            return .newWorkspace(
+                insertionIndex: insertionIndex,
+                indicator: workspaceIndicator(forInsertionIndex: insertionIndex, orderedTargets: orderedTargets)
+            )
+        }
+        if point.y >= target.frame.maxY - edgeBand {
+            let insertionIndex = legalNewWorkspaceInsertionIndex(targetIndex + 1, orderedTargets: orderedTargets)
+            return .newWorkspace(
+                insertionIndex: insertionIndex,
+                indicator: workspaceIndicator(forInsertionIndex: insertionIndex, orderedTargets: orderedTargets)
+            )
+        }
+        return .existingWorkspace(target.workspaceId)
+    }
+
+    private static func legalNewWorkspaceInsertionIndex(
+        _ proposedInsertion: Int,
+        orderedTargets: [WorkspaceDropTarget]
+    ) -> Int {
+        let clamped = max(0, min(proposedInsertion, orderedTargets.count))
+        let pinnedCount = orderedTargets.reduce(into: 0) { count, target in
+            if target.isPinned {
+                count += 1
+            }
+        }
+        return max(clamped, pinnedCount)
+    }
+
+    private static func workspaceIndicator(
+        forInsertionIndex insertionIndex: Int,
+        orderedTargets: [WorkspaceDropTarget]
+    ) -> SidebarDropIndicator {
+        let clampedInsertion = max(0, min(insertionIndex, orderedTargets.count))
+        if clampedInsertion >= orderedTargets.count {
+            return SidebarDropIndicator(tabId: nil, edge: .bottom)
+        }
+        return SidebarDropIndicator(tabId: orderedTargets[clampedInsertion].workspaceId, edge: .top)
     }
 
     private static func indicatorForInsertionPosition(_ insertionPosition: Int, tabIds: [UUID]) -> SidebarDropIndicator {

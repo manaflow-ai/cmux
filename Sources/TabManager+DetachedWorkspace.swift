@@ -26,6 +26,7 @@ extension TabManager {
         title: String? = nil,
         select: Bool = true,
         placementOverride: NewWorkspacePlacement? = nil,
+        insertionIndexOverride: Int? = nil,
         focusIntent: PanelFocusIntent? = nil
     ) -> Workspace? {
         let sourceWorkspace = selectedWorkspace
@@ -51,7 +52,7 @@ extension TabManager {
             let inheritedConfig = workspaceCreationConfigTemplate(
                 inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
             )
-            let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+            let insertIndex = insertionIndexOverride ?? newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let newWorkspace = Workspace(

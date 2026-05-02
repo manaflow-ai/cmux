@@ -32,7 +32,8 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil
+        placementOverride: NewWorkspacePlacement? = nil,
+        insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let located = locateBonsplitSurface(tabId: tabId) else { return nil }
         return moveSurfaceToNewWorkspace(
@@ -41,7 +42,8 @@ extension AppDelegate {
             title: title,
             focus: focus,
             focusWindow: focusWindow,
-            placementOverride: placementOverride
+            placementOverride: placementOverride,
+            insertionIndexOverride: insertionIndexOverride
         )
     }
 
@@ -52,7 +54,8 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil
+        placementOverride: NewWorkspacePlacement? = nil,
+        insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let source = locateSurface(surfaceId: panelId),
               let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
@@ -78,6 +81,7 @@ extension AppDelegate {
             title: destinationTitle,
             select: false,
             placementOverride: placementOverride,
+            insertionIndexOverride: insertionIndexOverride,
             focusIntent: activationIntent
         ) else {
             rollbackDetachedSurface(
