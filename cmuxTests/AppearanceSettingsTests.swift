@@ -1,5 +1,11 @@
 import XCTest
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 final class AppearanceSettingsTests: XCTestCase {
     func testResolvedModeDefaultsToSystemWhenUnset() {
         let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
@@ -62,13 +68,14 @@ final class AppearanceSettingsTests: XCTestCase {
 
         defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
         defaults.removeObject(forKey: "AppleInterfaceStyle")
+        let lightSystem = AppearanceSettings.SystemAppearance(interfaceStyle: nil)
 
         XCTAssertEqual(
-            AppearanceSettings.colorSchemePreference(appAppearance: nil, defaults: defaults),
+            AppearanceSettings.colorSchemePreference(appAppearance: nil, defaults: defaults, systemAppearance: lightSystem),
             .light
         )
         XCTAssertEqual(
-            GhosttyConfig.currentColorSchemePreference(appAppearance: nil, defaults: defaults),
+            GhosttyConfig.currentColorSchemePreference(appAppearance: nil, defaults: defaults, systemAppearance: lightSystem),
             .light
         )
     }
