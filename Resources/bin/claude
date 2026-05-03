@@ -279,7 +279,10 @@ else
     # SessionStart hook will also report it once claude is up — both paths
     # are idempotent.
     if [[ -n "$CMUX_WORKSPACE_ID" && -n "$CMUX_SURFACE_ID" ]]; then
-        "${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" report_claude_session_id \
+        # Bound the IPC so a slow/hung cmux never stalls claude startup.
+        # Mirrors the timeout used by `cmux_socket_available`'s ping check.
+        CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+            "${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" report_claude_session_id \
             "$SESSION_ID" \
             --workspace-id="$CMUX_WORKSPACE_ID" \
             --panel-id="$CMUX_SURFACE_ID" \

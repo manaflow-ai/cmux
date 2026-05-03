@@ -50,13 +50,15 @@ struct ClaudeCodeTranscriptSource: AgentTranscriptSource {
             .appendingPathComponent(encoded, isDirectory: true)
     }
 
-    /// Resolve to `<dir>/<sessionId>.jsonl` if `sessionId` is set and the
-    /// file exists. Otherwise return nil — the tailer will poll. cmux's
-    /// claude wrapper reports `session_id` before exec'ing claude, so the
-    /// nil window is "no claude has been started in this workspace yet".
+    /// Resolve to `<dir>/<sessionId>.jsonl` if `sessionId` is a valid UUID
+    /// and the file exists. Otherwise return nil — the tailer will poll.
+    /// cmux's claude wrapper reports `session_id` before exec'ing claude, so
+    /// the nil window is "no claude has been started in this workspace yet".
+    /// The UUID check defends against any path-traversal characters slipping
+    /// through (`/`, `..`) into the filename we build below.
     func resolveActiveTranscriptFile(in dir: URL, sessionId: String?) -> URL? {
         guard let sid = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !sid.isEmpty else {
+              UUID(uuidString: sid) != nil else {
             return nil
         }
         let candidate = dir.appendingPathComponent("\(sid).jsonl", isDirectory: false)

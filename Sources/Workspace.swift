@@ -7301,11 +7301,14 @@ final class Workspace: Identifiable, ObservableObject {
     /// Record the active Claude Code `session_id` for a panel, reported by the
     /// SessionStart hook through the `report_claude_session_id` socket command.
     /// Overwrites any prior id so `/resume`s into a new session take effect.
+    /// Validates the input as a UUID — claude session ids are always UUIDs,
+    /// and a strict check here keeps malformed values out of the transcript
+    /// path lookup downstream (the resolver builds `<sid>.jsonl` directly).
     func recordClaudeSessionId(forPanel panelId: UUID, sessionId: String) {
         let trimmed = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        if claudeSessionIdsByPanel[panelId] == trimmed { return }
-        claudeSessionIdsByPanel[panelId] = trimmed
+        guard let normalized = UUID(uuidString: trimmed)?.uuidString.lowercased() else { return }
+        if claudeSessionIdsByPanel[panelId] == normalized { return }
+        claudeSessionIdsByPanel[panelId] = normalized
     }
 
     func effectiveSelectedPanelId(inPane paneId: PaneID) -> UUID? {

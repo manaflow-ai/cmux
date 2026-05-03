@@ -160,15 +160,14 @@ final class TurnCheckpointManager {
     func stop() {
         stopLiveWatcher()
         cancellables.removeAll()
-        // Drop in-memory caches; persisted state is wiped below.
+        // Drop only in-memory state. The persisted cache under
+        // `~/Library/Application Support/cmux/diff-state/<wsId>/` survives
+        // detach so cold-start hydration in `start()` can repopulate
+        // `cachedDiffByRoot` from disk. Explicit wipes go through migrations
+        // (see `runOneShotDiffStatePurgeIfNeeded`).
         pendingPreTurnBaselines.removeAll()
         cachedDiffByRoot.removeAll()
         thisTurnDetectedPaths.removeAll()
-        // Best-effort: blow away the workspace's diff-state dir so it doesn't
-        // accumulate forever. This also removes per-repo `cached-diff.txt`
-        // sidecar files. Cheap enough that doing it here beats writing a
-        // separate gc routine.
-        TurnCheckpointStore.removeDiffStateDirectory(workspaceId: session)
     }
 
     // MARK: - Root management

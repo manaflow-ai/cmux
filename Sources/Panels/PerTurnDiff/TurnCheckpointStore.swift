@@ -546,18 +546,16 @@ enum TurnCheckpointStore {
         return (filteredSynth, .syntheticAdded)
     }
 
-    /// Scoped first-fetch helper. Runs `git diff HEAD -- <paths>` from `worktree`
-    /// using the same `cmuxObjectEnv` env as the rest of the diff plumbing
-    /// (so HEAD-relative reads still work via the user's `.git/objects`
-    /// alternate). Used by `TurnCheckpointManager.captureEnd` for the very
-    /// first turn in a repo when the only thing we know is the set of paths
-    /// the agent transcript reported — narrows the diff to those paths instead
-    /// of falling through to the full Tier 2 diff (which would also include
-    /// any pre-existing dirty state in the repo).
+    /// Scoped first-fetch helper. Runs `git diff HEAD -- <relative-paths>`
+    /// from `worktree`, narrowing the diff to just the agent-touched files so
+    /// pre-existing dirty state doesn't leak into the panel. Paths are
+    /// converted from absolute (caller's form) to repo-relative because git
+    /// pathspecs are repo-relative — absolute paths silently match nothing.
     ///
-    /// Returns "" when HEAD doesn't exist (fresh repo, no commits) — caller
-    /// can then fall through to Tier 3 if it wants. Throws on git invocation
-    /// failure (so the caller knows to fall through to bestEffortDiff).
+    /// Returns "" when HEAD doesn't exist (fresh repo) or after stripping no
+    /// paths land inside the repo. Throws on git invocation failure.
+    /// (Tracked-only — untracked files added this turn won't appear; for the
+    /// no-baseline + new-repo case the caller falls through to Tier 3.)
     static func scopedDiff(
         workspaceId: UUID,
         in worktree: String,
@@ -569,10 +567,17 @@ enum TurnCheckpointStore {
               !paths.isEmpty else {
             return ""
         }
-        // No HEAD → no fallback (the caller's existing flow handles Tier 3).
         guard refExists("HEAD", in: trimmedRoot) else {
             return ""
         }
+        let prefix = trimmedRoot.hasSuffix("/") ? trimmedRoot : trimmedRoot + "/"
+        let relativePaths: [String] = paths.compactMap { abs in
+            let trimmed = abs.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed == trimmedRoot { return "." }
+            guard trimmed.hasPrefix(prefix) else { return nil }
+            return String(trimmed.dropFirst(prefix.count))
+        }
+        guard !relativePaths.isEmpty else { return "" }
         let env = cmuxObjectEnv(workspaceId: workspaceId, repoRoot: trimmedRoot)
         var args: [String] = [
             "diff",
@@ -582,7 +587,7 @@ enum TurnCheckpointStore {
             "HEAD",
             "--"
         ]
-        args.append(contentsOf: paths)
+        args.append(contentsOf: relativePaths)
         let raw = try runGit(
             in: trimmedRoot,
             arguments: args,

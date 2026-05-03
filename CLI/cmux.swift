@@ -13976,12 +13976,13 @@ struct CMUXCLI {
             let claudePid = mappedSession?.pid
 
             // Per-turn diff panel signal: BEFORE Claude executes a file-modifying
-            // tool, report the file path to cmux so it can snapshot the
-            // containing repo's tree NOW (the only opportunity we have to capture
-            // a real pre-edit baseline). This is fire-and-forget — failures here
-            // never block the agent. The handler in TerminalController is async
-            // (Task { @MainActor in ... }) so this returns immediately even if
-            // the registry takes time to actually do the snapshot.
+            // tool, report the file path to cmux. The TerminalController handler
+            // SYNCHRONOUSLY snapshots the containing repo's tree on the socket
+            // thread before replying — by the time we exit this hook process,
+            // claude is guaranteed to have a durable pre-edit baseline. Hook
+            // failures (socket down, invalid workspace-id) never block claude
+            // because the cmux wrapper short-circuits when the socket isn't
+            // available, and the handler returns OK on best-effort failure.
             //
             // Future agents: codex/opencode/cursor PreToolUse-equivalent hooks
             // should call the same socket command (or a per-agent variant) to

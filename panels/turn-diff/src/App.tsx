@@ -410,7 +410,7 @@ function setEquals<T>(a: Set<T>, b: Set<T>): boolean {
   return true
 }
 
-function noop() {}
+function noop(_path: string): void {}
 
 /** Stable sort: ordered repos first (by ascending userOrder index), then any
  *  repos without a user order in their original incoming Swift order. */
