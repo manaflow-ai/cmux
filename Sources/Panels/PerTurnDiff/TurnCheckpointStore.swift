@@ -50,6 +50,65 @@ enum TurnCheckpointStore {
         return nil
     }
 
+    // MARK: - Worktree noise filter
+
+    /// Path prefixes (relative to a parent repo root) that house nested git
+    /// worktrees from common agent / orchestrator workflows. The parent's
+    /// `git add -A` may pick the dir entries up as untracked and report them
+    /// as "new files" — pure noise from the user's POV. The real subagent
+    /// edits show up under their own worktree's diff. Covers:
+    ///   - `.claude/worktrees/`  (Claude Code subagents)
+    ///   - `.worktrees/`         (common `git worktree add` convention)
+    private static let worktreeNoisePrefixes: [String] = [
+        ".claude/worktrees/",
+        ".worktrees/"
+    ]
+
+    /// Strip any file blocks from a unified-diff text whose path lives inside
+    /// a known worktree-housing dir.
+    static func filterWorktreesFromDiff(_ diff: String) -> String {
+        guard !diff.isEmpty,
+              worktreeNoisePrefixes.contains(where: { diff.contains($0) }) else {
+            return diff
+        }
+        let lines = diff.split(separator: "\n", omittingEmptySubsequences: false)
+        var out: [Substring] = []
+        out.reserveCapacity(lines.count)
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
+            if line.hasPrefix("diff --git ") {
+                // Find the end of this block (next "diff --git " or EOF).
+                var j = i + 1
+                while j < lines.count && !lines[j].hasPrefix("diff --git ") {
+                    j += 1
+                }
+                // Decide based on the path between "a/" and " b/".
+                let header = String(line)
+                var keep = true
+                if let aRange = header.range(of: "a/"),
+                   let bRange = header.range(of: " b/", range: aRange.upperBound..<header.endIndex) {
+                    let path = String(header[aRange.upperBound..<bRange.lowerBound])
+                    for prefix in worktreeNoisePrefixes {
+                        if path.hasPrefix(prefix) || path.contains("/" + prefix) {
+                            keep = false
+                            break
+                        }
+                    }
+                }
+                if keep {
+                    out.append(contentsOf: lines[i..<j])
+                }
+                i = j
+            } else {
+                // Stray line outside any block (e.g. trailing newline). Keep.
+                out.append(line)
+                i += 1
+            }
+        }
+        return out.joined(separator: "\n")
+    }
+
     // MARK: - cmux-owned object store
 
     /// First 16 hex chars of SHA-256(repoRoot.absolutePath).
@@ -403,12 +462,13 @@ enum TurnCheckpointStore {
                     env: env,
                     allowExitOne: true
                 )
+                let filtered = filterWorktreesFromDiff(diff)
                 #if DEBUG
                 cmuxDebugLog(
-                    "turn-diff: tier1 diff-tree base=\(baselineTreeSha.prefix(7)) now=\(freshTree.prefix(7)) bytes=\(diff.utf8.count)"
+                    "turn-diff: tier1 diff-tree base=\(baselineTreeSha.prefix(7)) now=\(freshTree.prefix(7)) bytes=\(filtered.utf8.count)"
                 )
                 #endif
-                return (diff, .sessionBaseline)
+                return (filtered, .sessionBaseline)
             } catch {
                 #if DEBUG
                 cmuxDebugLog("turn-diff: bestEffortDiff failed in \(trimmedRoot): tier1 baseline-diff error \(error)")
@@ -438,16 +498,17 @@ enum TurnCheckpointStore {
                     env: env,
                     allowExitOne: true
                 )
+                let filtered = filterWorktreesFromDiff(diff)
                 #if DEBUG
                 let baseTree = (try? runGit(
                     in: trimmedRoot,
                     arguments: ["rev-parse", "HEAD^{tree}"]
                 ).trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
                 cmuxDebugLog(
-                    "turn-diff: tier2 diff-tree base=HEAD^{tree}=\(baseTree.prefix(7)) now=\(freshTree.prefix(7)) bytes=\(diff.utf8.count)"
+                    "turn-diff: tier2 diff-tree base=HEAD^{tree}=\(baseTree.prefix(7)) now=\(freshTree.prefix(7)) bytes=\(filtered.utf8.count)"
                 )
                 #endif
-                return (diff, .head)
+                return (filtered, .head)
             } catch {
                 #if DEBUG
                 cmuxDebugLog("turn-diff: bestEffortDiff failed in \(trimmedRoot): tier2 HEAD-diff error \(error)")
@@ -457,10 +518,11 @@ enum TurnCheckpointStore {
 
         // Tier 3: synthetic everything-as-added. Brand-new repo with no HEAD.
         let synth = syntheticAddedDiff(in: trimmedRoot, untrackedOnly: false)
-        if synth.isEmpty {
+        let filteredSynth = filterWorktreesFromDiff(synth)
+        if filteredSynth.isEmpty {
             return ("", .empty)
         }
-        return (synth, .syntheticAdded)
+        return (filteredSynth, .syntheticAdded)
     }
 
     /// Scoped first-fetch helper. Runs `git diff HEAD -- <paths>` from `worktree`
@@ -500,12 +562,13 @@ enum TurnCheckpointStore {
             "--"
         ]
         args.append(contentsOf: paths)
-        return try runGit(
+        let raw = try runGit(
             in: trimmedRoot,
             arguments: args,
             env: env,
             allowExitOne: true
         )
+        return filterWorktreesFromDiff(raw)
     }
 
     // MARK: - Tier helpers
