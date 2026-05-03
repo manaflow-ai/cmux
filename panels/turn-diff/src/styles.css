@@ -1,0 +1,475 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  background: #161618;
+  color: #d4d4d4;
+
+  /* Diff color tokens — tuned for GitHub dark dimmed against #161618.
+     "soft" is the full-line wash, "hard" is the intra-line emphasis. */
+  --diff-add-bg: rgba(46, 160, 67, 0.18);
+  --diff-add-bg-emphasis: rgba(46, 160, 67, 0.45);
+  --diff-del-bg: rgba(248, 81, 73, 0.18);
+  --diff-del-bg-emphasis: rgba(248, 81, 73, 0.45);
+  --diff-add-gutter: rgba(46, 160, 67, 0.28);
+  --diff-del-gutter: rgba(248, 81, 73, 0.28);
+
+  --gutter-color: #6e7681;
+  --hunk-bg: #1c2128;
+  --hunk-color: #8b949e;
+  --border: #21262d;
+  --header-bg: #1c1c1f;
+  --file-header-bg: #1c2128;
+
+  --mono-font: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+body, html, #root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: #888;
+  padding: 20px;
+  text-align: center;
+}
+.empty code {
+  font-family: var(--mono-font);
+  font-size: 12px;
+  color: #adbac7;
+  background: #1c2128;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.empty .muted { color: #6e7681; font-size: 11px; }
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.panel header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: #eee;
+  background: var(--header-bg);
+}
+
+.panel header .title { margin-right: auto; }
+.panel header .totals { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 11px; }
+.panel header .file-count { color: #8b949e; }
+
+.bulk-toggle {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: #adbac7;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.bulk-toggle:hover {
+  background: #22272e;
+  border-color: #30363d;
+  color: #f0f6fc;
+}
+.bulk-toggle:active { background: #2d333b; }
+.bulk-toggle:focus-visible {
+  outline: 1px solid #388bfd;
+  outline-offset: 1px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #555;
+  flex-shrink: 0;
+}
+.status-dot[data-status="Idle"] {
+  background: #3fb950;
+  box-shadow: 0 0 6px rgba(63, 185, 80, 0.5);
+}
+.status-dot[data-status="Running"] {
+  background: #d29922;
+  box-shadow: 0 0 6px rgba(210, 153, 34, 0.6);
+  animation: pulse 1.4s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.diff-body {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+}
+
+/* ---------- repo group (multi-repo layout) ---------- */
+
+.repo-group {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  background: #0d1117;
+  transition: border-color 120ms, opacity 120ms, transform 120ms;
+}
+.repo-group[data-active="true"] {
+  border-color: #30363d;
+}
+/* Currently being dragged: dim slightly so it reads as "in-flight". */
+.repo-group[data-dragging="true"] {
+  opacity: 0.45;
+}
+/* Currently a drop target during drag: highlight border so the user sees
+   where the drop will land. */
+.repo-group[data-drop-target="true"] {
+  border-color: #388bfd;
+  box-shadow: 0 0 0 1px #388bfd inset;
+}
+
+.repo-group-drag-handle {
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  color: #6e7681;
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+.repo-group-header:active .repo-group-drag-handle,
+.repo-group[data-dragging="true"] .repo-group-drag-handle {
+  cursor: grabbing;
+  color: #adbac7;
+}
+
+.repo-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: #1c2128;
+  border: none;
+  color: #c9d1d9;
+  font-family: var(--mono-font);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  user-select: text;
+  transition: background 120ms;
+}
+.repo-group[data-expanded="true"] .repo-group-header {
+  border-bottom: 1px solid var(--border);
+}
+.repo-group-header:hover { background: #22272e; }
+.repo-group-header:focus-visible {
+  outline: 1px solid #388bfd;
+  outline-offset: -1px;
+}
+
+.repo-group-path {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #adbac7;
+}
+
+.repo-group-active {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: rgba(56, 139, 253, 0.18);
+  color: #79c0ff;
+  flex-shrink: 0;
+}
+
+.repo-group-totals {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.repo-group-totals .file-count { color: #8b949e; }
+
+.repo-group-body {
+  padding: 8px;
+  background: #0d1117;
+}
+/* Last file inside a repo body shouldn't add trailing whitespace before the
+   group's bottom border. */
+.repo-group-body .file:last-child { margin-bottom: 0; }
+
+.repo-empty {
+  padding: 12px;
+  color: #8b949e;
+  font-size: 12px;
+  text-align: center;
+  font-style: italic;
+}
+
+/* ---------- file ---------- */
+
+.file {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  background: #0d1117;
+}
+
+.file-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--file-header-bg);
+  border: none;
+  color: #c9d1d9;
+  font-family: var(--mono-font);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  user-select: text;
+  transition: background 120ms;
+}
+.file[data-expanded="true"] .file-header { border-bottom: 1px solid var(--border); }
+.file-header:hover { background: #22272e; }
+.file-header:focus-visible {
+  outline: 1px solid #388bfd;
+  outline-offset: -1px;
+}
+
+.twisty {
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  color: #8b949e;
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+}
+.twisty.open { transform: rotate(0deg); }
+.twisty.closed { transform: rotate(-90deg); }
+
+.file-path {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.old-path { color: #8b949e; }
+.rename-arrow { color: #8b949e; padding: 0 2px; }
+
+.file-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.file-tag.new { background: rgba(46, 160, 67, 0.2); color: #3fb950; }
+.file-tag.deleted { background: rgba(248, 81, 73, 0.2); color: #f85149; }
+
+.file-counts {
+  display: flex;
+  gap: 6px;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.add-badge { color: #3fb950; }
+.del-badge { color: #f85149; }
+
+/* ---------- rows: shared ---------- */
+
+.file-body {
+  font-family: var(--mono-font);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ---------- side-by-side renderer ---------- */
+
+.file-body.side-by-side {
+  display: grid;
+  /* old-gutter | left-cell | new-gutter | right-cell */
+  grid-template-columns: minmax(40px, max-content) minmax(0, 1fr) minmax(40px, max-content) minmax(0, 1fr);
+}
+
+.row {
+  display: contents;
+}
+
+.gutter {
+  padding: 0 8px;
+  text-align: right;
+  color: var(--gutter-color);
+  background: #0d1117;
+  user-select: none;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.cell {
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  min-width: 0;
+}
+
+/* sides — wash the whole cell */
+.side-add { background: var(--diff-add-bg); }
+.side-del { background: var(--diff-del-bg); }
+.side-empty { background: #0a0d11; }
+.side-context { background: transparent; }
+
+/* gutter colouring follows the row kind */
+.row.add .gutter.new,
+.row.modify .gutter.new { background: var(--diff-add-gutter); color: #adbac7; }
+.row.del .gutter.old,
+.row.modify .gutter.old { background: var(--diff-del-gutter); color: #adbac7; }
+.row.add .gutter.old,
+.row.del .gutter.new { background: #0d1117; }
+
+/* word-level emphasis layered on top of the soft wash */
+.tok-hard { background: transparent; border-radius: 2px; padding: 1px 0; }
+.cell.side-add .tok-hard,
+.unified-content.side-add .tok-hard { background: var(--diff-add-bg-emphasis); }
+.cell.side-del .tok-hard,
+.unified-content.side-del .tok-hard { background: var(--diff-del-bg-emphasis); }
+
+.line-content { display: inline; }
+.empty-line { display: inline-block; width: 100%; }
+
+/* hunk header (side-by-side) */
+.row.hunk { display: contents; }
+.row.hunk .hunk-gutter {
+  background: var(--hunk-bg);
+  border-right: none;
+  color: var(--hunk-color);
+}
+.row.hunk .hunk-cell {
+  grid-column: 2 / span 3;
+  background: var(--hunk-bg);
+  color: var(--hunk-color);
+  padding: 4px 8px;
+  font-style: italic;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+/* ---------- unified renderer ---------- */
+
+/* Each row is its own grid: marker | line# | content. Single column means
+   no horizontal squeeze and content can scroll independently. */
+.file-body.unified .unified-diff-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.unified-gutter {
+  padding: 0 6px 0 8px;
+  text-align: center;
+  color: var(--gutter-color);
+  background: #0d1117;
+  user-select: none;
+  white-space: nowrap;
+  min-width: 14px;
+}
+
+.unified-lineno {
+  padding: 0 8px;
+  text-align: right;
+  color: var(--gutter-color);
+  background: #0d1117;
+  user-select: none;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+  min-width: 28px;
+}
+
+.unified-content {
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  min-width: 0;
+}
+
+/* full-row wash by kind */
+.unified-diff-row.add .unified-gutter,
+.unified-diff-row.add .unified-lineno { background: var(--diff-add-gutter); color: #adbac7; }
+.unified-diff-row.del .unified-gutter,
+.unified-diff-row.del .unified-lineno { background: var(--diff-del-gutter); color: #adbac7; }
+
+.unified-content.side-add { background: var(--diff-add-bg); }
+.unified-content.side-del { background: var(--diff-del-bg); }
+.unified-content.side-context { background: transparent; }
+
+/* hunk header (unified) */
+.unified-diff-row.hunk .unified-gutter,
+.unified-diff-row.hunk .unified-lineno {
+  background: var(--hunk-bg);
+  border-right: none;
+  color: var(--hunk-color);
+}
+.unified-diff-row.hunk .unified-content.hunk-cell {
+  background: var(--hunk-bg);
+  color: var(--hunk-color);
+  padding: 4px 8px;
+  font-style: italic;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+/* scrollbars (cosmetic on macOS WKWebView) */
+.diff-body::-webkit-scrollbar,
+.cell::-webkit-scrollbar,
+.unified-content::-webkit-scrollbar { width: 10px; height: 10px; }
+.diff-body::-webkit-scrollbar-thumb,
+.cell::-webkit-scrollbar-thumb,
+.unified-content::-webkit-scrollbar-thumb { background: #30363d; border-radius: 5px; }
+.diff-body::-webkit-scrollbar-thumb:hover,
+.cell::-webkit-scrollbar-thumb:hover,
+.unified-content::-webkit-scrollbar-thumb:hover { background: #484f58; }
+.diff-body::-webkit-scrollbar-track,
+.cell::-webkit-scrollbar-track,
+.unified-content::-webkit-scrollbar-track { background: transparent; }

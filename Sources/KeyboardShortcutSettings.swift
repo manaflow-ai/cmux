@@ -53,6 +53,7 @@ enum KeyboardShortcutSettings {
         case switchRightSidebarToSessions
         case switchRightSidebarToFeed
         case switchRightSidebarToDock
+        case switchRightSidebarToDiff
         case triggerFlash
 
         // Navigation
@@ -132,6 +133,7 @@ enum KeyboardShortcutSettings {
             case .switchRightSidebarToSessions: return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Sessions")
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
             case .switchRightSidebarToDock: return String(localized: "shortcut.switchRightSidebarToDock.label", defaultValue: "Show Sidebar Dock")
+            case .switchRightSidebarToDiff: return String(localized: "kbd.switch-right-sidebar-to-diff", defaultValue: "Show Per-Turn Diff Panel")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
@@ -188,7 +190,7 @@ enum KeyboardShortcutSettings {
 
         private var conflictScope: ConflictScope {
             switch self {
-            case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+            case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToDiff:
                 return .rightSidebarFocus
             default:
                 return .application
@@ -245,6 +247,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToDock:
                 return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToDiff:
+                return StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:

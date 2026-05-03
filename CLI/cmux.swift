@@ -13838,6 +13838,21 @@ struct CMUXCLI {
                     pid: claudePid,
                     launchCommand: launchCommand
                 )
+                // Per-turn diff panel needs to know this panel's claude session
+                // id so its transcript tailer can lock onto the exact
+                // `<sessionId>.jsonl` file (instead of mtime guessing, which
+                // bleeds in transcripts from external claude instances). The
+                // wrapper already reports this for fresh launches; the call
+                // here covers the `--resume`/`-c` path where the wrapper
+                // doesn't know the session id (claude assigns it on resume).
+                // Idempotent on repeats.
+                let escapedSid = sessionId
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                _ = try? sendV1Command(
+                    "report_claude_session_id \"\(escapedSid)\" --workspace-id=\(workspaceId) --panel-id=\(surfaceId)",
+                    client: client
+                )
             }
             // Register PID for stale-session detection and OSC suppression,
             // but don't set a visible status. "Running" only appears when the
@@ -14029,6 +14044,30 @@ struct CMUXCLI {
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = mappedSession?.pid
 
+            // Per-turn diff panel signal: BEFORE Claude executes a file-modifying
+            // tool, report the file path to cmux. The TerminalController handler
+            // SYNCHRONOUSLY snapshots the containing repo's tree on the socket
+            // thread before replying — by the time we exit this hook process,
+            // claude is guaranteed to have a durable pre-edit baseline. Hook
+            // failures (socket down, invalid workspace-id) never block claude
+            // because the cmux wrapper short-circuits when the socket isn't
+            // available, and the handler returns OK on best-effort failure.
+            //
+            // Future agents: codex/opencode/cursor PreToolUse-equivalent hooks
+            // should call the same socket command (or a per-agent variant) to
+            // benefit from the pre-edit snapshot path.
+            if let toolName = parsedInput.object?["tool_name"] as? String,
+               sendsPreEditFilePath(toolName: toolName),
+               let filePath = extractClaudeHookFilePath(parsedInput.object) {
+                // Quote the path so embedded spaces survive the socket
+                // tokenizer; escape `\` and `"` in the path itself.
+                let escaped = filePath
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                let cmd = "report_pre_tool_use \"\(escaped)\" --workspace-id=\(workspaceId)"
+                _ = try? sendV1Command(cmd, client: client)
+            }
+
             // AskUserQuestion means Claude is about to ask the user something.
             // Save question text in session so the Notification handler can use it
             // instead of the generic "Claude Code needs your attention".
@@ -14191,6 +14230,31 @@ struct CMUXCLI {
 
         if parts.isEmpty { return "Asking a question" }
         return parts.joined(separator: "\n")
+    }
+
+    /// Tools whose PreToolUse hook should send a `report_pre_tool_use` socket
+    /// command so the per-turn diff panel can snapshot a pre-edit baseline of
+    /// the file's containing repo. Only tools that mutate the working tree
+    /// qualify; pure-read tools (Read/Glob/Grep) and `Bash` (which can do
+    /// anything but isn't a structured file edit) are intentionally excluded.
+    private func sendsPreEditFilePath(toolName: String) -> Bool {
+        switch toolName {
+        case "Edit", "Write", "MultiEdit", "NotebookEdit":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Extract the file path from a Claude Code PreToolUse hook payload.
+    /// Edit/Write/MultiEdit use `tool_input.file_path`; NotebookEdit uses
+    /// `tool_input.notebook_path`. Returns nil for tool calls with no path.
+    private func extractClaudeHookFilePath(_ object: [String: Any]?) -> String? {
+        guard let object,
+              let input = object["tool_input"] as? [String: Any] else { return nil }
+        if let p = input["file_path"] as? String, !p.isEmpty { return p }
+        if let p = input["notebook_path"] as? String, !p.isEmpty { return p }
+        return nil
     }
 
     private func describeToolUse(_ object: [String: Any]?) -> String? {
@@ -14444,7 +14508,7 @@ struct CMUXCLI {
 
         if let toolInput = object["tool_input"] as? [String: Any] {
             var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
+            for key in ["file_path", "notebook_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
                     compactToolInput[key] = value
                 }
@@ -14556,7 +14620,7 @@ struct CMUXCLI {
 
     private func compactClaudeHookToolInputValue(_ rawValue: Any?, key: String) -> String? {
         switch key {
-        case "file_path":
+        case "file_path", "notebook_path":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
         case "planFilePath":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)

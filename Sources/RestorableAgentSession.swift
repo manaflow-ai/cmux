@@ -5,6 +5,15 @@ enum RestorableAgentKind: String, Codable, CaseIterable, Sendable {
     case codex
     case opencode
 
+    /// Returns true when this agent kind owns a transcript file inside
+    /// `~/.claude/projects/<sanitized>/` that the per-turn diff panel needs to
+    /// disambiguate by launch timestamp. Today only `.claude` qualifies; the
+    /// other kinds are covered for symmetry with `RestorableAgentKind` when
+    /// future transcript sources land.
+    var ownsClaudeTranscriptDirectory: Bool {
+        self == .claude
+    }
+
     private var hookStoreFilename: String {
         "\(rawValue)-hook-sessions.json"
     }

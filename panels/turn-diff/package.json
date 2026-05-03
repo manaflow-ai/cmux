@@ -1,0 +1,27 @@
+{
+  "name": "@cmux/turn-diff-panel",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "build": "node node_modules/.bin/vite build",
+    "dev": "node node_modules/.bin/vite"
+  },
+  "dependencies": {
+    "diff": "^5.2.0",
+    "parse-diff": "^0.11.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "shiki": "^1.24.0"
+  },
+  "devDependencies": {
+    "@types/diff": "^5.2.3",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vite-plugin-singlefile": "^2.0.2"
+  }
+}

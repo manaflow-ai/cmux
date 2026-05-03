@@ -7186,6 +7186,27 @@ final class Workspace: Identifiable, ObservableObject {
         return panel
     }
 
+    /// Active Claude Code `session_id` (UUID string) for the focused panel, or
+    /// `nil` if the focused panel hasn't yet emitted a SessionStart hook. The
+    /// per-turn diff panel uses this to tail the exact
+    /// `~/.claude/projects/<sanitized>/<sessionId>.jsonl` file.
+    var focusedPanelClaudeSessionId: String? {
+        focusedPanelId.flatMap { claudeSessionIdsByPanel[$0] }
+    }
+
+    /// Record the active Claude Code `session_id` for a panel, reported by the
+    /// SessionStart hook through the `report_claude_session_id` socket command.
+    /// Overwrites any prior id so `/resume`s into a new session take effect.
+    /// Validates the input as a UUID — claude session ids are always UUIDs,
+    /// and a strict check here keeps malformed values out of the transcript
+    /// path lookup downstream (the resolver builds `<sid>.jsonl` directly).
+    func recordClaudeSessionId(forPanel panelId: UUID, sessionId: String) {
+        let trimmed = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let normalized = UUID(uuidString: trimmed)?.uuidString.lowercased() else { return }
+        if claudeSessionIdsByPanel[panelId] == normalized { return }
+        claudeSessionIdsByPanel[panelId] = normalized
+    }
+
     func effectiveSelectedPanelId(inPane paneId: PaneID) -> UUID? {
         bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
     }
@@ -7197,6 +7218,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
+    /// Mirrors `focusedPanelId` (which is computed) so subscribers can observe
+    /// focus changes via Combine. Updated from `applyTabSelectionNow` after the
+    /// effective focused panel has been resolved.
+    @Published var focusedPanelIdSignal: UUID?
+    /// Claude Code `session_id` (UUID string) for each panel, captured from the
+    /// SessionStart hook via the `report_claude_session_id` socket command.
+    /// The per-turn diff panel's `ClaudeTranscriptTailer` keys off the focused
+    /// panel's value to look at exactly `<sanitized cwd>/<sessionId>.jsonl`.
+    @Published var claudeSessionIdsByPanel: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
     @Published private(set) var panelCustomTitles: [UUID: String] = [:]
     @Published private(set) var pinnedPanelIds: Set<UUID> = []
@@ -12846,6 +12876,13 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
+        // Publish the focused panel id so Combine subscribers (e.g. the per-turn
+        // diff registry) can react to focus changes. Computed `focusedPanelId`
+        // alone is not observable.
+        if focusedPanelIdSignal != effectiveFocusedPanelId {
+            focusedPanelIdSignal = effectiveFocusedPanelId
+        }
+
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
                 terminalPanel.requestViewReattach()
@@ -13824,7 +13861,22 @@ extension Workspace: BonsplitDelegate {
             "pane=\(pane.id.uuidString.prefix(5)) identifier=\(identifier)"
         )
 #endif
+        if identifier == "togglePerTurnDiff" {
+            togglePerTurnDiffPanel(inPane: pane)
+            return
+        }
         executeSurfaceTabBarCommandButton(identifier: identifier, inPane: pane)
+    }
+
+    private func togglePerTurnDiffPanel(inPane pane: PaneID) {
+        let presentingWindow = selectedTerminalPanel(inPane: pane)?.hostedView.window
+            ?? NSApp.keyWindow
+            ?? NSApp.mainWindow
+        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: .diff,
+            focusFirstItem: true,
+            preferredWindow: presentingWindow
+        )
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -13896,4 +13948,18 @@ extension Workspace: BonsplitDelegate {
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
+}
+
+// MARK: - TurnCheckpointManager support
+extension Workspace: TurnCheckpointManagerWorkspace {
+    var statusEntriesPublisher: Published<[String: SidebarStatusEntry]>.Publisher {
+        $statusEntries
+    }
+    var currentDirectoryPublisher: Published<String>.Publisher {
+        $currentDirectory
+    }
+    var focusedPanePwd: String? {
+        guard let pid = focusedPanelId else { return nil }
+        return panelDirectories[pid]
+    }
 }

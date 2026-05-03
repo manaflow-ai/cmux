@@ -48,3 +48,6 @@ tests/visual_report.html
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+
+# Local brainstorm + plan scratch (per-turn-diff feature)
+.superpowers/
