@@ -11217,12 +11217,22 @@ private struct SidebarFooter: View {
 
     var body: some View {
 #if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+        VStack(alignment: .leading, spacing: 4) {
+            ProviderAccountsFooterPanel()
+                .padding(.leading, 6)
+                .padding(.trailing, 10)
+            SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+        }
 #else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
+        VStack(alignment: .leading, spacing: 4) {
+            ProviderAccountsFooterPanel()
+                .padding(.leading, 6)
+                .padding(.trailing, 10)
+            SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+                .padding(.leading, 6)
+                .padding(.trailing, 10)
+                .padding(.bottom, 6)
+        }
 #endif
     }
 }

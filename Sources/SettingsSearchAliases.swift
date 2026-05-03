@@ -23,6 +23,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.workspaceColors", defaultValue: "tab colors palette accent badge selected highlight")
         case .settingsJSON:
             return localized("settings.search.alias.section.settingsJSON", defaultValue: "configuration config file json jsonc dotfile ~/.config schema docs")
+        case .providerAccounts:
+            return localized("settings.search.alias.section.providerAccounts", defaultValue: "ai usage monitoring providers accounts claude codex anthropic openai token limit billing rate")
         case .reset:
             return localized("settings.search.alias.section.reset", defaultValue: "factory defaults restore clear preferences")
         }

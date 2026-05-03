@@ -287,6 +287,24 @@
 		FE003102 /* SessionIndexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003002 /* SessionIndexView.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
+		CA100003 /* ClaudeUsageFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100002 /* ClaudeUsageFetcher.swift */; };
+		CA100005 /* StatuspageIOFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100004 /* StatuspageIOFetcher.swift */; };
+		CA100009 /* ProviderAccountsFooterPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100008 /* ProviderAccountsFooterPanel.swift */; };
+		CA100091 /* ProviderAccountsSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100090 /* ProviderAccountsSettingsSection.swift */; };
+		CA100095 /* ProviderAccountsPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100094 /* ProviderAccountsPopover.swift */; };
+		CA10000B /* ProviderUsageColorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA10000A /* ProviderUsageColorSettings.swift */; };
+		CA10000D /* ProviderAccountEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA10000C /* ProviderAccountEditorSheet.swift */; };
+		CA100011 /* UsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100010 /* UsageProvider.swift */; };
+		CA100013 /* ProviderISO8601DateParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100012 /* ProviderISO8601DateParser.swift */; };
+		CA100093 /* ProviderHTTP.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100092 /* ProviderHTTP.swift */; };
+		CA100015 /* ProviderAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100014 /* ProviderAccount.swift */; };
+		CA100017 /* ProviderAccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100016 /* ProviderAccountStore.swift */; };
+		CA100019 /* ProviderAccountsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100018 /* ProviderAccountsController.swift */; };
+		CA10001B /* ProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA10001A /* ProviderRegistry.swift */; };
+		CA10001D /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA10001C /* ClaudeProvider.swift */; };
+		CA10001F /* CodexProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA10001E /* CodexProvider.swift */; };
+		CA100021 /* CodexUsageFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA100020 /* CodexUsageFetcher.swift */; };
+		DA7A20CA00000001 /* ProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA7A20CA00000002 /* ProviderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -635,6 +653,24 @@
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
+		CA100002 /* ClaudeUsageFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/ClaudeUsageFetcher.swift; sourceTree = "<group>"; };
+		CA100004 /* StatuspageIOFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/StatuspageIOFetcher.swift; sourceTree = "<group>"; };
+		CA100008 /* ProviderAccountsFooterPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/ProviderAccountsFooterPanel.swift; sourceTree = "<group>"; };
+		CA100090 /* ProviderAccountsSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/ProviderAccountsSettingsSection.swift; sourceTree = "<group>"; };
+		CA100094 /* ProviderAccountsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/ProviderAccountsPopover.swift; sourceTree = "<group>"; };
+		CA10000A /* ProviderUsageColorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/ProviderUsageColorSettings.swift; sourceTree = "<group>"; };
+		CA10000C /* ProviderAccountEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/ProviderAccountEditorSheet.swift; sourceTree = "<group>"; };
+		CA100010 /* UsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/UsageProvider.swift; sourceTree = "<group>"; };
+		CA100012 /* ProviderISO8601DateParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/ProviderISO8601DateParser.swift; sourceTree = "<group>"; };
+		CA100092 /* ProviderHTTP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/ProviderHTTP.swift; sourceTree = "<group>"; };
+		CA100014 /* ProviderAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/ProviderAccount.swift; sourceTree = "<group>"; };
+		CA100016 /* ProviderAccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/ProviderAccountStore.swift; sourceTree = "<group>"; };
+		CA100018 /* ProviderAccountsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/ProviderAccountsController.swift; sourceTree = "<group>"; };
+		CA10001A /* ProviderRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/ProviderRegistry.swift; sourceTree = "<group>"; };
+		CA10001C /* ClaudeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/ClaudeProvider.swift; sourceTree = "<group>"; };
+		CA10001E /* CodexProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/CodexProvider.swift; sourceTree = "<group>"; };
+		CA100020 /* CodexUsageFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers/CodexUsageFetcher.swift; sourceTree = "<group>"; };
+		DA7A20CA00000002 /* ProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -942,6 +978,23 @@
 				105D8421DF4E2E09D255D785 /* Auth */,
 				590E4F5F342E5B27010ECC8D /* Cloud */,
 				FEED0000000000000000F003 /* Feed */,
+				CA100002 /* ClaudeUsageFetcher.swift */,
+				CA100004 /* StatuspageIOFetcher.swift */,
+				CA100008 /* ProviderAccountsFooterPanel.swift */,
+				CA100090 /* ProviderAccountsSettingsSection.swift */,
+				CA100094 /* ProviderAccountsPopover.swift */,
+				CA10000A /* ProviderUsageColorSettings.swift */,
+				CA10000C /* ProviderAccountEditorSheet.swift */,
+				CA100010 /* UsageProvider.swift */,
+				CA100012 /* ProviderISO8601DateParser.swift */,
+				CA100092 /* ProviderHTTP.swift */,
+				CA100014 /* ProviderAccount.swift */,
+				CA100016 /* ProviderAccountStore.swift */,
+				CA100018 /* ProviderAccountsController.swift */,
+				CA10001A /* ProviderRegistry.swift */,
+				CA10001C /* ClaudeProvider.swift */,
+				CA10001E /* CodexProvider.swift */,
+				CA100020 /* CodexUsageFetcher.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -1038,6 +1091,7 @@
 				FE002001 /* FileExplorerRootResolverTests.swift */,
 				FE002002 /* FileExplorerStoreTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
+				DA7A20CA00000002 /* ProviderTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -1438,7 +1492,24 @@
 				698944F99A6ADFBA24A7BFB9 /* AuthSettingsStore.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
-			);
+			
+				CA100003 /* ClaudeUsageFetcher.swift in Sources */,
+				CA100005 /* StatuspageIOFetcher.swift in Sources */,
+				CA100009 /* ProviderAccountsFooterPanel.swift in Sources */,
+				CA100091 /* ProviderAccountsSettingsSection.swift in Sources */,
+				CA100095 /* ProviderAccountsPopover.swift in Sources */,
+				CA10000B /* ProviderUsageColorSettings.swift in Sources */,
+				CA10000D /* ProviderAccountEditorSheet.swift in Sources */,
+				CA100011 /* UsageProvider.swift in Sources */,
+				CA100013 /* ProviderISO8601DateParser.swift in Sources */,
+				CA100093 /* ProviderHTTP.swift in Sources */,
+				CA100015 /* ProviderAccount.swift in Sources */,
+				CA100017 /* ProviderAccountStore.swift in Sources */,
+				CA100019 /* ProviderAccountsController.swift in Sources */,
+				CA10001B /* ProviderRegistry.swift in Sources */,
+				CA10001D /* ClaudeProvider.swift in Sources */,
+				CA10001F /* CodexProvider.swift in Sources */,
+				CA100021 /* CodexUsageFetcher.swift in Sources */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		B9000006A1B2C3D4E5F60719 /* Sources */ = {
@@ -1562,7 +1633,8 @@
 				FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 				FE002102 /* FileExplorerStoreTests.swift in Sources */,
 				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
-			);
+			
+				DA7A20CA00000001 /* ProviderTests.swift in Sources */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */

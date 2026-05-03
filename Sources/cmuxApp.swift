@@ -5292,6 +5292,15 @@ struct SettingsView: View {
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
+    @StateObject private var providerAccountStore = ProviderAccountStore.shared
+    @StateObject private var providerColorSettings = ProviderUsageColorSettings.shared
+    @StateObject private var providerController = ProviderAccountsController.shared
+    @State private var providerEditorAccount: ProviderAccount?
+    @State private var providerEditorProvider: UsageProvider?
+    @State private var providerAccountToRemove: ProviderAccount?
+    @State private var showProviderRemoveConfirmation = false
+    @State private var providerRemoveError: String?
+    @State private var showProviderRemoveError = false
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -7187,6 +7196,18 @@ struct SettingsView: View {
                         }
                     }
 
+                    // MARK: - AI Usage Monitoring Section
+
+                    ProviderAccountsSettingsSection(
+                        store: providerAccountStore,
+                        controller: providerController,
+                        colorSettings: providerColorSettings,
+                        editorAccount: $providerEditorAccount,
+                        editorProvider: $providerEditorProvider,
+                        accountToRemove: $providerAccountToRemove,
+                        showRemoveConfirmation: $showProviderRemoveConfirmation
+                    )
+
                     SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .reset))
                     SettingsCard {
@@ -7311,6 +7332,68 @@ struct SettingsView: View {
         } message: {
             Text(notificationCustomSoundErrorAlertMessage)
         }
+        .sheet(item: $providerEditorProvider, onDismiss: {
+            providerEditorAccount = nil
+        }) { provider in
+            ProviderAccountEditorSheet(
+                provider: provider,
+                editingAccount: providerEditorAccount
+            ) {
+                providerEditorProvider = nil
+            }
+        }
+        .confirmationDialog(
+            String(localized: "providers.accounts.remove.confirm.title", defaultValue: "Remove this account?"),
+            isPresented: $showProviderRemoveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "providers.accounts.remove.confirm.action", defaultValue: "Remove"), role: .destructive) {
+                if let account = providerAccountToRemove {
+                    let accountId = account.id
+                    Task { @MainActor in
+                        do {
+                            try await ProviderAccountStore.shared.remove(id: accountId)
+                        } catch {
+                            NSLog("[cmuxApp] Failed to remove provider account \(accountId): \(error)")
+                            let message: String = {
+                                if let storeError = error as? ProviderAccountStoreError {
+                                    switch storeError {
+                                    case .notFound:
+                                        return String(localized: "providers.accounts.remove.error.notFound", defaultValue: "Account not found.")
+                                    case .decoding:
+                                        return String(localized: "providers.accounts.remove.error.decoding", defaultValue: "Failed to decode account credentials from Keychain.")
+                                    case .keychain:
+                                        return String(localized: "providers.accounts.remove.error.keychain", defaultValue: "Keychain error. Check macOS Keychain Access permissions.")
+                                    }
+                                }
+                                return String(localized: "providers.accounts.remove.error.unknown", defaultValue: "Could not remove account.")
+                            }()
+                            providerRemoveError = message
+                            showProviderRemoveError = true
+                        }
+                        if !ProviderAccountStore.shared.accounts.contains(where: { $0.id == accountId }) {
+                            ProviderAccountsController.shared.refreshNow()
+                        }
+                    }
+                }
+                providerAccountToRemove = nil
+            }
+            Button(String(localized: "providers.accounts.remove.cancel", defaultValue: "Cancel"), role: .cancel) {
+                providerAccountToRemove = nil
+            }
+        } message: {
+            Text(String(localized: "providers.accounts.remove.confirm.body", defaultValue: "The saved credentials will be deleted from Keychain."))
+        }
+        .alert(
+            String(localized: "providers.accounts.remove.error.title", defaultValue: "Could not remove account"),
+            isPresented: $showProviderRemoveError
+        ) {
+            Button(String(localized: "providers.accounts.remove.error.ok", defaultValue: "OK")) {}
+        } message: {
+            if let providerRemoveError {
+                Text(providerRemoveError)
+            }
+        }
         }
     }
 
@@ -7429,6 +7512,7 @@ struct SettingsView: View {
         SystemWideHotkeySettings.reset()
         KeyboardShortcutSettings.resetAll()
         WorkspaceTabColorSettings.reset()
+        ProviderUsageColorSettings.shared.resetToDefaults()
         reloadWorkspaceTabColorSettings()
         shortcutResetToken = UUID()
         DispatchQueue.main.async { isResettingSettings = false }
@@ -7485,7 +7569,14 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsSectionHeader: View {
+// MARK: - Settings Layout Primitives
+//
+// The Settings* view types and SettingsConfigurationReview below are
+// module-internal so that Settings subviews living in their own files —
+// e.g. `Sources/Sidebar/ProviderAccountsSettingsSection.swift` — can
+// compose the same card/row look as the main Settings body.
+
+struct SettingsSectionHeader: View {
     let title: String
 
     var body: some View {
@@ -7575,7 +7666,7 @@ private struct AuthSettingsRow: View {
     }
 }
 
-private struct SettingsCard<Content: View>: View {
+struct SettingsCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     init(@ViewBuilder content: () -> Content) {
@@ -7597,7 +7688,7 @@ private struct SettingsCard<Content: View>: View {
     }
 }
 
-private struct SettingsCardRow<Trailing: View>: View {
+struct SettingsCardRow<Trailing: View>: View {
     let configurationReview: SettingsConfigurationReview
     let title: String
     let subtitle: String?
@@ -7722,7 +7813,7 @@ extension SettingsPickerRow where ExtraTrailing == EmptyView {
     }
 }
 
-private enum SettingsConfigurationReview: Equatable {
+enum SettingsConfigurationReview: Equatable {
     case settingsFile([String])
     case settingsOnly
     case action
@@ -7760,7 +7851,7 @@ private extension View {
     }
 }
 
-private struct SettingsCardDivider: View {
+struct SettingsCardDivider: View {
     var body: some View {
         Rectangle()
             .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))

@@ -12,6 +12,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case keyboardShortcuts
     case workspaceColors
     case settingsJSON
+    case providerAccounts
     case reset
 
     var id: Self { self }
@@ -40,6 +41,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
         case .settingsJSON:
             return String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json")
+        case .providerAccounts:
+            return String(localized: "providers.accounts.section.title", defaultValue: "AI Usage Monitoring")
         case .reset:
             return String(localized: "settings.section.reset", defaultValue: "Reset")
         }
@@ -69,6 +72,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "keyboard"
         case .settingsJSON:
             return "doc.text"
+        case .providerAccounts:
+            return "chart.bar"
         case .reset:
             return "arrow.counterclockwise"
         }
@@ -98,6 +103,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) keybindings commands chords"
         case .settingsJSON:
             return "\(title) config file preferences editor documentation schema jsonc reload"
+        case .providerAccounts:
+            return "\(title) ai usage monitoring providers accounts claude codex token limit billing"
         case .reset:
             return "\(title) defaults"
         }

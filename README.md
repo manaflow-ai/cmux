@@ -82,6 +82,15 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 <img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>AI provider usage panel</h3>
+The sidebar footer shows AI provider subscription usage (Session and Week bars) per account with configurable color thresholds. Supported providers: Claude and Codex. Manage accounts and customize colors in Settings. Credentials are stored in macOS Keychain. See <a href="docs/providers.md">docs/providers.md</a> for the provider model and <a href="docs/usage-monitoring-setup.md">docs/usage-monitoring-setup.md</a> for per-provider setup instructions.
+</td>
+<td width="60%">
+<img src="./docs/assets/usage-monitoring-overview.png" alt="AI provider usage panel in the sidebar footer" width="100%" />
+</td>
+</tr>
 </table>
 
 - **Browser import** — Import cookies, history, and sessions from Chrome, Firefox, Arc, and 20+ browsers so browser panes start authenticated

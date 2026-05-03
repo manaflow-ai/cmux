@@ -1095,6 +1095,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installShortcutMonitor()
         installShortcutDefaultsObserver()
         SystemWideHotkeyController.shared.start()
+        if !isRunningUnderXCTest {
+            _ = ProviderAccountStore.shared
+            ProviderAccountsController.shared.start()
+        }
         NSApp.servicesProvider = self
 
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
@@ -1495,6 +1499,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
         }
+        ProviderAccountsController.shared.stop()
         notificationStore?.clearAll()
         enableSuddenTerminationIfNeeded()
     }
