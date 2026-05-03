@@ -292,7 +292,7 @@ def validate_remote_relay_payload(payload: dict[str, Any], relay_port: int, rela
         raise AssertionError("remote lifecycle exposed relay_token")
 
 
-def validate_remote_foreground_auth_payload(payload: dict[str, Any]) -> None:
+def validate_remote_foreground_auth_payload(payload: dict[str, Any], foreground_auth_token: str) -> None:
     remote = payload.get("remote")
     if not isinstance(remote, dict):
         raise AssertionError("workspace.remote.foreground_auth_ready did not expose remote status")
@@ -309,7 +309,7 @@ def validate_remote_foreground_auth_payload(payload: dict[str, Any]) -> None:
     configuration = remote.get("configuration")
     if not isinstance(configuration, dict) or not configuration.get("foreground_auth_ready_at"):
         raise AssertionError("foreground auth ready was not reflected in public configuration")
-    if "cmux-smoke" in json.dumps(remote):
+    if foreground_auth_token in json.dumps(remote):
         raise AssertionError("foreground auth ready exposed the auth token value")
 
 
@@ -850,12 +850,13 @@ def smoke_core(socket_path: Path) -> list[str]:
     )
     validate_remote_relay_payload(configured_remote, relay_port, relay_id)
     checked.append("workspace.remote.configure")
+    foreground_auth_token = "cmux-smoke-foreground-token"
     foreground_auth_remote = expect_ok(
         socket_path,
         "workspace.remote.foreground_auth_ready",
-        {"workspace_id": workspace_id, "foreground_auth_token": "cmux-smoke"},
+        {"workspace_id": workspace_id, "foreground_auth_token": foreground_auth_token},
     )
-    validate_remote_foreground_auth_payload(foreground_auth_remote)
+    validate_remote_foreground_auth_payload(foreground_auth_remote, foreground_auth_token)
     checked.append("workspace.remote.foreground_auth_ready")
     expect_ok(socket_path, "workspace.remote.reconnect", {"workspace_id": workspace_id})
     checked.append("workspace.remote.reconnect")
