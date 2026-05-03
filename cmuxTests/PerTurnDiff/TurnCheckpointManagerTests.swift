@@ -29,8 +29,10 @@ final class TurnCheckpointManagerTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        manager.stop()
-        try? FileManager.default.removeItem(at: tempDir)
+        manager?.stop()
+        if let tempDir {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
     }
 
     func test_codeChangeTurn_emitsDiffPayloadWithRepoEntry() async throws {

@@ -11,6 +11,9 @@ final class TurnCheckpointStoreTests: XCTestCase {
     private var workspaceId: UUID!
 
     override func setUp() async throws {
+        // Assign first so tearDown can safely read it even if a later
+        // `shell()` throws (git missing, mkdir failure, etc.).
+        workspaceId = UUID()
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pertd-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -18,12 +21,15 @@ final class TurnCheckpointStoreTests: XCTestCase {
         _ = try shell("git config user.email 'test@cmux.test'", in: tempDir.path)
         _ = try shell("git config user.name 'cmux test'", in: tempDir.path)
         _ = try shell("touch a.txt && git add a.txt && git -c commit.gpgsign=false commit -q -m initial", in: tempDir.path)
-        workspaceId = UUID()
     }
 
     override func tearDown() async throws {
-        TurnCheckpointStore.removeDiffStateDirectory(workspaceId: workspaceId)
-        try? FileManager.default.removeItem(at: tempDir)
+        if let workspaceId {
+            TurnCheckpointStore.removeDiffStateDirectory(workspaceId: workspaceId)
+        }
+        if let tempDir {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
     }
 
     // MARK: - gitRoot / gitCommonDir
