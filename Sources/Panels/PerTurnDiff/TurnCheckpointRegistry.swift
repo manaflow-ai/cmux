@@ -48,11 +48,11 @@ final class TurnCheckpointRegistry {
             }
         )
         // Seed the tailer with the workspace's current focused-pane pwd and
-        // the active claude launch timestamp. Both are pushed in (not pulled)
-        // so the tailer can read them on its background queue without crossing
-        // into MainActor isolation.
+        // the active claude session-id. Both pushed in (not pulled) so the
+        // tailer can read them on its background queue without crossing into
+        // MainActor isolation.
         tailer.updateFocusedPanePwd(workspace.focusedPanePwd)
-        tailer.updateClaudeLaunchTime(workspace.focusedPanelClaudeLaunchTime)
+        tailer.updateClaudeSessionId(workspace.focusedPanelClaudeSessionId)
 
         // Subscribe to focused-pane pwd changes so the tailer always knows
         // which `~/.claude/projects/<sanitized>/` to look at, and so we
@@ -68,16 +68,17 @@ final class TurnCheckpointRegistry {
                     return nil
                 }()
                 tailer?.updateFocusedPanePwd(pwd)
-                tailer?.updateClaudeLaunchTime(workspace?.focusedPanelClaudeLaunchTime)
+                tailer?.updateClaudeSessionId(workspace?.focusedPanelClaudeSessionId)
                 if let pwd, let mgr {
                     Self.handleCandidatePath(pwd, manager: mgr, workspace: workspace)
                 }
             }
             .store(in: &cancellables)
-        // Also push launch-time updates whenever the dict itself changes.
-        workspace.$claudeLaunchTimesByPanel
+        // Push session-id updates whenever the dict itself changes — typically
+        // once per panel right after the SessionStart hook fires.
+        workspace.$claudeSessionIdsByPanel
             .sink { [weak tailer, weak workspace] _ in
-                tailer?.updateClaudeLaunchTime(workspace?.focusedPanelClaudeLaunchTime)
+                tailer?.updateClaudeSessionId(workspace?.focusedPanelClaudeSessionId)
             }
             .store(in: &cancellables)
 
@@ -107,32 +108,28 @@ final class TurnCheckpointRegistry {
         entries[workspaceId]?.manager
     }
 
-    /// Entry point for the Claude Code PreToolUse socket command. Routes the
-    /// pre-edit file path to the right workspace's TurnCheckpointManager so it
-    /// can snapshot the containing repo's tree BEFORE Claude executes the
-    /// tool call. Safe to call from any actor; trampolines onto MainActor.
-    ///
-    /// If `workspaceId`'s manager isn't attached (workspace not loaded yet,
-    /// or the hook fired during teardown), this is a no-op — the socket
-    /// command handler should still return OK so the hook doesn't block Claude.
-    nonisolated func recordPreEditPath(workspaceId: UUID, path: String) {
+    /// Entry point for the PreToolUse socket command. The socket handler has
+    /// already done the synchronous git work (`gitRoot` walk +
+    /// `writeTreeIsolated`) and reduced this to an in-memory state update.
+    /// Trampolines onto MainActor; no-op if the workspace isn't attached.
+    nonisolated func recordPreEditSnapshot(
+        workspaceId: UUID,
+        path: String,
+        repo: String?,
+        tree: String?
+    ) {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         Task { @MainActor in
-            guard let mgr = self.entries[workspaceId]?.manager else {
-                #if DEBUG
-                cmuxDebugLog(
-                    "turn-diff: pre-edit hook for unattached workspace=\(workspaceId.uuidString.prefix(5)) path=\(trimmed)"
-                )
-                #endif
-                return
+            guard let mgr = self.entries[workspaceId]?.manager else { return }
+            if let repo {
+                if mgr.currentRoot != repo {
+                    mgr.updateRoot(to: repo, observedCwd: trimmed)
+                }
+            } else {
+                Self.handleCandidatePath(trimmed, manager: mgr, workspace: nil)
             }
-            // Make sure the manager's currentRoot is updated to this path's
-            // git root if it differs — otherwise the live watcher and the
-            // active-repo flag won't follow the agent into the new repo.
-            // handleCandidatePath does the gitRoot walk + diff/no-diff branch.
-            Self.handleCandidatePath(trimmed, manager: mgr, workspace: nil)
-            mgr.recordPreEditPath(trimmed)
+            mgr.recordPreEditSnapshot(path: trimmed, repo: repo, tree: tree)
         }
     }
 

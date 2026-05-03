@@ -29,13 +29,17 @@ final class ClaudeTranscriptTailer {
     /// and to parse each JSONL line for file paths.
     private let source: AgentTranscriptSource
     private let onPathDetected: (String) -> Void
-    /// Latest known focused-pane pwd AND active claude launch timestamp. Both
-    /// are pushed in from the main actor (via `updateFocusedPanePwd` and
-    /// `updateClaudeLaunchTime`) and read on the tailer's background queue.
-    /// Guarded by `anchorLock`. Pull-based MainActor.assumeIsolated from a
-    /// background queue would crash with a libdispatch precondition.
+    /// Latest known focused-pane pwd and active claude session-id. Both are
+    /// pushed in from the main actor and read on the tailer's background
+    /// queue. Guarded by `anchorLock`. Pull-based MainActor.assumeIsolated
+    /// from a background queue would crash with a libdispatch precondition.
+    ///
+    /// `latestClaudeSessionId` is authoritative: when non-nil, the tailer
+    /// resolves to exactly `<sessionId>.jsonl` and never falls back. That's
+    /// the only way to guarantee we don't tail an unrelated Claude Code
+    /// instance that happens to share the anchor pwd.
     private var latestFocusedPanePwd: String?
-    private var latestClaudeLaunchTime: Date?
+    private var latestClaudeSessionId: String?
     private let anchorLock = NSLock()
 
     init(
@@ -56,13 +60,21 @@ final class ClaudeTranscriptTailer {
         anchorLock.unlock()
     }
 
-    /// Push the latest claude launch timestamp into the tailer. Used by
-    /// `resolveActiveTranscriptFile` to filter out other Claude instances'
-    /// transcripts that pre-date THIS workspace's session.
-    func updateClaudeLaunchTime(_ date: Date?) {
+    /// Push the active Claude Code `session_id` into the tailer. When set,
+    /// resolves to `<dir>/<sessionId>.jsonl` exactly. When `nil`, the tailer
+    /// idles — no fallback to mtime, which used to leak in transcripts from
+    /// other Claude Code instances. Triggers an immediate re-resolve so a
+    /// fresh session-id flips the tailer onto the new file without waiting
+    /// for the 30s resolve tick.
+    func updateClaudeSessionId(_ sid: String?) {
         anchorLock.lock()
-        latestClaudeLaunchTime = date
+        let changed = latestClaudeSessionId != sid
+        latestClaudeSessionId = sid
         anchorLock.unlock()
+        guard changed else { return }
+        queue.async { [weak self] in
+            self?.tickResolve()
+        }
     }
 
     func start() {
@@ -135,26 +147,21 @@ final class ClaudeTranscriptTailer {
             return
         }
         anchorLock.lock()
-        let minDate = latestClaudeLaunchTime
+        let sid = latestClaudeSessionId
         anchorLock.unlock()
-        guard let latestURL = source.resolveActiveTranscriptFile(in: dirURL, after: minDate) else {
-            #if DEBUG
-            cmuxDebugLog(
-                "turn-diff: tailer no file matches min=\(minDate.map { String($0.timeIntervalSince1970) } ?? "nil") in \(dir)"
-            )
-            #endif
+        guard let latestURL = source.resolveActiveTranscriptFile(in: dirURL, sessionId: sid) else {
+            // No matching file. If we already had a transcript open (typical
+            // after a session-id swap), tear it down so we don't keep tailing
+            // an unrelated file from the previous resolve.
+            if currentTranscriptPath != nil {
+                teardownLocked()
+            }
             scheduleWaitTimer()
             return
         }
         let latest = latestURL.path
 
         if latest != currentTranscriptPath {
-            #if DEBUG
-            cmuxDebugLog(
-                "turn-diff: tailer resolved file=\(latest) (anchor=\(anchor), " +
-                "min=\(minDate.map { String($0.timeIntervalSince1970) } ?? "nil"))"
-            )
-            #endif
             switchTo(transcript: latest)
         }
         // Always (re)arm the long-period resolve timer.

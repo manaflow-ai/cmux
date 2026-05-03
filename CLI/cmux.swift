@@ -13769,6 +13769,21 @@ struct CMUXCLI {
                     pid: claudePid,
                     launchCommand: launchCommand
                 )
+                // Per-turn diff panel needs to know this panel's claude session
+                // id so its transcript tailer can lock onto the exact
+                // `<sessionId>.jsonl` file (instead of mtime guessing, which
+                // bleeds in transcripts from external claude instances). The
+                // wrapper already reports this for fresh launches; the call
+                // here covers the `--resume`/`-c` path where the wrapper
+                // doesn't know the session id (claude assigns it on resume).
+                // Idempotent on repeats.
+                let escapedSid = sessionId
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                _ = try? sendV1Command(
+                    "report_claude_session_id \"\(escapedSid)\" --workspace-id=\(workspaceId) --panel-id=\(surfaceId)",
+                    client: client
+                )
             }
             // Register PID for stale-session detection and OSC suppression,
             // but don't set a visible status. "Running" only appears when the

@@ -2136,6 +2136,9 @@ class TerminalController {
         case "report_pre_tool_use":
             return reportPreToolUse(args)
 
+        case "report_claude_session_id":
+            return reportClaudeSessionId(args)
+
         case "sidebar_state":
             return sidebarState(args)
 
@@ -16663,48 +16666,71 @@ class TerminalController {
         return result
     }
 
-    /// Claude Code PreToolUse socket command. The hook calls this BEFORE the
-    /// agent executes Edit/Write/MultiEdit/NotebookEdit, so the per-turn diff
-    /// panel can capture a real pre-edit baseline of the touched repo.
+    /// Claude Code PreToolUse socket command. The hook process inside claude
+    /// blocks on our reply, so we snapshot the touched repo's tree
+    /// synchronously here (off-main is fine — it's just shell-out git) BEFORE
+    /// returning OK. By the time claude proceeds with the tool call the
+    /// pre-edit tree object is durable in the cmux store. The MainActor
+    /// trampoline only updates in-memory state.
     ///
-    /// Usage: report_pre_tool_use <file_path> [--workspace-id=<uuid>]
-    ///
-    /// Threading: this is a hot, never-block-the-agent telemetry command. It
-    /// MUST return quickly. The actual MainActor work is trampolined inside
-    /// TurnCheckpointRegistry.recordPreEditPath via `Task { @MainActor in ... }`,
-    /// so this handler stays off the main thread per the socket command
-    /// threading policy.
+    /// Usage: report_pre_tool_use <file_path> --workspace-id=<uuid>
     private func reportPreToolUse(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard let path = parsed.positional.first, !path.isEmpty else {
-            return "ERROR: Missing file path — usage: report_pre_tool_use <file_path> [--workspace-id=<uuid>]"
+            return "ERROR: Missing file path — usage: report_pre_tool_use <file_path> --workspace-id=<uuid>"
         }
-
-        // Workspace ID can come from --workspace-id, --tab, or --workspace.
-        // The Claude wrapper exports CMUX_WORKSPACE_ID into the agent's env;
-        // the hook handler reads that and passes it on the socket call.
-        let workspaceRaw = parsed.options["workspace-id"]
-            ?? parsed.options["workspace_id"]
-            ?? parsed.options["tab"]
-            ?? parsed.options["workspace"]
-
+        let workspaceRaw = parsed.options["workspace-id"] ?? parsed.options["tab"]
         guard let workspaceRaw,
               let workspaceId = UUID(uuidString: workspaceRaw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            #if DEBUG
-            cmuxDebugLog("report_pre_tool_use: missing/invalid workspace-id (got=\(workspaceRaw ?? "(nil)")); ignoring path=\(path)")
-            #endif
-            // Return OK so the hook doesn't fail — the panel just won't get the
-            // pre-edit baseline for this turn (best-effort).
+            // Best-effort — return OK so the hook doesn't fail the agent.
             return "OK"
         }
 
-        #if DEBUG
-        cmuxDebugLog("report_pre_tool_use: workspace=\(workspaceId.uuidString.prefix(5)) path=\(path)")
-        #endif
+        // Walk from the file's parent dir so a Write-to-new-file case still
+        // resolves correctly even before the file exists.
+        let probe: String = {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isDir) {
+                return isDir.boolValue ? path : (path as NSString).deletingLastPathComponent
+            }
+            return (path as NSString).deletingLastPathComponent
+        }()
+        let repo = TurnCheckpointStore.gitRoot(containing: probe)
+        let tree: String? = repo.flatMap {
+            try? TurnCheckpointStore.writeTreeIsolated(workspaceId: workspaceId, in: $0)
+        }
 
-        // Fire-and-forget into the MainActor-isolated registry. The registry
-        // handles the case where the workspace isn't attached yet.
-        TurnCheckpointRegistry.shared.recordPreEditPath(workspaceId: workspaceId, path: path)
+        TurnCheckpointRegistry.shared.recordPreEditSnapshot(
+            workspaceId: workspaceId,
+            path: path,
+            repo: repo,
+            tree: tree
+        )
+        return "OK"
+    }
+
+    /// Records the active Claude Code `session_id` for a panel. Called by the
+    /// cmux claude wrapper before `exec`ing claude, and by the SessionStart
+    /// hook handler (which covers `--resume`/`-c` where the wrapper doesn't
+    /// know the id). Idempotent.
+    ///
+    /// Usage: report_claude_session_id <session_id> --workspace-id=<uuid> --panel-id=<uuid>
+    private func reportClaudeSessionId(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let sessionId = parsed.positional.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionId.isEmpty else {
+            return "ERROR: Missing session id — usage: report_claude_session_id <session_id> --workspace-id=<uuid> --panel-id=<uuid>"
+        }
+        let panelRaw = parsed.options["panel-id"] ?? parsed.options["surface"]
+        guard let panelRaw,
+              let panelId = UUID(uuidString: panelRaw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return "OK"
+        }
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else { return "OK" }
+        scheduleSidebarMutation(target: target) { _, tab in
+            tab.recordClaudeSessionId(forPanel: panelId, sessionId: sessionId)
+        }
         return "OK"
     }
 

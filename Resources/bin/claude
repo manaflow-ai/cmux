@@ -263,11 +263,27 @@ fi
 #   This is Claude Code's native blocking decision hook. It covers
 #   permissions, ExitPlanMode, and AskUserQuestion without using
 #   PreToolUse denial as a side channel.
-HOOKS_JSON='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+HOOKS_JSON='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
+    # User supplied --resume / -c / etc; claude picks its own session id.
+    # Per-turn diff panel will pick the id up via the SessionStart hook
+    # path instead. Fire-and-forget here would have nothing to report.
     exec "$REAL_CLAUDE" "${CMUX_BYPASS_AVAILABILITY_ARGS[@]}" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    # Tell cmux this panel's claude session id BEFORE exec'ing claude so the
+    # per-turn diff panel's transcript tailer can lock onto the exact
+    # `<sessionId>.jsonl` file from the very first turn (no mtime guessing,
+    # which bleeds in transcripts from external claude instances). The
+    # SessionStart hook will also report it once claude is up — both paths
+    # are idempotent.
+    if [[ -n "$CMUX_WORKSPACE_ID" && -n "$CMUX_SURFACE_ID" ]]; then
+        "${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" report_claude_session_id \
+            "$SESSION_ID" \
+            --workspace-id="$CMUX_WORKSPACE_ID" \
+            --panel-id="$CMUX_SURFACE_ID" \
+            >/dev/null 2>&1 || true
+    fi
     exec "$REAL_CLAUDE" "${CMUX_BYPASS_AVAILABILITY_ARGS[@]}" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi

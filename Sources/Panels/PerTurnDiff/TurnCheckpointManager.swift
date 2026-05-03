@@ -112,7 +112,8 @@ final class TurnCheckpointManager {
         self.session = workspace.id
         self.currentRoot = currentRoot
         if let root = currentRoot, !root.isEmpty {
-            self.visitedRoots = [root]
+            // Route through the helper so a worktree seed picks up its parent.
+            appendVisitedRoot(root)
         }
     }
 
@@ -125,16 +126,7 @@ final class TurnCheckpointManager {
         if let root = currentRoot, !root.isEmpty {
             TurnCheckpointStore.deleteLegacySessionRef(workspaceId: session, in: root)
         }
-        // One-shot migration: prior versions of the per-turn diff panel
-        // identified the active claude jsonl by "newest mtime in the project
-        // dir" — which on machines running multiple Claude Code instances
-        // (cmux + Telegram bot, etc.) latched onto the wrong session and
-        // recorded ghost repos under this workspace's diff-state. Wipe the
-        // entire on-disk diff-state for every workspace exactly once so the
-        // launch-timestamp-based identification can rebuild from a clean
-        // slate. The flag below is process-wide (not per-workspace) so the
-        // purge fires even for workspaces that haven't been opened yet.
-        Self.runOneShotV2DiffStatePurgeIfNeeded(forWorkspace: session)
+        Self.runOneShotDiffStatePurgeIfNeeded(forWorkspace: session)
         // Cold start: hydrate per-repo cached diffs persisted from previous
         // sessions so the panel renders each repo's last-modified diff
         // immediately instead of falling through to Tier 2 (HEAD diff). The
@@ -150,9 +142,7 @@ final class TurnCheckpointManager {
             // afterwards in dictionary-iteration order.
             for root in restored.keys {
                 guard !root.isEmpty, root != currentRoot else { continue }
-                if !visitedRoots.contains(root) {
-                    visitedRoots.append(root)
-                }
+                appendVisitedRoot(root)
             }
             #if DEBUG
             cmuxDebugLog("turn-diff: hydrated \(restored.count) cached diffs for repos=[\(restored.keys.sorted().joined(separator: ", "))]")
@@ -211,9 +201,7 @@ final class TurnCheckpointManager {
             // failure.
             TurnCheckpointStore.deleteLegacySessionRef(workspaceId: session, in: r)
 
-            if !visitedRoots.contains(r) {
-                visitedRoots.append(r)
-            }
+            appendVisitedRoot(r)
         }
         #if DEBUG
         cmuxDebugLog("turn-diff: root changed workspace=\(session.uuidString) root=\(newRoot ?? "(nil)") visited=\(visitedRoots.count)")
@@ -270,77 +258,23 @@ final class TurnCheckpointManager {
         thisTurnDetectedPaths.insert(trimmed)
     }
 
-    /// Called by the registry from the Claude Code PreToolUse hook handler.
-    /// This fires BEFORE the agent has modified the file, so we can capture a
-    /// genuine pre-edit baseline tree for the file's containing repo. This is
-    /// the only signal that beats Claude's tool execution — the transcript
-    /// tailer in `recordDetectedPath` always lags the actual file write.
-    ///
-    /// Behavior:
-    ///   - Walk up from `path` to find `.git`. If none, no-op.
-    ///   - If `pendingPreTurnBaselines[repo]` is already set, no-op (we already
-    ///     have a pre-edit tree for this repo this turn).
-    ///   - Otherwise snapshot the current tree NOW and store it as the baseline.
-    ///   - Append `repo` to `visitedRoots` if not already present (preserves the
-    ///     append-only invariant the React panel relies on).
-    ///
-    /// Future agents (Codex/etc.) that gain a PreToolUse-equivalent hook
-    /// should plumb their hook handler to call into this method through the
-    /// registry as well; the manager itself is agent-agnostic.
-    func recordPreEditPath(_ path: String) {
+    /// Called by the registry from the PreToolUse hook handler after the
+    /// socket handler has done the synchronous git work off-main. Stores the
+    /// already-computed snapshot so captureEnd can diff against it. `repo`
+    /// and `tree` may be nil if the path didn't resolve to a git root or the
+    /// snapshot failed — we still record the path so captureEnd's scoped-diff
+    /// fallback can use it. Earliest snapshot per (repo, turn) wins.
+    func recordPreEditSnapshot(path: String, repo: String?, tree: String?) {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-
-        // Walk up to the containing git root. For files (which may not exist
-        // yet for a Write tool to a brand-new path), walk from the parent dir.
-        let probe: String = {
-            var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDir) {
-                return isDir.boolValue ? trimmed : (trimmed as NSString).deletingLastPathComponent
-            }
-            return (trimmed as NSString).deletingLastPathComponent
-        }()
-        guard let repo = TurnCheckpointStore.gitRoot(containing: probe) else {
-            #if DEBUG
-            cmuxDebugLog("turn-diff: pre-edit hook ignored (no git root) path=\(trimmed)")
-            #endif
-            return
-        }
-
-        // Also feed the per-turn detected-paths set so the scoped first-fetch
-        // diff path has the same information the transcript tailer would
-        // eventually have provided. Faster signal, same downstream consumer.
         thisTurnDetectedPaths.insert(trimmed)
 
-        // Maintain the append-only visitedRoots invariant.
-        if !visitedRoots.contains(repo) {
-            visitedRoots.append(repo)
-            #if DEBUG
-            cmuxDebugLog("turn-diff: pre-edit hook added new repo to visitedRoots repo=\(repo)")
-            #endif
-        }
+        guard let repo, !repo.isEmpty else { return }
+        appendVisitedRoot(repo)
 
-        // If we already snapshotted a baseline this turn (either via captureStart
-        // or an earlier pre-edit hook for the same repo), don't re-snapshot — the
-        // earliest snapshot is the most-pre-edit-est one we can get.
-        if pendingPreTurnBaselines[repo] != nil {
-            #if DEBUG
-            cmuxDebugLog("turn-diff: pre-edit hook had baseline already repo=\(repo)")
-            #endif
-            return
-        }
-
-        do {
-            let tree = try TurnCheckpointStore.writeTreeIsolated(workspaceId: session, in: repo)
-            pendingPreTurnBaselines[repo] = tree
-            #if DEBUG
-            cmuxDebugLog("turn-diff: pre-edit hook baseline snapshotted repo=\(repo) tree=\(tree.prefix(7))")
-            #endif
-        } catch {
-            #if DEBUG
-            cmuxDebugLog("turn-diff: pre-edit hook snapshot failed repo=\(repo): \(error)")
-            #endif
-        }
+        guard let tree, !tree.isEmpty else { return }
+        if pendingPreTurnBaselines[repo] != nil { return }
+        pendingPreTurnBaselines[repo] = tree
     }
 
     private func captureStart() {
@@ -553,6 +487,16 @@ final class TurnCheckpointManager {
         }
     }
 
+    /// Append `root` to `visitedRoots` (idempotent). The append-only invariant
+    /// keeps the React panel's default ordering stable — see `visitedRoots`
+    /// docs.
+    @discardableResult
+    private func appendVisitedRoot(_ root: String) -> Bool {
+        guard !root.isEmpty, !visitedRoots.contains(root) else { return false }
+        visitedRoots.append(root)
+        return true
+    }
+
     #if DEBUG
     private static func tierLabel(_ tier: TurnCheckpointStore.DiffTier) -> String {
         switch tier {
@@ -572,28 +516,22 @@ final class TurnCheckpointManager {
     // MARK: - One-shot v2 migration
 
     /// Process-wide UserDefaults key that records that we already wiped the
-    /// diff-state directory tree for the launch-timestamp identification
-    /// rollout. The purge runs *per workspace* on first attach after this flag
-    /// is missing, then sets the flag so subsequent workspaces in this install
-    /// don't get blown away too.
-    private static let migrationV2FlagKey = "cmux.perTurnDiff.migration.v2.done"
+    /// diff-state directory tree for a previous bug. Bump the version suffix
+    /// when shipping a new fix that requires a fresh purge — every install
+    /// then runs the purge once on first workspace attach after upgrading.
+    /// v2 wiped state from the buggy "newest jsonl by mtime" identification.
+    /// v3 wipes state from a regression where missing sessionId briefly fell
+    /// back to mtime, admitting external Claude sessions into cmux workspaces.
+    private static let migrationFlagKey = "cmux.perTurnDiff.migration.v3.done"
 
     /// Run a one-shot purge of THIS workspace's diff-state dir (per spec) so
-    /// any ghost entries captured under the buggy "newest jsonl wins" logic
-    /// are wiped. After the first call, sets a UserDefaults flag so the purge
-    /// won't re-fire for this install. This is intentionally per-install (not
-    /// per-workspace) — the bug affected EVERY workspace identically, so once
-    /// any one workspace has done the rebuild we can trust the rest will
-    /// rebuild cleanly through the normal hydrate-then-detect flow.
-    private static func runOneShotV2DiffStatePurgeIfNeeded(forWorkspace workspaceId: UUID) {
+    /// any ghost entries captured under previous bugs are wiped. Sets the
+    /// flag after the first call so the purge fires once per install per
+    /// migration version (see `migrationFlagKey`).
+    private static func runOneShotDiffStatePurgeIfNeeded(forWorkspace workspaceId: UUID) {
         let defaults = UserDefaults.standard
-        guard !defaults.bool(forKey: migrationV2FlagKey) else { return }
+        guard !defaults.bool(forKey: migrationFlagKey) else { return }
         TurnCheckpointStore.removeDiffStateDirectory(workspaceId: workspaceId)
-        defaults.set(true, forKey: migrationV2FlagKey)
-        #if DEBUG
-        cmuxDebugLog(
-            "turn-diff: v2 migration purged diff-state for workspace=\(workspaceId.uuidString.prefix(5)); flag set"
-        )
-        #endif
+        defaults.set(true, forKey: migrationFlagKey)
     }
 }
