@@ -56,6 +56,17 @@ export function App() {
   /** Tracks which repos we've already seen so newly-discovered repos can pick
    *  up the right default expansion state (only the active one is expanded). */
   const seenReposRef = useRef<Set<string>>(new Set())
+  /** Mirrors `repos` for synchronous reads in callbacks (drag-to-reorder). We
+   *  can't read state from inside `useCallback` deps without re-binding the
+   *  callback every render, and using `setRepos(r => r)` as a sync reader is
+   *  fragile under React's concurrent features. */
+  const reposRef = useRef<RepoEntry[]>([])
+
+  // Keep reposRef in sync with state so callbacks can read the latest list
+  // synchronously without re-binding on every change to `repos`.
+  useEffect(() => {
+    reposRef.current = repos
+  }, [repos])
 
   // Persist user order whenever it changes (after initial hydration).
   useEffect(() => {
@@ -246,32 +257,14 @@ export function App() {
         setDropTargetRoot(null)
         return null
       }
-      // Reorder against the *current display* order. We don't have direct
-      // access to displayRepos here without prop-drilling, so we recompute
-      // from incoming repo list + last user order via the ref-free path
-      // below: schedule the reorder inside setUserOrderByRoot so we read
-      // the latest order, and pull the latest repos via a setRepos
-      // call (which is a no-op identity transform and gives us prev).
-      reorder(dragging, targetRoot)
-      setDropTargetRoot(null)
-      return null
-    })
-    // Helper: compute new order map. Inlined as a closure so it can call
-    // setRepos with a noop to read latest repos, and setUserOrderByRoot
-    // with a closure to read the latest order — both updates are effectively
-    // synchronous reads-then-writes.
-    function reorder(from: string, to: string) {
-      // Read latest repos via setRepos identity update.
-      let currentRepos: RepoEntry[] = []
-      setRepos((r) => {
-        currentRepos = r
-        return r
-      })
       setUserOrderByRoot((prevOrder) => {
         const order = prevOrder ?? {}
-        const display = sortReposByUserOrder(currentRepos, order)
-        const fromIdx = display.findIndex((e) => e.root === from)
-        const toIdx = display.findIndex((e) => e.root === to)
+        // Read the latest repo list from the ref. The ref is kept in sync by
+        // the effect above; this is safe under React's concurrent features
+        // (unlike the previous `setRepos(r => r)` reader trick).
+        const display = sortReposByUserOrder(reposRef.current, order)
+        const fromIdx = display.findIndex((e) => e.root === dragging)
+        const toIdx = display.findIndex((e) => e.root === targetRoot)
         if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return prevOrder
         const reordered = [...display]
         const [moved] = reordered.splice(fromIdx, 1)
@@ -284,7 +277,9 @@ export function App() {
         })
         return next
       })
-    }
+      setDropTargetRoot(null)
+      return null
+    })
   }, [])
 
   // ---------- Display order ----------

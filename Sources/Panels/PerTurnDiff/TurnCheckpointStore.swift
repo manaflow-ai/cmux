@@ -156,6 +156,20 @@ enum TurnCheckpointStore {
         return objectsDir
     }
 
+    /// Best-effort: remove the entire `cmux/diff-state/` tree (all workspaces).
+    /// Used by one-shot migrations that need to wipe state from every
+    /// workspace, not just the one that happens to attach first.
+    static func removeAllDiffState() {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        let dir = appSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("diff-state", isDirectory: true)
+        try? fm.removeItem(at: dir)
+    }
+
     /// Best-effort: remove the entire workspace's diff-state directory.
     /// Called from `TurnCheckpointManager.stop()` to keep the on-disk footprint
     /// tidy across re-attaches.
@@ -337,12 +351,19 @@ enum TurnCheckpointStore {
     }
 
     /// Build the env dict that points git at our cmux-owned object store while
-    /// keeping the user's `.git/objects/` available for read (HEAD-relative
+    /// keeping the user's git objects available for read (HEAD-relative
     /// references resolve through the alternate). `GIT_INDEX_FILE` is left to
     /// callers that need it (write-tree path).
+    ///
+    /// We resolve the user's objects dir via `git rev-parse --git-common-dir`
+    /// rather than hardcoding `<repoRoot>/.git/objects` — for linked git
+    /// worktrees, `<repoRoot>/.git` is a regular file and the actual git dir
+    /// (with `objects/`) lives at the parent's `.git/`. Hardcoding would
+    /// silently break tier-1 / tier-2 diffs in worktrees.
     private static func cmuxObjectEnv(workspaceId: UUID, repoRoot: String) -> [String: String] {
         let store = diffStateDirectory(workspaceId: workspaceId, repoRoot: repoRoot)
-        let userObjects = (repoRoot as NSString).appendingPathComponent(".git/objects")
+        let commonDir = gitCommonDir(for: repoRoot) ?? (repoRoot as NSString).appendingPathComponent(".git")
+        let userObjects = (commonDir as NSString).appendingPathComponent("objects")
         return [
             "GIT_OBJECT_DIRECTORY": store.path,
             "GIT_ALTERNATE_OBJECT_DIRECTORIES": userObjects
