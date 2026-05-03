@@ -48,3 +48,7 @@ tests/visual_report.html
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+
+# Local agent/session notes
+TODO.md
+LOCAL_NOTES.md

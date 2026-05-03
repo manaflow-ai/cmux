@@ -4834,7 +4834,7 @@ struct CMUXCLI {
             target: sshOptions.displayDestination,
             relayPort: sshOptions.remoteRelayPort
         )
-        let combinedLocalCommand = combinedLocalShellCommand([
+        let combinedLocalCommand = combinedLocalCommandForSSH([
             deferredRemoteReconnectCommand,
             sshConnectionTimingCommand,
         ])
@@ -5212,8 +5212,10 @@ struct CMUXCLI {
         let installSSHPrefix = baseSSHArguments(options, localCommand: localCommand).map(shellQuote).joined(separator: " ")
         let sessionSSHPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
         let remoteCommandTemplate = sshPercentEscapedRemoteCommand(
-            stagedRemoteBootstrapCommandShell(
-                remoteRelayPort: options.remoteRelayPort
+            posixShellRemoteCommand(
+                stagedRemoteBootstrapCommandShell(
+                    remoteRelayPort: options.remoteRelayPort
+                )
             )
         )
         let remoteBootstrapInstallCommand = "/bin/sh -c " + shellQuote(
@@ -5247,6 +5249,10 @@ struct CMUXCLI {
         var lines = remoteBootstrapTTYCaptureLines(remoteRelayPort: remoteRelayPort, includeRelayRPC: true)
         lines.append("/bin/sh \"$HOME/.cmux/relay/\(remoteRelayPort).bootstrap.sh\"")
         return lines.joined(separator: "\n")
+    }
+
+    private func posixShellRemoteCommand(_ command: String) -> String {
+        "/bin/sh -c " + shellQuote(command)
     }
 
     private func remoteBootstrapInstallShell(remoteRelayPort: Int) -> String {
@@ -6744,7 +6750,8 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return [
-            "cmux_ssh_log_path=\"$(tr -d '\\r\\n' < /tmp/cmux-last-debug-log-path 2>/dev/null || true)\";",
+            "cmux_ssh_log_path=\"\";",
+            "if [ -r /tmp/cmux-last-debug-log-path ]; then cmux_ssh_log_path=\"$(tr -d '\\r\\n' < /tmp/cmux-last-debug-log-path 2>/dev/null || true)\"; fi;",
             "if [ -n \"$cmux_ssh_log_path\" ]; then",
             "cmux_ssh_ts=\"$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec=\"milliseconds\").replace(\"+00:00\", \"Z\"))' 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)\";",
             "printf '%s [cmux-cli] cli.ssh.handshake target=\(escapedTarget) relayPort=\(relayPort) stage=ssh.connected workspace=%s surface=%s\\n' \"$cmux_ssh_ts\" \"${CMUX_WORKSPACE_ID:-nil}\" \"${CMUX_SURFACE_ID:-nil}\" >> \"$cmux_ssh_log_path\";",
@@ -6761,6 +6768,11 @@ struct CMUXCLI {
         }
         guard !filtered.isEmpty else { return nil }
         return filtered.joined(separator: " ")
+    }
+
+    private func combinedLocalCommandForSSH(_ parts: [String?]) -> String? {
+        guard let command = combinedLocalShellCommand(parts) else { return nil }
+        return "/bin/sh -c \(shellQuote(command))"
     }
 
     private func shouldDeferRemoteReconnect(in options: [String]) -> Bool {
