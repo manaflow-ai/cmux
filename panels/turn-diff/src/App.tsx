@@ -53,6 +53,7 @@ export function App() {
   /** Root currently under the pointer during a drag (drop target). */
   const [dropTargetRoot, setDropTargetRoot] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
+  const resizeObserverRef = useRef<ResizeObserver | null>(null)
   /** Tracks which repos we've already seen so newly-discovered repos can pick
    *  up the right default expansion state (only the active one is expanded). */
   const seenReposRef = useRef<Set<string>>(new Set())
@@ -185,20 +186,37 @@ export function App() {
   // Track panel width via ResizeObserver so we can switch between the
   // unified (narrow) and side-by-side (wide) renderers without remounting
   // the whole tree on every pixel change.
-  useEffect(() => {
-    const node = panelRef.current
+  //
+  // Callback ref because the observed node lives inside a conditional
+  // branch (.empty vs .panel) — when the UI flips between them the old
+  // node unmounts and a new one mounts. A useEffect with `[]` deps would
+  // bind once and never re-bind. The callback ref fires on both attach
+  // and detach, so we tear the old observer down and start a new one for
+  // whichever element is currently mounted.
+  const panelRefCallback = useCallback((node: HTMLDivElement | null) => {
+    panelRef.current = node
+    if (resizeObserverRef.current) {
+      resizeObserverRef.current.disconnect()
+      resizeObserverRef.current = null
+    }
     if (!node || typeof ResizeObserver === "undefined") return
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const w = entry.contentRect.width
-        // Use a functional update + epsilon to avoid no-op rerenders.
         setPanelWidth((prev) => (Math.abs(prev - w) >= 1 ? w : prev))
       }
     })
     ro.observe(node)
-    // Seed once synchronously so the first render after mount is correct.
     setPanelWidth(node.getBoundingClientRect().width)
-    return () => ro.disconnect()
+    resizeObserverRef.current = ro
+  }, [])
+
+  // Final teardown when the component unmounts.
+  useEffect(() => {
+    return () => {
+      resizeObserverRef.current?.disconnect()
+      resizeObserverRef.current = null
+    }
   }, [])
 
   const onToggleRepo = useCallback((root: string) => {
@@ -317,7 +335,7 @@ export function App() {
   if (repos.length === 0) {
     if (rootState.kind === "missing") {
       return (
-        <div className="empty" ref={panelRef}>
+        <div className="empty" ref={panelRefCallback}>
           <div className="status-dot" data-status={status} />
           <p>No git repository detected. Make sure your work is inside a git repo.</p>
           <p className="muted"><code>{rootState.cwd}</code></p>
@@ -325,7 +343,7 @@ export function App() {
       )
     }
     return (
-      <div className="empty" ref={panelRef}>
+      <div className="empty" ref={panelRefCallback}>
         <div className="status-dot" data-status={status} />
         <p>{status === "Running" ? "Agent running…" : "No changes yet."}</p>
       </div>
@@ -337,7 +355,7 @@ export function App() {
   const unified = panelWidth < UNIFIED_VIEW_WIDTH_THRESHOLD
 
   return (
-    <div className="panel" ref={panelRef} data-layout={unified ? "unified" : "side-by-side"}>
+    <div className="panel" ref={panelRefCallback} data-layout={unified ? "unified" : "side-by-side"}>
       <header>
         <span className="status-dot" data-status={status} />
         <span className="title">Latest turn</span>

@@ -66,26 +66,58 @@ final class TurnCheckpointManagerTests: XCTestCase {
 
     /// Drive one idle→running→idle cycle. When `modifying` is true, write a
     /// new file partway through so the captureEnd diff is non-empty.
+    /// Waits on observable conditions (Combine sink runs, payload arrives)
+    /// instead of fixed sleeps so the test isn't flaky on slow CI machines.
     private func runTurn(modifying: Bool) async throws {
+        let payloadCountBefore = multiDiffPayloads.count
         workspace.statusEntries["claude_code"] = SidebarStatusEntry(key: "claude_code", value: "Running")
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // Yield so the Combine sink propagates the running transition before
+        // we mutate the worktree (otherwise captureStart races the write).
+        await Task.yield()
         if modifying {
             let target = tempDir.appendingPathComponent("touched-\(UUID().uuidString)")
             try "edited".write(toFile: target.path, atomically: true, encoding: .utf8)
         }
         workspace.statusEntries["claude_code"] = SidebarStatusEntry(key: "claude_code", value: "Idle")
-        try await Task.sleep(nanoseconds: 200_000_000)
+        // Wait for the captureEnd-driven onMultiDiffChanged to fire.
+        try await waitFor(timeout: 2.0) {
+            self.multiDiffPayloads.count > payloadCountBefore
+        }
     }
 
+    /// Poll `condition` every 10ms until it's true or `timeout` elapses.
+    /// Throws on timeout. Used in place of fixed sleeps to keep tests stable
+    /// on slow/loaded CI runners.
+    private func waitFor(timeout: TimeInterval, condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() >= deadline {
+                XCTFail("waitFor timed out after \(timeout)s")
+                throw NSError(domain: "wait", code: 1, userInfo: [NSLocalizedDescriptionKey: "timeout"])
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    /// Run `command` in `dir`. Throws on non-zero exit so setup failures
+    /// surface immediately instead of producing misleading downstream
+    /// assertion failures.
+    @discardableResult
     private func shell(_ command: String, in dir: String) throws -> String {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-c", command]
         p.currentDirectoryURL = URL(fileURLWithPath: dir)
-        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
+        let outPipe = Pipe(); let errPipe = Pipe()
+        p.standardOutput = outPipe; p.standardError = errPipe
         try p.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
+        if p.terminationStatus != 0 {
+            let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw NSError(domain: "shell", code: Int(p.terminationStatus),
+                          userInfo: [NSLocalizedDescriptionKey: "`\(command)` failed: \(err)"])
+        }
         return String(data: data, encoding: .utf8) ?? ""
     }
 }
