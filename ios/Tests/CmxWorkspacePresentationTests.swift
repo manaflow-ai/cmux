@@ -102,4 +102,37 @@ final class CmxWorkspacePresentationTests: XCTestCase {
         XCTAssertEqual(store.selectedTerminal.id, 0)
         XCTAssertEqual(store.terminalSize(for: 0), CmxTerminalSize(cols: 111, rows: 33))
     }
+
+    func testNativeSnapshotWithNoSpacesOrTabsUsesPlaceholdersInsteadOfStaleSelection() {
+        let store = CmxConnectionStore()
+
+        store.applyNativeSnapshot(
+            CmxNativeSnapshot(
+                workspaces: [
+                    CmxNativeWorkspaceInfo(
+                        id: 11,
+                        title: "empty",
+                        spaceCount: 0,
+                        tabCount: 0,
+                        terminalCount: 0,
+                        pinned: false,
+                        color: nil
+                    ),
+                ],
+                activeWorkspace: 0,
+                activeWorkspaceID: 11,
+                spaces: [],
+                activeSpace: 0,
+                activeSpaceID: 21,
+                panels: .leaf(panelID: 31, tabs: [], active: 0, activeTabID: 41),
+                focusedPanelID: 31,
+                focusedTabID: 41
+            )
+        )
+
+        XCTAssertEqual(store.selectedWorkspace.title, "empty")
+        XCTAssertTrue(store.selectedSpace.terminals.isEmpty)
+        XCTAssertEqual(store.selectedTerminal.title, "cmx")
+        XCTAssertEqual(store.terminalSize(for: store.selectedTerminal.id), .phoneDefault)
+    }
 }

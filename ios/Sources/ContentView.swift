@@ -9,6 +9,12 @@ struct ContentView: View {
         if horizontalSizeClass == .compact {
             NavigationStack {
                 WorkspaceListView(navigationStyle: .push)
+                    .navigationDestination(for: WorkspaceNavigationRoute.self) { route in
+                        TerminalDetailView()
+                            .onAppear {
+                                store.select(workspaceID: route.workspaceID)
+                            }
+                    }
             }
         } else {
             NavigationSplitView {
@@ -47,7 +53,8 @@ private struct WorkspaceListView: View {
                         workspace: workspace,
                         node: node,
                         isSelected: horizontalSizeClass == .regular && workspace.id == store.selectedWorkspaceID,
-                        navigationStyle: navigationStyle
+                        navigationStyle: navigationStyle,
+                        selectWorkspace: { store.select(workspace: $0) }
                     )
                     .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 12))
                 }
@@ -64,28 +71,30 @@ private enum WorkspaceNavigationStyle {
     case sidebar
 }
 
+private struct WorkspaceNavigationRoute: Hashable {
+    var workspaceID: UInt64
+}
+
 private struct WorkspaceNavigationRow: View {
-    @EnvironmentObject private var store: CmxConnectionStore
     let workspace: CmxWorkspace
     let node: CmxHiveNode
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
+    let selectWorkspace: (CmxWorkspace) -> Void
 
     var body: some View {
         switch navigationStyle {
         case .push:
-            NavigationLink {
-                TerminalDetailView()
-                    .onAppear {
-                        store.select(workspace: workspace)
-                    }
-            } label: {
+            NavigationLink(value: WorkspaceNavigationRoute(workspaceID: workspace.id)) {
                 row
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                selectWorkspace(workspace)
+            })
             .accessibilityIdentifier("workspace.row.\(workspace.id)")
         case .sidebar:
             Button {
-                store.select(workspace: workspace)
+                selectWorkspace(workspace)
             } label: {
                 row
             }

@@ -184,16 +184,21 @@ final class CmxConnectionStore: ObservableObject {
         if let firstSpace = workspace.spaces.first {
             selectedSpaceID = firstSpace.id
         }
-        selectedTerminalID = selectedSpace.terminals.first?.id ?? selectedTerminalID
+        selectedTerminalID = firstTerminalID(in: workspace) ?? Self.placeholderTerminalID
         if let index = workspaces.firstIndex(where: { $0.id == workspace.id }) {
             terminalSession?.sendCommand(.selectWorkspace(index: index))
         }
         syncNativeLayoutForVisibleTerminal()
     }
 
+    func select(workspaceID: UInt64) {
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else { return }
+        select(workspace: workspace)
+    }
+
     func select(space: CmxSpace) {
         selectedSpaceID = space.id
-        selectedTerminalID = space.terminals.first?.id ?? selectedTerminalID
+        selectedTerminalID = space.terminals.first?.id ?? Self.placeholderTerminalID
         if let index = selectedWorkspace.spaces.firstIndex(where: { $0.id == space.id }) {
             terminalSession?.sendCommand(.selectSpace(index: index))
         }
@@ -349,9 +354,16 @@ final class CmxConnectionStore: ObservableObject {
         if workspaces.isEmpty {
             workspaces = CmxDemoState.workspaces
         }
-        selectedWorkspaceID = snapshot.activeWorkspaceID
-        selectedSpaceID = snapshot.activeSpaceID
-        selectedTerminalID = snapshot.focusedTabID
+        selectedWorkspaceID = workspaces.first(where: { $0.id == snapshot.activeWorkspaceID })?.id
+            ?? workspaces.first?.id
+            ?? 0
+        let selectedWorkspace = selectedWorkspace
+        selectedSpaceID = selectedWorkspace.spaces.first(where: { $0.id == snapshot.activeSpaceID })?.id
+            ?? selectedWorkspace.spaces.first?.id
+            ?? 0
+        selectedTerminalID = activeTerminals.first(where: { $0.id == snapshot.focusedTabID })?.id
+            ?? activeTerminals.first?.id
+            ?? Self.placeholderTerminalID
     }
 
     func refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference) {
@@ -439,6 +451,12 @@ final class CmxConnectionStore: ObservableObject {
             .flatMap(\.spaces)
             .flatMap(\.terminals)
             .first(where: { $0.id == terminalID })
+    }
+
+    private func firstTerminalID(in workspace: CmxWorkspace) -> UInt64? {
+        workspace.spaces
+            .flatMap(\.terminals)
+            .first?.id
     }
 
     private func wireViewport(for terminalID: UInt64) -> CmxWireViewport {
