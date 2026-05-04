@@ -109571,6 +109571,40 @@
         }
       }
     },
+    "feed.history.loadOlder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load older activity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いアクティビティを読み込む"
+          }
+        }
+      }
+    },
+    "feed.history.loadingOlder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading older activity..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いアクティビティを読み込み中..."
+          }
+        }
+      }
+    },
     "settings.account.error.missingRefreshToken": {
       "extractionState": "manual",
       "localizations": {

@@ -12291,35 +12291,32 @@ class TerminalController {
         var activeMode: String?
         var missingWindow = false
 
-        DispatchQueue.main.sync {
-            let preferredWindow: NSWindow?
-            if let requestedWindowId {
-                preferredWindow = AppDelegate.shared?.mainWindow(for: requestedWindowId)
-                missingWindow = preferredWindow == nil
-            } else {
-                preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
-            }
-            guard !missingWindow else { return }
-            let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
-                mode: mode,
-                focusFirstItem: focusFirstItem,
-                preferredWindow: preferredWindow
-            )
-            focused = result?.revealed ?? false
-            focusApplied = result?.focusApplied ?? false
-            contextFound = result?.contextFound ?? false
-            stateFound = result?.stateFound ?? false
-            visible = result?.visible ?? false
-            activeMode = result?.activeMode
+        let preferredWindow: NSWindow?
+        if let requestedWindowId {
+            preferredWindow = AppDelegate.shared?.mainWindow(for: requestedWindowId)
+            missingWindow = preferredWindow == nil
+        } else {
+            preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
         }
-
-        if missingWindow {
+        guard !missingWindow else {
             return .err(
                 code: "not_found",
                 message: "Window not found",
                 data: requestedWindowId.map { ["window_id": $0.uuidString, "window_ref": v2Ref(kind: .window, uuid: $0)] }
             )
         }
+        let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
+            mode: mode,
+            focusFirstItem: focusFirstItem,
+            preferredWindow: preferredWindow
+        )
+        focused = result?.revealed ?? false
+        focusApplied = result?.focusApplied ?? false
+        contextFound = result?.contextFound ?? false
+        stateFound = result?.stateFound ?? false
+        visible = result?.visible ?? false
+        activeMode = result?.activeMode
+
         return .ok([
             "focused": focused,
             "focus_applied": focusApplied,
@@ -12348,19 +12345,17 @@ class TerminalController {
         var visible = false
         var activeMode = ""
 
-        DispatchQueue.main.sync {
-            let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
-                mode: mode,
-                focusFirstItem: false,
-                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            )
-            revealed = result?.revealed ?? false
-            focusApplied = result?.focusApplied ?? false
-            contextFound = result?.contextFound ?? false
-            stateFound = result?.stateFound ?? false
-            visible = result?.visible ?? false
-            activeMode = result?.activeMode ?? ""
-        }
+        let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
+            mode: mode,
+            focusFirstItem: false,
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        )
+        revealed = result?.revealed ?? false
+        focusApplied = result?.focusApplied ?? false
+        contextFound = result?.contextFound ?? false
+        stateFound = result?.stateFound ?? false
+        visible = result?.visible ?? false
+        activeMode = result?.activeMode ?? ""
 
         let details = "mode=\(mode.rawValue) active=\(activeMode) visible=\(visible ? 1 : 0) " +
             "context=\(contextFound ? 1 : 0) state=\(stateFound ? 1 : 0) focus=\(focusApplied ? 1 : 0)"
