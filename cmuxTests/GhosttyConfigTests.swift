@@ -3308,6 +3308,20 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "BEFORE\nAFTER", output)
     }
 
+    func testShellIntegrationPromptWrapGuardDoesNotPrintSpacerLineBeforePrompt() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- BEFORE
+            _cmux_prompt_wrap_guard 1234567890 "/tmp/cmux/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            print -r -- AFTER
+            """
+        )
+
+        XCTAssertEqual(output, "BEFORE\nAFTER", output)
+    }
+
     func testShellIntegrationPreservesStartupTermForThemeSelectionBeforeRestoringManagedTerm() throws {
         let output = try runPromptInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
