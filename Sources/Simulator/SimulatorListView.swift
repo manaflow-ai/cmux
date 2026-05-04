@@ -31,7 +31,7 @@ struct SimulatorListView: View {
             if let initialUDID { model.selectByUDID(initialUDID) }
         }
         .onDisappear { model.stopAutoRefresh() }
-        .onChange(of: isVisibleInUI) { visibleInUI in
+        .onChange(of: isVisibleInUI) { _, visibleInUI in
             model.setVisibleInUI(visibleInUI)
         }
     }
