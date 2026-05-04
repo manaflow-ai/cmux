@@ -161,10 +161,14 @@ final class SimulatorScreen: @unchecked Sendable {
     /// while a capture is queued or running, additional callbacks are
     /// no-ops.
     private func scheduleCaptureCoalesced() {
+        let shouldSchedule = syncOnQueue {
+            if captureScheduled { return false }
+            captureScheduled = true
+            return true
+        }
+        guard shouldSchedule else { return }
         queue.async { [weak self] in
             guard let self else { return }
-            if self.captureScheduled { return }
-            self.captureScheduled = true
             self.captureLatest()
             self.captureScheduled = false
         }

@@ -38,6 +38,7 @@ final class SimulatorListModel: ObservableObject {
     private var streamingUDID: String?
     private weak var frameStore: SimulatorPreviewFrameStore?
     private var refreshTimer: Timer?
+    private let inputQueue = DispatchQueue(label: "cmux.simulator.input", qos: .userInteractive)
     nonisolated private let ciContext = CIContext()
 
     /// Touch dispatch unit. Prefers points (matches what
@@ -127,9 +128,9 @@ final class SimulatorListModel: ObservableObject {
         guard let input else { return }
         let size = touchUnit
         guard size.width > 0, size.height > 0 else { return }
-        Task.detached { [weak self] in
+        dispatchInput {
             let ok = input.tap(at: pointInDeviceUnits, deviceSize: size)
-            await self?.recordInputResult(ok: ok, fallback: input.lastError)
+            return (ok, input.lastError)
         }
     }
 
@@ -137,9 +138,9 @@ final class SimulatorListModel: ObservableObject {
         guard let input else { return }
         let size = touchUnit
         guard size.width > 0, size.height > 0 else { return }
-        Task.detached { [weak self] in
+        dispatchInput {
             let ok = input.drag(from: start, to: end, deviceSize: size)
-            await self?.recordInputResult(ok: ok, fallback: input.lastError)
+            return (ok, input.lastError)
         }
     }
 
@@ -151,17 +152,26 @@ final class SimulatorListModel: ObservableObject {
         guard let input else { return }
         let size = touchUnit
         guard size.width > 0, size.height > 0 else { return }
-        Task.detached { [weak self] in
+        dispatchInput {
             let ok = input.touchPhase(phase, at: pointInDeviceUnits, deviceSize: size)
-            await self?.recordInputResult(ok: ok, fallback: input.lastError)
+            return (ok, input.lastError)
         }
     }
 
     func press(_ button: SimulatorButton) {
         guard let input else { return }
-        Task.detached { [weak self] in
+        dispatchInput {
             let ok = input.press(button)
-            await self?.recordInputResult(ok: ok, fallback: input.lastError)
+            return (ok, input.lastError)
+        }
+    }
+
+    private func dispatchInput(_ operation: @escaping @Sendable () -> (Bool, String?)) {
+        inputQueue.async { [weak self] in
+            let result = operation()
+            Task { @MainActor [weak self] in
+                self?.recordInputResult(ok: result.0, fallback: result.1)
+            }
         }
     }
 
