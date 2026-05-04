@@ -3219,14 +3219,7 @@ struct OmnibarSuggestion: Identifiable, Hashable {
     }
 }
 
-func browserOmnibarShouldReacquireFocusAfterEndEditing(
-    desiredOmnibarFocus: Bool,
-    nextResponderIsOtherTextField: Bool
-) -> Bool {
-    desiredOmnibarFocus && !nextResponderIsOtherTextField
-}
-
-private final class OmnibarNativeTextField: NSTextField {
+final class OmnibarNativeTextField: NSTextField {
     var panelId: UUID?
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
@@ -3255,6 +3248,11 @@ private final class OmnibarNativeTextField: NSTextField {
         }
         guard !editor.hasMarkedText() else { return }
         editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        BrowserOmnibarFocusRegistry.shared.register(self, panelId: panelId)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -3405,278 +3403,6 @@ private final class OmnibarNativeTextField: NSTextField {
         return result
     }
 }
-
-@MainActor
-final class BrowserOmnibarFocusRegistry {
-    static let shared = BrowserOmnibarFocusRegistry()
-
-    private final class WeakField {
-        weak var field: OmnibarNativeTextField?
-
-        init(_ field: OmnibarNativeTextField) {
-            self.field = field
-        }
-    }
-
-    private var fieldsByPanelId: [UUID: WeakField] = [:]
-    private var pendingFocusPanelIds = Set<UUID>()
-
-    private init() {}
-
-    fileprivate func register(_ field: OmnibarNativeTextField, panelId: UUID?) {
-        guard let panelId else { return }
-        fieldsByPanelId[panelId] = WeakField(field)
-        if pendingFocusPanelIds.contains(panelId),
-           focusRegisteredField(panelId: panelId, selectAll: true) {
-            pendingFocusPanelIds.remove(panelId)
-        }
-    }
-
-    fileprivate func unregister(_ field: OmnibarNativeTextField) {
-        guard let panelId = field.panelId,
-              fieldsByPanelId[panelId]?.field === field else {
-            return
-        }
-        fieldsByPanelId[panelId] = nil
-    }
-
-    @discardableResult
-    func requestFocus(panelId: UUID, selectAll: Bool) -> Bool {
-        pendingFocusPanelIds.insert(panelId)
-        let didFocus = focusRegisteredField(panelId: panelId, selectAll: selectAll)
-        if didFocus {
-            pendingFocusPanelIds.remove(panelId)
-        }
-        return didFocus
-    }
-
-    @discardableResult
-    private func focusRegisteredField(panelId: UUID, selectAll: Bool) -> Bool {
-        guard let field = fieldsByPanelId[panelId]?.field else {
-            fieldsByPanelId[panelId] = nil
-            return false
-        }
-        guard let window = field.window,
-              !field.isHiddenOrHasHiddenAncestor,
-              field.isEnabled,
-              field.isEditable else {
-            return false
-        }
-
-        let firstResponder = window.firstResponder
-        let alreadyFocused =
-            firstResponder === field ||
-            field.currentEditor() != nil ||
-            ((firstResponder as? NSTextView)?.delegate as? NSTextField) === field
-
-        if !alreadyFocused {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.focus.omnibar.registry.apply panel=\(panelId.uuidString.prefix(5)) " +
-                "win=\(window.windowNumber) selectAll=\(selectAll ? 1 : 0)"
-            )
-#endif
-            field.suppressNextFocusReacquireOnEndEditing = false
-            guard window.makeFirstResponder(field) else {
-                return false
-            }
-        }
-
-        if selectAll {
-            field.selectAllTextForProgrammaticFocus()
-        }
-#if DEBUG
-        BrowserOmnibarFocusLatencyTracker.shared.markNativeFocus(
-            panelId: panelId,
-            alreadyFocused: alreadyFocused,
-            selectAll: selectAll,
-            window: window
-        )
-#endif
-        return true
-    }
-}
-
-#if DEBUG
-final class BrowserOmnibarFocusLatencyTracker {
-    static let shared = BrowserOmnibarFocusLatencyTracker()
-
-    private struct Sample {
-        let panelId: UUID
-        let requestId: UUID
-        let workspaceId: UUID?
-        let startedAt: TimeInterval
-        let totalPanelCount: Int
-        let browserPanelCount: Int
-        var didLogRequestApply = false
-        var didLogNativeFocus = false
-        var didLogFirstAppKey = false
-        var didLogFirstFieldKey = false
-    }
-
-    private var samplesByPanelId: [UUID: Sample] = [:]
-    private var latestPanelId: UUID?
-    private let sampleLifetime: TimeInterval = 8
-
-    private init() {}
-
-    func begin(
-        panelId: UUID,
-        requestId: UUID,
-        workspaceId: UUID?,
-        totalPanelCount: Int,
-        browserPanelCount: Int
-    ) {
-        pruneExpiredSamples()
-        let sample = Sample(
-            panelId: panelId,
-            requestId: requestId,
-            workspaceId: workspaceId,
-            startedAt: ProcessInfo.processInfo.systemUptime,
-            totalPanelCount: totalPanelCount,
-            browserPanelCount: browserPanelCount
-        )
-        samplesByPanelId[panelId] = sample
-        latestPanelId = panelId
-        cmuxDebugLog(
-            "browser.focus.addressBar.latency.start " +
-            "panel=\(short(panelId)) request=\(short(requestId)) workspace=\(short(workspaceId)) " +
-            "panels=\(totalPanelCount) browsers=\(browserPanelCount)"
-        )
-    }
-
-    func markRequestApply(panelId: UUID, requestId: UUID) {
-        guard var sample = sample(for: panelId), !sample.didLogRequestApply else { return }
-        guard sample.requestId == requestId else { return }
-        sample.didLogRequestApply = true
-        samplesByPanelId[panelId] = sample
-        log(
-            "requestApply",
-            sample: sample,
-            extra: "request=\(short(requestId))"
-        )
-    }
-
-    func markNativeFocus(panelId: UUID, alreadyFocused: Bool, selectAll: Bool, window: NSWindow?) {
-        guard var sample = sample(for: panelId), !sample.didLogNativeFocus else { return }
-        sample.didLogNativeFocus = true
-        samplesByPanelId[panelId] = sample
-        let firstResponder = responderDescription(window?.firstResponder)
-        log(
-            "nativeFocus",
-            sample: sample,
-            extra: "alreadyFocused=\(alreadyFocused ? 1 : 0) selectAll=\(selectAll ? 1 : 0) " +
-                "win=\(window?.windowNumber ?? -1) fr=\(firstResponder)"
-        )
-    }
-
-    func markAppKey(event: NSEvent, firstResponder: NSResponder?, addressBarPanelId: UUID?) {
-        guard isTypingKey(event) else { return }
-        guard let panelId = addressBarPanelId.flatMap({ samplesByPanelId[$0] == nil ? nil : $0 }) ?? latestPanelId,
-              var sample = sample(for: panelId),
-              !sample.didLogFirstAppKey else {
-            return
-        }
-        sample.didLogFirstAppKey = true
-        samplesByPanelId[panelId] = sample
-        log(
-            "firstAppKey",
-            sample: sample,
-            event: event,
-            extra: "fr=\(responderDescription(firstResponder)) nativeFocusLogged=\(sample.didLogNativeFocus ? 1 : 0)"
-        )
-    }
-
-    func markFieldKeyDown(panelId: UUID, event: NSEvent, hasEditor: Bool) {
-        guard isTypingKey(event) else { return }
-        guard var sample = sample(for: panelId), !sample.didLogFirstFieldKey else { return }
-        sample.didLogFirstFieldKey = true
-        samplesByPanelId[panelId] = sample
-        log(
-            "firstFieldKey",
-            sample: sample,
-            event: event,
-            extra: "hasEditor=\(hasEditor ? 1 : 0) nativeFocusLogged=\(sample.didLogNativeFocus ? 1 : 0)"
-        )
-    }
-
-    private func sample(for panelId: UUID) -> Sample? {
-        pruneExpiredSamples()
-        return samplesByPanelId[panelId]
-    }
-
-    private func pruneExpiredSamples() {
-        let now = ProcessInfo.processInfo.systemUptime
-        samplesByPanelId = samplesByPanelId.filter { _, sample in
-            now - sample.startedAt <= sampleLifetime
-        }
-        if let latestPanelId, samplesByPanelId[latestPanelId] == nil {
-            self.latestPanelId = samplesByPanelId.max { left, right in
-                left.value.startedAt < right.value.startedAt
-            }?.key
-        }
-    }
-
-    private func log(_ event: String, sample: Sample, event keyEvent: NSEvent? = nil, extra: String = "") {
-        let elapsedMs = (ProcessInfo.processInfo.systemUptime - sample.startedAt) * 1000.0
-        var line =
-            "browser.focus.addressBar.latency.\(event) " +
-            "panel=\(short(sample.panelId)) request=\(short(sample.requestId)) workspace=\(short(sample.workspaceId)) " +
-            "elapsedMs=\(format(elapsedMs)) panels=\(sample.totalPanelCount) browsers=\(sample.browserPanelCount)"
-        if let keyEvent {
-            line += " key=\(keyDescription(keyEvent)) eventDelayMs=\(format(eventDelayMs(keyEvent)))"
-        }
-        if !extra.isEmpty {
-            line += " \(extra)"
-        }
-        cmuxDebugLog(line)
-    }
-
-    private func isTypingKey(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        let blockedModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
-        guard event.modifierFlags.intersection(blockedModifiers).isEmpty else { return false }
-        guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty else { return false }
-        return characters != "\u{1B}"
-    }
-
-    private func keyDescription(_ event: NSEvent) -> String {
-        let characters = event.charactersIgnoringModifiers ?? event.characters ?? ""
-        if characters == "\r" { return "return" }
-        if characters == "\u{7F}" { return "delete" }
-        if characters == "\t" { return "tab" }
-        if characters.isEmpty { return "keyCode:\(event.keyCode)" }
-        let escaped = characters
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\t", with: "\\t")
-        return "'\(escaped)'"
-    }
-
-    private func eventDelayMs(_ event: NSEvent) -> Double {
-        guard event.timestamp > 0 else { return 0 }
-        return max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000.0)
-    }
-
-    private func responderDescription(_ responder: NSResponder?) -> String {
-        guard let responder else { return "nil" }
-        if let textView = responder as? NSTextView,
-           let delegate = textView.delegate {
-            return "fieldEditor(delegate=\(String(describing: type(of: delegate))))"
-        }
-        return String(describing: type(of: responder))
-    }
-
-    private func short(_ id: UUID?) -> String {
-        id.map { String($0.uuidString.prefix(5)) } ?? "nil"
-    }
-
-    private func format(_ value: Double) -> String {
-        String(format: "%.2f", value)
-    }
-}
-#endif
 
 private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let panelId: UUID
@@ -4228,7 +3954,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parentField = nsView
         nsView.panelId = panelId
         nsView.placeholderString = placeholder
-        BrowserOmnibarFocusRegistry.shared.register(nsView, panelId: panelId)
+        BrowserOmnibarFocusRegistry.shared.register(nsView, panelId: panelId, applyPendingFocus: false)
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
@@ -4261,20 +3987,18 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 )
 #endif
                 context.coordinator.pendingFocusRequest = true
-                let didFocus = BrowserOmnibarFocusRegistry.shared.requestFocus(
+                let shouldSelectAll = context.coordinator.pendingSelectAllRequestId != nil
+                BrowserOmnibarFocusRegistry.shared.requestFocusAfterViewUpdate(
                     panelId: panelId,
-                    selectAll: selectAllRequestId != 0
+                    selectAll: shouldSelectAll
                 )
                 context.coordinator.pendingFocusRequest = nil
 #if DEBUG
                 context.coordinator.logFocusEvent(
-                    "updateNSView.requestFocus.apply",
-                    detail: "didFocus=\(didFocus ? 1 : 0)"
+                    "updateNSView.requestFocus.defer",
+                    detail: "selectAll=\(shouldSelectAll ? 1 : 0)"
                 )
 #endif
-                if didFocus {
-                    context.coordinator.applyPendingSelectAllIfPossible(field: nsView)
-                }
             } else if !isFocused, isFirstResponder, context.coordinator.pendingFocusRequest != false {
 #if DEBUG
                 context.coordinator.logFocusEvent(
@@ -4345,37 +4069,6 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         coordinator.detachSelectionObserver()
         coordinator.parentField = nil
     }
-}
-
-func browserOmnibarPanelId(for responder: NSResponder?) -> UUID? {
-    browserOmnibarField(for: responder)?.panelId
-}
-
-@discardableResult
-func browserPrepareOmnibarForProgrammaticBlur(panelId: UUID, responder: NSResponder?) -> Bool {
-    guard let field = browserOmnibarField(for: responder),
-          field.panelId == panelId else {
-        return false
-    }
-    field.suppressNextFocusReacquireOnEndEditing = true
-    return true
-}
-
-private func browserOmnibarField(for responder: NSResponder?) -> OmnibarNativeTextField? {
-    guard let responder else { return nil }
-
-    if let field = responder as? OmnibarNativeTextField {
-        return field
-    }
-
-    if let editor = responder as? NSTextView,
-       editor.isFieldEditor,
-       let field = cmuxFieldEditorOwnerView(editor) as? OmnibarNativeTextField,
-       field.currentEditor() === editor {
-        return field
-    }
-
-    return nil
 }
 
 private struct OmnibarSuggestionsView: View {
