@@ -929,7 +929,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
-    func testSettingsFileStoreRestoresAppIconBackupDuringStartupWithoutTouchingAppKit() throws {
+    func testSettingsFileStoreRestoresAbsentAppIconBackupDuringStartupWithoutTouchingAppKit() throws {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
         let previousAppearance = defaults.object(forKey: AppearanceSettings.appearanceModeKey)
@@ -954,7 +954,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             }
         }
 
-        defaults.set(AppIconMode.dark.rawValue, forKey: AppIconSettings.modeKey)
+        defaults.removeObject(forKey: AppIconSettings.modeKey)
         defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
@@ -1026,7 +1026,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(defaults.string(forKey: AppIconSettings.modeKey), AppIconMode.dark.rawValue)
+        XCTAssertNil(defaults.object(forKey: AppIconSettings.modeKey))
         XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
         XCTAssertEqual(startObservationCallCount, 0)
         XCTAssertEqual(stopObservationCallCount, 0)
