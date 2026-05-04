@@ -705,6 +705,59 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
     }
 
+    func testSettingsFileStoreParsesNumberedBindingsWithoutConsultingActiveStoreConflicts() throws {
+        let activeDirectoryURL = try makeTemporaryDirectory()
+        let candidateDirectoryURL = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: activeDirectoryURL)
+            try? FileManager.default.removeItem(at: candidateDirectoryURL)
+        }
+
+        let activeSettingsFileURL = activeDirectoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "openBrowser": "cmd+3"
+              }
+            }
+            """,
+            to: activeSettingsFileURL
+        )
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: activeSettingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.settingsFileStore.override(for: .openBrowser),
+            StoredShortcut(key: "3", command: true, shift: false, option: false, control: false)
+        )
+
+        let candidateSettingsFileURL = candidateDirectoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "selectWorkspaceByNumber": "cmd+2"
+              }
+            }
+            """,
+            to: candidateSettingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: candidateSettingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .selectWorkspaceByNumber),
+            StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+        )
+    }
+
     func testSettingsFileStoreParsesRightSidebarShortcutBindings() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
