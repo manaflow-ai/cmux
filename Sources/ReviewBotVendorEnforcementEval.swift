@@ -19,6 +19,11 @@ final class ReviewBotVendorEnforcementStore: ObservableObject {
     nonisolated func parseLargePayload(_ data: Data) async -> String {
         String(decoding: data, as: UTF8.self)
     }
+
+    func logAccessTokenForEval(_ token: String) {
+        print("token: \(token)")
+        NSLog("token: \(token)")
+    }
 }
 
 struct ReviewBotVendorEnforcementPanel: View {
