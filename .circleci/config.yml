@@ -41,7 +41,10 @@ commands:
           name: Install Bun
           command: |
             BUN_VERSION="1.3.3"
-            npm install --global "bun@$BUN_VERSION"
+            NPM_GLOBAL_PREFIX="$HOME/.local"
+            npm install --global --prefix "$NPM_GLOBAL_PREFIX" "bun@$BUN_VERSION"
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$BASH_ENV"
+            export PATH="$NPM_GLOBAL_PREFIX/bin:$PATH"
             test "$(bun --version)" = "$BUN_VERSION"
 
   install-zig:
@@ -145,6 +148,12 @@ commands:
             SOURCE_PACKAGES_DIR="$PWD/<< parameters.source-packages-dir >>"
             mkdir -p "$SOURCE_PACKAGES_DIR"
 
+            reset_swiftpm_artifact_cache() {
+              rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
+              mkdir -p "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
+            }
+
+            reset_swiftpm_artifact_cache
             for attempt in 1 2 3; do
               if xcodebuild -project GhosttyTabs.xcodeproj -scheme << parameters.scheme >> -configuration Debug \
                 -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
@@ -156,6 +165,9 @@ commands:
                 exit 1
               fi
               echo "Package resolution failed on attempt $attempt, retrying..."
+              reset_swiftpm_artifact_cache
+              rm -rf "$SOURCE_PACKAGES_DIR"
+              mkdir -p "$SOURCE_PACKAGES_DIR"
               sleep $((attempt * 5))
             done
 
