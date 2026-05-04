@@ -14,8 +14,9 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     private var retainedSelf: UnsafeMutableRawPointer?
     private var heartbeatTimer: Timer?
     private var closedByClient = false
+    private var didNotifyEnd = false
     private var nextCommandID: UInt32 = 1
-    private var pendingPingSentAt: Date?
+    private var heartbeat = CmxHeartbeatState()
 
     init(ticket: String, pairingSecret: String?) {
         self.ticket = ticket.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -36,6 +37,8 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
 
     func start(viewport: CmxWireViewport) {
         closedByClient = false
+        didNotifyEnd = false
+        heartbeat.reset()
         retainCallbackContextIfNeeded()
         let context = retainedSelf
         let startedHandle: OpaquePointer? = ticket.withCString { ticketPointer in
@@ -90,12 +93,6 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
         send(.command(id: id, command))
     }
 
-    private func sendPing() {
-        guard pendingPingSentAt == nil else { return }
-        pendingPingSentAt = Date()
-        send(.ping)
-    }
-
     func disconnect() {
         closedByClient = true
         stopHeartbeat()
@@ -115,10 +112,10 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
                 )
             }
             if !sent {
-                delegate?.terminalSession(self, didFail: CmxIrohTerminalSessionError.sendFailed)
+                failTransport(CmxIrohTerminalSessionError.sendFailed)
             }
         } catch {
-            delegate?.terminalSession(self, didFail: error)
+            failTransport(error)
         }
     }
 
@@ -134,27 +131,35 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
                 }
                 delegate?.terminalSession(self, didReceive: message)
             } catch {
-                delegate?.terminalSession(self, didFail: error)
+                failTransport(error)
             }
         case CmxIrohClientEventKindClosed.rawValue:
-            stopHeartbeat()
-            disconnectTransport()
-            if !closedByClient {
-                delegate?.terminalSessionDidClose(self)
-            }
+            closeTransport()
         case CmxIrohClientEventKindError.rawValue:
             let message = String(data: data, encoding: .utf8) ?? ""
-            stopHeartbeat()
-            disconnectTransport()
-            if !closedByClient {
-                delegate?.terminalSession(self, didFail: CmxIrohTerminalSessionError.remoteError(message))
-            }
+            failTransport(CmxIrohTerminalSessionError.remoteError(message))
         default:
-            stopHeartbeat()
-            disconnectTransport()
-            if !closedByClient {
-                delegate?.terminalSession(self, didFail: CmxIrohTerminalSessionError.unknownEvent)
-            }
+            failTransport(CmxIrohTerminalSessionError.unknownEvent)
+        }
+    }
+
+    private func closeTransport() {
+        guard !didNotifyEnd else { return }
+        didNotifyEnd = true
+        stopHeartbeat()
+        disconnectTransport()
+        if !closedByClient {
+            delegate?.terminalSessionDidClose(self)
+        }
+    }
+
+    private func failTransport(_ error: Error) {
+        guard !didNotifyEnd else { return }
+        didNotifyEnd = true
+        stopHeartbeat()
+        disconnectTransport()
+        if !closedByClient {
+            delegate?.terminalSession(self, didFail: error)
         }
     }
 
@@ -195,16 +200,24 @@ final class CmxIrohTerminalSession: CmxTerminalSession {
     private func stopHeartbeat() {
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
-        pendingPingSentAt = nil
+        heartbeat.reset()
     }
 
     private func recordPong() {
-        guard let sentAt = pendingPingSentAt else { return }
-        pendingPingSentAt = nil
-        let elapsedMilliseconds = max(0, Date().timeIntervalSince(sentAt) * 1_000)
-        let latencyMilliseconds = UInt32(clamping: Int(elapsedMilliseconds.rounded()))
+        guard let latencyMilliseconds = heartbeat.recordPong() else { return }
         delegate?.terminalSession(self, didUpdateLatencyMilliseconds: latencyMilliseconds)
         send(.clientLatency(milliseconds: latencyMilliseconds))
+    }
+
+    private func sendPing() {
+        switch heartbeat.tick() {
+        case .sendPing:
+            send(.ping)
+        case .waitForPong:
+            break
+        case .timedOut:
+            failTransport(CmxIrohTerminalSessionError.heartbeatTimedOut)
+        }
     }
 }
 
@@ -227,6 +240,7 @@ enum CmxIrohTerminalSessionError: LocalizedError, Equatable {
     case sendFailed
     case remoteError(String)
     case unknownEvent
+    case heartbeatTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -241,6 +255,8 @@ enum CmxIrohTerminalSessionError: LocalizedError, Equatable {
             )
         case .unknownEvent:
             String(localized: "iroh.error.unknown_event", defaultValue: "The iroh terminal session sent an unknown event.")
+        case .heartbeatTimedOut:
+            String(localized: "iroh.error.heartbeat_timeout", defaultValue: "The iroh terminal session stopped responding.")
         }
     }
 }

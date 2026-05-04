@@ -20,9 +20,9 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
     private var receiveTask: Task<Void, Never>?
     private var heartbeatTimer: Timer?
     private var closedByClient = false
-    private var didNotifyClose = false
+    private var didNotifyEnd = false
     private var nextCommandID: UInt32 = 1
-    private var pendingPingSentAt: Date?
+    private var heartbeat = CmxHeartbeatState()
 
     init(
         url: URL,
@@ -40,7 +40,8 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
 
     func start(viewport: CmxWireViewport) {
         closedByClient = false
-        didNotifyClose = false
+        didNotifyEnd = false
+        heartbeat.reset()
         var request = URLRequest(url: url)
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
@@ -91,9 +92,14 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
     }
 
     private func sendPing() {
-        guard pendingPingSentAt == nil else { return }
-        pendingPingSentAt = Date()
-        send(.ping)
+        switch heartbeat.tick() {
+        case .sendPing:
+            send(.ping)
+        case .waitForPong:
+            break
+        case .timedOut:
+            notifyFailed(CmxWebSocketTerminalSessionError.heartbeatTimedOut)
+        }
     }
 
     func disconnect() {
@@ -115,11 +121,11 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
                 guard let error else { return }
                 Task { @MainActor in
                     guard let self, !self.closedByClient else { return }
-                    self.delegate?.terminalSession(self, didFail: error)
+                    self.notifyFailed(error)
                 }
             }
         } catch {
-            delegate?.terminalSession(self, didFail: error)
+            notifyFailed(error)
         }
     }
 
@@ -150,14 +156,23 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
                 notifyClosed()
                 return
             }
-            delegate?.terminalSession(self, didFail: error)
+            notifyFailed(error)
         }
     }
 
     private func notifyClosed() {
-        guard !didNotifyClose else { return }
-        didNotifyClose = true
+        guard !didNotifyEnd else { return }
+        didNotifyEnd = true
         delegate?.terminalSessionDidClose(self)
+    }
+
+    private func notifyFailed(_ error: Error) {
+        guard !didNotifyEnd else { return }
+        didNotifyEnd = true
+        stopHeartbeat()
+        task?.cancel(with: .goingAway, reason: nil)
+        task = nil
+        delegate?.terminalSession(self, didFail: error)
     }
 
     private func startHeartbeat() {
@@ -176,14 +191,11 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
     private func stopHeartbeat() {
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
-        pendingPingSentAt = nil
+        heartbeat.reset()
     }
 
     private func recordPong() {
-        guard let sentAt = pendingPingSentAt else { return }
-        pendingPingSentAt = nil
-        let elapsedMilliseconds = max(0, Date().timeIntervalSince(sentAt) * 1_000)
-        let latencyMilliseconds = UInt32(clamping: Int(elapsedMilliseconds.rounded()))
+        guard let latencyMilliseconds = heartbeat.recordPong() else { return }
         delegate?.terminalSession(self, didUpdateLatencyMilliseconds: latencyMilliseconds)
         send(.clientLatency(milliseconds: latencyMilliseconds))
     }
@@ -192,6 +204,7 @@ final class CmxWebSocketTerminalSession: CmxTerminalSession {
 enum CmxWebSocketTerminalSessionError: LocalizedError {
     case unexpectedTextFrame
     case unsupportedFrame
+    case heartbeatTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -199,6 +212,8 @@ enum CmxWebSocketTerminalSessionError: LocalizedError {
             String(localized: "ticket.error.websocket_text", defaultValue: "cmx sent an unexpected WebSocket text frame.")
         case .unsupportedFrame:
             String(localized: "ticket.error.websocket_frame", defaultValue: "cmx sent an unsupported WebSocket frame.")
+        case .heartbeatTimedOut:
+            String(localized: "ticket.error.websocket_heartbeat_timeout", defaultValue: "The cmx WebSocket session stopped responding.")
         }
     }
 }

@@ -638,6 +638,75 @@ final class CmxBridgeTicketTests: XCTestCase {
         XCTAssertTrue(store.isConnecting)
         XCTAssertFalse(store.isConnected)
     }
+
+    func testHeartbeatStateTimesOutUnansweredPing() {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        var heartbeat = CmxHeartbeatState(timeout: 10)
+
+        XCTAssertEqual(heartbeat.tick(now: startedAt), .sendPing)
+        XCTAssertEqual(heartbeat.tick(now: startedAt.addingTimeInterval(9)), .waitForPong)
+
+        guard case .timedOut(let elapsed) = heartbeat.tick(now: startedAt.addingTimeInterval(10.5)) else {
+            XCTFail("expected pending heartbeat to time out")
+            return
+        }
+        XCTAssertEqual(elapsed, 10.5, accuracy: 0.001)
+
+        heartbeat.reset()
+        XCTAssertEqual(heartbeat.tick(now: startedAt.addingTimeInterval(11)), .sendPing)
+    }
+
+    func testHeartbeatStateReportsRoundedLatencyAndClearsPendingPing() {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        var heartbeat = CmxHeartbeatState(timeout: 10)
+
+        XCTAssertEqual(heartbeat.tick(now: startedAt), .sendPing)
+        XCTAssertEqual(heartbeat.recordPong(now: startedAt.addingTimeInterval(0.0424)), UInt32(42))
+        XCTAssertNil(heartbeat.recordPong(now: startedAt.addingTimeInterval(0.050)))
+    }
+
+    @MainActor
+    func testTransportFailureReconnectsActiveTicketOncePerLoss() throws {
+        let sessionFactory = RecordingTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: sessionFactory
+        )
+        store.ticketText = """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": {
+            "id": "local",
+            "addrs": [
+              { "Custom": "ws://127.0.0.1:8787?token=sekrit" }
+            ]
+          },
+          "auth": { "mode": "direct" }
+        }
+        """
+
+        store.connect()
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .welcome(serverVersion: "test", sessionID: "session")
+        )
+
+        sessionFactory.session.delegate?.terminalSession(sessionFactory.session, didFail: CmxTestError.transportLost)
+
+        XCTAssertEqual(sessionFactory.session.startCount, 2)
+        XCTAssertTrue(store.isConnecting)
+        XCTAssertFalse(store.isConnected)
+
+        sessionFactory.session.delegate?.terminalSession(sessionFactory.session, didFail: CmxTestError.transportLost)
+
+        XCTAssertEqual(sessionFactory.session.startCount, 2)
+    }
+}
+
+private enum CmxTestError: Error {
+    case transportLost
 }
 
 private final class MemoryStackAuthSessionStore: CmxStackAuthSessionStore {

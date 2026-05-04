@@ -24,6 +24,44 @@ protocol CmxTerminalSession: AnyObject {
     func disconnect()
 }
 
+enum CmxHeartbeatAction: Equatable {
+    case sendPing
+    case waitForPong
+    case timedOut(elapsedSeconds: TimeInterval)
+}
+
+struct CmxHeartbeatState {
+    var pendingPingSentAt: Date?
+    let timeout: TimeInterval
+
+    init(timeout: TimeInterval = 15) {
+        self.timeout = timeout
+    }
+
+    mutating func tick(now: Date = Date()) -> CmxHeartbeatAction {
+        guard let pendingPingSentAt else {
+            self.pendingPingSentAt = now
+            return .sendPing
+        }
+        let elapsed = now.timeIntervalSince(pendingPingSentAt)
+        if elapsed >= timeout {
+            return .timedOut(elapsedSeconds: elapsed)
+        }
+        return .waitForPong
+    }
+
+    mutating func recordPong(now: Date = Date()) -> UInt32? {
+        guard let pendingPingSentAt else { return nil }
+        self.pendingPingSentAt = nil
+        let elapsedMilliseconds = max(0, now.timeIntervalSince(pendingPingSentAt) * 1_000)
+        return UInt32(clamping: Int(elapsedMilliseconds.rounded()))
+    }
+
+    mutating func reset() {
+        pendingPingSentAt = nil
+    }
+}
+
 @MainActor
 protocol CmxTerminalSessionMaking {
     func makeSession(

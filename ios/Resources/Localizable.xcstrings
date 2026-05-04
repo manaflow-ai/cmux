@@ -259,6 +259,12 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux hive discovery が無効なレスポンスを返しました。" } }
       }
     },
+    "iroh.error.heartbeat_timeout" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The iroh terminal session stopped responding." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "iroh ターミナル セッションが応答しなくなりました。" } }
+      }
+    },
     "nav.workspaces" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspaces" } },
@@ -479,6 +485,12 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "This ticket does not include a WebSocket cmx route yet." } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "このチケットにはまだ WebSocket cmx 経路が含まれていません。" } }
+      }
+    },
+    "ticket.error.websocket_heartbeat_timeout" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The cmx WebSocket session stopped responding." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmx WebSocket セッションが応答しなくなりました。" } }
       }
     },
     "ticket.error.websocket_text" : {
