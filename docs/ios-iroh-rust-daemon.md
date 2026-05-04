@@ -63,8 +63,10 @@ CMX_SOCKET_PATH=/tmp/cmx-ios.sock cargo run -p cmx --bin cmx -- attach
 For the WebSocket dev fallback, launch the installed simulator app with a direct ticket:
 
 ```sh
+IOS_TAG=irh22
+IOS_BUNDLE_ID="dev.cmux.ios.$IOS_TAG"
 TICKET='{"version":1,"alpn":"/cmux/cmx/3","endpoint":{"id":"dev-websocket","addrs":[{"Custom":"ws://127.0.0.1:8787?token=dev"}]},"auth":{"mode":"direct"},"node":{"id":"dev-mac","name":"Lawrence MacBook Pro","subtitle":"WebSocket dogfood","kind":"macos"}}'
-xcodebuildmcp simulator launch-app --simulator-name "iPhone 17 Pro" --bundle-id dev.cmux.ios.irh22 --json "$(jq -n --arg ticket "$TICKET" '{"args":["--cmux-ticket",$ticket,"--cmux-autoconnect"]}')"
+xcodebuildmcp simulator launch-app --simulator-name "iPhone 17 Pro" --bundle-id "$IOS_BUNDLE_ID" --json "$(jq -n --arg ticket "$TICKET" '{"args":["--cmux-ticket",$ticket,"--cmux-autoconnect"]}')"
 ```
 
 For the iroh path, expose the same daemon socket through the bridge:
@@ -78,13 +80,13 @@ Press `c` in the bridge terminal to copy the current ticket with OSC 52, then la
 
 ```sh
 TICKET="$(pbpaste)"
-xcodebuildmcp simulator launch-app --simulator-name "iPhone 17 Pro" --bundle-id dev.cmux.ios.irh22 --json "$(jq -n --arg ticket "$TICKET" '{"args":["--cmux-ticket",$ticket,"--cmux-autoconnect"]}')"
+xcodebuildmcp simulator launch-app --simulator-name "iPhone 17 Pro" --bundle-id "$IOS_BUNDLE_ID" --json "$(jq -n --arg ticket "$TICKET" '{"args":["--cmux-ticket",$ticket,"--cmux-autoconnect"]}')"
 ```
 
-Once physical devices are unlocked and CoreDevice tunnels are connected, the same ticket can launch the installed device build:
+Once physical devices are unlocked and CoreDevice tunnels are connected, the same ticket can launch the installed device build. XcodeBuildMCP's device launch command does not currently expose process arguments, so this uses `devicectl` only for the final argument-bearing launch:
 
 ```sh
-xcrun devicectl device process launch --device E4058DA9-F4C7-52DD-951D-0354061B8E89 dev.cmux.ios.irh22 -- --cmux-ticket "$TICKET" --cmux-autoconnect
+xcrun devicectl device process launch --device E4058DA9-F4C7-52DD-951D-0354061B8E89 "$IOS_BUNDLE_ID" -- --cmux-ticket "$TICKET" --cmux-autoconnect
 ```
 
 The expected proof is the same prompt visible in both clients, for example `lawrence in ~/fun/cmux-cli on main λ`, and text typed from iOS rendering back in the `cmx attach` TUI.
