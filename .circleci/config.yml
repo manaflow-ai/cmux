@@ -40,8 +40,12 @@ commands:
       - run:
           name: Install Bun
           command: |
-            BUN_VERSION="1.3.3"
-            npm install --global "bun@$BUN_VERSION"
+            BUN_VERSION="1.3.13"
+            export BUN_INSTALL="$HOME/.bun"
+            curl -fsSL https://bun.sh/install | bash -s "bun-v$BUN_VERSION"
+            echo 'export BUN_INSTALL="$HOME/.bun"' >> "$BASH_ENV"
+            echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> "$BASH_ENV"
+            source "$BASH_ENV"
             test "$(bun --version)" = "$BUN_VERSION"
 
   install-zig:
