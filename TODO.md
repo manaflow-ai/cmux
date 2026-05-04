@@ -37,8 +37,8 @@
 - [ ] Extend `cmuxd-remote` RPC beyond `hello/ping` with proxy stream methods (`proxy.open|close`)
 - [ ] Auto-wire WKWebView in remote workspaces to proxy via `WKWebsiteDataStore.proxyConfigurations`
 - [ ] Add browser proxy e2e tests (remote egress IP, websocket, reconnect continuity)
-- [ ] Implement PTY resize coordinator with tmux semantics (`smallest screen wins`)
-- [ ] Add resize tests for multi-attachment sessions (attach/detach/reconnect transitions)
+- [x] Implement PTY resize coordinator with tmux semantics (`smallest screen wins`)
+- [x] Add resize tests for multi-attachment sessions (attach/detach/reconnect transitions)
 
 ## Socket API / Agent
 - [x] Add window handles + `window.list/current/focus/create/close` for multi-window socket control (v2) + v1 equivalents (`list_windows`, etc) + CLI support.

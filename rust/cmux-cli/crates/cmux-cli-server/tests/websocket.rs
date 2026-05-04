@@ -76,7 +76,7 @@ async fn recv_command_ok(
 async fn recv_until_server_msg(
     ws: &mut TestWs,
     duration: Duration,
-    predicate: impl Fn(&ServerMsg) -> bool,
+    mut predicate: impl FnMut(&ServerMsg) -> bool,
 ) -> Option<ServerMsg> {
     let deadline = tokio::time::Instant::now() + duration;
     loop {
@@ -113,6 +113,36 @@ async fn recv_pong(ws: &mut TestWs, duration: Duration) -> bool {
     recv_until_server_msg(ws, duration, |message| matches!(message, ServerMsg::Pong))
         .await
         .is_some()
+}
+
+async fn recv_pty_output_until_contains(
+    ws: &mut TestWs,
+    tab_id: u64,
+    duration: Duration,
+    needle: &str,
+) {
+    let mut output = Vec::new();
+    recv_until_server_msg(ws, duration, |message| {
+        let ServerMsg::PtyBytes {
+            tab_id: got_tab_id,
+            data,
+        } = message
+        else {
+            return false;
+        };
+        if *got_tab_id != tab_id {
+            return false;
+        }
+        output.extend_from_slice(data);
+        String::from_utf8_lossy(&output).contains(needle)
+    })
+    .await
+    .unwrap_or_else(|| {
+        panic!(
+            "timed out waiting for PTY output containing {needle:?}; saw {:?}",
+            String::from_utf8_lossy(&output)
+        )
+    });
 }
 
 async fn recv_native_snapshot(
@@ -685,6 +715,123 @@ async fn websocket_native_layout_resizes_pty_to_visible_client_size() {
         }
         other => panic!("expected PTY bytes, got {other:?}"),
     }
+
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_native_smallest_visible_client_size_wins_until_detach() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let ws_addr = pick_free_port().await;
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: Some(ws_addr),
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run(opts).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mut wide = connect_ws(ws_addr).await;
+    send_client_msg(
+        &mut wide,
+        &ClientMsg::HelloNative {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 80, rows: 24 },
+            token: Some("sekrit".into()),
+            terminal_renderer: NativeTerminalRenderer::Libghostty,
+        },
+    )
+    .await;
+    assert!(matches!(
+        recv_server_msg(&mut wide).await,
+        ServerMsg::Welcome { .. }
+    ));
+    let tab_id = recv_native_snapshot(&mut wide).await.focused_tab_id;
+    send_client_msg(
+        &mut wide,
+        &ClientMsg::NativeLayout {
+            terminals: vec![cmux_cli_protocol::NativeTerminalViewport {
+                tab_id,
+                cols: 180,
+                rows: 60,
+            }],
+        },
+    )
+    .await;
+
+    let mut narrow = connect_ws(ws_addr).await;
+    send_client_msg(
+        &mut narrow,
+        &ClientMsg::HelloNative {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 80, rows: 24 },
+            token: Some("sekrit".into()),
+            terminal_renderer: NativeTerminalRenderer::Libghostty,
+        },
+    )
+    .await;
+    assert!(matches!(
+        recv_server_msg(&mut narrow).await,
+        ServerMsg::Welcome { .. }
+    ));
+    assert_eq!(
+        recv_native_snapshot(&mut narrow).await.focused_tab_id,
+        tab_id
+    );
+    send_client_msg(
+        &mut narrow,
+        &ClientMsg::NativeLayout {
+            terminals: vec![cmux_cli_protocol::NativeTerminalViewport {
+                tab_id,
+                cols: 90,
+                rows: 20,
+            }],
+        },
+    )
+    .await;
+
+    send_client_msg(
+        &mut wide,
+        &ClientMsg::NativeInput {
+            tab_id,
+            data: b"printf __cmux_before_detach__:; stty size\n".to_vec(),
+        },
+    )
+    .await;
+    recv_pty_output_until_contains(
+        &mut wide,
+        tab_id,
+        Duration::from_secs(5),
+        "__cmux_before_detach__:20 90",
+    )
+    .await;
+
+    send_client_msg(&mut narrow, &ClientMsg::Detach).await;
+
+    send_client_msg(
+        &mut wide,
+        &ClientMsg::NativeInput {
+            tab_id,
+            data: b"printf __cmux_after_detach__:; stty size\n".to_vec(),
+        },
+    )
+    .await;
+    recv_pty_output_until_contains(
+        &mut wide,
+        tab_id,
+        Duration::from_secs(5),
+        "__cmux_after_detach__:60 180",
+    )
+    .await;
 
     server.abort();
 }
