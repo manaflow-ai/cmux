@@ -47,6 +47,8 @@ classify_device_reload_failure() {
     local log_path="$1"
     if grep -qiE "kAMDMobileImageMounterDeviceLocked|The device is locked|Ensure that the device is unlocked" "$log_path"; then
         echo "device locked while mounting the developer disk image"
+    elif grep -qi "device disconnected immediately after connecting" "$log_path"; then
+        echo "CoreDevice device disconnected immediately after connecting; keep the device awake and verify USB or local-network reachability"
     elif grep -qi "developer disk image could not be mounted" "$log_path"; then
         echo "developer disk image mount failed"
     elif grep -qiE "tunnel connection failed|RemotePairingError|Operation timed out" "$log_path"; then
