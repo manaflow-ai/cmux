@@ -371,6 +371,7 @@ private struct CmxKeyboardOverlapReader: UIViewRepresentable {
 
 private final class CmxKeyboardOverlapReaderView: UIView {
     var onOverlapChange: ((CGFloat) -> Void)?
+    private let guideTracker = UIView(frame: .zero)
     private var lastOverlap: CGFloat = -1
     private var pendingOverlap: CGFloat?
     private var deliveryScheduled = false
@@ -380,6 +381,16 @@ private final class CmxKeyboardOverlapReaderView: UIView {
         isUserInteractionEnabled = false
         backgroundColor = .clear
         keyboardLayoutGuide.followsUndockedKeyboard = true
+        guideTracker.translatesAutoresizingMaskIntoConstraints = false
+        guideTracker.isUserInteractionEnabled = false
+        guideTracker.accessibilityElementsHidden = true
+        addSubview(guideTracker)
+        NSLayoutConstraint.activate([
+            guideTracker.topAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
+            guideTracker.leadingAnchor.constraint(equalTo: leadingAnchor),
+            guideTracker.widthAnchor.constraint(equalToConstant: 0),
+            guideTracker.heightAnchor.constraint(equalToConstant: 0),
+        ])
     }
 
     @available(*, unavailable)
