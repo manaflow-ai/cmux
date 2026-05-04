@@ -35,4 +35,29 @@ final class SimulatorSessionPersistenceTests: XCTestCase {
         XCTAssertTrue(pane.panelIds.contains(initialPanelId))
         XCTAssertTrue(pane.panelIds.contains(secondTerminal.id))
     }
+
+    @MainActor
+    func testWorkspaceSessionSnapshotDoesNotPersistDanglingSimulatorSelection() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let simulatorPanel = try XCTUnwrap(
+            workspace.newSimulatorSurface(
+                inPane: paneId,
+                preferredUDID: "selected-simulator",
+                focus: true
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        guard case .pane(let pane) = snapshot.layout else {
+            return XCTFail("Expected a single-pane snapshot")
+        }
+        XCTAssertFalse(pane.panelIds.contains(simulatorPanel.id))
+        XCTAssertTrue(pane.panelIds.contains(initialPanelId))
+        if let selectedPanelId = pane.selectedPanelId {
+            XCTAssertTrue(pane.panelIds.contains(selectedPanelId))
+        }
+    }
 }

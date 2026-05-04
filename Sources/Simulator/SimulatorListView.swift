@@ -9,6 +9,7 @@ struct SimulatorListView: View {
     @State private var isTouchActive: Bool = false
     var initialUDID: String?
     var hidesDeviceList: Bool = false
+    var isVisibleInUI: Bool = true
 
     var body: some View {
         Group {
@@ -26,9 +27,13 @@ struct SimulatorListView: View {
         .onAppear {
             model.attachFrameStore(frameStore)
             model.startAutoRefresh()
+            model.setVisibleInUI(isVisibleInUI)
             if let initialUDID { model.selectByUDID(initialUDID) }
         }
         .onDisappear { model.stopAutoRefresh() }
+        .onChange(of: isVisibleInUI) { visibleInUI in
+            model.setVisibleInUI(visibleInUI)
+        }
     }
 
     // MARK: - panes
@@ -255,8 +260,9 @@ struct SimulatorListView: View {
     }
 
     private func devicePoint(viewPoint: CGPoint, rendered: CGRect) -> CGPoint {
-        let xRatio = (viewPoint.x - rendered.minX) / rendered.width
-        let yRatio = (viewPoint.y - rendered.minY) / rendered.height
+        guard rendered.width > 0, rendered.height > 0 else { return .zero }
+        let xRatio = viewPoint.x / rendered.width
+        let yRatio = viewPoint.y / rendered.height
         let unit = model.touchUnit  // device points if known, otherwise pixel size
         let x = max(0, min(1, xRatio)) * unit.width
         let y = max(0, min(1, yRatio)) * unit.height

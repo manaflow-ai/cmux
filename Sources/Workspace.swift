@@ -301,7 +301,9 @@ extension Workspace {
         switch node {
         case .pane(let pane):
             let panelIds = sessionPanelIDs(for: pane)
-            let selectedPanelId = pane.selectedTabId.flatMap(sessionPanelID(forExternalTabIDString:))
+            let selectedPanelId = pane.selectedTabId
+                .flatMap(sessionPanelID(forExternalTabIDString:))
+                .flatMap { panelIds.contains($0) ? $0 : nil }
             return .pane(
                 SessionPaneLayoutSnapshot(
                     panelIds: panelIds,

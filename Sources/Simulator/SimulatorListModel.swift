@@ -22,6 +22,7 @@ final class SimulatorListModel: ObservableObject {
     private var streamingUDID: String?
     private weak var frameStore: SimulatorPreviewFrameStore?
     private var refreshTimer: Timer?
+    private var isVisibleInUI: Bool = true
     private let inputQueue = DispatchQueue(label: "cmux.simulator.input", qos: .userInteractive)
     nonisolated private let ciContext = CIContext()
 
@@ -49,6 +50,16 @@ final class SimulatorListModel: ObservableObject {
         refreshTimer?.invalidate()
         refreshTimer = nil
         stopStreaming()
+    }
+
+    func setVisibleInUI(_ visible: Bool) {
+        guard isVisibleInUI != visible else { return }
+        isVisibleInUI = visible
+        if visible {
+            reconcileSelectedDeviceState()
+        } else {
+            stopStreaming()
+        }
     }
 
     func refresh() {
@@ -92,7 +103,7 @@ final class SimulatorListModel: ObservableObject {
     func select(_ device: SimulatorDevice?) {
         stopStreaming()
         selectedUDID = device?.udid
-        guard let device, device.isBooted else { return }
+        guard isVisibleInUI, let device, device.isBooted else { return }
         startStreaming(udid: device.udid)
     }
 
@@ -170,6 +181,10 @@ final class SimulatorListModel: ObservableObject {
 
     private func reconcileSelectedDeviceState() {
         guard let selectedUDID else {
+            stopStreaming()
+            return
+        }
+        guard isVisibleInUI else {
             stopStreaming()
             return
         }
