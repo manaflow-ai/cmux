@@ -305,10 +305,11 @@ struct WorkspaceContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+            let foregroundHex = (notification.userInfo?[GhosttyNotificationKey.foregroundColor] as? NSColor)?.hexString() ?? "nil"
             let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
             let source = (notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String) ?? "nil"
             logTheme(
-                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
+                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) payloadFg=\(foregroundHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appFg=\(GhosttyApp.shared.defaultForegroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
             )
             // Payload ordering can lag across rapid config/theme updates.
             // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
@@ -532,10 +533,16 @@ struct WorkspaceContentView: View {
         backgroundOverride: NSColor? = nil,
         loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
         defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
+        defaultForeground: () -> NSColor = { GhosttyApp.shared.defaultForegroundColor },
+        defaultCursor: () -> NSColor = { GhosttyApp.shared.defaultCursorColor },
+        defaultCursorText: () -> NSColor = { GhosttyApp.shared.defaultCursorTextColor },
+        defaultSelectionBackground: () -> NSColor = { GhosttyApp.shared.defaultSelectionBackground },
+        defaultSelectionForeground: () -> NSColor = { GhosttyApp.shared.defaultSelectionForeground },
         defaultBackgroundOpacity: () -> Double = { GhosttyApp.shared.defaultBackgroundOpacity }
     ) -> GhosttyConfig {
         var next = loadConfig()
         let loadedBackgroundHex = next.backgroundColor.hexString()
+        let loadedForegroundHex = next.foregroundColor.hexString()
         let defaultBackgroundHex: String
         let resolvedBackground: NSColor
 
@@ -549,12 +556,17 @@ struct WorkspaceContentView: View {
         }
 
         next.backgroundColor = resolvedBackground
+        next.foregroundColor = defaultForeground()
+        next.cursorColor = defaultCursor()
+        next.cursorTextColor = defaultCursorText()
+        next.selectionBackground = defaultSelectionBackground()
+        next.selectionForeground = defaultSelectionForeground()
         // Use the runtime opacity from the Ghostty engine, which may differ from the
         // file-level value parsed by GhosttyConfig.load().
         next.backgroundOpacity = defaultBackgroundOpacity()
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
-                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) opacity=\(String(format: "%.3f", next.backgroundOpacity)) theme=\(next.theme ?? "nil")"
+                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) loadedFg=\(loadedForegroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) defaultFg=\(next.foregroundColor.hexString()) finalBg=\(next.backgroundColor.hexString()) finalFg=\(next.foregroundColor.hexString()) opacity=\(String(format: "%.3f", next.backgroundOpacity)) theme=\(next.theme ?? "nil")"
             )
         }
         return next
@@ -563,6 +575,11 @@ struct WorkspaceContentView: View {
     private static func ghosttyAppearanceSignature(_ config: GhosttyConfig, usesHostLayerBackground: Bool) -> String {
         [
             config.backgroundColor.hexString(includeAlpha: true),
+            config.foregroundColor.hexString(includeAlpha: true),
+            config.cursorColor.hexString(includeAlpha: true),
+            config.cursorTextColor.hexString(includeAlpha: true),
+            config.selectionBackground.hexString(includeAlpha: true),
+            config.selectionForeground.hexString(includeAlpha: true),
             String(format: "%.4f", config.backgroundOpacity),
             String(describing: config.backgroundBlur),
             String(format: "%.4f", config.surfaceTabBarFontSize),
