@@ -149,8 +149,8 @@ final class SimulatorListModel {
 
     /// Streams a single touch phase to the simulator. The view's gesture
     /// translates a SwiftUI DragGesture into down -> move -> ... -> move -> up.
-    /// We dispatch off-main so any per-event retry sleeps inside
-    /// IndigoHIDInput don't stutter the main loop.
+    /// We dispatch off-main so HID message construction and delivery stay
+    /// out of the main loop.
     func sendTouchPhase(_ phase: IndigoHIDInput.TouchPhase, at pointInDeviceUnits: CGPoint) {
         guard let input else { return }
         let size = touchUnit
@@ -219,26 +219,31 @@ final class SimulatorListModel {
         let screen = SimulatorScreen(udid: udid)
         self.screen = screen
         self.streamingUDID = udid
-        let input = IndigoHIDInput(udid: udid)
+        let input = IndigoHIDInput(udid: udid, queue: inputQueue)
         self.input = input
         self.devicePointSize = SimulatorService.shared.deviceScreenSizeInPoints(udid: udid)
         self.lastInputError = nil
-        do {
-            try screen.start { [weak self] surface, size in
+        screen.start(
+            onFrame: { [weak self] surface, size in
                 guard let self else { return }
                 guard let image = Self.makeImage(from: surface, ciContext: self.ciContext) else { return }
                 Task { @MainActor [weak self] in
                     guard self?.streamingUDID == udid else { return }
                     self?.frameStore?.update(image: image, imageSize: size)
                 }
+            },
+            completion: { [weak self, weak screen] result in
+                Task { @MainActor [weak self, weak screen] in
+                    guard let self, self.screen === screen, self.streamingUDID == udid else { return }
+                    if case .failure(let error) = result {
+                        self.screen = nil
+                        self.streamingUDID = nil
+                        self.input = nil
+                        self.loadError = error.localizedDescription
+                    }
+                }
             }
-        } catch {
-            self.screen = nil
-            self.streamingUDID = nil
-            self.input = nil
-            loadError = error.localizedDescription
-            return
-        }
+        )
         inputQueue.async { _ = input.prewarm() }
     }
 

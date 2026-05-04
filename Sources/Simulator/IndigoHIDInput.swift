@@ -26,6 +26,7 @@ enum SimulatorButton {
 /// touch" instead of crashing.
 final class IndigoHIDInput: @unchecked Sendable {
     private let udid: String
+    private let queue: DispatchQueue
 
     private typealias MouseFn = @convention(c) (
         UnsafePointer<CGPoint>, UnsafePointer<CGPoint>?,
@@ -43,6 +44,7 @@ final class IndigoHIDInput: @unchecked Sendable {
     private var createPointerSvc: ServiceFn?
     private var createMouseSvc: ServiceFn?
     private var removePointerSvc: ServiceFn?
+    private var timers: [UUID: DispatchSourceTimer] = [:]
 
     private var _lastError: String?
     var lastError: String? {
@@ -58,11 +60,13 @@ final class IndigoHIDInput: @unchecked Sendable {
     private static let dirMove: UInt32 = 0
     private static let dirUp:   UInt32 = 2
 
-    init(udid: String) {
+    init(udid: String, queue: DispatchQueue) {
         self.udid = udid
+        self.queue = queue
     }
 
     deinit {
+        cancelTimers()
         if let client, let remove = removePointerSvc, let msg = remove() {
             send(message: msg, to: client)
         }
@@ -78,8 +82,11 @@ final class IndigoHIDInput: @unchecked Sendable {
         guard sendMouse(client: c, p1: point, p2: nil, eventType: Self.nsEventDown, direction: Self.dirDown, deviceSize: deviceSize) else {
             return false
         }
-        usleep(UInt32(max(0.01, duration) * 1_000_000))
-        return sendMouse(client: c, p1: point, p2: nil, eventType: Self.nsEventUp, direction: Self.dirUp, deviceSize: deviceSize)
+        schedule(after: max(0.01, duration)) { [weak self, weak c] in
+            guard let self, let c else { return }
+            _ = self.sendMouse(client: c, p1: point, p2: nil, eventType: Self.nsEventUp, direction: Self.dirUp, deviceSize: deviceSize)
+        }
+        return true
     }
 
     @discardableResult
@@ -87,19 +94,23 @@ final class IndigoHIDInput: @unchecked Sendable {
         guard let c = ensureWarm() else { return false }
         let total = max(0.05, duration)
         let steps = 12
-        let stepUs = UInt32((total / Double(steps + 2)) * 1_000_000)
+        let stepDelay = total / Double(steps + 2)
         guard sendMouse(client: c, p1: start, p2: nil, eventType: Self.nsEventDown, direction: Self.dirDown, deviceSize: deviceSize) else {
             return false
         }
-        var ok = 0
         for i in 1...steps {
             let t = Double(i) / Double(steps)
             let p = CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
-            usleep(stepUs)
-            if sendMouse(client: c, p1: p, p2: nil, eventType: Self.nsEventDragged, direction: Self.dirMove, deviceSize: deviceSize) { ok += 1 }
+            schedule(after: stepDelay * Double(i)) { [weak self, weak c] in
+                guard let self, let c else { return }
+                _ = self.sendMouse(client: c, p1: p, p2: nil, eventType: Self.nsEventDragged, direction: Self.dirMove, deviceSize: deviceSize)
+            }
         }
-        _ = sendMouse(client: c, p1: end, p2: nil, eventType: Self.nsEventUp, direction: Self.dirUp, deviceSize: deviceSize)
-        return ok >= steps / 2
+        schedule(after: stepDelay * Double(steps + 1)) { [weak self, weak c] in
+            guard let self, let c else { return }
+            _ = self.sendMouse(client: c, p1: end, p2: nil, eventType: Self.nsEventUp, direction: Self.dirUp, deviceSize: deviceSize)
+        }
+        return true
     }
 
     @discardableResult
@@ -123,9 +134,11 @@ final class IndigoHIDInput: @unchecked Sendable {
         let (arg0, target) = buttonCodes(for: button)
         guard let down = bfn(arg0, 1, target) else { recordError("button down msg construct failed"); return false }
         send(message: down, to: c)
-        usleep(100_000)
-        guard let up = bfn(arg0, 2, target) else { recordError("button up msg construct failed"); return false }
-        send(message: up, to: c)
+        schedule(after: 0.1) { [weak self, weak c] in
+            guard let self, let c else { return }
+            guard let up = bfn(arg0, 2, target) else { self.recordError("button up msg construct failed"); return }
+            self.send(message: up, to: c)
+        }
         return true
     }
 
@@ -187,11 +200,9 @@ final class IndigoHIDInput: @unchecked Sendable {
 
         if let msg = pointerMessage {
             send(message: msg, to: c)
-            usleep(20_000)
         }
         if let msg = mouseMessage {
             send(message: msg, to: c)
-            usleep(20_000)
         }
 
         return c
@@ -247,7 +258,6 @@ final class IndigoHIDInput: @unchecked Sendable {
                     }
                 }
                 if msg != nil { break }
-                usleep(5_000)
             }
         } else {
             for _ in 0..<maxAttempts {
@@ -255,7 +265,6 @@ final class IndigoHIDInput: @unchecked Sendable {
                     mfn(p1Ref, nil, Self.touchDigitizer, eventType, direction, 1.0, 1.0, deviceSize.width, deviceSize.height)
                 }
                 if msg != nil { break }
-                usleep(5_000)
             }
         }
         guard let msg else {
@@ -296,6 +305,37 @@ final class IndigoHIDInput: @unchecked Sendable {
 
     private func clamp01(_ x: Double) -> Double {
         min(1.0, max(0.0, x))
+    }
+
+    private func schedule(after delay: TimeInterval, _ action: @escaping @Sendable () -> Void) {
+        let id = UUID()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        lock.lock()
+        timers[id] = timer
+        lock.unlock()
+        timer.setEventHandler { [weak self] in
+            action()
+            self?.finishTimer(id)
+        }
+        timer.schedule(deadline: .now() + max(0, delay))
+        timer.resume()
+    }
+
+    private func finishTimer(_ id: UUID) {
+        let timer: DispatchSourceTimer?
+        lock.lock()
+        timer = timers.removeValue(forKey: id)
+        lock.unlock()
+        timer?.cancel()
+    }
+
+    private func cancelTimers() {
+        let active: [DispatchSourceTimer]
+        lock.lock()
+        active = Array(timers.values)
+        timers.removeAll()
+        lock.unlock()
+        active.forEach { $0.cancel() }
     }
 
     private func recordError(_ msg: String) {

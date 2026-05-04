@@ -33,40 +33,45 @@ final class SimulatorScreen: @unchecked Sendable {
         queue.setSpecific(key: queueKey, value: queueValue)
     }
 
-    deinit {
-        stop()
-    }
-
-    func start(onFrame: @escaping @Sendable (IOSurface, CGSize) -> Void) throws {
-        guard SimulatorPrivateFrameworks.ensureLoaded() else {
-            throw SimulatorError.frameworksUnavailable(
-                SimulatorPrivateFrameworks.loadErrorMessage ?? "unknown"
-            )
-        }
-        guard let device = try SimulatorService.shared.resolveDevice(udid: udid) else {
-            throw SimulatorError.notFound(udid: udid)
-        }
-        guard let io = device.perform(NSSelectorFromString("io"))?
-            .takeUnretainedValue() as? NSObject
-        else {
-            throw SimulatorError.ioUnavailable
-        }
-        try syncOnQueue {
-            stopLocked()
-            self.onFrame = onFrame
-            self.ioClient = io
+    func start(
+        onFrame: @escaping @Sendable (IOSurface, CGSize) -> Void,
+        completion: @escaping @Sendable (Result<Void, Error>) -> Void
+    ) {
+        queue.async { [self] in
             do {
+                guard SimulatorPrivateFrameworks.ensureLoaded() else {
+                    throw SimulatorError.frameworksUnavailable(
+                        SimulatorPrivateFrameworks.loadErrorMessage ?? "unknown"
+                    )
+                }
+                guard let device = try SimulatorService.shared.resolveDevice(udid: udid) else {
+                    throw SimulatorError.notFound(udid: udid)
+                }
+                guard let io = device.perform(NSSelectorFromString("io"))?
+                    .takeUnretainedValue() as? NSObject
+                else {
+                    throw SimulatorError.ioUnavailable
+                }
+
+                stopLocked()
+                self.onFrame = onFrame
+                self.ioClient = io
                 try wireFramebufferLocked()
+                completion(.success(()))
             } catch {
                 stopLocked()
-                throw error
+                completion(.failure(error))
             }
         }
     }
 
     func stop() {
-        syncOnQueue {
+        if DispatchQueue.getSpecific(key: queueKey) == queueValue {
             stopLocked()
+        } else {
+            queue.async { [self] in
+                stopLocked()
+            }
         }
     }
 
@@ -85,13 +90,6 @@ final class SimulatorScreen: @unchecked Sendable {
     }
 
     // MARK: - private
-
-    private func syncOnQueue<T>(_ work: () throws -> T) rethrows -> T {
-        if DispatchQueue.getSpecific(key: queueKey) == queueValue {
-            return try work()
-        }
-        return try queue.sync(execute: work)
-    }
 
     private func wireFramebufferLocked() throws {
         guard let io = ioClient else { throw SimulatorError.ioUnavailable }
@@ -161,11 +159,17 @@ final class SimulatorScreen: @unchecked Sendable {
     /// while a capture is queued or running, additional callbacks are
     /// no-ops.
     private func scheduleCaptureCoalesced() {
-        let shouldSchedule = syncOnQueue {
+        if DispatchQueue.getSpecific(key: queueKey) != queueValue {
+            queue.async { [weak self] in
+                self?.scheduleCaptureCoalesced()
+            }
+            return
+        }
+        let shouldSchedule = {
             if captureScheduled { return false }
             captureScheduled = true
             return true
-        }
+        }()
         guard shouldSchedule else { return }
         queue.async { [weak self] in
             guard let self else { return }
