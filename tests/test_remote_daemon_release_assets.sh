@@ -25,6 +25,19 @@ do
   fi
 done
 
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if ! otool -l "$OUTPUT_DIR/cmuxd-remote-darwin-arm64" | grep -q "cmd LC_UUID"; then
+    echo "FAIL: cmuxd-remote-darwin-arm64 is missing LC_UUID" >&2
+    exit 1
+  fi
+  if [[ "$(uname -m)" == "arm64" ]]; then
+    if [[ "$("$OUTPUT_DIR/cmuxd-remote-darwin-arm64" version)" != "0.62.0-test" ]]; then
+      echo "FAIL: cmuxd-remote-darwin-arm64 did not run on this host" >&2
+      exit 1
+    fi
+  fi
+fi
+
 python3 - <<'PY' "$OUTPUT_DIR/cmuxd-remote-manifest.json" "$OUTPUT_DIR/cmuxd-remote-checksums.txt"
 import json
 import sys

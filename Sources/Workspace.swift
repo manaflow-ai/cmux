@@ -5259,8 +5259,8 @@ final class WorkspaceRemoteSessionController {
         var env = ProcessInfo.processInfo.environment
         env["GOOS"] = goOS
         env["GOARCH"] = goArch
-        env["CGO_ENABLED"] = "0"
-        let ldflags = "-s -w -X main.version=\(version)"
+        env["CGO_ENABLED"] = goOS == "darwin" ? "1" : "0"
+        let ldflags = goOS == "darwin" ? "-s -w -linkmode=external -X main.version=\(version)" : "-s -w -X main.version=\(version)"
         let result = try runProcess(
             executable: goBinary,
             arguments: ["build", "-trimpath", "-buildvcs=false", "-ldflags", ldflags, "-o", output.path, "./cmd/cmuxd-remote"],

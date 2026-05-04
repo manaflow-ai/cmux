@@ -32,11 +32,11 @@
 - [x] Remote daemon bootstrap/upload/start path with `cmuxd-remote serve --stdio`
 - [x] Reconnect/disconnect controls (CLI/API/context menu) + improved error surfacing
 - [x] Retry count/time surfaced in remote daemon/probe error details
-- [ ] Remove automatic remote service port mirroring (`ssh -L` from detected remote listening ports)
-- [ ] Add transport-scoped proxy broker (SOCKS5 + HTTP CONNECT) for remote traffic
-- [ ] Extend `cmuxd-remote` RPC beyond `hello/ping` with proxy stream methods (`proxy.open|close`)
-- [ ] Auto-wire WKWebView in remote workspaces to proxy via `WKWebsiteDataStore.proxyConfigurations`
-- [ ] Add browser proxy e2e tests (remote egress IP, websocket, reconnect continuity)
+- [x] Remove automatic remote service port mirroring (`ssh -L` from detected remote listening ports)
+- [x] Add transport-scoped proxy broker (SOCKS5 + HTTP CONNECT) for remote traffic
+- [x] Extend `cmuxd-remote` RPC beyond `hello/ping` with proxy stream methods (`proxy.open|close`)
+- [x] Auto-wire WKWebView in remote workspaces to proxy via `WKWebsiteDataStore.proxyConfigurations`
+- [x] Add browser proxy e2e tests (remote egress IP, websocket, reconnect continuity)
 - [x] Implement PTY resize coordinator with tmux semantics (`smallest screen wins`)
 - [x] Add resize tests for multi-attachment sessions (attach/detach/reconnect transitions)
 

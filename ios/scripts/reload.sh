@@ -29,6 +29,20 @@ run_with_timeout() {
     return "$command_status"
 }
 
+merge_status() {
+    local current="$1"
+    local next="$2"
+    if [ "$current" = "unavailable" ]; then
+        echo "$next"
+    elif [ "$current" = "$next" ]; then
+        echo "$current"
+    elif [ "$current" = "failed" ] || [ "$next" = "failed" ]; then
+        echo "failed"
+    else
+        echo "partial"
+    fi
+}
+
 TAG=""
 SIMULATOR_ONLY=0
 while [ "$#" -gt 0 ]; do
@@ -114,6 +128,7 @@ if [ -n "$BOOTED_SIMS" ]; then
 fi
 
 IPHONE_STATUS="unavailable"
+OTHER_IOS_STATUS="unavailable"
 if [ "$SIMULATOR_ONLY" -eq 0 ]; then
     if command -v jq >/dev/null 2>&1; then
         if ! IOS_DEVICES="$(xcrun xcdevice list --timeout 2 | jq -r '.[] | select(.simulator == false and .platform == "com.apple.platform.iphoneos" and .available == true) | [.name, .identifier] | @tsv')"; then
@@ -124,10 +139,10 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
     fi
 
     if [ -n "$IOS_DEVICES" ]; then
-        IPHONE_STATUS="succeeded"
         while IFS=$'\t' read -r DEVICE_NAME DEVICE_ID; do
             [ -n "$DEVICE_ID" ] || continue
             echo "Building device app for $DEVICE_NAME..."
+            DEVICE_STATUS="succeeded"
             if ! xcodebuild \
                 -project cmux-ios.xcodeproj \
                 -scheme cmux-ios \
@@ -138,17 +153,20 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
                 -allowProvisioningUpdates \
                 -allowProvisioningDeviceRegistration \
                 -quiet; then
-                IPHONE_STATUS="failed"
-                continue
+                DEVICE_STATUS="failed"
+            else
+                DEVICE_APP_PATH="$DERIVED_DATA_PATH/Build/Products/Debug-iphoneos/$APP_NAME.app"
+                if ! xcrun devicectl device install app --device "$DEVICE_ID" "$DEVICE_APP_PATH"; then
+                    DEVICE_STATUS="failed"
+                elif ! xcrun devicectl device process launch --device "$DEVICE_ID" "$BUNDLE_ID"; then
+                    DEVICE_STATUS="installed_launch_failed"
+                fi
             fi
 
-            DEVICE_APP_PATH="$DERIVED_DATA_PATH/Build/Products/Debug-iphoneos/$APP_NAME.app"
-            if ! xcrun devicectl device install app --device "$DEVICE_ID" "$DEVICE_APP_PATH"; then
-                IPHONE_STATUS="failed"
-                continue
-            fi
-            if ! xcrun devicectl device process launch --device "$DEVICE_ID" "$BUNDLE_ID"; then
-                IPHONE_STATUS="installed_launch_failed"
+            if echo "$DEVICE_NAME" | grep -qi "iphone"; then
+                IPHONE_STATUS="$(merge_status "$IPHONE_STATUS" "$DEVICE_STATUS")"
+            else
+                OTHER_IOS_STATUS="$(merge_status "$OTHER_IOS_STATUS" "$DEVICE_STATUS")"
             fi
         done <<< "$IOS_DEVICES"
     fi
@@ -157,3 +175,6 @@ fi
 echo "iOS tag: $TAG"
 echo "Simulator reload: $SIMULATOR_STATUS"
 echo "iPhone reload: $IPHONE_STATUS"
+if [ "$OTHER_IOS_STATUS" != "unavailable" ]; then
+    echo "Other iOS device reload: $OTHER_IOS_STATUS"
+fi
