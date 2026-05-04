@@ -916,6 +916,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
                 ghostty_surface_render_now(surface)
                 self.updateAccessibilityRenderedTextForTesting()
                 #if DEBUG
+                self.runUITestingZoomStressIfNeeded()
                 self.onOutputProcessedForTesting?()
                 #endif
             }
