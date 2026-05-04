@@ -1,6 +1,6 @@
 import Foundation
 
-struct CmxHiveNode: Identifiable, Equatable {
+struct CmxHiveNode: Identifiable, Equatable, Sendable {
     let id: UInt64
     var name: String
     var subtitle: String
@@ -42,6 +42,18 @@ enum CmxHostPlatform: String, Equatable, Sendable {
     }
 }
 
+enum CmxStableID {
+    static func uint64(for value: String) -> UInt64 {
+        let bytes = value.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "cmx-node"
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in bytes.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return hash == 0 ? 1 : hash
+    }
+}
+
 enum CmxHiveNodeFactory {
     static func connectedNode(for ticket: CmxBridgeTicket) -> CmxHiveNode {
         let nodeKey = ticket.node?.id ?? ticket.endpoint.id
@@ -62,17 +74,11 @@ enum CmxHiveNodeFactory {
         )
     }
 
-    private static func stableNodeID(for value: String) -> UInt64 {
-        let bytes = value.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "cmx-node"
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in bytes.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 1_099_511_628_211
-        }
-        return hash == 0 ? 1 : hash
+    static func stableNodeID(for value: String) -> UInt64 {
+        CmxStableID.uint64(for: value)
     }
 
-    private static func symbolName(for kind: String?) -> String {
+    static func symbolName(for kind: String?) -> String {
         switch kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "macbook", "laptop":
             return "laptopcomputer"
@@ -94,7 +100,7 @@ private extension String {
     }
 }
 
-struct CmxWorkspace: Identifiable, Equatable {
+struct CmxWorkspace: Identifiable, Equatable, Sendable {
     let id: UInt64
     var nodeID: UInt64
     var title: String
@@ -105,13 +111,13 @@ struct CmxWorkspace: Identifiable, Equatable {
     var spaces: [CmxSpace]
 }
 
-struct CmxSpace: Identifiable, Equatable {
+struct CmxSpace: Identifiable, Equatable, Sendable {
     let id: UInt64
     var title: String
     var terminals: [CmxTerminal]
 }
 
-struct CmxTerminal: Identifiable, Equatable {
+struct CmxTerminal: Identifiable, Equatable, Sendable {
     let id: UInt64
     var title: String
     var size: CmxTerminalSize
@@ -125,7 +131,7 @@ struct CmxTerminalSize: Equatable, Sendable {
     static let phoneDefault = CmxTerminalSize(cols: 80, rows: 24)
 }
 
-struct CmxTerminalOutputChunk: Identifiable, Equatable {
+struct CmxTerminalOutputChunk: Identifiable, Equatable, Sendable {
     let id: Int
     let data: Data
 }

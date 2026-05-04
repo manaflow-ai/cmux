@@ -764,10 +764,11 @@ public final class GhosttyTerminalSurfaceView: UIView {
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
     #endif
-    // Keep `ghostty_surface_process_output` off the main thread. The queue is
-    // serial so PTY byte ordering still matches the Rust daemon stream.
-    private static let outputQueue = DispatchQueue(
-        label: "ai.manaflow.cmux.comeup.ghostty.output",
+    // Keep `ghostty_surface_process_output` off the main thread. This is
+    // per surface so a slow free or render on one terminal cannot block input
+    // and output processing for every other visible terminal.
+    private let outputQueue = DispatchQueue(
+        label: "ai.manaflow.cmux.comeup.ghostty.output.\(UUID().uuidString)",
         qos: .userInitiated
     )
     public private(set) var surface: ghostty_surface_t?
@@ -852,7 +853,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         guard let surface else { return }
         let forwarded = Self.forwardTerminalOutputBytes(data)
         let surfaceBits = UInt(bitPattern: UnsafeRawPointer(surface))
-        Self.outputQueue.async { [weak self] in
+        outputQueue.async { [weak self] in
             guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else { return }
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
@@ -987,7 +988,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         Self.unregister(surface: surface)
         self.surface = nil
         bridge.detach()
-        GhosttySurfaceDisposer.dispose(surface: surface, bridge: bridge, queue: Self.outputQueue)
+        GhosttySurfaceDisposer.dispose(surface: surface, bridge: bridge, queue: outputQueue)
     }
 
     private func initializeSurface() {

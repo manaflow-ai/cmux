@@ -30,6 +30,7 @@ Current implementation status:
 - Rust native mode now supports two renderer contracts: existing `server_grid` clients still receive `TerminalGridSnapshot`; iOS `libghostty` clients receive bounded PTY replay plus live `PtyBytes`, so actual libghostty/GhosttyKit owns terminal parsing, themes, colors, cursor state, and input echo.
 - The simulator dogfood path connects to `cmx server --ws-bind 0.0.0.0:8787 --auth-token dev` with a direct development ticket and verifies typed input renders back through Ghostty.
 - The home screen now uses an iMessage-style workspace inbox shell with node pins and full-width conversation rows. The data source is still demo state until Stack Auth and Rivet hive discovery land.
+- iOS can now replace that demo inbox with Stack-authenticated hive discovery from `CMUX_IOS_HIVE_ENDPOINT` or `--cmux-hive-endpoint`. The discovery response can carry nodes, nested workspaces, spaces, terminals, activity, and platform metadata, and the request uses the stored Stack Auth session headers.
 - The rail/resize bounds helper from the old iOS branch lives at `scripts/tui-terminal-bounds-check.sh`, and the Rust tmux dogfood suite verifies the helper tracks the maximum pane size after resize.
 - Iroh bridge tickets can now include non-secret node metadata (`id`, `name`, `subtitle`, `kind`). iOS uses that metadata for the connected node row, falling back to the endpoint id until Stack Auth and Rivet hive discovery are wired.
 - iOS handles the existing web Stack Auth deep link (`cmux://auth-callback` / `cmux-dev://auth-callback`), stores the Stack tokens in Keychain, and refuses `rivet_stack` tickets until that session exists.
@@ -59,7 +60,7 @@ Stack Auth owns user identity. RivetKit carries the short-lived pairing control 
 
 The bridge does not put the pairing secret in the iroh ticket. The ticket advertises the pairing id, Rivet endpoint, Stack project id, and expiration. A client signed in with Stack asks Rivet for the pairing secret, connects over iroh, receives a nonce, and proves possession with an HMAC before the bridge opens the local `cmx` socket. Direct unauthenticated tickets are only for explicit local development.
 
-The iOS side now has native Stack Auth callback parsing, Keychain persistence, a Stack-authenticated Rivet pairing-secret client, and a Rust iroh client binding that receives the fetched secret. The Rivet actor/API still needs to be implemented server-side.
+The iOS side now has native Stack Auth callback parsing, Keychain persistence, a Stack-authenticated Rivet pairing-secret client, signed-in hive discovery, and a Rust iroh client binding that receives the fetched secret. The Rivet actor/API still needs to be implemented server-side.
 
 RivetKit docs that matter for that future step:
 

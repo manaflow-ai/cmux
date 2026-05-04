@@ -21,6 +21,19 @@ enum CmxLaunchConfiguration {
         normalized(arguments: arguments).contains("--cmux-autoconnect") || environment["CMUX_IOS_AUTOCONNECT"] == "1"
     }
 
+    static func hiveDiscoveryEndpoint(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        let normalizedArguments = normalized(arguments: arguments)
+        if let index = normalizedArguments.firstIndex(of: "--cmux-hive-endpoint"),
+           normalizedArguments.indices.contains(index + 1),
+           !normalizedArguments[index + 1].hasPrefix("--") {
+            return URL(string: normalizedArguments[index + 1])
+        }
+        return environment["CMUX_IOS_HIVE_ENDPOINT"].flatMap(URL.init(string:))
+    }
+
     #if DEBUG
     static func usesUITestingEchoSession(
         arguments: [String] = ProcessInfo.processInfo.arguments,

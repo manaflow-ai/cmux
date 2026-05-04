@@ -24,7 +24,8 @@
 - [x] Expand the iOS terminal keyboard action scroller with terminal actions, one-shot/sticky Ctrl/Alt/Shift modifiers, and Mac-only Cmd affordances inferred from connected node metadata
 - [x] Add the real iroh transport for production tickets without a WebSocket route, while keeping explicit WebSocket routes as a dev fallback
 - [x] Add committed iOS UI automation coverage that types into Ghostty and verifies the rendered terminal output in CI
-- [ ] Replace demo node/workspace source with Stack Auth + Rivet signed-in hive discovery
+- [x] Add Stack-authenticated iOS hive discovery so a configured Rivet endpoint replaces the demo node/workspace inbox before terminal attach
+- [ ] Implement the production Rivet actor/API for signed-in hive discovery records
 
 ## Issue 151: Remote SSH (Living Execution)
 - [x] `cmux ssh` creates remote workspace metadata and does not require `--name`

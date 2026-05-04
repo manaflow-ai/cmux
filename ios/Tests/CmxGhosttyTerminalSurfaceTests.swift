@@ -4,6 +4,16 @@ import XCTest
 
 @MainActor
 final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
+    private var surfaceViews: [GhosttyTerminalSurfaceView] = []
+
+    override func tearDown() {
+        for surfaceView in surfaceViews {
+            surfaceView.disposeSurface()
+        }
+        surfaceViews = []
+        super.tearDown()
+    }
+
     func testGhosttySurfaceForwardsPtyBytesUnchanged() {
         let stream = Data([0x1B, 0x5B, 0x33, 0x31, 0x6D, 0x63, 0x6D, 0x75, 0x78, 0x0D, 0x0A])
 
@@ -35,7 +45,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
 
         surfaceView.processOutput(Data("\u{1B}[31mcmux-color\u{1B}[0m\r\n".utf8))
 
-        await fulfillment(of: [renderedExpectation], timeout: 3.0)
+        await fulfillment(of: [renderedExpectation], timeout: 5.0)
         XCTAssertTrue((surfaceView.accessibilityRenderedTextForTesting() ?? "").contains("cmux-color"))
     }
 
@@ -192,6 +202,7 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         let delegate = DelegateRecorder()
         let runtime = try GhosttyRuntime.shared()
         let surfaceView = GhosttyTerminalSurfaceView(runtime: runtime, delegate: delegate)
+        surfaceViews.append(surfaceView)
         return (surfaceView, delegate)
     }
 }

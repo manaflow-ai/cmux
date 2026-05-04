@@ -11,6 +11,7 @@ final class CmxConnectionStore: ObservableObject {
     @Published private(set) var errorText: String?
     @Published private(set) var isConnecting = false
     @Published private(set) var isConnected = false
+    @Published private(set) var isDiscoveringHive = false
     @Published private(set) var stackAuthSession: CmxStackAuthSession?
     @Published private(set) var terminalAppearanceRevision = 0
     @Published var nodes = CmxDemoState.nodes
@@ -23,9 +24,12 @@ final class CmxConnectionStore: ObservableObject {
     @Published private var nextOutputChunkID = 1
     private let authSessionStore: CmxStackAuthSessionStore
     private let pairingSecretClient: CmxRivetPairingSecretFetching
+    private let hiveDiscoveryClient: CmxHiveDiscoveryFetching
+    private let hiveDiscoveryEndpoint: URL?
     private let terminalSessionFactory: any CmxTerminalSessionMaking
     private var terminalSession: (any CmxTerminalSession)?
     private var connectTask: Task<Void, Never>?
+    private var hiveDiscoveryTask: Task<Void, Never>?
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var pathMonitor: NWPathMonitor?
     private let pathMonitorQueue = DispatchQueue(label: "dev.cmux.ios.connection.path")
@@ -38,10 +42,14 @@ final class CmxConnectionStore: ObservableObject {
     init(
         authSessionStore: CmxStackAuthSessionStore = CmxKeychainStackAuthSessionStore(),
         pairingSecretClient: CmxRivetPairingSecretFetching = CmxRivetPairingSecretClient(),
+        hiveDiscoveryClient: CmxHiveDiscoveryFetching = CmxHiveDiscoveryClient(),
+        hiveDiscoveryEndpoint: URL? = CmxLaunchConfiguration.hiveDiscoveryEndpoint(),
         terminalSessionFactory: any CmxTerminalSessionMaking = CmxDefaultTerminalSessionFactory()
     ) {
         self.authSessionStore = authSessionStore
         self.pairingSecretClient = pairingSecretClient
+        self.hiveDiscoveryClient = hiveDiscoveryClient
+        self.hiveDiscoveryEndpoint = hiveDiscoveryEndpoint
         self.terminalSessionFactory = terminalSessionFactory
         stackAuthSession = try? authSessionStore.load()
         if let ticket = CmxLaunchConfiguration.ticket() {
@@ -49,6 +57,7 @@ final class CmxConnectionStore: ObservableObject {
         }
         seedTerminalOutput()
         startLifecycleObservers()
+        refreshHiveDiscoveryIfPossible()
         if CmxLaunchConfiguration.shouldAutoconnect() {
             Task { @MainActor [weak self] in
                 self?.connect()
@@ -57,6 +66,7 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     deinit {
+        hiveDiscoveryTask?.cancel()
         pathMonitor?.cancel()
         for observer in lifecycleObservers {
             NotificationCenter.default.removeObserver(observer)
@@ -154,6 +164,7 @@ final class CmxConnectionStore: ObservableObject {
             try authSessionStore.save(session)
             stackAuthSession = session
             errorText = nil
+            refreshHiveDiscoveryIfPossible()
         } catch {
             errorText = error.localizedDescription
         }
@@ -163,6 +174,9 @@ final class CmxConnectionStore: ObservableObject {
         do {
             try authSessionStore.clear()
             stackAuthSession = nil
+            hiveDiscoveryTask?.cancel()
+            hiveDiscoveryTask = nil
+            isDiscoveringHive = false
         } catch {
             errorText = error.localizedDescription
         }
@@ -286,6 +300,29 @@ final class CmxConnectionStore: ObservableObject {
         }
     }
 
+    private func refreshHiveDiscoveryIfPossible() {
+        guard let hiveDiscoveryEndpoint,
+              let stackAuthSession else { return }
+        hiveDiscoveryTask?.cancel()
+        isDiscoveringHive = true
+        hiveDiscoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = try await hiveDiscoveryClient.fetchHive(
+                    endpoint: hiveDiscoveryEndpoint,
+                    stackSession: stackAuthSession
+                )
+                applyHiveDiscoverySnapshot(snapshot)
+                errorText = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                errorText = error.localizedDescription
+            }
+            isDiscoveringHive = false
+        }
+    }
+
     private static var placeholderWorkspace: CmxWorkspace {
         CmxWorkspace(
             id: 0,
@@ -363,6 +400,27 @@ final class CmxConnectionStore: ObservableObject {
             ?? 0
         selectedTerminalID = activeTerminals.first(where: { $0.id == snapshot.focusedTabID })?.id
             ?? activeTerminals.first?.id
+            ?? Self.placeholderTerminalID
+    }
+
+    func applyHiveDiscoverySnapshot(_ snapshot: CmxHiveDiscoverySnapshot) {
+        nodes = snapshot.nodes
+        guard !isConnecting, !isConnected else { return }
+        workspaces = snapshot.workspaces
+        outputChunksByTerminalID = [:]
+        nextOutputChunkID = 1
+        seedTerminalOutput()
+        selectedWorkspaceID = workspaces.first(where: { $0.id == selectedWorkspaceID })?.id
+            ?? workspaces.first?.id
+            ?? 0
+        let selectedWorkspace = selectedWorkspace
+        selectedSpaceID = selectedWorkspace.spaces.first(where: { $0.id == selectedSpaceID })?.id
+            ?? selectedWorkspace.spaces.first?.id
+            ?? 0
+        selectedTerminalID = selectedWorkspace.spaces
+            .flatMap(\.terminals)
+            .first(where: { $0.id == selectedTerminalID })?.id
+            ?? firstTerminalID(in: selectedWorkspace)
             ?? Self.placeholderTerminalID
     }
 

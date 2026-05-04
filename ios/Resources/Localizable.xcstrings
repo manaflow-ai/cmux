@@ -241,6 +241,24 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "昨日" } }
       }
     },
+    "hive.error.bad_status" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux hive discovery failed (%d)." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux hive discovery が失敗しました（%d）。" } }
+      }
+    },
+    "hive.error.invalid_endpoint" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The cmux hive endpoint is invalid." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux hive エンドポイントが無効です。" } }
+      }
+    },
+    "hive.error.invalid_response" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux hive discovery returned an invalid response." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux hive discovery が無効なレスポンスを返しました。" } }
+      }
+    },
     "nav.workspaces" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspaces" } },
