@@ -1897,3 +1897,45 @@ final class CmuxLayoutEncodingTests: XCTestCase {
         }
     }
 }
+
+// Regression coverage for #3270: the keyboard shortcut recorder and config
+// parser silently dropped Page Up, Page Down, Home, and End. These are
+// common navigation keys (used by iTerm2, browsers, etc.) and must be
+// bindable through both the in-app recorder and the JSON config file.
+final class KeyboardShortcutPageNavParseTests: XCTestCase {
+
+    func testParseConfigAcceptsPageDown() {
+        let parsed = StoredShortcut.parseConfig("cmd+pageDown")
+        XCTAssertNotNil(parsed, "cmd+pageDown should parse from config")
+        XCTAssertEqual(parsed?.key, "pageDown")
+        XCTAssertTrue(parsed?.command ?? false)
+    }
+
+    func testParseConfigAcceptsPageUp() {
+        let parsed = StoredShortcut.parseConfig("cmd+pageUp")
+        XCTAssertNotNil(parsed, "cmd+pageUp should parse from config")
+        XCTAssertEqual(parsed?.key, "pageUp")
+        XCTAssertTrue(parsed?.command ?? false)
+    }
+
+    func testParseConfigAcceptsHome() {
+        let parsed = StoredShortcut.parseConfig("cmd+home")
+        XCTAssertNotNil(parsed, "cmd+home should parse from config")
+        XCTAssertEqual(parsed?.key, "home")
+        XCTAssertTrue(parsed?.command ?? false)
+    }
+
+    func testParseConfigAcceptsEnd() {
+        let parsed = StoredShortcut.parseConfig("cmd+end")
+        XCTAssertNotNil(parsed, "cmd+end should parse from config")
+        XCTAssertEqual(parsed?.key, "end")
+        XCTAssertTrue(parsed?.command ?? false)
+    }
+
+    func testParseConfigAcceptsCommonPageNavAliases() {
+        XCTAssertEqual(StoredShortcut.parseConfig("ctrl+page_up")?.key, "pageUp")
+        XCTAssertEqual(StoredShortcut.parseConfig("ctrl+page_down")?.key, "pageDown")
+        XCTAssertEqual(StoredShortcut.parseConfig("ctrl+pgup")?.key, "pageUp")
+        XCTAssertEqual(StoredShortcut.parseConfig("ctrl+pgdn")?.key, "pageDown")
+    }
+}
