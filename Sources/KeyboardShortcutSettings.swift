@@ -9,9 +9,7 @@ enum KeyboardShortcutSettings {
     static let actionUserInfoKey = "action"
     static let settingsFileDisplayPath = "~/.config/cmux/cmux.json"
     static var settingsFileStore: KeyboardShortcutSettingsFileStore = .shared {
-        didSet {
-            notifySettingsFileDidChange()
-        }
+        didSet { notifySettingsFileDidChange() }
     }
     #if DEBUG
     static var shortcutLookupObserver: ((Action) -> Void)?
@@ -727,9 +725,7 @@ enum KeyboardShortcutSettings {
         postDidChangeNotification(action: conflictingAction)
     }
 
-    static func notifySettingsFileDidChange() {
-        postDidChangeNotification()
-    }
+    static func notifySettingsFileDidChange(center: NotificationCenter = .default) { postDidChangeNotification(center: center) }
 
     static func resetShortcut(for action: Action) {
         UserDefaults.standard.removeObject(forKey: action.defaultsKey)
