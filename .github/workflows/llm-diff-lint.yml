@@ -222,8 +222,8 @@ jobs:
         if: steps.lint.outcome == 'failure'
         run: exit 1
 
-  codex-architecture-rule:
-    name: LLM rule (gateway codex / swift-architectural-rethink)
+  gpt55-architecture-rule:
+    name: LLM rule (cx gateway gpt-5.5 / swift-architectural-rethink)
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
@@ -273,9 +273,9 @@ jobs:
         id: lint
         continue-on-error: true
         env:
-          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
-          AI_GATEWAY_BASE_URL: ${{ vars.AI_GATEWAY_BASE_URL }}
-          LLM_DIFF_LINT_CODEX_MODEL: ${{ vars.LLM_DIFF_LINT_CODEX_MODEL || 'openai/gpt-5.3-codex' }}
+          CX_GATEWAY_API_KEY: ${{ secrets.CX_GATEWAY_API_KEY || secrets.AI_GATEWAY_API_KEY }}
+          CX_GATEWAY_BASE_URL: ${{ vars.CX_GATEWAY_BASE_URL || vars.AI_GATEWAY_BASE_URL }}
+          LLM_DIFF_LINT_ARCHITECTURE_MODEL: ${{ vars.LLM_DIFF_LINT_ARCHITECTURE_MODEL || vars.LLM_DIFF_LINT_CODEX_MODEL || 'openai/gpt-5.5' }}
           LLM_DIFF_LINT_MAX_DIFF_BYTES: ${{ vars.LLM_DIFF_LINT_MAX_DIFF_BYTES || '5000000' }}
           LLM_DIFF_LINT_MAX_TOKENS: ${{ vars.LLM_DIFF_LINT_CODEX_MAX_TOKENS || vars.LLM_DIFF_LINT_MAX_TOKENS || '8192' }}
           LLM_DIFF_LINT_PROVIDER: gateway
@@ -289,7 +289,7 @@ jobs:
             --diff-file "$RUNNER_TEMP/pr.diff" \
             --source-label "pull request ${{ steps.pr.outputs.number }}" \
             --provider "gateway" \
-            --model "$LLM_DIFF_LINT_CODEX_MODEL" \
+            --model "$LLM_DIFF_LINT_ARCHITECTURE_MODEL" \
             --reasoning-effort "$LLM_DIFF_LINT_REASONING_EFFORT" \
             --skip-if-missing-key \
             --output "$RUNNER_TEMP/result.json"
@@ -311,7 +311,7 @@ jobs:
     needs:
       - deepseek-rule
       - google-vertex-rule
-      - codex-architecture-rule
+      - gpt55-architecture-rule
     if: |
       always() &&
       (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false)
@@ -319,16 +319,16 @@ jobs:
     steps:
       - name: Require all provider rule checks to pass
         env:
-          CODEX_ARCHITECTURE_RESULT: ${{ needs.codex-architecture-rule.result }}
           DEEPSEEK_RULE_RESULT: ${{ needs.deepseek-rule.result }}
+          GPT55_ARCHITECTURE_RESULT: ${{ needs.gpt55-architecture-rule.result }}
           GOOGLE_VERTEX_RULE_RESULT: ${{ needs.google-vertex-rule.result }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$DEEPSEEK_RULE_RESULT" != "success" ] || [ "$GOOGLE_VERTEX_RULE_RESULT" != "success" ] || [ "$CODEX_ARCHITECTURE_RESULT" != "success" ]; then
+          if [ "$DEEPSEEK_RULE_RESULT" != "success" ] || [ "$GOOGLE_VERTEX_RULE_RESULT" != "success" ] || [ "$GPT55_ARCHITECTURE_RESULT" != "success" ]; then
             echo "DeepSeek rule matrix result: $DEEPSEEK_RULE_RESULT" >&2
             echo "Google Vertex rule matrix result: $GOOGLE_VERTEX_RULE_RESULT" >&2
-            echo "Codex architecture rule result: $CODEX_ARCHITECTURE_RESULT" >&2
+            echo "GPT-5.5 architecture rule result: $GPT55_ARCHITECTURE_RESULT" >&2
             exit 1
           fi
 
@@ -337,7 +337,7 @@ jobs:
     needs:
       - deepseek-rule
       - google-vertex-rule
-      - codex-architecture-rule
+      - gpt55-architecture-rule
     if: |
       always() &&
       (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false)

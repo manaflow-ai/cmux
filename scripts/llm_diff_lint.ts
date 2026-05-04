@@ -13,9 +13,9 @@ import { z } from "zod";
 const DEFAULT_PROVIDER = "deepseek";
 const DEFAULT_MODELS: Record<string, string> = {
   deepseek: "deepseek-v4-pro",
-  gateway: "openai/gpt-5.3-codex",
+  gateway: "openai/gpt-5.5",
   "google-vertex": "gemini-3-flash-preview",
-  openai: "gpt-5.3-codex",
+  openai: "gpt-5.5",
   "openai-compatible": "model",
 };
 const DEFAULT_MAX_TOKENS = 8192;
@@ -483,6 +483,14 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function requireGatewayApiKey(): string {
+  const value = process.env.CX_GATEWAY_API_KEY || process.env.AI_GATEWAY_API_KEY;
+  if (!value) {
+    throw new Error("CX_GATEWAY_API_KEY is required");
+  }
+  return value;
+}
+
 function resolveModel(args: Args): { model: unknown; providerOptions?: Record<string, unknown> } {
   if (args.provider === "deepseek") {
     const apiKey = requireEnv("DEEPSEEK_API_KEY");
@@ -512,10 +520,10 @@ function resolveModel(args: Args): { model: unknown; providerOptions?: Record<st
   }
 
   if (args.provider === "gateway") {
-    const apiKey = requireEnv("AI_GATEWAY_API_KEY");
+    const apiKey = requireGatewayApiKey();
     const aiGateway = createGateway({
       apiKey,
-      baseURL: process.env.AI_GATEWAY_BASE_URL || undefined,
+      baseURL: process.env.CX_GATEWAY_BASE_URL || process.env.AI_GATEWAY_BASE_URL || undefined,
     });
     const providerOptions: Record<string, unknown> = {
       gateway: {
@@ -571,11 +579,11 @@ async function runModel(args: Args, ruleId: string, ruleText: string, diff: stri
   if (args.provider === "google-vertex" && !process.env.GOOGLE_VERTEX_PROJECT && !process.env.GOOGLE_CLOUD_PROJECT) {
     throw new Error("GOOGLE_VERTEX_PROJECT or GOOGLE_CLOUD_PROJECT is required");
   }
-  if (args.provider === "gateway" && !process.env.AI_GATEWAY_API_KEY) {
+  if (args.provider === "gateway" && !process.env.CX_GATEWAY_API_KEY && !process.env.AI_GATEWAY_API_KEY) {
     if (args.skipIfMissingKey) {
-      return missingKeyResult(args, ruleId, "AI_GATEWAY_API_KEY");
+      return missingKeyResult(args, ruleId, "CX_GATEWAY_API_KEY");
     }
-    throw new Error("AI_GATEWAY_API_KEY is required");
+    throw new Error("CX_GATEWAY_API_KEY is required");
   }
   if (args.provider === "openai" && !process.env.OPENAI_API_KEY) {
     if (args.skipIfMissingKey) {

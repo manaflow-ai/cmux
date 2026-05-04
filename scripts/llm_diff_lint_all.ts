@@ -286,12 +286,12 @@ function resolveProfile(args: Args): Exclude<Profile, "auto"> {
   if (args.profile !== "auto") {
     return args.profile;
   }
-  return process.env.AI_GATEWAY_API_KEY ? "gateway" : "direct";
+  return process.env.CX_GATEWAY_API_KEY || process.env.AI_GATEWAY_API_KEY ? "gateway" : "direct";
 }
 
 function missingEnvFor(job: Job): string | undefined {
-  if (job.provider === "gateway" && !process.env.AI_GATEWAY_API_KEY) {
-    return "AI_GATEWAY_API_KEY";
+  if (job.provider === "gateway" && !process.env.CX_GATEWAY_API_KEY && !process.env.AI_GATEWAY_API_KEY) {
+    return "CX_GATEWAY_API_KEY";
   }
   if (job.provider === "deepseek" && !process.env.DEEPSEEK_API_KEY) {
     return "DEEPSEEK_API_KEY";
@@ -321,7 +321,7 @@ function buildJobs(args: Args): Job[] {
       jobs.push({
         rule: ARCHITECTURE_RULE,
         provider: "gateway",
-        model: process.env.LLM_DIFF_LINT_CODEX_MODEL || "openai/gpt-5.3-codex",
+        model: process.env.LLM_DIFF_LINT_ARCHITECTURE_MODEL || process.env.LLM_DIFF_LINT_CODEX_MODEL || "openai/gpt-5.5",
         reasoningEffort: process.env.LLM_DIFF_LINT_CODEX_REASONING_EFFORT || "medium",
       });
     }
@@ -339,7 +339,7 @@ function buildJobs(args: Args): Job[] {
       jobs.push({
         rule: ARCHITECTURE_RULE,
         provider: "openai",
-        model: process.env.LLM_DIFF_LINT_CODEX_MODEL || "gpt-5.3-codex",
+        model: process.env.LLM_DIFF_LINT_ARCHITECTURE_MODEL || process.env.LLM_DIFF_LINT_CODEX_MODEL || "gpt-5.5",
         reasoningEffort: process.env.LLM_DIFF_LINT_CODEX_REASONING_EFFORT || "medium",
       });
     }

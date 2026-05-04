@@ -21,16 +21,16 @@ Required secret:
 
 Optional secret:
 
-- `AI_GATEWAY_API_KEY`, enables the Codex-backed `swift-architectural-rethink` rule through Vercel AI Gateway. Without this secret the job uploads a skipped result and does not block PRs.
+- `CX_GATEWAY_API_KEY`, enables the GPT-5.5-backed `swift-architectural-rethink` rule through cx gateway. `AI_GATEWAY_API_KEY` is still accepted as a fallback. Without a gateway secret the job uploads a skipped result and does not block PRs.
 
 Optional repository variables:
 
-- `AI_GATEWAY_BASE_URL`, optional AI Gateway override
+- `CX_GATEWAY_BASE_URL`, optional cx gateway base URL override. `AI_GATEWAY_BASE_URL` is still accepted as a fallback
 - `GCP_WORKLOAD_IDENTITY_PROVIDER`, defaults to the cmux GitHub Actions workload identity provider
 - `GCP_SERVICE_ACCOUNT`, defaults to `cmux-vertex-ai@manaflow-437420.iam.gserviceaccount.com`
 - `GOOGLE_VERTEX_PROJECT`, required for Gemini unless `GOOGLE_CLOUD_PROJECT` is set in the environment
 - `GOOGLE_VERTEX_LOCATION`, defaults to `global`
-- `LLM_DIFF_LINT_CODEX_MODEL`, defaults to `openai/gpt-5.3-codex`
+- `LLM_DIFF_LINT_ARCHITECTURE_MODEL`, defaults to `openai/gpt-5.5`. `LLM_DIFF_LINT_CODEX_MODEL` is still accepted as a compatibility fallback
 - `LLM_DIFF_LINT_CODEX_REASONING_EFFORT`, defaults to `medium`
 - `LLM_DIFF_LINT_CODEX_MAX_TOKENS`, defaults to `LLM_DIFF_LINT_MAX_TOKENS` or `8192`
 - `LLM_DIFF_LINT_MAX_TOKENS`, defaults to `8192`
@@ -41,7 +41,7 @@ Optional repository variables:
 
 The default provider matrix compares `deepseek-v4-pro` with `gemini-3-flash-preview` through Vertex AI. GitHub Actions authenticates to Vertex with OIDC workload identity and the `cmux-vertex-ai` service account. This avoids storing a long-lived GCP service account key.
 
-The broader `swift-architectural-rethink` rule runs once on OpenAI Codex through AI Gateway with medium reasoning. It uses `openai/gpt-5.3-codex` by default because the rule asks for architecture judgment rather than narrow lint matching.
+The broader `swift-architectural-rethink` rule runs once on GPT-5.5 through cx gateway with medium reasoning. It uses `openai/gpt-5.5` by default because the rule asks for architecture judgment rather than narrow lint matching.
 
 Use `LLM diff lint status` as the required branch-protection check.
 
@@ -53,13 +53,13 @@ Run the same rule set locally with:
 bun scripts/llm_diff_lint_all.ts --pr 3455 --profile gateway
 ```
 
-The `gateway` profile uses one `AI_GATEWAY_API_KEY` for all local model calls:
+The `gateway` profile uses one `CX_GATEWAY_API_KEY` for all local model calls:
 
 - focused rules with `deepseek/deepseek-v4-pro`
 - focused rules with `google/gemini-3-flash`
-- the architecture rule with `openai/gpt-5.3-codex` and medium reasoning
+- the architecture rule with `openai/gpt-5.5` and medium reasoning
 
-The default `auto` profile uses gateway when `AI_GATEWAY_API_KEY` is present. If it is not present, it falls back to direct providers and runs the jobs with credentials available in the environment, skipping missing providers unless `--strict` is passed.
+The default `auto` profile uses gateway when `CX_GATEWAY_API_KEY` or `AI_GATEWAY_API_KEY` is present. If neither is present, it falls back to direct providers and runs the jobs with credentials available in the environment, skipping missing providers unless `--strict` is passed.
 
 Useful options:
 
@@ -86,9 +86,9 @@ Every provider/rule job sends the full diff plus one rule. Estimated input token
 (diff bytes / 4 + rule tokens + prompt overhead) * provider count * rule count
 ```
 
-The Codex architecture rule is one extra full-diff request when `AI_GATEWAY_API_KEY` is configured.
+The GPT-5.5 architecture rule is one extra full-diff request when `CX_GATEWAY_API_KEY` or `AI_GATEWAY_API_KEY` is configured.
 
-Current published prices as of 2026-05-02:
+Current published prices as of 2026-05-04:
 
 | Model | Input, cache miss | Input, cache hit | Output | Notes |
 | --- | ---: | ---: | ---: | --- |
@@ -97,9 +97,9 @@ Current published prices as of 2026-05-02:
 | `deepseek-v4-flash` | $0.14 / 1M | $0.0028 / 1M | $0.28 / 1M | Cheaper DeepSeek option, not current production model |
 | `gemini-3-flash-preview` | $0.50 / 1M | provider dependent | $3.00 / 1M | Current latest Gemini Flash model used by this workflow |
 | `gemini-2.5-flash-lite` | $0.10 / 1M | $0.01 / 1M | $0.40 / 1M | Cheapest generally available Gemini Flash-Lite model |
-| `gpt-5.3-codex` | $1.75 / 1M | $0.175 / 1M | $14.00 / 1M | Codex architecture rule, medium reasoning |
+| `gpt-5.5` | $5.00 / 1M | $0.50 / 1M | $30.00 / 1M | GPT-5.5 architecture rule, medium reasoning |
 
-Sources: [DeepSeek API pricing](https://api-docs.deepseek.com/quick_start/pricing), [Vertex AI Gemini pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing), [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing), [OpenAI GPT-5.3-Codex model pricing](https://developers.openai.com/api/docs/models/gpt-5.3-codex), and [Vercel AI Gateway models](https://vercel.com/docs/ai-gateway/models-and-providers).
+Sources: [DeepSeek API pricing](https://api-docs.deepseek.com/quick_start/pricing), [Vertex AI Gemini pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing), [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing), [OpenAI API pricing](https://openai.com/api/pricing/), and [Vercel AI Gateway models](https://vercel.com/docs/ai-gateway/models-and-providers).
 
 With cache misses, `deepseek-v4-pro` is currently cheaper than `gemini-3-flash-preview` during the DeepSeek promotion, but it is not cheaper than `gemini-2.5-flash-lite`. After the promotion, DeepSeek Pro is materially more expensive than both Flash options.
 
@@ -122,7 +122,7 @@ Do not include large code examples unless the syntax is ambiguous. Every extra r
 
 ## Provider And Rule Split
 
-The current split is 6 focused rules across 2 providers, plus 1 broad Codex architecture rule. That produces 13 jobs when `OPENAI_API_KEY` is configured, with the provider matrices capped at `max-parallel: 4`.
+The current split is 6 focused rules across 2 providers, plus 1 broad GPT-5.5 architecture rule. That produces 13 jobs when `CX_GATEWAY_API_KEY` or `AI_GATEWAY_API_KEY` is configured, with the provider matrices capped at `max-parallel: 4`.
 
 This keeps each LLM call independent and gives complete per-provider, per-rule status in GitHub checks. `fail-fast: false` lets all focused rules finish even when one fails.
 
