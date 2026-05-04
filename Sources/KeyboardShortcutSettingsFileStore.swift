@@ -1070,10 +1070,7 @@ final class CmuxSettingsFileStore {
             let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
             LanguageSettings.apply(language)
         case AppearanceSettings.appearanceModeKey:
-            AppearanceSettings.applyStoredMode(
-                rawValue: UserDefaults.standard.string(forKey: defaultsKey),
-                source: "cmuxConfig.applyManagedDefault"
-            )
+            AppearanceSettings.applyStoredMode(rawValue: UserDefaults.standard.string(forKey: defaultsKey), source: "cmuxConfig.applyManagedDefault")
         case AppIconSettings.modeKey:
             AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         default:
@@ -1121,10 +1118,7 @@ final class CmuxSettingsFileStore {
             let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
             LanguageSettings.apply(language)
         case AppearanceSettings.appearanceModeKey:
-            AppearanceSettings.applyStoredMode(
-                rawValue: UserDefaults.standard.string(forKey: defaultsKey),
-                source: "cmuxConfig.restoreUserDefault"
-            )
+            AppearanceSettings.applyStoredMode(rawValue: UserDefaults.standard.string(forKey: defaultsKey), source: "cmuxConfig.restoreUserDefault")
         case AppIconSettings.modeKey:
             AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         default:

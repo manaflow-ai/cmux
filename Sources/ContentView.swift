@@ -2795,14 +2795,11 @@ struct ContentView: View {
 
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
-    private var effectiveColorScheme: ColorScheme {
-        AppearanceSettings.colorScheme(for: appearanceMode, fallback: colorScheme)
-    }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
         _ = titlebarThemeGeneration
         return WindowAppearanceSnapshot.current(
             unifySurfaceBackdrops: sidebarMatchTerminalBackground,
-            colorScheme: effectiveColorScheme,
+            colorScheme: AppearanceSettings.colorScheme(for: appearanceMode, fallback: colorScheme),
             sidebarMaterial: sidebarMaterial,
             sidebarBlendMode: sidebarBlendMode,
             sidebarState: sidebarStateSetting,
