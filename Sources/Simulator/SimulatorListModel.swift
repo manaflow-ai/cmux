@@ -11,7 +11,7 @@ final class SimulatorListModel {
     var loadError: String?
     var selectedUDID: String?
     var lastInputError: String?
-    var capabilityReport: SimulatorCapabilityReport = SimulatorCapabilities.report()
+    var capabilityReport: SimulatorCapabilityReport = .pending
 
     /// Logical point size for the currently selected device, fetched from
     /// `SimDeviceType.mainScreenSize`. Used as the unit the HID dispatch
@@ -34,6 +34,8 @@ final class SimulatorListModel {
     @ObservationIgnored
     private var refreshGeneration: UInt64 = 0
     @ObservationIgnored
+    private var capabilityReportGeneration: UInt64 = 0
+    @ObservationIgnored
     private var isVisibleInUI: Bool = true
     @ObservationIgnored
     private let inputQueue = DispatchQueue(label: "cmux.simulator.input", qos: .userInteractive)
@@ -55,6 +57,7 @@ final class SimulatorListModel {
     func startAutoRefresh() {
         autoRefreshEnabled = true
         guard isVisibleInUI else { return }
+        refreshCapabilityReport()
         refresh()
         scheduleRefreshTimer()
     }
@@ -70,6 +73,7 @@ final class SimulatorListModel {
         isVisibleInUI = visible
         if visible {
             if autoRefreshEnabled {
+                refreshCapabilityReport()
                 refresh()
                 scheduleRefreshTimer()
             }
@@ -209,6 +213,18 @@ final class SimulatorListModel {
             loadError = error.localizedDescription
             devices = []
             stopStreaming()
+        }
+    }
+
+    private func refreshCapabilityReport() {
+        capabilityReportGeneration &+= 1
+        let generation = capabilityReportGeneration
+        Task.detached(priority: .userInitiated) {
+            let report = SimulatorCapabilities.report()
+            await MainActor.run { [weak self] in
+                guard self?.capabilityReportGeneration == generation else { return }
+                self?.capabilityReport = report
+            }
         }
     }
 

@@ -93,7 +93,7 @@ struct SimulatorListView: View {
     private var capabilityBanner: some View {
         let report = model.capabilityReport
         let inputErr = model.lastInputError
-        if !report.input.isAvailable || !report.screen.isAvailable || inputErr != nil {
+        if !report.isPending, !report.input.isAvailable || !report.screen.isAvailable || inputErr != nil {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)

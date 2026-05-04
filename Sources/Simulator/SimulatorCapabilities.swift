@@ -8,7 +8,8 @@ import ObjectiveC
 /// of a hard crash inside `unsafeBitCast`'d C calls.
 ///
 /// Cached: the first probe sets the result; subsequent calls return it.
-enum SimulatorCapabilityStatus {
+enum SimulatorCapabilityStatus: Sendable {
+    case pending
     case available
     case unavailable(reason: String)
 
@@ -21,17 +22,35 @@ enum SimulatorCapabilityStatus {
         if case .unavailable(let r) = self { return r }
         return nil
     }
+
+    var isPending: Bool {
+        if case .pending = self { return true }
+        return false
+    }
 }
 
-struct SimulatorCapabilityReport {
+struct SimulatorCapabilityReport: Sendable {
     let listing: SimulatorCapabilityStatus
     let lifecycle: SimulatorCapabilityStatus
     let screen: SimulatorCapabilityStatus
     let input: SimulatorCapabilityStatus
     let xcodeVersion: String?
 
+    static let pending = SimulatorCapabilityReport(
+        listing: .pending,
+        lifecycle: .pending,
+        screen: .pending,
+        input: .pending,
+        xcodeVersion: nil
+    )
+
+    var isPending: Bool {
+        listing.isPending || lifecycle.isPending || screen.isPending || input.isPending
+    }
+
     /// Single-line summary, useful for a status banner.
     var summary: String {
+        if isPending { return "Checking simulator capabilities." }
         if listing.isAvailable, lifecycle.isAvailable, screen.isAvailable, input.isAvailable {
             return "All simulator features available."
         }

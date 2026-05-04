@@ -73,6 +73,12 @@ final class SimulatorServiceUDIDTests: XCTestCase {
 
 @MainActor
 final class SimulatorListModelLifecycleTests: XCTestCase {
+    func testInitialCapabilityReportIsPending() {
+        let model = SimulatorListModel()
+
+        XCTAssertTrue(model.capabilityReport.isPending)
+    }
+
     func testHiddenViewDoesNotStartRefreshTimer() {
         let model = SimulatorListModel()
 
