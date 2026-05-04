@@ -11648,9 +11648,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         browserAddressBarFocusedPanelId = panel.id
         let didFocusSynchronously = BrowserOmnibarFocusRegistry.shared.requestFocus(panelId: panel.id, selectAll: true)
-        if didFocusSynchronously {
-            panel.acknowledgeAddressBarFocusRequest(requestId)
-        }
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.sticky panel=\(panel.id.uuidString.prefix(5)) " +
