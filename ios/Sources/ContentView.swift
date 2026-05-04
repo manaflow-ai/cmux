@@ -3,12 +3,19 @@ import UIKit
 
 struct ContentView: View {
     @EnvironmentObject private var store: CmxConnectionStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
-        NavigationSplitView {
-            WorkspaceListView()
-        } detail: {
-            TerminalDetailView()
+        if horizontalSizeClass == .compact {
+            NavigationStack {
+                WorkspaceListView(navigationStyle: .push)
+            }
+        } else {
+            NavigationSplitView {
+                WorkspaceListView(navigationStyle: .sidebar)
+            } detail: {
+                TerminalDetailView()
+            }
         }
     }
 }
@@ -17,6 +24,7 @@ private struct WorkspaceListView: View {
     @EnvironmentObject private var store: CmxConnectionStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var searchText = ""
+    let navigationStyle: WorkspaceNavigationStyle
 
     private var workspaces: [CmxWorkspace] {
         store.visibleWorkspaces(matching: searchText)
@@ -35,19 +43,12 @@ private struct WorkspaceListView: View {
             } else {
                 ForEach(workspaces) { workspace in
                     let node = store.node(for: workspace)
-                    NavigationLink {
-                        TerminalDetailView()
-                            .onAppear {
-                                store.select(workspace: workspace)
-                            }
-                    } label: {
-                        WorkspaceConversationRow(
-                            workspace: workspace,
-                            node: node,
-                            isSelected: horizontalSizeClass == .regular && workspace.id == store.selectedWorkspaceID
-                        )
-                    }
-                    .accessibilityIdentifier("workspace.row.\(workspace.id)")
+                    WorkspaceNavigationRow(
+                        workspace: workspace,
+                        node: node,
+                        isSelected: horizontalSizeClass == .regular && workspace.id == store.selectedWorkspaceID,
+                        navigationStyle: navigationStyle
+                    )
                     .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 12))
                 }
             }
@@ -55,6 +56,50 @@ private struct WorkspaceListView: View {
         .listStyle(.plain)
         .navigationTitle(String(localized: "nav.workspaces", defaultValue: "Workspaces"))
         .navigationBarTitleDisplayMode(.large)
+    }
+}
+
+private enum WorkspaceNavigationStyle {
+    case push
+    case sidebar
+}
+
+private struct WorkspaceNavigationRow: View {
+    @EnvironmentObject private var store: CmxConnectionStore
+    let workspace: CmxWorkspace
+    let node: CmxHiveNode
+    let isSelected: Bool
+    let navigationStyle: WorkspaceNavigationStyle
+
+    var body: some View {
+        switch navigationStyle {
+        case .push:
+            NavigationLink {
+                TerminalDetailView()
+                    .onAppear {
+                        store.select(workspace: workspace)
+                    }
+            } label: {
+                row
+            }
+            .accessibilityIdentifier("workspace.row.\(workspace.id)")
+        case .sidebar:
+            Button {
+                store.select(workspace: workspace)
+            } label: {
+                row
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("workspace.row.\(workspace.id)")
+        }
+    }
+
+    private var row: some View {
+        WorkspaceConversationRow(
+            workspace: workspace,
+            node: node,
+            isSelected: isSelected
+        )
     }
 }
 

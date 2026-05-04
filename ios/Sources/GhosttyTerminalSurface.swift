@@ -1841,14 +1841,6 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
     }
 
     @MainActor
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIView, context: Context) -> CGSize? {
-        CGSize(
-            width: proposal.width ?? uiView.bounds.width,
-            height: proposal.height ?? uiView.bounds.height
-        )
-    }
-
-    @MainActor
     final class Coordinator: GhosttyTerminalSurfaceViewDelegate {
         private weak var store: CmxConnectionStore?
         private var terminalID: UInt64?
@@ -1894,6 +1886,11 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
 
 private final class CmxTerminalHostedViewContainer: UIView {
     private(set) var hostedView: UIView?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        hostedView?.frame = bounds
+    }
 
     func setHostedView(_ view: UIView) {
         guard hostedView !== view else { return }

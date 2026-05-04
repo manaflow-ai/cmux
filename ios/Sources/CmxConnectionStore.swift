@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import UIKit
 
 @MainActor
@@ -25,6 +26,14 @@ final class CmxConnectionStore: ObservableObject {
     private let terminalSessionFactory: any CmxTerminalSessionMaking
     private var terminalSession: (any CmxTerminalSession)?
     private var connectTask: Task<Void, Never>?
+    private var lifecycleObservers: [NSObjectProtocol] = []
+    private var pathMonitor: NWPathMonitor?
+    private let pathMonitorQueue = DispatchQueue(label: "dev.cmux.ios.connection.path")
+    private var hasUsableNetworkPath = true
+    private var appIsActive = true
+    private var reconnectAllowed = false
+    private var reconnectPending = false
+    private var didUseImmediateReconnectForCurrentLoss = false
 
     init(
         authSessionStore: CmxStackAuthSessionStore = CmxKeychainStackAuthSessionStore(),
@@ -39,10 +48,18 @@ final class CmxConnectionStore: ObservableObject {
             ticketText = ticket
         }
         seedTerminalOutput()
+        startLifecycleObservers()
         if CmxLaunchConfiguration.shouldAutoconnect() {
             Task { @MainActor [weak self] in
                 self?.connect()
             }
+        }
+    }
+
+    deinit {
+        pathMonitor?.cancel()
+        for observer in lifecycleObservers {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
@@ -87,9 +104,18 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     func connect() {
+        connect(isAutomaticReconnect: false)
+    }
+
+    private func connect(isAutomaticReconnect: Bool) {
         do {
             let rawTicket = ticketText.trimmingCharacters(in: .whitespacesAndNewlines)
             let parsed = try CmxBridgeTicketParser.parse(rawTicket)
+            reconnectAllowed = true
+            reconnectPending = false
+            if !isAutomaticReconnect {
+                didUseImmediateReconnectForCurrentLoss = false
+            }
             connectTask?.cancel()
             if parsed.auth?.requiresStackSession == true {
                 guard let stackAuthSession else {
@@ -111,6 +137,8 @@ final class CmxConnectionStore: ObservableObject {
             }
             try startTerminalSession(rawTicket: rawTicket, ticket: parsed, pairingSecret: nil)
         } catch {
+            reconnectAllowed = false
+            reconnectPending = false
             ticket = nil
             errorText = error.localizedDescription
             isConnecting = false
@@ -139,6 +167,8 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     func disconnect() {
+        reconnectAllowed = false
+        reconnectPending = false
         connectTask?.cancel()
         connectTask = nil
         terminalSession?.disconnect()
@@ -314,6 +344,12 @@ final class CmxConnectionStore: ObservableObject {
         applyTerminalAppearance(from: nativeSnapshot, colorPreference: colorPreference)
     }
 
+    func resumePendingConnectionIfNeeded() {
+        guard reconnectPending, reconnectAllowed, !isConnecting, canAttemptReconnect else { return }
+        reconnectPending = false
+        connect(isAutomaticReconnect: true)
+    }
+
     private func updateConnectedNode(for ticket: CmxBridgeTicket) {
         nodes = [
             CmxHiveNodeFactory.connectedNode(for: ticket),
@@ -443,6 +479,68 @@ final class CmxConnectionStore: ObservableObject {
         }
         return Data(text.utf8)
     }
+
+    private var canAttemptReconnect: Bool {
+        appIsActive && hasUsableNetworkPath
+    }
+
+    private func startLifecycleObservers() {
+        appIsActive = UIApplication.shared.applicationState != .background
+        let center = NotificationCenter.default
+        lifecycleObservers.append(
+            center.addObserver(
+                forName: UIApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.appIsActive = true
+                    self?.didUseImmediateReconnectForCurrentLoss = false
+                    self?.resumePendingConnectionIfNeeded()
+                }
+            }
+        )
+        lifecycleObservers.append(
+            center.addObserver(
+                forName: UIApplication.didEnterBackgroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.appIsActive = false
+                }
+            }
+        )
+
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in
+                guard let self else { return }
+                let wasUsable = self.hasUsableNetworkPath
+                self.hasUsableNetworkPath = path.status == .satisfied
+                if self.hasUsableNetworkPath, !wasUsable {
+                    self.didUseImmediateReconnectForCurrentLoss = false
+                    self.resumePendingConnectionIfNeeded()
+                }
+            }
+        }
+        pathMonitor = monitor
+        monitor.start(queue: pathMonitorQueue)
+    }
+
+    private func handleTransportLoss(error: Error? = nil) {
+        if let error {
+            errorText = error.localizedDescription
+        }
+        terminalSession = nil
+        isConnecting = false
+        isConnected = false
+        guard reconnectAllowed else { return }
+        reconnectPending = true
+        guard canAttemptReconnect, !didUseImmediateReconnectForCurrentLoss else { return }
+        didUseImmediateReconnectForCurrentLoss = true
+        resumePendingConnectionIfNeeded()
+    }
 }
 
 extension CmxConnectionStore: CmxTerminalSessionDelegate {
@@ -453,6 +551,8 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
             isConnecting = false
             isConnected = true
             errorText = nil
+            reconnectPending = false
+            didUseImmediateReconnectForCurrentLoss = false
         case .ptyBytes(let tabID, let data):
             appendOutput(data, terminalID: tabID)
         case .hostControl, .commandReply:
@@ -468,10 +568,10 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
         case .activeTabChanged, .activeWorkspaceChanged, .activeSpaceChanged, .pong:
             break
         case .bye:
-            terminalSession = nil
-            isConnecting = false
-            isConnected = false
+            handleTransportLoss()
         case .error(let message):
+            reconnectAllowed = false
+            reconnectPending = false
             errorText = message
             terminalSession = nil
             isConnecting = false
@@ -486,17 +586,12 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
 
     func terminalSession(_ session: any CmxTerminalSession, didFail error: Error) {
         guard session === terminalSession else { return }
-        errorText = error.localizedDescription
-        terminalSession = nil
-        isConnecting = false
-        isConnected = false
+        handleTransportLoss(error: error)
     }
 
     func terminalSessionDidClose(_ session: any CmxTerminalSession) {
         guard session === terminalSession else { return }
-        terminalSession = nil
-        isConnecting = false
-        isConnected = false
+        handleTransportLoss()
     }
 }
 
