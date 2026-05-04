@@ -124,6 +124,26 @@ final class SimulatorService: @unchecked Sendable {
         return nil
     }
 
+    /// Logical device screen size in points, or nil if the SimDeviceType
+    /// doesn't expose `mainScreenSize`. The HID dispatch path expects
+    /// coordinates in points, so callers convert from pixel-space (the
+    /// IOSurface) to point-space using this size.
+    func deviceScreenSizeInPoints(udid: String) -> CGSize? {
+        guard let device = try? resolveDevice(udid: udid) else { return nil }
+        guard let dt = device.value(forKey: "deviceType") as? NSObject else { return nil }
+        if let s = dt.value(forKey: "mainScreenSize") as? NSValue {
+            let cg = s.sizeValue
+            if cg.width > 0, cg.height > 0 { return cg }
+        }
+        // Some SimDeviceType variants expose the same data via `screenSize`
+        // or `frontBufferSize`. Fall through gracefully.
+        if let s = dt.value(forKey: "screenSize") as? NSValue {
+            let cg = s.sizeValue
+            if cg.width > 0, cg.height > 0 { return cg }
+        }
+        return nil
+    }
+
     // MARK: - private
 
     private func resolveDefaultSet() throws -> NSObject? {

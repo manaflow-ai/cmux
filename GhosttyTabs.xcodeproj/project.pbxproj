@@ -57,6 +57,7 @@
 		51M0000000000000000051B5 /* IndigoHIDInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051A5 /* IndigoHIDInput.swift */; };
 		51M0000000000000000051B6 /* SimulatorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051A6 /* SimulatorPanel.swift */; };
 		51M0000000000000000051B7 /* SimulatorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051A7 /* SimulatorPanelView.swift */; };
+		51M0000000000000000051B8 /* SimulatorCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51M0000000000000000051A8 /* SimulatorCapabilities.swift */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
 		FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
@@ -391,6 +392,7 @@
 		51M0000000000000000051A5 /* IndigoHIDInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IndigoHIDInput.swift; sourceTree = "<group>"; };
 		51M0000000000000000051A6 /* SimulatorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorPanel.swift; sourceTree = "<group>"; };
 		51M0000000000000000051A7 /* SimulatorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorPanelView.swift; sourceTree = "<group>"; };
+		51M0000000000000000051A8 /* SimulatorCapabilities.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SimulatorCapabilities.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedTextEditorDebugWindowController.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F006 /* opencode-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-plugin.js"; sourceTree = "<group>"; };
@@ -747,6 +749,7 @@
 			isa = PBXGroup;
 			children = (
 				51M0000000000000000051A0 /* SimulatorPrivateFrameworks.swift */,
+				51M0000000000000000051A8 /* SimulatorCapabilities.swift */,
 				51M0000000000000000051A1 /* SimulatorService.swift */,
 				51M0000000000000000051A2 /* SimulatorScreen.swift */,
 				51M0000000000000000051A5 /* IndigoHIDInput.swift */,
@@ -1469,6 +1472,7 @@
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
 				FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */,
 				51M0000000000000000051B0 /* SimulatorPrivateFrameworks.swift in Sources */,
+				51M0000000000000000051B8 /* SimulatorCapabilities.swift in Sources */,
 				51M0000000000000000051B1 /* SimulatorService.swift in Sources */,
 				51M0000000000000000051B2 /* SimulatorScreen.swift in Sources */,
 				51M0000000000000000051B5 /* IndigoHIDInput.swift in Sources */,

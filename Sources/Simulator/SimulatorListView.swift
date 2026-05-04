@@ -10,11 +10,27 @@ final class SimulatorListModel: ObservableObject {
     @Published var selectedUDID: String?
     @Published var lastFrame: NSImage?
     @Published var lastFrameSize: CGSize = .zero
+    @Published var lastInputError: String?
+    @Published var capabilityReport: SimulatorCapabilityReport = SimulatorCapabilities.report()
+
+    /// Logical point size for the currently selected device, fetched from
+    /// `SimDeviceType.mainScreenSize`. Used as the unit the HID dispatch
+    /// path expects. Nil when the property isn't exposed; we then fall
+    /// back to the IOSurface's pixel dimensions.
+    @Published var devicePointSize: CGSize?
 
     private var screen: SimulatorScreen?
     private var input: IndigoHIDInput?
     private var refreshTimer: Timer?
     nonisolated private let ciContext = CIContext()
+
+    /// Touch dispatch unit. Prefers points (matches what
+    /// IndigoHIDMessageForMouseNSEvent's `widthPoints`/`heightPoints`
+    /// args want); falls back to pixel size from the latest frame.
+    var touchUnit: CGSize {
+        if let p = devicePointSize, p.width > 0, p.height > 0 { return p }
+        return lastFrameSize
+    }
 
     func startAutoRefresh() {
         refresh()
@@ -88,21 +104,36 @@ final class SimulatorListModel: ObservableObject {
 
     // MARK: - input
 
-    func tap(at pointInFrame: CGPoint) {
-        guard let input, lastFrameSize != .zero else { return }
-        let size = lastFrameSize
-        Task.detached { input.tap(at: pointInFrame, deviceSize: size) }
+    func tap(at pointInDeviceUnits: CGPoint) {
+        guard let input else { return }
+        let size = touchUnit
+        guard size.width > 0, size.height > 0 else { return }
+        Task.detached { [weak self] in
+            let ok = input.tap(at: pointInDeviceUnits, deviceSize: size)
+            await self?.recordInputResult(ok: ok, fallback: input.lastError)
+        }
     }
 
     func drag(from start: CGPoint, to end: CGPoint) {
-        guard let input, lastFrameSize != .zero else { return }
-        let size = lastFrameSize
-        Task.detached { input.drag(from: start, to: end, deviceSize: size) }
+        guard let input else { return }
+        let size = touchUnit
+        guard size.width > 0, size.height > 0 else { return }
+        Task.detached { [weak self] in
+            let ok = input.drag(from: start, to: end, deviceSize: size)
+            await self?.recordInputResult(ok: ok, fallback: input.lastError)
+        }
     }
 
     func press(_ button: SimulatorButton) {
         guard let input else { return }
-        Task.detached { input.press(button) }
+        Task.detached { [weak self] in
+            let ok = input.press(button)
+            await self?.recordInputResult(ok: ok, fallback: input.lastError)
+        }
+    }
+
+    private func recordInputResult(ok: Bool, fallback: String?) {
+        lastInputError = ok ? nil : (fallback ?? "input dispatch failed")
     }
 
     // MARK: - lifecycle
@@ -111,6 +142,8 @@ final class SimulatorListModel: ObservableObject {
         let screen = SimulatorScreen(udid: udid)
         self.screen = screen
         self.input = IndigoHIDInput(udid: udid)
+        self.devicePointSize = SimulatorService.shared.deviceScreenSizeInPoints(udid: udid)
+        self.lastInputError = nil
         do {
             try screen.start { [weak self] surface, size in
                 guard let self else { return }
@@ -133,6 +166,8 @@ final class SimulatorListModel: ObservableObject {
         input = nil
         lastFrame = nil
         lastFrameSize = .zero
+        devicePointSize = nil
+        lastInputError = nil
     }
 
     nonisolated private static func makeImage(from surface: IOSurface, ciContext: CIContext) -> NSImage? {
@@ -216,9 +251,50 @@ struct SimulatorListView: View {
         VStack(spacing: 0) {
             previewHeader
             Divider()
+            capabilityBanner
             previewCanvas
             Divider()
             previewToolbar
+        }
+    }
+
+    @ViewBuilder
+    private var capabilityBanner: some View {
+        let report = model.capabilityReport
+        let inputErr = model.lastInputError
+        if !report.input.isAvailable || !report.screen.isAvailable || inputErr != nil {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                    .font(.system(size: 11))
+                VStack(alignment: .leading, spacing: 2) {
+                    if let inputErr {
+                        Text("Input: \(inputErr)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.orange)
+                    }
+                    if !report.input.isAvailable, let r = report.input.reasonText {
+                        Text("Touch HID unavailable: \(r)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.orange)
+                    }
+                    if !report.screen.isAvailable, let r = report.screen.reasonText {
+                        Text("Screen mirror unavailable: \(r)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.orange)
+                    }
+                    if let xc = report.xcodeVersion {
+                        Text("Xcode \(xc)")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.orange.opacity(0.08))
+            Divider()
         }
     }
 
@@ -325,8 +401,9 @@ struct SimulatorListView: View {
     private func devicePoint(viewPoint: CGPoint, rendered: CGRect) -> CGPoint {
         let xRatio = (viewPoint.x - rendered.minX) / rendered.width
         let yRatio = (viewPoint.y - rendered.minY) / rendered.height
-        let x = max(0, min(1, xRatio)) * model.lastFrameSize.width
-        let y = max(0, min(1, yRatio)) * model.lastFrameSize.height
+        let unit = model.touchUnit  // device points if known, otherwise pixel size
+        let x = max(0, min(1, xRatio)) * unit.width
+        let y = max(0, min(1, yRatio)) * unit.height
         return CGPoint(x: x, y: y)
     }
 
@@ -395,7 +472,11 @@ struct SimulatorListView: View {
 
     private var deviceSizeCaption: String {
         guard model.lastFrameSize != .zero else { return "" }
-        return "\(Int(model.lastFrameSize.width))×\(Int(model.lastFrameSize.height))"
+        let pixels = "\(Int(model.lastFrameSize.width))×\(Int(model.lastFrameSize.height))px"
+        if let pt = model.devicePointSize {
+            return "\(Int(pt.width))×\(Int(pt.height))pt · \(pixels)"
+        }
+        return pixels
     }
 
     private var groupedRuntimes: [String] {
