@@ -1135,6 +1135,9 @@ struct BrowserPanelView: View {
                 text: Binding(
                     get: { omnibarState.buffer },
                     set: { newValue in
+                        if let requestId = panel.pendingAddressBarFocusRequestId {
+                            BrowserOmnibarFocusRegistry.shared.markUserEditedPendingFocus(panelId: panel.id, requestId: requestId)
+                        }
                         let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(newValue))
                         applyOmnibarEffects(effects)
                         refreshInlineCompletion()
@@ -1567,17 +1570,18 @@ struct BrowserPanelView: View {
 #endif
 
         if addressBarFocused {
-            // Re-run focus behavior (select-all/refresh suggestions) when focus is
-            // explicitly requested again while already focused.
-            let urlString = panel.preferredURLStringForOmnibar() ?? ""
-            let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
-            applyOmnibarEffects(effects)
-            refreshInlineCompletion()
-            BrowserOmnibarFocusRegistry.shared.requestFocus(panelId: panel.id, selectAll: effects.shouldSelectAll)
+            let preservedTypedInput = BrowserOmnibarFocusRegistry.shared.consumeUserEditedPendingFocus(panelId: panel.id, requestId: requestId)
+            if !preservedTypedInput {
+                let urlString = panel.preferredURLStringForOmnibar() ?? ""
+                let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
+                applyOmnibarEffects(effects)
+                refreshInlineCompletion()
+                BrowserOmnibarFocusRegistry.shared.requestFocus(panelId: panel.id, selectAll: effects.shouldSelectAll)
+            }
 #if DEBUG
             logBrowserFocusState(
                 event: "addressBarFocus.request.apply",
-                detail: "request=\(requestId.uuidString.prefix(8)) mode=refresh"
+                detail: "request=\(requestId.uuidString.prefix(8)) mode=\(preservedTypedInput ? "preserve_typed" : "refresh")"
             )
 #endif
         } else {

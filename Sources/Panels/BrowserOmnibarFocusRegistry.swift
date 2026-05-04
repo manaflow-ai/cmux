@@ -53,6 +53,7 @@ final class BrowserOmnibarFocusRegistry {
 
     private var fieldsByPanelId: [UUID: WeakField] = [:]
     private var pendingFocusRequestsByPanelId: [UUID: Bool] = [:]
+    private var userEditedFocusRequestByPanelId: [UUID: UUID] = [:]
 
     private init() {}
 
@@ -73,6 +74,7 @@ final class BrowserOmnibarFocusRegistry {
             return
         }
         fieldsByPanelId[panelId] = nil
+        userEditedFocusRequestByPanelId[panelId] = nil
     }
 
     @discardableResult
@@ -99,6 +101,19 @@ final class BrowserOmnibarFocusRegistry {
             }
             _ = self.applyPendingFocusIfPossible(panelId: panelId)
         }
+    }
+
+    func markUserEditedPendingFocus(panelId: UUID, requestId: UUID) {
+        userEditedFocusRequestByPanelId[panelId] = requestId
+    }
+
+    func consumeUserEditedPendingFocus(panelId: UUID, requestId: UUID) -> Bool {
+        guard userEditedFocusRequestByPanelId[panelId] == requestId else {
+            return false
+        }
+        userEditedFocusRequestByPanelId[panelId] = nil
+        pendingFocusRequestsByPanelId[panelId] = nil
+        return true
     }
 
     @discardableResult
