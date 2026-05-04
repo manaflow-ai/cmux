@@ -20,16 +20,17 @@ struct ShortcutSettingRow: View {
             isDisabled: isManagedBySettingsFile
         )
         .onChange(of: shortcut) { _, newValue in
+            guard !isManagedBySettingsFile else { return }
             KeyboardShortcutSettings.setShortcut(newValue, for: action)
         }
         .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
             let latest = KeyboardShortcutSettings.shortcut(for: action)
             let latestManagedState = KeyboardShortcutSettings.isManagedBySettingsFile(action)
-            if latest != shortcut {
-                shortcut = latest
-            }
             if latestManagedState != isManagedBySettingsFile {
                 isManagedBySettingsFile = latestManagedState
+            }
+            if latest != shortcut {
+                shortcut = latest
             }
         }
     }
