@@ -175,7 +175,8 @@ final class GhosttyConfigTests: XCTestCase {
         try fileManager.createDirectory(at: themesDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: configDir, withIntermediateDirectories: true)
 
-        let originalEnvironment = ["CFFIXED_USER_HOME", "GHOSTTY_RESOURCES_DIR"].map { key in
+        let environmentKeys: [String] = ["CFFIXED_USER_HOME", "GHOSTTY_RESOURCES_DIR"]
+        let originalEnvironment = environmentKeys.map { key in
             (key, getenv(key).map { String(cString: $0) })
         }
         setenv("CFFIXED_USER_HOME", root.path, 1)
@@ -575,7 +576,7 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
-        let cases: [(GhosttyApp.DefaultBackgroundUpdateScope, GhosttyApp.DefaultBackgroundUpdateScope, Bool)] = [
+        let cases: [(GhosttyDefaultBackgroundUpdateScope, GhosttyDefaultBackgroundUpdateScope, Bool)] = [
             (.unscoped, .app, true),
             (.app, .surface, true),
             (.surface, .surface, true),
