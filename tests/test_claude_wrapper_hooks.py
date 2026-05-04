@@ -168,6 +168,8 @@ exit 0
         env["CLAUDECODE"] = "nested-session-sentinel"
         if hooks_disabled:
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
+        else:
+            env.pop("CMUX_CLAUDE_HOOKS_DISABLED", None)
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
