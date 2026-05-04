@@ -747,6 +747,7 @@ struct cmuxApp: App {
                 performBrowserSplitFromMenu(direction: .down)
             }
 
+            equalizeSplitsCommandButton()
             Divider()
 
             // Numbered workspace selection (9 = last workspace)
@@ -843,12 +844,11 @@ struct cmuxApp: App {
         NotificationMenuSnapshotBuilder.make(notifications: notificationStore.notifications)
     }
 
-    private var activeTabManager: TabManager {
+    var activeTabManager: TabManager {
         AppDelegate.shared?.activeTabManagerForCommands(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
     }
-
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
         let tabTitle = appDelegate.tabTitle(for: notification.tabId)
         return MenuBarNotificationLineFormatter.menuTitle(notification: notification, tabTitle: tabTitle)

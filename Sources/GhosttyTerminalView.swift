@@ -4013,9 +4013,15 @@ final class TerminalSurfaceRegistry {
 
     func unregister(_ surface: TerminalSurface) {
         lock.lock()
-        defer { lock.unlock() }
         surfaces.remove(surface)
         surfaceFocusPlacements.removeValue(forKey: surface.id)
+        lock.unlock()
+
+        Task { @MainActor in
+            AppDelegate.shared?.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(
+                reason: "terminalSurface.unregister"
+            )
+        }
     }
 
     func registerRuntimeSurface(_ surface: ghostty_surface_t, ownerId: UUID) {

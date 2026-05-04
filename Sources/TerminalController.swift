@@ -4098,7 +4098,7 @@ class TerminalController {
                 return tm
             }
         }
-        return tabManager
+        return tabManager ?? v2MainSync { AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
     }
 
     func v2ResolveWindowId(tabManager: TabManager?) -> UUID? {
@@ -4129,8 +4129,8 @@ class TerminalController {
         return .ok(["windows": payload])
     }
 
-    private func v2WindowCurrent(params _: [String: Any]) -> V2CallResult {
-        guard let tabManager else {
+    private func v2WindowCurrent(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         guard let windowId = v2ResolveWindowId(tabManager: tabManager) else {
