@@ -539,27 +539,6 @@ public final class GhosttyRuntime {
         window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
-        background = #272822
-        foreground = #fdfff1
-        cursor-color = #c0c1b5
-        selection-background = #57584f
-        selection-foreground = #fdfff1
-        palette = 0=#272822
-        palette = 1=#f92672
-        palette = 2=#a6e22e
-        palette = 3=#e6db74
-        palette = 4=#fd971f
-        palette = 5=#ae81ff
-        palette = 6=#66d9ef
-        palette = 7=#fdfff1
-        palette = 8=#6e7066
-        palette = 9=#f92672
-        palette = 10=#a6e22e
-        palette = 11=#e6db74
-        palette = 12=#fd971f
-        palette = 13=#ae81ff
-        palette = 14=#66d9ef
-        palette = 15=#fdfff1
         """
         defaults.withCString { themePointer in
             "cmux-ios-defaults".withCString { namePointer in
@@ -1113,10 +1092,16 @@ public final class GhosttyTerminalSurfaceView: UIView {
     }
 
     private func applyConfiguredBackground() {
-        backgroundColor = GhosttyRuntime.configuredUIColor(
+        let background = GhosttyRuntime.configuredUIColor(
             named: "background",
-            fallback: UIColor(red: 0x27 / 255, green: 0x28 / 255, blue: 0x22 / 255, alpha: 1)
+            fallback: .black
         )
+        let foreground = GhosttyRuntime.configuredUIColor(
+            named: "foreground",
+            fallback: .white
+        )
+        backgroundColor = background
+        inputProxy.updateThemeColors(background: background, foreground: foreground)
     }
 
     @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
@@ -1407,11 +1392,12 @@ private final class GhosttyInputTextView: UITextView {
         )
     }
 
-    private static let accessoryBackground = UIColor(red: 0x27 / 255, green: 0x28 / 255, blue: 0x22 / 255, alpha: 1)
+    private static let accessoryBackground = UIColor.black
     private static let accessoryButtonNormalBackground = UIColor(white: 0.35, alpha: 1)
     private static let accessoryButtonHeight: CGFloat = 28
     private static let accessoryButtonMinWidth: CGFloat = 44
     private static let stickyDoubleTapInterval: TimeInterval = 0.4
+    private var accessoryForeground = UIColor.white
 
     private lazy var terminalAccessoryToolbar: UIView = {
         let container = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 44))
@@ -1539,6 +1525,23 @@ private final class GhosttyInputTextView: UITextView {
         }
     }
 
+    func updateThemeColors(background: UIColor, foreground: UIColor) {
+        accessoryForeground = foreground
+        terminalAccessoryToolbar.backgroundColor = background
+        guard let stack = accessoryStackView else { return }
+        for case let button as UIButton in stack.arrangedSubviews {
+            button.setTitleColor(foreground, for: .normal)
+            button.tintColor = foreground
+            if isAccessoryActionSticky(TerminalInputAccessoryAction(rawValue: button.tag) ?? .hideKeyboard) {
+                button.layer.borderColor = foreground.cgColor
+            }
+        }
+        if let commandAccessoryButton {
+            commandAccessoryButton.setTitleColor(foreground, for: .normal)
+            commandAccessoryButton.tintColor = foreground
+        }
+    }
+
     func simulateHardwareKeyForTesting(input: String, modifierFlags: UIKeyModifierFlags) -> Bool {
         handleHardwareKeyInput(input: input, modifierFlags: modifierFlags)
     }
@@ -1658,14 +1661,14 @@ private final class GhosttyInputTextView: UITextView {
         button.accessibilityIdentifier = action.accessibilityIdentifier
         button.accessibilityLabel = action.accessibilityLabel
         button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-        button.tintColor = .white
+        button.tintColor = accessoryForeground
         button.layer.cornerRadius = 6
         if let symbolName = action.symbolName {
             button.setImage(UIImage(systemName: symbolName), for: .normal)
         } else {
             button.setTitle(action.title, for: .normal)
         }
-        button.setTitleColor(.white, for: .normal)
+        button.setTitleColor(accessoryForeground, for: .normal)
         button.backgroundColor = Self.accessoryButtonNormalBackground
         button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
         button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.accessoryButtonMinWidth).isActive = true
@@ -1797,7 +1800,7 @@ private final class GhosttyInputTextView: UITextView {
             if sticky {
                 button.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
                 button.layer.borderWidth = 2
-                button.layer.borderColor = UIColor.white.cgColor
+                button.layer.borderColor = accessoryForeground.cgColor
             } else if armed {
                 button.backgroundColor = .systemBlue
                 button.layer.borderWidth = 0
@@ -1805,8 +1808,8 @@ private final class GhosttyInputTextView: UITextView {
                 button.backgroundColor = Self.accessoryButtonNormalBackground
                 button.layer.borderWidth = 0
             }
-            button.setTitleColor(.white, for: .normal)
-            button.tintColor = .white
+            button.setTitleColor(accessoryForeground, for: .normal)
+            button.tintColor = accessoryForeground
         }
     }
 
@@ -1951,7 +1954,7 @@ struct CmxGhosttyTerminalView: UIViewRepresentable {
         let container = CmxTerminalHostedViewContainer()
         container.backgroundColor = GhosttyRuntime.configuredUIColor(
             named: "background",
-            fallback: UIColor(red: 0x27 / 255, green: 0x28 / 255, blue: 0x22 / 255, alpha: 1)
+            fallback: .black
         )
         do {
             let surfaceView = GhosttyTerminalSurfaceView(

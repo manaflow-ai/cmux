@@ -456,7 +456,7 @@ private enum TerminalThemeChrome {
         Color(
             GhosttyRuntime.configuredUIColor(
                 named: "background",
-                fallback: UIColor(red: 0x27 / 255, green: 0x28 / 255, blue: 0x22 / 255, alpha: 1)
+                fallback: .black
             )
         )
     }
@@ -466,7 +466,7 @@ private enum TerminalThemeChrome {
         Color(
             GhosttyRuntime.configuredUIColor(
                 named: "foreground",
-                fallback: UIColor(red: 0xfd / 255, green: 0xff / 255, blue: 0xf1 / 255, alpha: 1)
+                fallback: .white
             )
         )
     }
@@ -475,7 +475,7 @@ private enum TerminalThemeChrome {
     static func toolbarColorScheme(revision _: Int) -> ColorScheme {
         GhosttyRuntime.configuredUIColor(
             named: "background",
-            fallback: UIColor(red: 0x27 / 255, green: 0x28 / 255, blue: 0x22 / 255, alpha: 1)
+            fallback: .black
         ).cmxIsDark ? .dark : .light
     }
 }
