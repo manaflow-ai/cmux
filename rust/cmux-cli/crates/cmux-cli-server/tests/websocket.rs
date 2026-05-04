@@ -500,6 +500,115 @@ async fn websocket_native_libghostty_mode_streams_pty_bytes_instead_of_terminal_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_native_libghostty_mode_broadcasts_pty_bytes_to_multiple_clients() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("server.sock");
+    let ws_addr = pick_free_port().await;
+    let opts = ServerOptions {
+        socket_path: socket.clone(),
+        shell: "/bin/sh".into(),
+        cwd: Some(dir.path().to_path_buf()),
+        initial_viewport: (80, 24),
+        snapshot_path: None,
+        settings_path: None,
+        ws_bind: Some(ws_addr),
+        auth_token: Some("sekrit".into()),
+    };
+    let server = tokio::spawn(async move {
+        let _ = run(opts).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mut first = connect_ws(ws_addr).await;
+    send_client_msg(
+        &mut first,
+        &ClientMsg::HelloNative {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 80, rows: 24 },
+            token: Some("sekrit".into()),
+            terminal_renderer: NativeTerminalRenderer::Libghostty,
+        },
+    )
+    .await;
+    match recv_server_msg(&mut first).await {
+        ServerMsg::Welcome { .. } => {}
+        other => panic!("expected Welcome, got {other:?}"),
+    }
+    let first_tab_id = recv_native_snapshot(&mut first).await.focused_tab_id;
+    send_client_msg(
+        &mut first,
+        &ClientMsg::NativeLayout {
+            terminals: vec![cmux_cli_protocol::NativeTerminalViewport {
+                tab_id: first_tab_id,
+                cols: 80,
+                rows: 24,
+            }],
+        },
+    )
+    .await;
+
+    let mut second = connect_ws(ws_addr).await;
+    send_client_msg(
+        &mut second,
+        &ClientMsg::HelloNative {
+            version: PROTOCOL_VERSION,
+            viewport: Viewport { cols: 80, rows: 24 },
+            token: Some("sekrit".into()),
+            terminal_renderer: NativeTerminalRenderer::Libghostty,
+        },
+    )
+    .await;
+    match recv_server_msg(&mut second).await {
+        ServerMsg::Welcome { .. } => {}
+        other => panic!("expected Welcome, got {other:?}"),
+    }
+    let second_tab_id = recv_native_snapshot(&mut second).await.focused_tab_id;
+    assert_eq!(second_tab_id, first_tab_id);
+    send_client_msg(
+        &mut second,
+        &ClientMsg::NativeLayout {
+            terminals: vec![cmux_cli_protocol::NativeTerminalViewport {
+                tab_id: second_tab_id,
+                cols: 80,
+                rows: 24,
+            }],
+        },
+    )
+    .await;
+
+    send_client_msg(
+        &mut first,
+        &ClientMsg::NativeInput {
+            tab_id: first_tab_id,
+            data: b"printf __cmux_ios_broadcast__\\n\r".to_vec(),
+        },
+    )
+    .await;
+
+    let needle = b"__cmux_ios_broadcast__";
+    for ws in [&mut first, &mut second] {
+        let seen = recv_until_server_msg(ws, Duration::from_secs(3), |message| match message {
+            ServerMsg::PtyBytes { data, .. } => {
+                data.windows(needle.len()).any(|window| window == needle)
+            }
+            _ => false,
+        })
+        .await
+        .expect("expected every libghostty native client to receive PTY bytes");
+        match seen {
+            ServerMsg::PtyBytes { tab_id, data } => {
+                assert_eq!(tab_id, first_tab_id);
+                assert!(data.windows(needle.len()).any(|window| window == needle));
+            }
+            other => panic!("expected PTY bytes, got {other:?}"),
+        }
+    }
+
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn websocket_native_layout_resizes_pty_to_visible_client_size() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("server.sock");
