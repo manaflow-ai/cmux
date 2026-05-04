@@ -156,8 +156,14 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertTrue(surfaceView.accessoryActionIdentifiersForTesting.contains("terminal.inputAccessory.command"))
     }
 
-    func testGhosttyFontZoomClampsRepeatedGesturesToMobileBounds() throws {
+    func testGhosttyFontZoomClampsRepeatedGesturesToMobileBounds() async throws {
         let (surfaceView, _) = try makeSurfaceView()
+        let appliedExpectation = expectation(description: "Ghostty applied final clamped font size")
+        surfaceView.onFontZoomAppliedForTesting = { fontSize in
+            if fontSize == 30 {
+                appliedExpectation.fulfill()
+            }
+        }
 
         for _ in 0..<100 {
             _ = surfaceView.simulateFontZoomForTesting(.decrease)
@@ -172,18 +178,68 @@ final class CmxGhosttyTerminalSurfaceTests: XCTestCase {
         XCTAssertFalse(surfaceView.simulateFontZoomForTesting(.increase))
         XCTAssertGreaterThanOrEqual(minimum, 9)
         XCTAssertLessThanOrEqual(maximum, 30)
+        await fulfillment(of: [appliedExpectation], timeout: 5.0)
     }
 
-    func testGhosttyPinchZoomCoalescesGeometrySyncUntilGestureEnd() throws {
+    func testGhosttyPinchZoomCoalescesGeometrySyncUntilGestureEnd() async throws {
         let (surfaceView, delegate) = try makeSurfaceView()
+        let appliedExpectation = expectation(description: "Ghostty applied coalesced pinch zoom")
+        surfaceView.onFontZoomAppliedForTesting = { fontSize in
+            if fontSize == 24 {
+                appliedExpectation.fulfill()
+            }
+        }
         delegate.resizeCount = 0
 
         surfaceView.simulatePinchZoomCycleForTesting(Array(repeating: .increase, count: 8))
         surfaceView.simulatePinchZoomCycleForTesting([.decrease, .increase])
 
+        await fulfillment(of: [appliedExpectation], timeout: 5.0)
         XCTAssertNotNil(delegate.lastSize)
         XCTAssertEqual(delegate.resizeCount, 1)
         XCTAssertEqual(surfaceView.fontSizeForTesting, 24)
+    }
+
+    func testGhosttyPinchZoomStaysResponsiveAfterRepeatedRenderedZooms() async throws {
+        let (surfaceView, delegate) = try makeSurfaceView()
+        surfaceView.frame = CGRect(x: 0, y: 0, width: 390, height: 640)
+        surfaceView.layoutIfNeeded()
+
+        let renderedExpectation = expectation(description: "Ghostty rendered before repeated zoom")
+        renderedExpectation.assertForOverFulfill = false
+        surfaceView.onOutputProcessedForTesting = {
+            let rendered = surfaceView.accessibilityRenderedTextForTesting() ?? ""
+            if rendered.contains("zoom-test$") {
+                renderedExpectation.fulfill()
+            }
+        }
+        surfaceView.processOutput(Data("zoom-test$ ".utf8))
+        await fulfillment(of: [renderedExpectation], timeout: 5.0)
+
+        let zoomExpectation = expectation(description: "Ghostty applied repeated zooms without blocking input")
+        surfaceView.onFontZoomAppliedForTesting = { fontSize in
+            if fontSize == 16 {
+                zoomExpectation.fulfill()
+            }
+        }
+        delegate.resizeCount = 0
+        for _ in 0..<32 {
+            surfaceView.simulatePinchZoomCycleForTesting([.decrease])
+            surfaceView.simulatePinchZoomCycleForTesting([.increase])
+        }
+        await fulfillment(of: [zoomExpectation], timeout: 5.0)
+
+        let inputExpectation = expectation(description: "Ghostty accepted input after repeated zoom")
+        delegate.onInput = { data in
+            if data == Data("x".utf8) {
+                inputExpectation.fulfill()
+            }
+        }
+        surfaceView.simulateTextInputForTesting("x")
+
+        await fulfillment(of: [inputExpectation], timeout: 2.0)
+        XCTAssertGreaterThan(delegate.resizeCount, 0)
+        XCTAssertEqual(surfaceView.fontSizeForTesting, 16)
     }
 
     func testGhosttySurfaceCanForceInitialGridReportAfterCoordinatorBinding() throws {

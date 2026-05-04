@@ -793,6 +793,12 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private static let maximumMobileFontSize: Float32 = 30
     private static let mobileFontZoomStep: Float32 = 1
 
+    private struct PendingFontSizeApplication {
+        var target: Float32
+        var reportResize: Bool
+        var synchronizeGeometry: Bool
+    }
+
     private weak var runtime: GhosttyRuntime?
     private weak var delegate: GhosttyTerminalSurfaceViewDelegate?
     private let bridge = GhosttySurfaceBridge()
@@ -803,8 +809,12 @@ public final class GhosttyTerminalSurfaceView: UIView {
     private var pinchAccumulatedScale: CGFloat = 1
     private var pinchTargetFontSize: Float32?
     private var currentFontSize = GhosttyTerminalSurfaceView.defaultMobileFontSize
+    private var appliedFontSize = GhosttyTerminalSurfaceView.defaultMobileFontSize
+    private var pendingFontSizeApplication: PendingFontSizeApplication?
+    private var isApplyingFontSize = false
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)?
+    var onFontZoomAppliedForTesting: ((Float32) -> Void)?
     #endif
     // Keep `ghostty_surface_process_output` off the main thread. This is
     // per surface so a slow free or render on one terminal cannot block input
@@ -1033,6 +1043,8 @@ public final class GhosttyTerminalSurfaceView: UIView {
         guard let surface else { return }
         Self.unregister(surface: surface)
         self.surface = nil
+        pendingFontSizeApplication = nil
+        isApplyingFontSize = false
         bridge.detach()
         GhosttySurfaceDisposer.dispose(surface: surface, bridge: bridge, queue: outputQueue)
     }
@@ -1085,17 +1097,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         let height = UInt32(max(1, Int((max(bounds.height, 1) * scale).rounded(.down))))
         ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(surface, width, height)
-        let size = ghostty_surface_size(surface)
-        let gridSize = TerminalGridSize(
-            columns: Int(size.columns),
-            rows: Int(size.rows),
-            pixelWidth: Int(size.width_px),
-            pixelHeight: Int(size.height_px)
-        )
-        if reportResize, forceReport || gridSize != lastReportedSize {
-            lastReportedSize = gridSize
-            delegate?.ghosttyTerminalSurfaceView(self, didResize: gridSize)
-        }
+        reportCurrentSurfaceGridSize(surface: surface, reportResize: reportResize, forceReport: forceReport)
         for sublayer in layer.sublayers ?? [] where String(describing: type(of: sublayer)) == "IOSurfaceLayer" {
             sublayer.frame = bounds
             sublayer.bounds = CGRect(origin: .zero, size: bounds.size)
@@ -1181,25 +1183,102 @@ public final class GhosttyTerminalSurfaceView: UIView {
     ) -> Bool {
         guard let surface else { return false }
         guard nextFontSize != currentFontSize else { return false }
-        let direction: TerminalFontZoomDirection = nextFontSize > currentFontSize ? .increase : .decrease
-        let action = direction.bindingAction(delta: abs(nextFontSize - currentFontSize))
-        let handled = action.withCString { pointer in
-            ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
-        }
-        guard handled else {
-            #if DEBUG
-            cmuxDebugLog("ios.ghostty.fontSize.failed target=\(nextFontSize)")
-            #endif
-            return false
-        }
         currentFontSize = nextFontSize
         #if DEBUG
-        cmuxDebugLog("ios.ghostty.fontSize.applied target=\(nextFontSize) reportResize=\(reportResize ? 1 : 0)")
+        cmuxDebugLog("ios.ghostty.fontSize.requested target=\(nextFontSize) reportResize=\(reportResize ? 1 : 0)")
         #endif
-        if synchronizeGeometry {
-            syncSurfaceGeometry(reportResize: reportResize, renderNow: false)
-        }
+        pendingFontSizeApplication = PendingFontSizeApplication(
+            target: nextFontSize,
+            reportResize: reportResize,
+            synchronizeGeometry: synchronizeGeometry
+        )
+        startNextFontSizeApplicationIfNeeded(surface: surface)
         return true
+    }
+
+    private func startNextFontSizeApplicationIfNeeded(surface: ghostty_surface_t? = nil) {
+        guard !isApplyingFontSize else { return }
+        guard let pending = pendingFontSizeApplication else {
+            stopDisplayLinkIfIdleOffscreen()
+            return
+        }
+        guard let surface = surface ?? self.surface else {
+            pendingFontSizeApplication = nil
+            stopDisplayLinkIfIdleOffscreen()
+            return
+        }
+        pendingFontSizeApplication = nil
+        guard pending.target != appliedFontSize else {
+            startNextFontSizeApplicationIfNeeded(surface: surface)
+            return
+        }
+
+        isApplyingFontSize = true
+        startDisplayLink()
+        let direction: TerminalFontZoomDirection = pending.target > appliedFontSize ? .increase : .decrease
+        let action = direction.bindingAction(delta: abs(pending.target - appliedFontSize))
+        let target = pending.target
+        let reportResize = pending.reportResize
+        let synchronizeGeometry = pending.synchronizeGeometry
+        let surfaceBits = UInt(bitPattern: UnsafeRawPointer(surface))
+        outputQueue.async { [weak self] in
+            guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else { return }
+            let handled = action.withCString { pointer in
+                ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isApplyingFontSize = false
+                guard self.surface == surface else {
+                    self.stopDisplayLinkIfIdleOffscreen()
+                    return
+                }
+                if handled {
+                    self.appliedFontSize = target
+                    if synchronizeGeometry {
+                        self.reportCurrentSurfaceGridSize(surface: surface, reportResize: reportResize)
+                        self.needsDraw = true
+                    }
+                    #if DEBUG
+                    cmuxDebugLog("ios.ghostty.fontSize.applied target=\(target) reportResize=\(reportResize ? 1 : 0)")
+                    self.onFontZoomAppliedForTesting?(target)
+                    #endif
+                } else {
+                    self.currentFontSize = self.appliedFontSize
+                    #if DEBUG
+                    cmuxDebugLog("ios.ghostty.fontSize.failed target=\(target)")
+                    #endif
+                }
+                self.startNextFontSizeApplicationIfNeeded(surface: surface)
+            }
+        }
+    }
+
+    private func stopDisplayLinkIfIdleOffscreen() {
+        if window == nil,
+           !isApplyingFontSize,
+           pendingFontSizeApplication == nil,
+           !needsDraw {
+            stopDisplayLink()
+        }
+    }
+
+    private func reportCurrentSurfaceGridSize(
+        surface: ghostty_surface_t,
+        reportResize: Bool = true,
+        forceReport: Bool = false
+    ) {
+        let size = ghostty_surface_size(surface)
+        let gridSize = TerminalGridSize(
+            columns: Int(size.columns),
+            rows: Int(size.rows),
+            pixelWidth: Int(size.width_px),
+            pixelHeight: Int(size.height_px)
+        )
+        if reportResize, forceReport || gridSize != lastReportedSize {
+            lastReportedSize = gridSize
+            delegate?.ghosttyTerminalSurfaceView(self, didResize: gridSize)
+        }
     }
 
     private func nextMobileFontSize(from fontSize: Float32, after direction: TerminalFontZoomDirection) -> Float32 {
