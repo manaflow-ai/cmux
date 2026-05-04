@@ -28,62 +28,33 @@ private struct WorkspaceListView: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 14, trailing: 16))
                 .listRowSeparator(.hidden)
 
-            Section {
-                NodeStrip()
-                    .listRowInsets(EdgeInsets())
+            if workspaces.isEmpty {
+                EmptyWorkspaceSearch()
                     .listRowSeparator(.hidden)
-                    .padding(.top, 6)
-                    .padding(.bottom, 8)
-            } header: {
-                Text(String(localized: "home.nodes.header", defaultValue: "Nodes"))
-            }
-            .textCase(nil)
-
-            Section {
-                if workspaces.isEmpty {
-                    EmptyWorkspaceSearch()
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16))
-                } else {
-                    ForEach(workspaces) { workspace in
-                        let node = store.node(for: workspace)
-                        NavigationLink {
-                            TerminalDetailView()
-                                .onAppear {
-                                    store.select(workspace: workspace)
-                                }
-                        } label: {
-                            WorkspaceConversationRow(
-                                workspace: workspace,
-                                node: node,
-                                isSelected: horizontalSizeClass == .regular && workspace.id == store.selectedWorkspaceID
-                            )
-                        }
-                        .accessibilityIdentifier("workspace.row.\(workspace.id)")
+                    .listRowInsets(EdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16))
+            } else {
+                ForEach(workspaces) { workspace in
+                    let node = store.node(for: workspace)
+                    NavigationLink {
+                        TerminalDetailView()
+                            .onAppear {
+                                store.select(workspace: workspace)
+                            }
+                    } label: {
+                        WorkspaceConversationRow(
+                            workspace: workspace,
+                            node: node,
+                            isSelected: horizontalSizeClass == .regular && workspace.id == store.selectedWorkspaceID
+                        )
                     }
+                    .accessibilityIdentifier("workspace.row.\(workspace.id)")
+                    .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 12))
                 }
-            } header: {
-                Text(String(localized: "home.recent.header", defaultValue: "Recent"))
             }
-            .textCase(nil)
         }
         .listStyle(.plain)
         .navigationTitle(String(localized: "nav.workspaces", defaultValue: "Workspaces"))
         .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                    } label: {
-                        Label(String(localized: "home.menu.refresh_nodes", defaultValue: "Refresh Nodes"), systemImage: "arrow.clockwise")
-                    }
-                    .disabled(true)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .accessibilityLabel(String(localized: "home.menu.more", defaultValue: "More"))
-                }
-            }
-        }
     }
 }
 
@@ -104,82 +75,6 @@ private struct WorkspaceSearchField: View {
         .padding(.vertical, 10)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityIdentifier("workspace.search")
-    }
-}
-
-private struct NodeStrip: View {
-    @EnvironmentObject private var store: CmxConnectionStore
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 14) {
-                ForEach(store.nodes) { node in
-                    NodePin(node: node, workspaceCount: store.workspaceCount(for: node))
-                }
-            }
-            .padding(.horizontal, 16)
-        }
-    }
-}
-
-private struct NodePin: View {
-    let node: CmxHiveNode
-    let workspaceCount: Int
-
-    var body: some View {
-        VStack(spacing: 6) {
-            ZStack(alignment: .topTrailing) {
-                Circle()
-                    .fill(nodeGradient)
-                    .frame(width: 62, height: 62)
-                    .overlay {
-                        if !node.isOnline {
-                            Circle()
-                                .fill(Color.gray.opacity(0.52))
-                        }
-                    }
-
-                Image(systemName: node.symbolName)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.white)
-
-                if workspaceCount > 0 {
-                    Text("\(workspaceCount)")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(Color.black.opacity(0.72)))
-                        .offset(x: 8, y: -6)
-                }
-            }
-
-            Text(node.name)
-                .font(.caption.weight(.semibold))
-                .lineLimit(1)
-
-            Text(node.isOnline ? node.subtitle : String(localized: "home.node.offline", defaultValue: "offline"))
-                .font(.caption2)
-                .foregroundStyle(node.isOnline ? Color.secondary : Color.orange)
-                .lineLimit(1)
-        }
-        .frame(width: 94)
-        .opacity(node.isOnline ? 1.0 : 0.55)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("node.pin.\(node.id)")
-    }
-
-    private var nodeGradient: LinearGradient {
-        let colors: [Color]
-        switch node.id % 3 {
-        case 0:
-            colors = [Color.blue, Color.cyan]
-        case 1:
-            colors = [Color.green, Color.teal]
-        default:
-            colors = [Color.indigo, Color.orange]
-        }
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 }
 
