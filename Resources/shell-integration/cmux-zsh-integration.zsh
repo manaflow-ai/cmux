@@ -85,6 +85,14 @@ _cmux_relay_rpc_bg() {
     { "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true } >/dev/null 2>&1 &!
 }
 
+_cmux_cli_rpc_bg() {
+    local method="$1"
+    local params="$2"
+    local relay_cli=""
+    relay_cli="$(_cmux_relay_cli_path)" || return 1
+    { "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true } >/dev/null 2>&1 &!
+}
+
 _cmux_relay_rpc() {
     local method="$1"
     local params="$2"
@@ -1125,6 +1133,8 @@ _cmux_report_agent_hook_nudge() {
     local agent=""
     agent="$(_cmux_agent_hook_agent_for_command "$1")" || return 0
     [[ -n "$agent" ]] || return 0
+    local params="{\"agent\":\"$agent\",\"workspace_id\":\"$CMUX_TAB_ID\",\"surface_id\":\"$CMUX_PANEL_ID\"}"
+    _cmux_cli_rpc_bg "agent_hooks.nudge" "$params" && return 0
     _cmux_send_bg "agent_hooks_nudge $agent --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 

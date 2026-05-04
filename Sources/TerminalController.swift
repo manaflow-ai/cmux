@@ -2449,6 +2449,8 @@ class TerminalController {
         // Settings
         case "settings.open":
             return v2Result(id: id, self.v2SettingsOpen(params: params))
+        case "agent_hooks.nudge":
+            return v2Result(id: id, self.v2AgentHooksNudge(params: params))
 
         // Feedback
         case "feedback.open":
@@ -2843,6 +2845,7 @@ class TerminalController {
             "workspace.remote.terminal_session_end",
             "session.restore_previous",
             "settings.open",
+            "agent_hooks.nudge",
             "feedback.open",
             "feedback.submit",
             "feed.push",
@@ -7888,6 +7891,25 @@ class TerminalController {
     private func v2NotificationClear() -> V2CallResult {
         TerminalMutationBus.shared.enqueueClearAllNotifications()
         return .ok([:])
+    }
+
+    private func v2AgentHooksNudge(params: [String: Any]) -> V2CallResult {
+        guard let agentName = v2String(params, "agent") else {
+            return .err(code: "invalid_params", message: "Missing agent", data: ["field": "agent"])
+        }
+        guard let tabId = v2UUID(params, "workspace_id") ?? v2UUID(params, "tab_id") else {
+            return .err(code: "invalid_params", message: "Missing workspace_id", data: ["field": "workspace_id"])
+        }
+        let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "panel_id")
+
+        TerminalMutationBus.shared.enqueueMainActorMutation {
+            AgentHookIntegrationSettings.showSetupPromptIfNeeded(
+                agentName: agentName,
+                tabId: tabId,
+                surfaceId: surfaceId
+            )
+        }
+        return .ok(["queued": true])
     }
 
     private func v2FeedbackOpen(params: [String: Any]) -> V2CallResult {
