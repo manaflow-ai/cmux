@@ -88,9 +88,6 @@ private struct WorkspaceNavigationRow: View {
             NavigationLink(value: WorkspaceNavigationRoute(workspaceID: workspace.id)) {
                 row
             }
-            .simultaneousGesture(TapGesture().onEnded {
-                selectWorkspace(workspace)
-            })
             .accessibilityIdentifier("workspace.row.\(workspace.id)")
         case .sidebar:
             Button {
@@ -306,7 +303,17 @@ private struct TerminalDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                TerminalPickerMenu()
+                TerminalPickerMenu(
+                    workspaces: store.workspaces,
+                    selectedWorkspace: store.selectedWorkspace,
+                    selectedWorkspaceID: store.selectedWorkspaceID,
+                    selectedSpaceID: store.selectedSpaceID,
+                    selectedTerminalID: store.selectedTerminalID,
+                    revision: store.terminalAppearanceRevision,
+                    selectWorkspace: { store.select(workspace: $0) },
+                    selectSpace: { store.select(space: $0) },
+                    selectTerminal: { space, terminal in store.select(space: space); store.select(terminal: terminal) }
+                )
             }
         }
         .toolbarBackground(TerminalThemeChrome.background(revision: store.terminalAppearanceRevision), for: .navigationBar)
@@ -327,31 +334,39 @@ private struct TerminalDetailView: View {
 }
 
 private struct TerminalPickerMenu: View {
-    @EnvironmentObject private var store: CmxConnectionStore
+    let workspaces: [CmxWorkspace]
+    let selectedWorkspace: CmxWorkspace
+    let selectedWorkspaceID: UInt64
+    let selectedSpaceID: UInt64
+    let selectedTerminalID: UInt64
+    let revision: Int
+    let selectWorkspace: (CmxWorkspace) -> Void
+    let selectSpace: (CmxSpace) -> Void
+    let selectTerminal: (CmxSpace, CmxTerminal) -> Void
 
     var body: some View {
         Menu {
-            ForEach(store.workspaces) { workspace in
+            ForEach(workspaces) { workspace in
                 Button {
-                    store.select(workspace: workspace)
+                    selectWorkspace(workspace)
                 } label: {
                     Label(
                         workspace.title,
-                        systemImage: workspace.id == store.selectedWorkspaceID ? "checkmark" : "rectangle.stack"
+                        systemImage: workspace.id == selectedWorkspaceID ? "checkmark" : "rectangle.stack"
                     )
                 }
             }
 
             Divider()
 
-            ForEach(store.selectedWorkspace.spaces) { space in
+            ForEach(selectedWorkspace.spaces) { space in
                 Menu {
                     Button {
-                        store.select(space: space)
+                        selectSpace(space)
                     } label: {
                         Label(
                             space.title,
-                            systemImage: space.id == store.selectedSpaceID ? "checkmark" : "rectangle.split.1x2"
+                            systemImage: space.id == selectedSpaceID ? "checkmark" : "rectangle.split.1x2"
                         )
                     }
 
@@ -361,31 +376,30 @@ private struct TerminalPickerMenu: View {
 
                     ForEach(space.terminals) { terminal in
                         Button {
-                            store.select(space: space)
-                            store.select(terminal: terminal)
+                            selectTerminal(space, terminal)
                         } label: {
                             Label(
                                 terminal.title,
-                                systemImage: terminal.id == store.selectedTerminal.id ? "terminal.fill" : "terminal"
+                                systemImage: terminal.id == selectedTerminalID ? "terminal.fill" : "terminal"
                             )
                         }
                     }
                 } label: {
                     Label(
                         space.title,
-                        systemImage: space.id == store.selectedSpaceID ? "checkmark.circle" : "rectangle.split.1x2"
+                        systemImage: space.id == selectedSpaceID ? "checkmark.circle" : "rectangle.split.1x2"
                     )
                 }
             }
         } label: {
             HStack(spacing: 5) {
-                Text(store.selectedWorkspace.title)
+                Text(selectedWorkspace.title)
                     .font(.headline.weight(.semibold))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.bold))
             }
-            .foregroundStyle(TerminalThemeChrome.foreground(revision: store.terminalAppearanceRevision))
+            .foregroundStyle(TerminalThemeChrome.foreground(revision: revision))
             .accessibilityIdentifier("terminal.selector")
         }
     }
