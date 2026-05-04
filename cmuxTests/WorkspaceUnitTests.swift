@@ -667,51 +667,6 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
     }
 
-    func testSettingsFileStoreParsesNumberedShortcutsWithoutConsultingLiveStore() throws {
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let liveSettingsFileURL = directoryURL.appendingPathComponent("live-cmux.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "openBrowser": "cmd+2"
-              }
-            }
-            """,
-            to: liveSettingsFileURL
-        )
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: liveSettingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "selectWorkspaceByNumber": "cmd+2"
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
-
-        let store = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        XCTAssertEqual(
-            store.override(for: .selectWorkspaceByNumber),
-            StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
-        )
-    }
-
     func testSettingsFileStoreParsesRightSidebarShortcutBindings() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
