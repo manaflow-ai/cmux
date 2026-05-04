@@ -2890,16 +2890,22 @@ struct ContentView: View {
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
     }
 
-    private func schedulePortalGeometrySynchronize() {
+    private func synchronizePortalGeometry(immediately: Bool = false) {
         if let observedWindow {
-            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            if immediately {
+                observedWindow.contentView?.superview?.layoutSubtreeIfNeeded()
+                observedWindow.contentView?.layoutSubtreeIfNeeded()
+                TerminalWindowPortalRegistry.synchronizeExternalGeometryNow(for: observedWindow)
+                BrowserWindowPortalRegistry.synchronizeExternalGeometryNow(for: observedWindow)
+            } else {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+                BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            }
         } else {
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
         }
     }
-
     private func refreshWindowChromeMetrics(for window: NSWindow) {
         // Keep native measurements around for minimal WindowGroup safe-area cancellation.
         // Standard mode uses cmux's visual chrome height for layout.
@@ -3685,7 +3691,7 @@ struct ContentView: View {
             }
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals and browsers need an explicit post-layout geometry resync.
-            schedulePortalGeometrySynchronize()
+            synchronizePortalGeometry()
             updateSidebarResizerBandState()
         })
 
@@ -3694,27 +3700,21 @@ struct ContentView: View {
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
-            schedulePortalGeometrySynchronize()
+            synchronizePortalGeometry(immediately: true)
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
-
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
             if !isVisible {
                 _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
             }
-            if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            }
+            synchronizePortalGeometry(immediately: true)
         })
-
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
             tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")
             guard sidebarState.isVisible,
                   sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
-            schedulePortalGeometrySynchronize()
+            synchronizePortalGeometry()
         })
 
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
@@ -3726,7 +3726,7 @@ struct ContentView: View {
                 observedWindow.contentView?.superview?.needsLayout = true
                 observedWindow.invalidateShadow()
             }
-            schedulePortalGeometrySynchronize()
+            synchronizePortalGeometry()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })

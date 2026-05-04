@@ -2435,7 +2435,7 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
-    private func synchronizeAllEntriesFromExternalGeometryChange() {
+    fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
         installedContainerView?.layoutSubtreeIfNeeded()
         installedReferenceView?.layoutSubtreeIfNeeded()
@@ -4175,7 +4175,7 @@ enum BrowserWindowPortalRegistry {
     static func scheduleExternalGeometrySynchronize(for window: NSWindow) {
         portalsByWindowId[ObjectIdentifier(window)]?.scheduleExternalGeometrySynchronize()
     }
-
+    static func synchronizeExternalGeometryNow(for window: NSWindow) { portalsByWindowId[ObjectIdentifier(window)]?.synchronizeAllEntriesFromExternalGeometryChange() }
     static func scheduleExternalGeometrySynchronizeForAllWindows() {
         for portal in portalsByWindowId.values {
             portal.scheduleExternalGeometrySynchronize()
