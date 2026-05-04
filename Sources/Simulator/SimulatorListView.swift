@@ -124,6 +124,20 @@ final class SimulatorListModel: ObservableObject {
         }
     }
 
+    /// Streams a single touch phase to the simulator. The view's gesture
+    /// translates a SwiftUI DragGesture into down → move → … → move → up.
+    /// We dispatch off-main so any per-event retry sleeps inside
+    /// IndigoHIDInput don't stutter the main loop.
+    func sendTouchPhase(_ phase: IndigoHIDInput.TouchPhase, at pointInDeviceUnits: CGPoint) {
+        guard let input else { return }
+        let size = touchUnit
+        guard size.width > 0, size.height > 0 else { return }
+        Task.detached { [weak self] in
+            let ok = input.touchPhase(phase, at: pointInDeviceUnits, deviceSize: size)
+            await self?.recordInputResult(ok: ok, fallback: input.lastError)
+        }
+    }
+
     func press(_ button: SimulatorButton) {
         guard let input else { return }
         Task.detached { [weak self] in
@@ -141,7 +155,8 @@ final class SimulatorListModel: ObservableObject {
     private func startStreaming(udid: String) {
         let screen = SimulatorScreen(udid: udid)
         self.screen = screen
-        self.input = IndigoHIDInput(udid: udid)
+        let input = IndigoHIDInput(udid: udid)
+        self.input = input
         self.devicePointSize = SimulatorService.shared.deviceScreenSizeInPoints(udid: udid)
         self.lastInputError = nil
         do {
@@ -157,7 +172,11 @@ final class SimulatorListModel: ObservableObject {
             self.screen = nil
             self.input = nil
             loadError = error.localizedDescription
+            return
         }
+        // Pre-warm the HID client so the first mousedown doesn't pay
+        // the ~40ms pointer/mouse service warmup cost.
+        Task.detached { _ = input.prewarm() }
     }
 
     private func stopStreaming() {
@@ -182,6 +201,7 @@ final class SimulatorListModel: ObservableObject {
 /// `initialUDID` selects a device automatically when the view appears.
 struct SimulatorListView: View {
     @StateObject private var model = SimulatorListModel()
+    @State private var isTouchActive: Bool = false
     var initialUDID: String?
     var hidesDeviceList: Bool = false
 
@@ -383,18 +403,28 @@ struct SimulatorListView: View {
     // MARK: - gesture
 
     private func dragGesture(in rendered: CGRect) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onEnded { value in
-                let start = devicePoint(viewPoint: value.startLocation, rendered: rendered)
-                let end = devicePoint(viewPoint: value.location, rendered: rendered)
-                let dx = end.x - start.x
-                let dy = end.y - start.y
-                let dist = (dx * dx + dy * dy).squareRoot()
-                if dist < 6 {
-                    model.tap(at: start)
+        // Stream the gesture: first .onChanged becomes touch-down,
+        // subsequent .onChanged become moves, .onEnded becomes touch-up.
+        // This matches a real finger interaction so taps highlight icons
+        // immediately and drags scrub in real time.
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                let p = devicePoint(viewPoint: value.location, rendered: rendered)
+                if isTouchActive {
+                    model.sendTouchPhase(.move, at: p)
                 } else {
-                    model.drag(from: start, to: end)
+                    isTouchActive = true
+                    model.sendTouchPhase(.down, at: p)
                 }
+            }
+            .onEnded { value in
+                let p = devicePoint(viewPoint: value.location, rendered: rendered)
+                if !isTouchActive {
+                    // Edge case: zero-distance click that bypassed onChanged.
+                    model.sendTouchPhase(.down, at: p)
+                }
+                model.sendTouchPhase(.up, at: p)
+                isTouchActive = false
             }
     }
 

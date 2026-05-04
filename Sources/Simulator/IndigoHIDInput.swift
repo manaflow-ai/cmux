@@ -106,7 +106,20 @@ final class IndigoHIDInput: @unchecked Sendable {
     func touchPhase(_ phase: TouchPhase, at point: CGPoint, deviceSize: CGSize) -> Bool {
         guard let c = ensureWarm() else { return false }
         let (et, dir) = mouseEvent(for: phase)
+#if DEBUG
+        cmuxDebugLog(
+            "simulator.input touchPhase=\(phase) udid=\(udid.prefix(8)) " +
+            "p=(\(Int(point.x)),\(Int(point.y))) sz=(\(Int(deviceSize.width)),\(Int(deviceSize.height)))"
+        )
+#endif
         return sendMouse(client: c, p1: point, p2: nil, eventType: et, direction: dir, deviceSize: deviceSize)
+    }
+
+    /// Force the warmup path eagerly so the first user gesture doesn't
+    /// pay the ~40ms pointer + mouse service spin-up.
+    @discardableResult
+    func prewarm() -> Bool {
+        return ensureWarm() != nil
     }
 
     @discardableResult
