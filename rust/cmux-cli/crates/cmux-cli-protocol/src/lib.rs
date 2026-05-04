@@ -766,12 +766,9 @@ where
     R: AsyncRead + Unpin,
     T: for<'de> Deserialize<'de>,
 {
-    let mut len_buf = [0u8; 4];
-    match reader.read_exact(&mut len_buf).await {
-        Ok(_) => (),
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e.into()),
-    }
+    let Some(len_buf) = read_len_prefix(reader).await? else {
+        return Ok(None);
+    };
     let len = u32::from_be_bytes(len_buf) as usize;
     if len > MAX_FRAME_BYTES {
         let all_printable = len_buf.iter().all(|b| (0x20..=0x7e).contains(b));
@@ -793,12 +790,41 @@ where
     T: Serialize,
 {
     let buf = rmp_serde::to_vec_named(msg)?;
-    let len = u32::try_from(buf.len())
-        .map_err(|_| CodecError::FrameTooLarge(buf.len(), u32::MAX as usize))?;
+    let len = checked_frame_len(buf.len())?;
     writer.write_all(&len.to_be_bytes()).await?;
     writer.write_all(&buf).await?;
     writer.flush().await?;
     Ok(())
+}
+
+async fn read_len_prefix<R>(reader: &mut R) -> Result<Option<[u8; 4]>, CodecError>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut len_buf = [0u8; 4];
+    let mut read = 0usize;
+    while read < len_buf.len() {
+        let n = reader.read(&mut len_buf[read..]).await?;
+        if n == 0 {
+            if read == 0 {
+                return Ok(None);
+            }
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "truncated frame length",
+            )
+            .into());
+        }
+        read += n;
+    }
+    Ok(Some(len_buf))
+}
+
+fn checked_frame_len(len: usize) -> Result<u32, CodecError> {
+    if len > MAX_FRAME_BYTES {
+        return Err(CodecError::FrameTooLarge(len, MAX_FRAME_BYTES));
+    }
+    Ok(len as u32)
 }
 
 #[cfg(test)]
@@ -897,5 +923,38 @@ mod tests {
             ) => assert_eq!(sent, got),
             _ => panic!("wrong variant after roundtrip"),
         }
+    }
+
+    #[tokio::test]
+    async fn read_msg_returns_none_only_for_clean_eof_before_frame() {
+        let mut reader = tokio::io::empty();
+
+        let got = read_msg::<_, ClientMsg>(&mut reader).await.unwrap();
+
+        assert!(got.is_none());
+    }
+
+    #[tokio::test]
+    async fn read_msg_rejects_truncated_length_prefix() {
+        let mut reader = &b"\x00\x00"[..];
+
+        let error = read_msg::<_, ClientMsg>(&mut reader).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            CodecError::Io(ref io_error)
+                if io_error.kind() == std::io::ErrorKind::UnexpectedEof
+        ));
+    }
+
+    #[test]
+    fn checked_frame_len_rejects_frames_above_protocol_limit() {
+        let error = checked_frame_len(MAX_FRAME_BYTES + 1).unwrap_err();
+
+        assert!(matches!(
+            error,
+            CodecError::FrameTooLarge(len, max)
+                if len == MAX_FRAME_BYTES + 1 && max == MAX_FRAME_BYTES
+        ));
     }
 }
