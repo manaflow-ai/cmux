@@ -450,6 +450,9 @@ fn query_host_terminal_colors_raw() -> Option<TerminalColorReport> {
             .filter_map(|index| parse_osc_palette_color(&bytes, index).map(|color| (index, color)))
             .collect::<BTreeMap<_, _>>(),
     };
+    if colors.foreground.is_none() && colors.background.is_none() && colors.palette.is_empty() {
+        return None;
+    }
     if trace_palette {
         log_host_terminal_color_probe(&bytes, &colors);
     }
