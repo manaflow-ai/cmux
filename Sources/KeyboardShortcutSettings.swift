@@ -685,38 +685,6 @@ enum KeyboardShortcutSettings {
         defaults.set(data, forKey: action.defaultsKey)
     }
 
-    static func shortcutIfBound(for action: Action) -> StoredShortcut? {
-        #if DEBUG
-        shortcutLookupObserver?(action)
-        #endif
-
-        if let managedShortcut = settingsFileStore.override(for: action) {
-            return managedShortcut.isUnbound ? nil : managedShortcut
-        }
-
-        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            let defaultShortcut = action.defaultShortcut
-            return defaultShortcut.isUnbound ? nil : defaultShortcut
-        }
-        return shortcut.isUnbound ? nil : shortcut
-    }
-
-    static func shortcut(for action: Action) -> StoredShortcut {
-        shortcutIfBound(for: action) ?? .unbound
-    }
-
-    static func menuShortcut(for action: Action) -> StoredShortcut {
-        guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
-            return .unbound
-        }
-        return shortcut(for: action)
-    }
-
-    static func isManagedBySettingsFile(_ action: Action) -> Bool {
-        settingsFileStore.isManagedByFile(action)
-    }
-
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
         guard !isManagedBySettingsFile(action) else { return }
 
@@ -726,10 +694,6 @@ enum KeyboardShortcutSettings {
 
         persistShortcut(storedShortcut, for: action)
         postDidChangeNotification(action: action)
-    }
-
-    static func unbindShortcut(for action: Action) {
-        setShortcut(.unbound, for: action)
     }
 
     static func swapShortcutConflict(
@@ -756,11 +720,6 @@ enum KeyboardShortcutSettings {
         persistShortcut(resolvedConflictingShortcut, for: conflictingAction)
         postDidChangeNotification(action: currentAction)
         postDidChangeNotification(action: conflictingAction)
-    }
-
-    static func settingsFileManagedSubtitle(for action: Action) -> String? {
-        guard isManagedBySettingsFile(action) else { return nil }
-        return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in cmux.json")
     }
 
     static func notifySettingsFileDidChange(center: NotificationCenter = .default) { postDidChangeNotification(center: center) }
