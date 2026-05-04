@@ -49,6 +49,7 @@ struct CmxPairingAccepted: Codable, Equatable {
 enum CmxPairingAuthError: LocalizedError, Equatable {
     case pairingIDMismatch
     case unsupportedALPN(String)
+    case nonceGenerationFailed(OSStatus)
 
     var errorDescription: String? {
         switch self {
@@ -59,12 +60,18 @@ enum CmxPairingAuthError: LocalizedError, Equatable {
                 format: String(localized: "pairing.error.alpn", defaultValue: "Unsupported pairing protocol %@."),
                 alpn
             )
+        case .nonceGenerationFailed:
+            return String(localized: "pairing.error.nonce", defaultValue: "Could not generate a secure pairing nonce.")
         }
     }
 }
 
 enum CmxPairingAuth {
-    static func makeStart(pairingID: String, clientNonce: String = makeNonce()) -> CmxPairingStart {
+    static func makeStart(pairingID: String) throws -> CmxPairingStart {
+        try makeStart(pairingID: pairingID, clientNonce: makeNonce())
+    }
+
+    static func makeStart(pairingID: String, clientNonce: String) -> CmxPairingStart {
         CmxPairingStart(type: "pairing_start", pairingID: pairingID, clientNonce: clientNonce)
     }
 
@@ -109,9 +116,12 @@ enum CmxPairingAuth {
         return data
     }
 
-    private static func makeNonce() -> String {
+    private static func makeNonce() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            throw CmxPairingAuthError.nonceGenerationFailed(status)
+        }
         return Data(bytes).base64URLEncodedString()
     }
 }

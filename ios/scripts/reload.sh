@@ -51,19 +51,20 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
-DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-dev"
-BUNDLE_ID="dev.cmux.ios"
-APP_NAME="cmux iOS"
-if [ -n "$TAG" ]; then
-    TAG_SLUG="$(echo "$TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/./g; s/^\.+//; s/\.+$//; s/\.+/./g')"
-    if [ -z "$TAG_SLUG" ]; then
-        echo "Tag must contain at least one letter or digit" >&2
-        exit 1
-    fi
-    DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
-    BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
-    APP_NAME="$TAG"
+if [ -z "$TAG" ]; then
+    echo "error: --tag is required (example: ios/scripts/reload.sh --tag ihome)" >&2
+    exit 1
 fi
+TAG_SLUG="$(echo "$TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/./g; s/^\.+//; s/\.+$//; s/\.+/./g')"
+if [ -z "$TAG_SLUG" ]; then
+    echo "Tag must contain at least one letter or digit" >&2
+    exit 1
+fi
+
+DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
+BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
+APP_NAME="$TAG_SLUG"
+DISPLAY_NAME="$TAG"
 
 "$REPO_ROOT/scripts/ensure-ghosttykit.sh"
 
@@ -74,7 +75,7 @@ fi
 EXTRA_SETTINGS=(
     "PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID"
     "PRODUCT_NAME=$APP_NAME"
-    "INFOPLIST_KEY_CFBundleDisplayName=$APP_NAME"
+    "INFOPLIST_KEY_CFBundleDisplayName=$DISPLAY_NAME"
 )
 
 echo "Building simulator app..."
@@ -115,7 +116,9 @@ fi
 IPHONE_STATUS="unavailable"
 if [ "$SIMULATOR_ONLY" -eq 0 ]; then
     if command -v jq >/dev/null 2>&1; then
-        IOS_DEVICES="$(xcrun xcdevice list --timeout 2 | jq -r '.[] | select(.simulator == false and .platform == "com.apple.platform.iphoneos" and .available == true) | [.name, .identifier] | @tsv')"
+        if ! IOS_DEVICES="$(xcrun xcdevice list --timeout 2 | jq -r '.[] | select(.simulator == false and .platform == "com.apple.platform.iphoneos" and .available == true) | [.name, .identifier] | @tsv')"; then
+            IOS_DEVICES=""
+        fi
     else
         IOS_DEVICES=""
     fi
@@ -151,6 +154,6 @@ if [ "$SIMULATOR_ONLY" -eq 0 ]; then
     fi
 fi
 
-echo "iOS tag: ${TAG:-untagged}"
+echo "iOS tag: $TAG"
 echo "Simulator reload: $SIMULATOR_STATUS"
 echo "iPhone reload: $IPHONE_STATUS"

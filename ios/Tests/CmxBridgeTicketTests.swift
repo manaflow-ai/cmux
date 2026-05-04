@@ -192,6 +192,16 @@ final class CmxBridgeTicketTests: XCTestCase {
         )
     }
 
+    func testLaunchConfigurationRejectsMissingTicketArgumentValue() {
+        XCTAssertNil(CmxLaunchConfiguration.ticket(arguments: ["app", "--cmux-ticket", "--cmux-autoconnect"], environment: [:]))
+    }
+
+    func testTicketParserMapsMalformedJsonToLocalizedTicketError() {
+        XCTAssertThrowsError(try CmxBridgeTicketParser.parse("{")) { error in
+            XCTAssertEqual(error as? CmxTicketError, .invalidFormat)
+        }
+    }
+
     func testLaunchConfigurationReadsJsonArrayArgument() {
         let arguments = ["app", "[\"--cmux-ticket\",\"ticket\",\"--cmux-autoconnect\"]"]
 
@@ -236,6 +246,36 @@ final class CmxBridgeTicketTests: XCTestCase {
 
         XCTAssertNil(store.stackAuthSession)
         XCTAssertNil(sessionStore.session)
+    }
+
+    @MainActor
+    func testNativeSnapshotDoesNotMarkInactiveWorkspacesUnreadFromActiveTabs() {
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryStackAuthSessionStore(),
+            pairingSecretClient: RecordingPairingSecretClient(),
+            terminalSessionFactory: RecordingTerminalSessionFactory()
+        )
+        store.applyNativeSnapshot(CmxNativeSnapshot(
+            workspaces: [
+                CmxNativeWorkspaceInfo(id: 1, title: "main", spaceCount: 1, tabCount: 1, terminalCount: 1, pinned: false, color: nil),
+                CmxNativeWorkspaceInfo(id: 2, title: "agents", spaceCount: 1, tabCount: 1, terminalCount: 1, pinned: false, color: nil),
+            ],
+            activeWorkspace: 0,
+            activeWorkspaceID: 1,
+            spaces: [CmxNativeSpaceInfo(id: 10, title: "space", paneCount: 1, terminalCount: 1)],
+            activeSpace: 0,
+            activeSpaceID: 10,
+            panels: .leaf(
+                panelID: 20,
+                tabs: [CmxNativeTabInfo(id: 30, title: "shell", hasActivity: true, bellCount: 1)],
+                active: 0,
+                activeTabID: 30
+            ),
+            focusedPanelID: 20,
+            focusedTabID: 30
+        ))
+
+        XCTAssertFalse(store.workspaces.first(where: { $0.id == 2 })?.unread ?? true)
     }
 
     @MainActor

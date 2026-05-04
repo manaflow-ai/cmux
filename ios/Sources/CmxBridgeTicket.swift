@@ -195,7 +195,12 @@ enum CmxBridgeTicketParser {
         guard let data = trimmed.data(using: .utf8) else {
             throw CmxTicketError.invalidUTF8
         }
-        let ticket = try JSONDecoder().decode(CmxBridgeTicket.self, from: data)
+        let ticket: CmxBridgeTicket
+        do {
+            ticket = try JSONDecoder().decode(CmxBridgeTicket.self, from: data)
+        } catch {
+            throw CmxTicketError.invalidFormat
+        }
         guard ticket.version == 1 else {
             throw CmxTicketError.unsupportedVersion(ticket.version)
         }
@@ -239,6 +244,7 @@ enum CmxBridgeTicketParser {
 enum CmxTicketError: LocalizedError, Equatable {
     case empty
     case invalidUTF8
+    case invalidFormat
     case unsupportedVersion(Int)
     case unsupportedALPN(String)
     case missingAuth
@@ -254,6 +260,8 @@ enum CmxTicketError: LocalizedError, Equatable {
             return String(localized: "ticket.error.empty", defaultValue: "No pairing ticket is available.")
         case .invalidUTF8:
             return String(localized: "ticket.error.utf8", defaultValue: "The ticket is not valid UTF-8.")
+        case .invalidFormat:
+            return String(localized: "ticket.error.format", defaultValue: "The pairing ticket is not valid.")
         case .unsupportedVersion(let version):
             return String(
                 format: String(localized: "ticket.error.version", defaultValue: "Unsupported pairing ticket version %d."),

@@ -272,8 +272,8 @@ fn load_ghostty_config_from_paths(paths: Vec<PathBuf>) -> ParsedGhosttyConfig {
         parse_config_file(&path, &mut config, &mut seen, &mut includes, 0);
     }
 
-    while let Some(path) = includes.pop_front() {
-        parse_config_file(&path, &mut config, &mut seen, &mut includes, 1);
+    while let Some((path, depth)) = includes.pop_front() {
+        parse_config_file(&path, &mut config, &mut seen, &mut includes, depth);
     }
 
     config
@@ -432,7 +432,7 @@ fn parse_config_file(
     path: &Path,
     config: &mut ParsedGhosttyConfig,
     seen: &mut HashSet<PathBuf>,
-    includes: &mut VecDeque<PathBuf>,
+    includes: &mut VecDeque<(PathBuf, usize)>,
     depth: usize,
 ) {
     if depth > MAX_CONFIG_INCLUDE_DEPTH {
@@ -472,7 +472,7 @@ fn parse_config_file(
             }
             "config-file" => match parse_config_file_value(value) {
                 ConfigFileValue::Include(include) => {
-                    includes.push_back(resolve_config_include(path, &include));
+                    includes.push_back((resolve_config_include(path, &include), depth + 1));
                 }
                 ConfigFileValue::Clear => includes.clear(),
             },
@@ -507,16 +507,24 @@ fn parse_key_value(line: &str) -> Option<(&str, &str)> {
 }
 
 fn parse_config_file_value(value: &str) -> ConfigFileValue {
+    let was_quoted = is_quoted_config_value(value);
     let Some(mut value) = unquote_config_value(value) else {
         return ConfigFileValue::Clear;
     };
     if value.is_empty() {
         return ConfigFileValue::Clear;
     }
-    if let Some(optional) = value.strip_prefix('?') {
-        value = optional.to_string();
+    if !was_quoted {
+        if let Some(optional) = value.strip_prefix('?') {
+            value = optional.to_string();
+        }
     }
     ConfigFileValue::Include(expand_tilde(&value))
+}
+
+fn is_quoted_config_value(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    trimmed.starts_with('"') || trimmed.starts_with('\'')
 }
 
 fn resolve_config_include(base: &Path, include: &Path) -> PathBuf {
@@ -595,26 +603,41 @@ fn unquote_config_value(raw: &str) -> Option<String> {
 }
 
 fn load_theme_by_name(name: &str, dirs: &[PathBuf]) -> Option<NativeTerminalTheme> {
-    let path = theme_path_for_name(name, dirs)?;
-    let contents = fs::read_to_string(&path).ok()?;
-    let theme = parse_theme_file(&contents);
-    if theme_has_any_color(&theme) {
-        Some(theme)
-    } else {
+    for path in theme_paths_for_name(name, dirs) {
+        let contents = match fs::read_to_string(&path) {
+            Ok(contents) => contents,
+            Err(err) => {
+                tracing::warn!(
+                    theme = name,
+                    path = %path.display(),
+                    error = %err,
+                    "failed to read Ghostty theme candidate"
+                );
+                continue;
+            }
+        };
+        let theme = parse_theme_file(&contents);
+        if theme_has_any_color(&theme) {
+            return Some(theme);
+        }
         tracing::warn!(theme = name, path = %path.display(), "Ghostty theme had no parsed colors");
-        None
     }
+    None
 }
 
-fn theme_path_for_name(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+fn theme_paths_for_name(name: &str, dirs: &[PathBuf]) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
     let expanded = expand_tilde(name);
     if expanded.is_file() {
-        return Some(expanded);
+        paths.push(expanded);
     }
 
-    dirs.iter()
-        .map(|dir| dir.join(name))
-        .find(|path| path.is_file())
+    paths.extend(
+        dirs.iter()
+            .map(|dir| dir.join(name))
+            .filter(|path| path.is_file()),
+    );
+    dedupe_paths(paths)
 }
 
 fn parse_theme_file(contents: &str) -> NativeTerminalTheme {
@@ -1018,6 +1041,53 @@ foreground = #123456
         assert_eq!(config.font.size, Some(14.0));
         assert_eq!(config.cursor.style.as_deref(), Some("bar"));
         assert_eq!(config.cursor.blink, Some(false));
+    }
+
+    #[test]
+    fn config_file_include_depth_is_enforced_across_queue() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("config-0");
+        for depth in 0..=(MAX_CONFIG_INCLUDE_DEPTH + 1) {
+            let current = dir.path().join(format!("config-{depth}"));
+            let next = dir.path().join(format!("config-{}", depth + 1));
+            fs::write(&current, format!("config-file = {}\n", next.display())).unwrap();
+        }
+        fs::write(
+            dir.path()
+                .join(format!("config-{}", MAX_CONFIG_INCLUDE_DEPTH + 2)),
+            "font-size = 99\n",
+        )
+        .unwrap();
+
+        let config = load_ghostty_config_from_paths(vec![root]);
+
+        assert_eq!(config.font.size, None);
+    }
+
+    #[test]
+    fn quoted_optional_config_file_prefix_is_literal() {
+        let value = parse_config_file_value("\"?literal.ghostty\"");
+
+        match value {
+            ConfigFileValue::Include(path) => assert_eq!(path, PathBuf::from("?literal.ghostty")),
+            ConfigFileValue::Clear => panic!("quoted config-file should remain a literal include"),
+        }
+    }
+
+    #[test]
+    fn theme_loading_continues_after_unreadable_candidate() {
+        let bad_dir = tempdir().unwrap();
+        let good_dir = tempdir().unwrap();
+        fs::write(bad_dir.path().join("Shared"), [0xFF]).unwrap();
+        fs::write(good_dir.path().join("Shared"), "background = #101010\n").unwrap();
+
+        let theme = load_theme_by_name(
+            "Shared",
+            &[bad_dir.path().to_path_buf(), good_dir.path().to_path_buf()],
+        )
+        .unwrap();
+
+        assert_eq!(theme.background.as_deref(), Some("#101010"));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import Foundation
 
 let cmxProtocolVersion: UInt32 = 3
+private let cmxMaxMessagePackCollectionCount = 1_000_000
 
 struct CmxWireViewport: Equatable, Sendable {
     var cols: UInt16
@@ -371,18 +372,18 @@ enum CmxWireCodec {
             return .commandReply(id: UInt32(clamping: try requiredUInt(map, "id")))
         case "active_tab_changed":
             return .activeTabChanged(
-                index: Int(try requiredUInt(map, "index")),
+                index: try requiredInt(map, "index"),
                 tabID: try requiredUInt(map, "tab_id")
             )
         case "active_workspace_changed":
             return .activeWorkspaceChanged(
-                index: Int(try requiredUInt(map, "index")),
+                index: try requiredInt(map, "index"),
                 workspaceID: try requiredUInt(map, "workspace_id"),
                 title: try requiredString(map, "title")
             )
         case "active_space_changed":
             return .activeSpaceChanged(
-                index: Int(try requiredUInt(map, "index")),
+                index: try requiredInt(map, "index"),
                 spaceID: try requiredUInt(map, "space_id"),
                 title: try requiredString(map, "title")
             )
@@ -466,6 +467,10 @@ enum CmxWireCodec {
         return try value.uintValue()
     }
 
+    private static func requiredInt(_ map: [String: MessagePackValue], _ key: String) throws -> Int {
+        try checkedInt(try requiredUInt(map, key), key: key)
+    }
+
     private static func requiredBool(_ map: [String: MessagePackValue], _ key: String) throws -> Bool {
         guard let value = map[key] else {
             throw CmxWireError.invalidMessage("Missing \(key).")
@@ -502,6 +507,18 @@ enum CmxWireCodec {
         return try value.uintValue()
     }
 
+    private static func optionalInt(_ map: [String: MessagePackValue], _ key: String, default defaultValue: Int) throws -> Int {
+        guard let value = map[key], value != .nilValue else { return defaultValue }
+        return try checkedInt(try value.uintValue(), key: key)
+    }
+
+    private static func checkedInt(_ value: UInt64, key: String) throws -> Int {
+        guard value <= UInt64(Int.max) else {
+            throw CmxWireError.invalidMessage("\(key) is out of range.")
+        }
+        return Int(value)
+    }
+
     private static func optionalMap(_ map: [String: MessagePackValue], _ key: String) throws -> [String: MessagePackValue]? {
         guard let value = map[key], value != .nilValue else { return nil }
         return try value.mapValue()
@@ -510,10 +527,10 @@ enum CmxWireCodec {
     private static func decodeNativeSnapshot(_ map: [String: MessagePackValue]) throws -> CmxNativeSnapshot {
         CmxNativeSnapshot(
             workspaces: try requiredArray(map, "workspaces").map { try decodeWorkspaceInfo($0.mapValue()) },
-            activeWorkspace: Int(try requiredUInt(map, "active_workspace")),
+            activeWorkspace: try requiredInt(map, "active_workspace"),
             activeWorkspaceID: try requiredUInt(map, "active_workspace_id"),
             spaces: try requiredArray(map, "spaces").map { try decodeSpaceInfo($0.mapValue()) },
-            activeSpace: Int(try requiredUInt(map, "active_space")),
+            activeSpace: try requiredInt(map, "active_space"),
             activeSpaceID: try requiredUInt(map, "active_space_id"),
             panels: try decodePanelNode(try requiredMap(map, "panels")),
             focusedPanelID: try requiredUInt(map, "focused_panel_id"),
@@ -528,9 +545,9 @@ enum CmxWireCodec {
         CmxNativeWorkspaceInfo(
             id: try requiredUInt(map, "id"),
             title: try requiredString(map, "title"),
-            spaceCount: Int(try optionalUInt(map, "space_count", default: 0)),
-            tabCount: Int(try optionalUInt(map, "tab_count", default: 0)),
-            terminalCount: Int(try optionalUInt(map, "terminal_count", default: 0)),
+            spaceCount: try optionalInt(map, "space_count", default: 0),
+            tabCount: try optionalInt(map, "tab_count", default: 0),
+            terminalCount: try optionalInt(map, "terminal_count", default: 0),
             pinned: try optionalBool(map, "pinned", default: false),
             color: try optionalString(map, "color")
         )
@@ -540,8 +557,8 @@ enum CmxWireCodec {
         CmxNativeSpaceInfo(
             id: try requiredUInt(map, "id"),
             title: try requiredString(map, "title"),
-            paneCount: Int(try optionalUInt(map, "pane_count", default: 0)),
-            terminalCount: Int(try optionalUInt(map, "terminal_count", default: 0))
+            paneCount: try optionalInt(map, "pane_count", default: 0),
+            terminalCount: try optionalInt(map, "terminal_count", default: 0)
         )
     }
 
@@ -561,7 +578,7 @@ enum CmxWireCodec {
             return .leaf(
                 panelID: try requiredUInt(map, "panel_id"),
                 tabs: try requiredArray(map, "tabs").map { try decodeTabInfo($0.mapValue()) },
-                active: Int(try requiredUInt(map, "active")),
+                active: try requiredInt(map, "active"),
                 activeTabID: try requiredUInt(map, "active_tab_id")
             )
         case "split":
@@ -955,6 +972,9 @@ private struct MessagePackReader {
     }
 
     private mutating func readMap(count: Int) throws -> MessagePackValue {
+        guard count <= cmxMaxMessagePackCollectionCount else {
+            throw CmxWireError.invalidMessage("MessagePack map is too large.")
+        }
         var map: [String: MessagePackValue] = [:]
         map.reserveCapacity(count)
         for _ in 0..<count {
@@ -968,6 +988,9 @@ private struct MessagePackReader {
     }
 
     private mutating func readArray(count: Int) throws -> MessagePackValue {
+        guard count <= cmxMaxMessagePackCollectionCount else {
+            throw CmxWireError.invalidMessage("MessagePack array is too large.")
+        }
         var values: [MessagePackValue] = []
         values.reserveCapacity(count)
         for _ in 0..<count {

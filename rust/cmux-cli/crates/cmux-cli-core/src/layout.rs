@@ -186,7 +186,7 @@ fn layout_walk(node: &Node, rect: Rect, out: &mut HashMap<PaneId, Rect>) {
             let clamped = ratio.clamp(0.05, 0.95);
             match dir {
                 SplitDir::Horizontal => {
-                    let first_cols = ((rect.cols as f32) * clamped).round() as u16;
+                    let first_cols = split_extent(rect.cols, clamped);
                     let first_rect = Rect {
                         col: rect.col,
                         row: rect.row,
@@ -203,7 +203,7 @@ fn layout_walk(node: &Node, rect: Rect, out: &mut HashMap<PaneId, Rect>) {
                     layout_walk(second, second_rect, out);
                 }
                 SplitDir::Vertical => {
-                    let first_rows = ((rect.rows as f32) * clamped).round() as u16;
+                    let first_rows = split_extent(rect.rows, clamped);
                     let first_rect = Rect {
                         col: rect.col,
                         row: rect.row,
@@ -222,6 +222,13 @@ fn layout_walk(node: &Node, rect: Rect, out: &mut HashMap<PaneId, Rect>) {
             }
         }
     }
+}
+
+fn split_extent(extent: u16, ratio: f32) -> u16 {
+    if extent < 2 {
+        return extent;
+    }
+    (((extent as f32) * ratio).round() as u16).clamp(1, extent - 1)
 }
 
 #[cfg(test)]
@@ -315,5 +322,30 @@ mod tests {
         for rect in rects.values() {
             assert!(rect.cols > 0, "zero-width pane: {rect:?}");
         }
+    }
+
+    #[test]
+    fn split_keeps_both_children_visible_in_tiny_viewports() {
+        let mut horizontal = Layout::new();
+        let right = horizontal.split(0, SplitDir::Horizontal).unwrap();
+        let rects = horizontal.rects(Rect {
+            col: 0,
+            row: 0,
+            cols: 2,
+            rows: 1,
+        });
+        assert_eq!(rects[&0].cols, 1);
+        assert_eq!(rects[&right].cols, 1);
+
+        let mut vertical = Layout::new();
+        let bottom = vertical.split(0, SplitDir::Vertical).unwrap();
+        let rects = vertical.rects(Rect {
+            col: 0,
+            row: 0,
+            cols: 1,
+            rows: 2,
+        });
+        assert_eq!(rects[&0].rows, 1);
+        assert_eq!(rects[&bottom].rows, 1);
     }
 }

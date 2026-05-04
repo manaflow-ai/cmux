@@ -2,6 +2,15 @@ import XCTest
 @testable import cmux_ios
 
 final class CmxPairingAuthTests: XCTestCase {
+    func testPairingStartGeneratesSecureNonce() throws {
+        let start = try CmxPairingAuth.makeStart(pairingID: "pairing-1")
+
+        XCTAssertEqual(start.type, "pairing_start")
+        XCTAssertEqual(start.pairingID, "pairing-1")
+        XCTAssertFalse(start.clientNonce.isEmpty)
+        XCTAssertNil(start.clientNonce.range(of: #"[^A-Za-z0-9_-]"#, options: .regularExpression))
+    }
+
     func testPairingProofMatchesRustBridgeVector() {
         XCTAssertEqual(
             CmxPairingAuth.proof(

@@ -7,7 +7,8 @@ enum CmxLaunchConfiguration {
     ) -> String? {
         let normalizedArguments = normalized(arguments: arguments)
         if let index = normalizedArguments.firstIndex(of: "--cmux-ticket"),
-           normalizedArguments.indices.contains(index + 1) {
+           normalizedArguments.indices.contains(index + 1),
+           !normalizedArguments[index + 1].hasPrefix("--") {
             return normalizedArguments[index + 1]
         }
         return environment["CMUX_IOS_BRIDGE_TICKET"]

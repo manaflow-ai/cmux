@@ -214,13 +214,23 @@ pub async fn attach(opts: AttachOptions) -> Result<()> {
             probe::mono_ms().saturating_sub(attach_start_ms).to_string(),
         )],
     );
-    execute!(
+    let enter_result = execute!(
         io::stdout(),
         terminal::EnterAlternateScreen,
         ct_event::EnableMouseCapture,
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-    )
-    .context("enter alt screen + mouse capture")?;
+    );
+    if let Err(error) = enter_result {
+        execute!(
+            io::stdout(),
+            PopKeyboardEnhancementFlags,
+            ct_event::DisableMouseCapture,
+            terminal::LeaveAlternateScreen
+        )
+        .ok();
+        terminal::disable_raw_mode().ok();
+        return Err(error).context("enter alt screen + mouse capture");
+    }
     probe::log_event(
         "client",
         "alt_screen_entered",

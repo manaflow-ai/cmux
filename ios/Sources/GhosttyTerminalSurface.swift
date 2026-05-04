@@ -655,16 +655,19 @@ public final class GhosttyRuntime {
         location: ghostty_clipboard_e,
         state: UnsafeMutableRawPointer?
     ) -> Bool {
-        let userdataBits = userdata.map { UInt(bitPattern: $0) }
-        let stateBits = state.map { UInt(bitPattern: $0) }
+        guard let userdataBits = userdata.map({ UInt(bitPattern: $0) }),
+              let stateBits = state.map({ UInt(bitPattern: $0) }) else {
+            return false
+        }
         Task { @MainActor in
-            guard let userdataBits,
-                  let userdata = UnsafeMutableRawPointer(bitPattern: userdataBits),
-                  let state = stateBits.flatMap(UnsafeMutableRawPointer.init(bitPattern:)) else { return }
+            guard let userdata = UnsafeMutableRawPointer(bitPattern: userdataBits),
+                  let state = UnsafeMutableRawPointer(bitPattern: stateBits) else { return }
             guard let bridge = GhosttySurfaceBridge.fromOpaque(userdata),
-                  let surface = bridge.surfaceView?.surface else { return }
+                  let surfaceView = bridge.surfaceView,
+                  let surface = surfaceView.surface else { return }
             let value = GhosttyRuntime.clipboardReader() ?? ""
             value.withCString { pointer in
+                guard surfaceView.surface == surface else { return }
                 ghostty_surface_complete_clipboard_request(surface, pointer, state, false)
             }
         }
@@ -726,9 +729,7 @@ final class GhosttySurfaceBridge {
 }
 
 private enum GhosttySurfaceDisposer {
-    static let queue = DispatchQueue(label: "GhosttySurfaceDisposer.queue")
-
-    static func dispose(surface: ghostty_surface_t, bridge: GhosttySurfaceBridge) {
+    static func dispose(surface: ghostty_surface_t, bridge: GhosttySurfaceBridge, queue: DispatchQueue) {
         let retainedBridge = Unmanaged.passRetained(bridge)
         let retainedBridgeBits = UInt(bitPattern: retainedBridge.toOpaque())
         let surfaceBits = UInt(bitPattern: UnsafeRawPointer(surface))
@@ -863,6 +864,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
             }
             DispatchQueue.main.async {
                 guard let self else { return }
+                guard self.surface == surface else { return }
                 self.hasFedInitialOutput = true
                 self.needsDraw = true
                 ghostty_surface_render_now(surface)
@@ -985,7 +987,7 @@ public final class GhosttyTerminalSurfaceView: UIView {
         Self.unregister(surface: surface)
         self.surface = nil
         bridge.detach()
-        GhosttySurfaceDisposer.dispose(surface: surface, bridge: bridge)
+        GhosttySurfaceDisposer.dispose(surface: surface, bridge: bridge, queue: Self.outputQueue)
     }
 
     private func initializeSurface() {

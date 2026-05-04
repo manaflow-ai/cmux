@@ -119,6 +119,27 @@ final class CmxProtocolTests: XCTestCase {
         )
     }
 
+    func testDecodeRejectsOutOfRangeIntFields() {
+        var writer = MessagePackWriter()
+        writer.writeMapHeader(3)
+        writer.writeString("kind")
+        writer.writeString("active_tab_changed")
+        writer.writeString("index")
+        writer.writeUInt(UInt64.max)
+        writer.writeString("tab_id")
+        writer.writeUInt(1)
+
+        XCTAssertThrowsError(try CmxWireCodec.decodeServerMessage(writer.data)) { error in
+            XCTAssertEqual(error as? CmxWireError, .invalidMessage("index is out of range."))
+        }
+    }
+
+    func testDecodeRejectsOversizedMessagePackCollectionsBeforeAllocating() {
+        XCTAssertThrowsError(try CmxWireCodec.decodeServerMessage(Data([0xDD, 0xFF, 0xFF, 0xFF, 0xFF]))) { error in
+            XCTAssertEqual(error as? CmxWireError, .invalidMessage("MessagePack array is too large."))
+        }
+    }
+
     func testFramePrefixesBigEndianLength() throws {
         XCTAssertEqual(
             try CmxWireCodec.frame(Data([0x01, 0x02])),

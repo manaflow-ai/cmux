@@ -64,7 +64,7 @@ final class CmxConnectionStore: ObservableObject {
     }
 
     var selectedWorkspace: CmxWorkspace {
-        workspaces.first(where: { $0.id == selectedWorkspaceID }) ?? workspaces[0]
+        workspaces.first(where: { $0.id == selectedWorkspaceID }) ?? workspaces.first ?? Self.placeholderWorkspace
     }
 
     var selectedSpace: CmxSpace {
@@ -97,8 +97,8 @@ final class CmxConnectionStore: ObservableObject {
         if isConnected {
             return String(localized: "status.connected", defaultValue: "Connected")
         }
-        if errorText != nil {
-            return String(localized: "status.needs_ticket", defaultValue: "Ticket needed")
+        if let errorText {
+            return errorText
         }
         return String(localized: "status.ready", defaultValue: "Ready")
     }
@@ -139,6 +139,8 @@ final class CmxConnectionStore: ObservableObject {
         } catch {
             reconnectAllowed = false
             reconnectPending = false
+            terminalSession?.disconnect()
+            terminalSession = nil
             ticket = nil
             errorText = error.localizedDescription
             isConnecting = false
@@ -279,6 +281,19 @@ final class CmxConnectionStore: ObservableObject {
         }
     }
 
+    private static var placeholderWorkspace: CmxWorkspace {
+        CmxWorkspace(
+            id: 0,
+            nodeID: 0,
+            title: String(localized: "workspace.placeholder.title", defaultValue: "Workspace"),
+            preview: "",
+            lastActivity: Date(),
+            unread: false,
+            pinned: false,
+            spaces: []
+        )
+    }
+
     private func appendOutput(_ data: Data, terminalID: UInt64) {
         let chunk = CmxTerminalOutputChunk(id: nextOutputChunkID, data: data)
         nextOutputChunkID += 1
@@ -326,7 +341,7 @@ final class CmxConnectionStore: ObservableObject {
                     workspace.terminalCount
                 ),
                 lastActivity: now,
-                unread: !isActiveWorkspace && activeTabs.contains(where: \.hasActivity),
+                unread: false,
                 pinned: workspace.pinned,
                 spaces: spaces
             )

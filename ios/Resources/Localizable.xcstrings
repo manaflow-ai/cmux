@@ -391,6 +391,12 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペアリングチケットがありません。" } }
       }
     },
+    "ticket.error.format" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The pairing ticket is not valid." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペアリングチケットが有効ではありません。" } }
+      }
+    },
     "ticket.error.pairing_expired" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "The pairing ticket has expired." } },
@@ -485,6 +491,12 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "The pairing challenge does not match this ticket." } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペアリングチャレンジがこのチケットと一致しません。" } }
+      }
+    },
+    "pairing.error.nonce" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not generate a secure pairing nonce." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "安全なペアリング nonce を生成できませんでした。" } }
       }
     },
     "ticket.route.custom" : {
@@ -641,6 +653,12 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "%d spaces, %d terminals" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "%d スペース、%d ターミナル" } }
+      }
+    },
+    "workspace.placeholder.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース" } }
       }
     }
   },
