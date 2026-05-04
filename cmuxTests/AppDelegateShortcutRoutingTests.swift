@@ -4944,6 +4944,71 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(menuProbe.callCount, 0, "App-level Cmd+D dispatch must not fire a stale split menu item after remap")
     }
 
+    func testApplicationSendEventRoutesCmdDMenuEquivalentToActiveShortcutRecorder() {
+#if DEBUG
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let recorder = ShortcutRecorderNSButton(frame: NSRect(x: 0, y: 0, width: 160, height: 28))
+        let menuProbe = MenuActionProbe()
+        var recordedShortcut: StoredShortcut?
+
+        defer {
+            KeyboardShortcutRecorderActivity.stopAllRecording()
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let menu = NSMenu(title: "Test")
+        let splitItem = NSMenuItem(
+            title: "Split Right",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "d"
+        )
+        splitItem.keyEquivalentModifierMask = [.command]
+        splitItem.target = menuProbe
+        menu.addItem(splitItem)
+        NSApp.mainMenu = menu
+
+        recorder.onShortcutRecorded = { recordedShortcut = $0 }
+        probeWindow.contentView = contentView
+        contentView.addSubview(recorder)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(recorder), "Expected shortcut recorder to own first responder")
+        recorder.performClick(nil)
+        XCTAssertTrue(recorder.debugIsRecording)
+
+        guard let event = makeKeyDownEvent(
+            key: "d",
+            modifiers: [.command],
+            keyCode: 2,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+D event")
+            return
+        }
+
+        withTemporaryShortcut(action: .splitRight) {
+            NSApp.sendEvent(event)
+        }
+
+        XCTAssertEqual(
+            recordedShortcut,
+            StoredShortcut(key: "d", command: true, shift: false, option: false, control: false, keyCode: 2),
+            "Cmd+D must remain recordable while the same menu equivalent is installed"
+        )
+        XCTAssertEqual(menuProbe.callCount, 0, "The menu equivalent must not fire while the recorder is capturing")
+#else
+        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
+#endif
+    }
+
     func testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

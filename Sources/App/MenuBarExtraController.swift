@@ -166,8 +166,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         stateHintItem.title = snapshot.stateHintTitle
         showMainWindowItem.isHidden = !MenuBarOnlySettings.shouldShowMainWindowMenuItem()
 
-        applyShortcut(KeyboardShortcutSettings.shortcut(for: .showNotifications), to: showNotificationsItem)
-        applyShortcut(KeyboardShortcutSettings.shortcut(for: .jumpToUnread), to: jumpToUnreadItem)
+        applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .showNotifications), to: showNotificationsItem)
+        applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .jumpToUnread), to: jumpToUnreadItem)
 
         jumpToUnreadItem.isEnabled = snapshot.hasUnreadNotifications
         markAllReadItem.isEnabled = snapshot.hasUnreadNotifications

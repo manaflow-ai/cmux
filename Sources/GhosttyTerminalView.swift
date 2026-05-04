@@ -8774,7 +8774,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEquivalent: ""
         )
         splitHorizontallyItem.target = self
-        applyConfiguredMenuShortcut(KeyboardShortcutSettings.shortcut(for: .splitDown), to: splitHorizontallyItem)
+        applyConfiguredMenuShortcut(KeyboardShortcutSettings.menuShortcut(for: .splitDown), to: splitHorizontallyItem)
         splitHorizontallyItem.image = NSImage(
             systemSymbolName: "rectangle.bottomhalf.inset.filled",
             accessibilityDescription: nil
@@ -8786,7 +8786,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEquivalent: ""
         )
         splitVerticallyItem.target = self
-        applyConfiguredMenuShortcut(KeyboardShortcutSettings.shortcut(for: .splitRight), to: splitVerticallyItem)
+        applyConfiguredMenuShortcut(KeyboardShortcutSettings.menuShortcut(for: .splitRight), to: splitVerticallyItem)
         splitVerticallyItem.image = NSImage(
             systemSymbolName: "rectangle.righthalf.inset.filled",
             accessibilityDescription: nil
@@ -13043,14 +13043,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
         weak var hostedView: GhosttySurfaceScrollView?
     }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     static func shouldApplyImmediateHostedStateUpdate(
-        hostedViewHasSuperview: Bool,
-        isBoundToCurrentHost: Bool
+        desiredVisibleInUI: Bool, hostedViewHasSuperview: Bool, isBoundToCurrentHost: Bool
     ) -> Bool {
+        if !desiredVisibleInUI { return true }
         // If this update originates from a stale/replaced host while the hosted view is
         // already attached elsewhere, do not mutate visibility/active state here.
         if isBoundToCurrentHost { return true }
@@ -13337,6 +13335,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
         } ?? true
         let shouldApplyImmediateHostedState = hostOwnsPortalNow && Self.shouldApplyImmediateHostedStateUpdate(
+            desiredVisibleInUI: isVisibleInUI,
             hostedViewHasSuperview: hostedView.superview != nil,
             isBoundToCurrentHost: isBoundToCurrentHost
         )

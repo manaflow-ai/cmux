@@ -424,8 +424,7 @@ struct BrowserPanelView: View {
     @State private var addressBarHeight: CGFloat = 0
     @State private var isBrowserImportHintPopoverPresented = false
     @State private var lastHandledAddressBarFocusRequestId: UUID?
-    @State private var pendingAddressBarFocusRetryRequestId: UUID?
-    @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
+    @State private var omnibarSelectAllRequestId: UInt64 = 0
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
@@ -712,6 +711,10 @@ struct BrowserPanelView: View {
             panel.refreshAppearanceDrivenColors()
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
+            applyPendingAddressBarFocusRequestIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .commandPaletteVisibilityDidChange)) { notification in
+            guard commandPaletteVisibilityNotificationMatchesPanelWindow(notification) else { return }
             applyPendingAddressBarFocusRequestIfNeeded()
         }
         .onChange(of: panel.profileID) { _ in
@@ -1177,6 +1180,7 @@ struct BrowserPanelView: View {
                     }
                 ),
                 isFocused: $addressBarFocused,
+                selectAllRequestId: omnibarSelectAllRequestId,
                 inlineCompletion: inlineCompletion,
                 placeholder: String(localized: "browser.addressBar.placeholder", defaultValue: "Search or enter URL"),
                 onTap: {
@@ -1491,27 +1495,31 @@ struct BrowserPanelView: View {
         return false
     }
 
-    private func clearPendingAddressBarFocusRetry() {
-        pendingAddressBarFocusRetryRequestId = nil
-        pendingAddressBarFocusRetryGeneration &+= 1
-    }
-
-    private func schedulePendingAddressBarFocusRetryIfNeeded(requestId: UUID) {
-        guard pendingAddressBarFocusRetryRequestId != requestId else { return }
-        pendingAddressBarFocusRetryRequestId = requestId
-        pendingAddressBarFocusRetryGeneration &+= 1
-        let generation = pendingAddressBarFocusRetryGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
-            guard pendingAddressBarFocusRetryGeneration == generation else { return }
-            pendingAddressBarFocusRetryRequestId = nil
-            guard panel.pendingAddressBarFocusRequestId == requestId else { return }
-            applyPendingAddressBarFocusRequestIfNeeded()
+    private func commandPaletteVisibilityNotificationMatchesPanelWindow(_ notification: Notification) -> Bool {
+        if let notificationWindow = notification.object as? NSWindow,
+           panel.webView.window === notificationWindow {
+            return true
         }
+
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let panelWindowId = app.windowId(for: manager) else {
+            return false
+        }
+
+        if let notificationWindowId = notification.userInfo?["windowId"] as? UUID {
+            return notificationWindowId == panelWindowId
+        }
+
+        if let notificationWindow = notification.object as? NSWindow,
+           let panelWindow = app.mainWindow(for: panelWindowId) {
+            return notificationWindow === panelWindow
+        }
+        return false
     }
 
     private func applyPendingAddressBarFocusRequestIfNeeded() {
         guard let requestId = panel.pendingAddressBarFocusRequestId else {
-            clearPendingAddressBarFocusRetry()
             return
         }
         guard !isCommandPaletteVisibleForPanelWindow() else {
@@ -1521,10 +1529,8 @@ struct BrowserPanelView: View {
                 detail: "reason=command_palette_visible request=\(requestId.uuidString.prefix(8))"
             )
 #endif
-            schedulePendingAddressBarFocusRetryIfNeeded(requestId: requestId)
             return
         }
-        clearPendingAddressBarFocusRetry()
         guard lastHandledAddressBarFocusRequestId != requestId else {
 #if DEBUG
             logBrowserFocusState(
@@ -2096,107 +2102,23 @@ struct BrowserPanelView: View {
 
     private func matchingOpenTabSuggestions(for query: String, limit: Int) -> [OmnibarOpenTabMatch] {
         guard !query.isEmpty, limit > 0 else { return [] }
-
-        let loweredQuery = query.lowercased()
         let singleCharacterQuery = omnibarSingleCharacterQuery(for: query)
         let includeCurrentPanelForSingleCharacterQuery = singleCharacterQuery != nil
-        let tabManager = AppDelegate.shared?.tabManager
-        let currentPanelWorkspaceId = tabManager?.tabs.first(where: { tab in
-            tab.panels[panel.id] is BrowserPanel
-        })?.id
-        var matches: [OmnibarOpenTabMatch] = []
-        var seenKeys = Set<String>()
-
-        func preferredPanelURL(_ browserPanel: BrowserPanel) -> String? {
-            browserPanel.preferredURLStringForOmnibar()
-        }
-
-        func addMatch(
-            tabId: UUID,
-            panelId: UUID,
-            url: String,
-            title: String?,
-            isKnownOpenTab: Bool,
-            matches: inout [OmnibarOpenTabMatch],
-            seenKeys: inout Set<String>
-        ) {
-            let key = "\(tabId.uuidString.lowercased())|\(panelId.uuidString.lowercased())|\(url.lowercased())"
-            guard !seenKeys.contains(key) else { return }
-            seenKeys.insert(key)
-            matches.append(
-                OmnibarOpenTabMatch(
-                    tabId: tabId,
-                    panelId: panelId,
-                    url: url,
-                    title: title,
-                    isKnownOpenTab: isKnownOpenTab
-                )
-            )
-        }
-
-        if includeCurrentPanelForSingleCharacterQuery,
-           let query = singleCharacterQuery,
-           let currentURL = preferredPanelURL(panel),
-           !currentURL.isEmpty {
-            let rawTitle = panel.pageTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = rawTitle.isEmpty ? nil : rawTitle
-            if omnibarHasSingleCharacterPrefixMatch(query: query, url: currentURL, title: title) {
-                addMatch(
-                    tabId: currentPanelWorkspaceId ?? panel.workspaceId,
-                    panelId: panel.id,
-                    url: currentURL,
-                    title: title,
-                    isKnownOpenTab: currentPanelWorkspaceId != nil,
-                    matches: &matches,
-                    seenKeys: &seenKeys
-                )
-            }
-        }
-
-        guard let tabManager else { return matches }
-
-        for tab in tabManager.tabs {
-            for (panelId, anyPanel) in tab.panels {
-                guard let browserPanel = anyPanel as? BrowserPanel else { continue }
-                guard let currentURL = preferredPanelURL(browserPanel),
-                      !currentURL.isEmpty else { continue }
-                let isCurrentPanel = tab.id == panel.workspaceId && panelId == panel.id
-                if isCurrentPanel && !includeCurrentPanelForSingleCharacterQuery {
-                    continue
-                }
-
-                let rawTitle = browserPanel.pageTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                let title = rawTitle.isEmpty ? nil : rawTitle
-                let isMatch: Bool = {
-                    if let singleCharacterQuery {
-                        return omnibarHasSingleCharacterPrefixMatch(
-                            query: singleCharacterQuery,
-                            url: currentURL,
-                            title: title
-                        )
-                    }
-                    let haystacks = [
-                        currentURL.lowercased(),
-                        (title ?? "").lowercased(),
-                    ]
-                    return haystacks.contains { $0.contains(loweredQuery) }
-                }()
-                guard isMatch else { continue }
-
-                addMatch(
-                    tabId: tab.id,
-                    panelId: panelId,
-                    url: currentURL,
-                    title: title,
-                    isKnownOpenTab: true,
-                    matches: &matches,
-                    seenKeys: &seenKeys
-                )
-            }
-        }
-
-        if matches.count <= limit { return matches }
-        return Array(matches.prefix(limit))
+        let currentPanelSnapshot = BrowserOpenTabSuggestionSnapshot(
+            workspaceId: panel.workspaceId,
+            panelId: panel.id,
+            url: panel.preferredURLStringForOmnibar(),
+            title: panel.pageTitle
+        )
+        let tabManager = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId) ?? AppDelegate.shared?.tabManager
+        return tabManager?.matchingOpenBrowserTabSuggestions(
+            for: query,
+            currentWorkspaceId: panel.workspaceId,
+            currentPanelId: panel.id,
+            currentPanelSnapshot: currentPanelSnapshot,
+            includeCurrentPanelForSingleCharacterQuery: includeCurrentPanelForSingleCharacterQuery,
+            limit: limit
+        ) ?? []
     }
 
     private func forcedRemoteSuggestionsForUITest() -> [String]? {
@@ -2221,14 +2143,7 @@ struct BrowserPanelView: View {
             refreshSuggestions()
         }
         if effects.shouldSelectAll {
-            // Apply immediately for fast Cmd+L typing, then retry once in case
-            // first responder wasn't fully settled on the same runloop.
-            DispatchQueue.main.async {
-                NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
-            }
+            omnibarSelectAllRequestId &+= 1
         }
         if effects.shouldBlurToWebView {
             hideSuggestions()
@@ -2301,22 +2216,6 @@ enum OmnibarInputIntent: Equatable {
     case queryLike
     case ambiguous
 }
-
-    struct OmnibarOpenTabMatch: Equatable {
-        let tabId: UUID
-        let panelId: UUID
-        let url: String
-        let title: String?
-        let isKnownOpenTab: Bool
-
-        init(tabId: UUID, panelId: UUID, url: String, title: String?, isKnownOpenTab: Bool = true) {
-            self.tabId = tabId
-            self.panelId = panelId
-            self.url = url
-            self.title = title
-            self.isKnownOpenTab = isKnownOpenTab
-        }
-    }
 
 func omnibarInputIntent(for query: String) -> OmnibarInputIntent {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3474,6 +3373,7 @@ private final class OmnibarNativeTextField: NSTextField {
 private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
+    let selectAllRequestId: UInt64
     let inlineCompletion: OmnibarInlineCompletion?
     let placeholder: String
     let onTap: () -> Void
@@ -3497,6 +3397,8 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         var lastPublishedHasMarkedText: Bool = false
         /// Guards against infinite focus loops: `true` = focus requested, `false` = blur requested, `nil` = idle.
         var pendingFocusRequest: Bool?
+        var pendingSelectAllRequestId: UInt64?
+        var appliedSelectAllRequestId: UInt64 = 0
 
         init(parent: OmnibarTextFieldRepresentable) {
             self.parent = parent
@@ -3628,6 +3530,9 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
             }
             attachSelectionObserverIfNeeded()
+            if let field = obj.object as? OmnibarNativeTextField {
+                applyPendingSelectAllIfPossible(field: field)
+            }
             publishSelectionState()
         }
 
@@ -3809,6 +3714,35 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
         weak var parentField: OmnibarNativeTextField?
 
+        func queueSelectAllRequest(_ requestId: UInt64) {
+            guard requestId != 0, appliedSelectAllRequestId != requestId else { return }
+            pendingSelectAllRequestId = requestId
+        }
+
+        @discardableResult
+        func applyPendingSelectAllIfPossible(
+            field: OmnibarNativeTextField
+        ) -> Bool {
+            guard let requestId = pendingSelectAllRequestId,
+                  requestId != 0,
+                  appliedSelectAllRequestId != requestId else {
+                return false
+            }
+
+            guard let editor = field.currentEditor() as? NSTextView,
+                  !editor.hasMarkedText() else {
+                return false
+            }
+            let length = editor.string.utf16.count
+            isProgrammaticMutation = true
+            editor.setSelectedRange(NSRange(location: 0, length: length))
+            isProgrammaticMutation = false
+            appliedSelectAllRequestId = requestId
+            pendingSelectAllRequestId = nil
+            publishSelectionState()
+            return true
+        }
+
         func publishSelectionState() {
             guard let field = parentField else { return }
             if let editor = field.currentEditor() as? NSTextView {
@@ -3978,6 +3912,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
         nsView.placeholderString = placeholder
+        context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
             bufferText: text,
@@ -4028,11 +3963,15 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                     let alreadyFocused = fr === nsView ||
                         nsView.currentEditor() != nil ||
                         ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
-                    guard !alreadyFocused else { return }
+                    if alreadyFocused {
+                        coordinator?.applyPendingSelectAllIfPossible(field: nsView)
+                        return
+                    }
 #if DEBUG
                     coordinator?.logFocusEvent("updateNSView.requestFocus.apply")
 #endif
                     window.makeFirstResponder(nsView)
+                    coordinator?.applyPendingSelectAllIfPossible(field: nsView)
                 }
             } else if !isFocused, isFirstResponder, context.coordinator.pendingFocusRequest != false {
 #if DEBUG
@@ -4066,6 +4005,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
             }
         }
+        context.coordinator.applyPendingSelectAllIfPossible(field: nsView)
 
         if let editor = nsView.currentEditor() as? NSTextView, !editor.hasMarkedText() {
             if let activeInlineCompletion {

@@ -671,6 +671,13 @@ enum KeyboardShortcutSettings {
         return shortcut
     }
 
+    static func menuShortcut(for action: Action) -> StoredShortcut {
+        guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
+            return .unbound
+        }
+        return shortcut(for: action)
+    }
+
     static func isManagedBySettingsFile(_ action: Action) -> Bool {
         settingsFileStore.isManagedByFile(action)
     }

@@ -7,10 +7,15 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
 
     @Published private(set) var revision: UInt64 = 0
 
-    private var cancellable: AnyCancellable?
+    private var settingsCancellable: AnyCancellable?
+    private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
-        cancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification)
+        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification)
+            .sink { [weak self] _ in
+                self?.revision &+= 1
+            }
+        recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification)
             .sink { [weak self] _ in
                 self?.revision &+= 1
             }
