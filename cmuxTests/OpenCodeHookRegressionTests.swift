@@ -48,6 +48,23 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(json["plugin"] as? [String]), ["other-plugin", "./plugins/cmux-session.js"])
     }
 
+    func testLegacyHookAliasesAreHiddenFromHelp() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(executablePath: cliPath, arguments: ["help"], environment: environment, timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(result.stdout.contains("codex <install-hooks|uninstall-hooks>"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("claude-hook <session-start|stop|notification>"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("codex-hook"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("feed-hook"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("setup-hooks"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("uninstall-hooks"), result.stdout)
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

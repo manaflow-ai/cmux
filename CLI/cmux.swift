@@ -2177,14 +2177,15 @@ struct CMUXCLI {
             return
         }
 
-        // Codex hooks management (no socket needed)
         if command == "codex" {
+            // Backwards compatibility for old hook setup docs/scripts. Hidden from help.
             let sub = commandArgs.first?.lowercased() ?? "help"
+            guard let codexDef = Self.agentDef(named: "codex") else { throw CLIError(message: "Codex hook integration is unavailable.") }
             if sub == "install-hooks" {
-                try installHooksForAgent(Self.agentDef(named: "codex")!, arguments: Array(commandArgs.dropFirst()))
+                try installHooksForAgent(codexDef, arguments: Array(commandArgs.dropFirst()))
                 return
             } else if sub == "uninstall-hooks" {
-                try uninstallHooksForAgent(Self.agentDef(named: "codex")!, arguments: Array(commandArgs.dropFirst()))
+                try uninstallHooksForAgent(codexDef, arguments: Array(commandArgs.dropFirst()))
                 return
             }
         }
@@ -20362,7 +20363,6 @@ export default CMUXSessionRestore;
           hooks setup|uninstall [--agent <name>]
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
           hooks feed --source <agent> [--event <event>]
-          codex <install-hooks|uninstall-hooks>   (compatibility alias)
           ping
           version
           capabilities
@@ -20427,7 +20427,6 @@ export default CMUXSessionRestore;
           clear-log [--workspace <id|ref>]
           list-log [--workspace <id|ref>] [--limit <n>]
           sidebar-state [--workspace <id|ref>]
-          claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]   (compatibility alias)
           set-app-focus <active|inactive|clear>
           simulate-app-active
 
