@@ -768,46 +768,6 @@ struct BrowserPanelView: View {
                 isPanelFocusedOverride: focused
             )
         }
-        .onChange(of: addressBarFocused) { focused in
-#if DEBUG
-            logBrowserFocusState(
-                event: "addressBarFocus.onChange",
-                detail: "next=\(focused ? 1 : 0)"
-            )
-#endif
-            let urlString = panel.preferredURLStringForOmnibar() ?? ""
-            if focused {
-                panel.beginSuppressWebViewFocusForAddressBar()
-                NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panel.id)
-                // Only request panel focus if this pane isn't currently focused. When already
-                // focused (e.g. Cmd+L), forcing focus can steal first responder back to WebKit.
-                if !isFocused {
-#if DEBUG
-                    logBrowserFocusState(event: "addressBarFocus.requestPanelFocus")
-#endif
-                    onRequestPanelFocus()
-                }
-                let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
-                applyOmnibarEffects(effects)
-                refreshInlineCompletion()
-            } else {
-                panel.endSuppressWebViewFocusForAddressBar()
-                NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
-                if suppressNextFocusLostRevert {
-                    suppressNextFocusLostRevert = false
-                    let effects = omnibarReduce(state: &omnibarState, event: .focusLostPreserveBuffer(currentURLString: urlString))
-                    applyOmnibarEffects(effects)
-                } else {
-                    let effects = omnibarReduce(state: &omnibarState, event: .focusLostRevertBuffer(currentURLString: urlString))
-                    applyOmnibarEffects(effects)
-                }
-                inlineCompletion = nil
-            }
-            syncWebViewResponderPolicyWithViewState(reason: "addressBarFocusChanged")
-#if DEBUG
-            logBrowserFocusState(event: "addressBarFocus.onChange.applied")
-#endif
-        }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
             guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
@@ -1180,7 +1140,12 @@ struct BrowserPanelView: View {
                         refreshInlineCompletion()
                     }
                 ),
-                isFocused: $addressBarFocused,
+                isFocused: Binding(
+                    get: { addressBarFocused },
+                    set: { newValue in
+                        setAddressBarFocused(newValue, reason: "omnibar.binding")
+                    }
+                ),
                 selectAllRequestId: omnibarSelectAllRequestId,
                 inlineCompletion: inlineCompletion,
                 placeholder: String(localized: "browser.addressBar.placeholder", defaultValue: "Search or enter URL"),
@@ -1380,8 +1345,9 @@ struct BrowserPanelView: View {
     }
 
     private func setAddressBarFocused(_ focused: Bool, reason: String) {
+        let oldValue = addressBarFocused
 #if DEBUG
-        if addressBarFocused == focused {
+        if oldValue == focused {
             logBrowserFocusState(
                 event: "addressBarFocus.write.noop",
                 detail: "reason=\(reason) value=\(focused ? 1 : 0)"
@@ -1389,14 +1355,63 @@ struct BrowserPanelView: View {
         } else {
             logBrowserFocusState(
                 event: "addressBarFocus.write",
-                detail: "reason=\(reason) old=\(addressBarFocused ? 1 : 0) new=\(focused ? 1 : 0)"
+                detail: "reason=\(reason) old=\(oldValue ? 1 : 0) new=\(focused ? 1 : 0)"
             )
         }
 #endif
+        guard oldValue != focused else {
+            if focused {
+                BrowserOmnibarFocusRegistry.shared.requestFocus(panelId: panel.id, selectAll: false)
+            }
+            return
+        }
         addressBarFocused = focused
         if focused {
             panel.noteAddressBarFocused()
         }
+        applyAddressBarFocusChange(focused: focused, reason: reason)
+    }
+
+    private func applyAddressBarFocusChange(focused: Bool, reason: String) {
+#if DEBUG
+        logBrowserFocusState(
+            event: "addressBarFocus.apply",
+            detail: "reason=\(reason) next=\(focused ? 1 : 0)"
+        )
+#endif
+        let urlString = panel.preferredURLStringForOmnibar() ?? ""
+        if focused {
+            panel.beginSuppressWebViewFocusForAddressBar()
+            NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panel.id)
+            // Only request panel focus if this pane isn't currently focused. When already
+            // focused (e.g. Cmd+L), forcing focus can steal first responder back to WebKit.
+            if !isFocused {
+#if DEBUG
+                logBrowserFocusState(event: "addressBarFocus.requestPanelFocus")
+#endif
+                onRequestPanelFocus()
+            }
+            let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
+            applyOmnibarEffects(effects)
+            refreshInlineCompletion()
+            BrowserOmnibarFocusRegistry.shared.requestFocus(panelId: panel.id, selectAll: effects.shouldSelectAll)
+        } else {
+            panel.endSuppressWebViewFocusForAddressBar()
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
+            if suppressNextFocusLostRevert {
+                suppressNextFocusLostRevert = false
+                let effects = omnibarReduce(state: &omnibarState, event: .focusLostPreserveBuffer(currentURLString: urlString))
+                applyOmnibarEffects(effects)
+            } else {
+                let effects = omnibarReduce(state: &omnibarState, event: .focusLostRevertBuffer(currentURLString: urlString))
+                applyOmnibarEffects(effects)
+            }
+            inlineCompletion = nil
+        }
+        syncWebViewResponderPolicyWithViewState(reason: "addressBarFocusChanged")
+#if DEBUG
+        logBrowserFocusState(event: "addressBarFocus.apply.done", detail: "reason=\(reason)")
+#endif
     }
 
     private func browserFocusResponderChainContains(
@@ -1557,6 +1572,7 @@ struct BrowserPanelView: View {
             let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
+            BrowserOmnibarFocusRegistry.shared.requestFocus(panelId: panel.id, selectAll: effects.shouldSelectAll)
 #if DEBUG
             logBrowserFocusState(
                 event: "addressBarFocus.request.apply",
@@ -3231,6 +3247,15 @@ private final class OmnibarNativeTextField: NSTextField {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func selectAllTextForProgrammaticFocus() {
+        guard let editor = currentEditor() as? NSTextView else {
+            selectText(nil)
+            return
+        }
+        guard !editor.hasMarkedText() else { return }
+        editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
+    }
+
     override func mouseDown(with event: NSEvent) {
         #if DEBUG
         let frType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -3370,6 +3395,89 @@ private final class OmnibarNativeTextField: NSTextField {
         handled = result
 #endif
         return result
+    }
+}
+
+@MainActor
+final class BrowserOmnibarFocusRegistry {
+    static let shared = BrowserOmnibarFocusRegistry()
+
+    private final class WeakField {
+        weak var field: OmnibarNativeTextField?
+
+        init(_ field: OmnibarNativeTextField) {
+            self.field = field
+        }
+    }
+
+    private var fieldsByPanelId: [UUID: WeakField] = [:]
+    private var pendingFocusPanelIds = Set<UUID>()
+
+    private init() {}
+
+    fileprivate func register(_ field: OmnibarNativeTextField, panelId: UUID?) {
+        guard let panelId else { return }
+        fieldsByPanelId[panelId] = WeakField(field)
+        if pendingFocusPanelIds.contains(panelId),
+           focusRegisteredField(panelId: panelId, selectAll: true) {
+            pendingFocusPanelIds.remove(panelId)
+        }
+    }
+
+    fileprivate func unregister(_ field: OmnibarNativeTextField) {
+        guard let panelId = field.panelId,
+              fieldsByPanelId[panelId]?.field === field else {
+            return
+        }
+        fieldsByPanelId[panelId] = nil
+    }
+
+    @discardableResult
+    func requestFocus(panelId: UUID, selectAll: Bool) -> Bool {
+        pendingFocusPanelIds.insert(panelId)
+        let didFocus = focusRegisteredField(panelId: panelId, selectAll: selectAll)
+        if didFocus {
+            pendingFocusPanelIds.remove(panelId)
+        }
+        return didFocus
+    }
+
+    @discardableResult
+    private func focusRegisteredField(panelId: UUID, selectAll: Bool) -> Bool {
+        guard let field = fieldsByPanelId[panelId]?.field else {
+            fieldsByPanelId[panelId] = nil
+            return false
+        }
+        guard let window = field.window,
+              !field.isHiddenOrHasHiddenAncestor,
+              field.isEnabled,
+              field.isEditable else {
+            return false
+        }
+
+        let firstResponder = window.firstResponder
+        let alreadyFocused =
+            firstResponder === field ||
+            field.currentEditor() != nil ||
+            ((firstResponder as? NSTextView)?.delegate as? NSTextField) === field
+
+        if !alreadyFocused {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.omnibar.registry.apply panel=\(panelId.uuidString.prefix(5)) " +
+                "win=\(window.windowNumber) selectAll=\(selectAll ? 1 : 0)"
+            )
+#endif
+            field.suppressNextFocusReacquireOnEndEditing = false
+            guard window.makeFirstResponder(field) else {
+                return false
+            }
+        }
+
+        if selectAll {
+            field.selectAllTextForProgrammaticFocus()
+        }
+        return true
     }
 }
 
@@ -3529,12 +3637,10 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             logFocusEvent("controlTextDidBeginEditing")
 #endif
             if !parent.isFocused {
-                DispatchQueue.main.async {
 #if DEBUG
-                    self.logFocusEvent("controlTextDidBeginEditing.asyncSetFocused", detail: "old=0 new=1")
+                logFocusEvent("controlTextDidBeginEditing.setFocused", detail: "old=0 new=1")
 #endif
-                    self.parent.isFocused = true
-                }
+                parent.isFocused = true
             }
             attachSelectionObserverIfNeeded()
             if let field = obj.object as? OmnibarNativeTextField {
@@ -3916,6 +4022,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             coordinator?.handleKeyEvent(event, editor: editor) ?? false
         }
         context.coordinator.parentField = field
+        BrowserOmnibarFocusRegistry.shared.register(field, panelId: panelId)
         return field
     }
 
@@ -3924,6 +4031,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parentField = nsView
         nsView.panelId = panelId
         nsView.placeholderString = placeholder
+        BrowserOmnibarFocusRegistry.shared.register(nsView, panelId: panelId)
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
@@ -3955,35 +4063,20 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                     detail: "isFocused=1 isFirstResponder=0"
                 )
 #endif
-                // Defer to avoid triggering input method XPC during layout pass,
-                // which can crash via re-entrant view hierarchy modification.
                 context.coordinator.pendingFocusRequest = true
-                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
-                    coordinator?.pendingFocusRequest = nil
-                    guard let nsView, let window = nsView.window else { return }
+                let didFocus = BrowserOmnibarFocusRegistry.shared.requestFocus(
+                    panelId: panelId,
+                    selectAll: selectAllRequestId != 0
+                )
+                context.coordinator.pendingFocusRequest = nil
 #if DEBUG
-                    if coordinator?.parent.isFocused != true {
-                        coordinator?.logFocusEvent("updateNSView.requestFocus.cancel", detail: "reason=stale_state")
-                        return
-                    }
+                context.coordinator.logFocusEvent(
+                    "updateNSView.requestFocus.apply",
+                    detail: "didFocus=\(didFocus ? 1 : 0)"
+                )
 #endif
-                    guard coordinator?.parent.isFocused == true else { return }
-#if DEBUG
-                    coordinator?.logFocusEvent("updateNSView.requestFocus.tick")
-#endif
-                    let fr = window.firstResponder
-                    let alreadyFocused = fr === nsView ||
-                        nsView.currentEditor() != nil ||
-                        ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
-                    if alreadyFocused {
-                        coordinator?.applyPendingSelectAllIfPossible(field: nsView)
-                        return
-                    }
-#if DEBUG
-                    coordinator?.logFocusEvent("updateNSView.requestFocus.apply")
-#endif
-                    window.makeFirstResponder(nsView)
-                    coordinator?.applyPendingSelectAllIfPossible(field: nsView)
+                if didFocus {
+                    context.coordinator.applyPendingSelectAllIfPossible(field: nsView)
                 }
             } else if !isFocused, isFirstResponder, context.coordinator.pendingFocusRequest != false {
 #if DEBUG
@@ -4048,6 +4141,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: OmnibarNativeTextField, coordinator: Coordinator) {
+        BrowserOmnibarFocusRegistry.shared.unregister(nsView)
         nsView.onPointerDown = nil
         nsView.onHandleKeyEvent = nil
         nsView.delegate = nil

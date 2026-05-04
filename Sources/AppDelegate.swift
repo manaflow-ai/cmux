@@ -11639,20 +11639,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
-#if DEBUG
         let requestId = panel.requestAddressBarFocus()
+#if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.request panel=\(panel.id.uuidString.prefix(5)) " +
             "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
         )
-#else
-        _ = panel.requestAddressBarFocus()
 #endif
         browserAddressBarFocusedPanelId = panel.id
+        let didFocusSynchronously = BrowserOmnibarFocusRegistry.shared.requestFocus(panelId: panel.id, selectAll: true)
+        if didFocusSynchronously {
+            panel.acknowledgeAddressBarFocusRequest(requestId)
+        }
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.sticky panel=\(panel.id.uuidString.prefix(5)) " +
-            "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
+            "request=\(requestId.uuidString.prefix(8)) sync=\(didFocusSynchronously ? 1 : 0) \(browserFocusStateSnapshot())"
         )
 #endif
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)

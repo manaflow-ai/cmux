@@ -335,17 +335,50 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(loaded, "Expected baseline navigation to load before Cmd+L fast-typing check.")
 
         // Reproduce user flow: Cmd+L then immediate typing without waiting.
+        let typedURL = "github.com"
         app.typeKey("l", modifierFlags: [.command])
-        app.typeText("lo")
+        app.typeText(typedURL)
 
         var observedValue = ""
-        let startsWithTypedPrefix = waitForCondition(timeout: 7.0) {
+        let preservedCompleteURL = waitForCondition(timeout: 7.0) {
             observedValue = ((omnibar.value as? String) ?? "").lowercased()
-            return observedValue.hasPrefix("lo")
+            return observedValue.hasPrefix(typedURL)
         }
         XCTAssertTrue(
-            startsWithTypedPrefix,
-            "Expected immediate typing after Cmd+L to preserve typed prefix 'lo'. value=\(observedValue)"
+            preservedCompleteURL,
+            "Expected immediate typing after Cmd+L to preserve complete URL '\(typedURL)'. value=\(observedValue)"
+        )
+    }
+
+    func testCmdShiftLImmediateTypingPreservesCompleteURL() {
+        seedBrowserHistoryForTest()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
+        launchAndEnsureForeground(app)
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+
+        let typedURL = "github.com"
+        app.typeKey("l", modifierFlags: [.command, .shift])
+        app.typeText(typedURL)
+
+        var observedValues = ""
+        let preservedCompleteURL = waitForCondition(timeout: 7.0) {
+            let values = app.textFields.matching(identifier: "BrowserOmnibarTextField")
+                .allElementsBoundByIndex
+                .compactMap { $0.value as? String }
+                .map { $0.lowercased() }
+            observedValues = values.joined(separator: " | ")
+            return values.contains { $0.hasPrefix(typedURL) }
+        }
+        XCTAssertTrue(
+            preservedCompleteURL,
+            "Expected immediate typing after Cmd+Shift+L to preserve complete URL '\(typedURL)'. values=\(observedValues)"
         )
     }
 
