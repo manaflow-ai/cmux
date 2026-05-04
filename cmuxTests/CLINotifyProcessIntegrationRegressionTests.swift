@@ -133,9 +133,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted]).write(to: storeURL, options: .atomic)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else { return "OK" }
+            guard let payload = self.jsonObject(line) else {
+                return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
+                    ? self.malformedRequestResponse(raw: line)
+                    : "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
             switch method {
             case "surface.list":
                 let params = payload["params"] as? [String: Any] ?? [:]
@@ -152,7 +157,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             case "workspace.current":
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": currentWorkspaceId])
             default:
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
         }
 
@@ -207,12 +212,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else { return "OK" }
-            return method == "surface.list"
-                ? self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                : self.v2Response(id: id, ok: true, result: [:])
+            guard let payload = self.jsonObject(line) else {
+                return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
+                    ? self.malformedRequestResponse(raw: line)
+                    : "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            if method == "surface.list" { return self.surfaceListResponse(id: id, surfaceId: surfaceId) }
+            return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -252,21 +261,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testLegacyFeedHookAliasReturnsJSONWithoutHelpOutsideCmuxTerminal() throws {
         let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("legacy-feed")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line), let id = payload["id"] as? String else { return "OK" }
-            return self.v2Response(id: id, ok: true, result: [:])
-        }
-
         var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SOCKET_PATH"] = makeSocketPath("legacy-feed")
         environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         environment.removeValue(forKey: "CMUX_SURFACE_ID")
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -279,7 +275,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
@@ -407,6 +402,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         if let error { payload["error"] = error }
         let data = try? JSONSerialization.data(withJSONObject: payload, options: [])
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
+
+    private func malformedRequestResponse(id: String? = nil, raw: String) -> String {
+        v2Response(
+            id: id ?? "unknown",
+            ok: false,
+            error: ["code": "malformed_request", "message": "invalid or non-JSON payload", "raw": raw]
+        )
     }
 
     private func surfaceListResponse(id: String, surfaceId: String) -> String {

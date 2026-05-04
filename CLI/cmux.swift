@@ -2188,8 +2188,9 @@ struct CMUXCLI {
                 return
             }
         }
-
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
+        if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
+           !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
@@ -3335,12 +3336,11 @@ struct CMUXCLI {
                 captureSocketTransportError(telemetry: cliTelemetry, stage: "claude_hook_dispatch", error: error, client: client)
                 throw error
             }
-
         case "codex-hook": // Backwards compatibility for older installed Codex hooks. Hidden from help.
-            try runGenericAgentHook(def: Self.agentDef(named: "codex")!, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            guard let codexDef = Self.agentDef(named: "codex") else { throw CLIError(message: "Codex hook integration is unavailable.") }
+            try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
             try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
-
         case "hooks":
             try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
 
@@ -16645,9 +16645,9 @@ export default CMUXSessionRestore;
     }
 
     private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws -> Bool {
-        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
+        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false); let existingData = try? Data(contentsOf: configURL)
         var config: [String: Any]
-        if let data = try? Data(contentsOf: configURL) {
+        if let data = existingData {
             guard let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CLIError(message: "Failed to parse \(configURL.path). Fix the JSON syntax and retry.") }
             config = decoded
         } else {
@@ -16657,7 +16657,7 @@ export default CMUXSessionRestore;
         if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
         config["plugin"] = plugins
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
-        if (try? Data(contentsOf: configURL)) == output { return false }
+        if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         try output.write(to: configURL, options: .atomic)
         return true
@@ -17023,7 +17023,7 @@ export default CMUXSessionRestore;
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
-            let surfaceId = try? resolvePreferredSurfaceIdForClaudeHook(
+            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
                 preferred: surfaceArg,
                 fallback: mapped?.surfaceId,
                 workspaceId: workspaceId,
@@ -17041,7 +17041,7 @@ export default CMUXSessionRestore;
                 try? store.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId ?? surfaceArg ?? mapped?.surfaceId ?? "",
+                    surfaceId: surfaceId,
                     cwd: input.cwd ?? mapped?.cwd,
                     pid: pid,
                     launchCommand: launchCommand
@@ -17059,7 +17059,7 @@ export default CMUXSessionRestore;
                     transcriptPath: normalizedHookValue(input.transcriptPath),
                     cwd: input.cwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId ?? surfaceArg ?? mapped?.surfaceId,
+                    surfaceId: surfaceId,
                     env: env
                 )
             }
