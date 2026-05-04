@@ -45,6 +45,7 @@ def run_wrapper(
     argv: list[str],
     node_options: str | None = None,
     tmpdir: str | None = None,
+    hooks_disabled: bool = False,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -165,6 +166,10 @@ exit 0
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
+        if hooks_disabled:
+            env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
+        else:
+            env.pop("CMUX_CLAUDE_HOOKS_DISABLED", None)
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
@@ -412,6 +417,24 @@ def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"missing socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
+def test_disabled_integration_skips_hook_injection(failures: list[str]) -> None:
+    code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        hooks_disabled=True,
+    )
+    expect(code == 0, f"disabled integration: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["hello"], f"disabled integration: expected passthrough args, got {real_argv}", failures)
+    expect("--settings" not in real_argv, f"disabled integration: expected no --settings injection, got {real_argv}", failures)
+    expect("notifications_disabled" not in " ".join(real_argv), f"disabled integration: expected no notification suppression, got {real_argv}", failures)
+    expect(cmux_log == [], f"disabled integration: expected no cmux calls, got {cmux_log}", failures)
+    expect(claudecode == "__UNSET__", f"disabled integration: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    expect(node_options == "__UNSET__", f"disabled integration: expected NODE_OPTIONS passthrough, got {node_options!r}", failures)
+    expect(runtime_node_options == "__UNSET__", f"disabled integration: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"disabled integration: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
+    expect(hook_cmux_bin == "__UNSET__", f"disabled integration: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
+
+
 def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
         socket_state="stale",
@@ -441,6 +464,7 @@ def main() -> int:
     test_live_socket_does_not_duplicate_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
+    test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
 
     if failures:
