@@ -5251,10 +5251,6 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
-    private func posixShellRemoteCommand(_ command: String) -> String {
-        "/bin/sh -c " + shellQuote(command)
-    }
-
     private func remoteBootstrapInstallShell(remoteRelayPort: Int) -> String {
         [
             "set -eu",
@@ -5716,10 +5712,6 @@ struct CMUXCLI {
             "exit $cmux_status",
         ]
         return lines.joined(separator: "\n")
-    }
-
-    func sshPercentEscapedRemoteCommand(_ remoteCommand: String) -> String {
-        remoteCommand.replacingOccurrences(of: "%", with: "%%")
     }
 
     func buildSSHStartupCommand(
@@ -6760,21 +6752,6 @@ struct CMUXCLI {
         ].joined(separator: " ")
     }
 
-    private func combinedLocalShellCommand(_ parts: [String?]) -> String? {
-        let filtered = parts.compactMap { raw -> String? in
-            guard let raw else { return nil }
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-        guard !filtered.isEmpty else { return nil }
-        return filtered.joined(separator: " ")
-    }
-
-    private func combinedLocalCommandForSSH(_ parts: [String?]) -> String? {
-        guard let command = combinedLocalShellCommand(parts) else { return nil }
-        return "/bin/sh -c \(shellQuote(command))"
-    }
-
     private func shouldDeferRemoteReconnect(in options: [String]) -> Bool {
         guard !hasSSHOptionKey(options, key: "LocalCommand"),
               !hasSSHOptionKey(options, key: "PermitLocalCommand") else {
@@ -6819,7 +6796,7 @@ struct CMUXCLI {
         return trimmed
     }
 
-    private func shellQuote(_ value: String) -> String {
+    func shellQuote(_ value: String) -> String {
         let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
         if value.range(of: safePattern, options: .regularExpression) != nil {
             return value
