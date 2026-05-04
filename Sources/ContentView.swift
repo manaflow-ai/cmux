@@ -7,6 +7,33 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+struct CommandPaletteDismissFocusRestoreState<Target> {
+    private var pendingTarget: Target?
+    private var isApplying = false
+
+    var hasPendingTarget: Bool { pendingTarget != nil }
+    var isRestoreApplying: Bool { isApplying }
+
+    mutating func request(_ target: Target) {
+        pendingTarget = target
+    }
+
+    mutating func beginAttempt(isPalettePresented: Bool) -> Target? {
+        guard !isPalettePresented,
+              !isApplying,
+              let target = pendingTarget else {
+            return nil
+        }
+        pendingTarget = nil
+        isApplying = true
+        return target
+    }
+
+    mutating func finishAttempt() {
+        isApplying = false
+    }
+}
+
 // MARK: - File Drop Overlay
 
 enum DragOverlayRoutingPolicy {
@@ -1674,8 +1701,7 @@ struct ContentView: View {
     @State private var commandPaletteVisibleResultsFingerprint: Int?
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
-    @State private var commandPalettePendingDismissFocusTarget: MainWindowFocusRestoreTarget?
-    @State private var commandPaletteRestoreTimeoutWorkItem: DispatchWorkItem?
+    @State private var commandPaletteDismissFocusRestore = CommandPaletteDismissFocusRestoreState<MainWindowFocusRestoreTarget>()
     @State private var commandPalettePendingTextSelectionBehavior: CommandPaletteTextSelectionBehavior?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
@@ -9012,32 +9038,19 @@ struct ContentView: View {
     }
 
     private func requestCommandPaletteFocusRestore(target: MainWindowFocusRestoreTarget) {
-        commandPalettePendingDismissFocusTarget = target
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        let timeoutWork = DispatchWorkItem {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem = nil
-        }
-        commandPaletteRestoreTimeoutWorkItem = timeoutWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: timeoutWork)
+        commandPaletteDismissFocusRestore.request(target)
         attemptCommandPaletteFocusRestoreIfNeeded()
     }
 
     private func attemptCommandPaletteFocusRestoreIfNeeded() {
-        guard !isCommandPalettePresented else { return }
-        guard let target = commandPalettePendingDismissFocusTarget else { return }
-        commandPalettePendingDismissFocusTarget = nil
-
-        guard AppDelegate.shared?.restoreMainWindowKeyboardFocus(target, in: observedWindow) == true else {
-            if commandPaletteRestoreTimeoutWorkItem != nil,
-               commandPalettePendingDismissFocusTarget == nil {
-                commandPalettePendingDismissFocusTarget = target
-            }
-            return
+        guard let target = commandPaletteDismissFocusRestore.beginAttempt(
+            isPalettePresented: isCommandPalettePresented
+        ) else { return }
+        defer {
+            commandPaletteDismissFocusRestore.finishAttempt()
         }
 
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        commandPaletteRestoreTimeoutWorkItem = nil
+        _ = AppDelegate.shared?.restoreMainWindowKeyboardFocus(target, in: observedWindow)
     }
 
 #if DEBUG

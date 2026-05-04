@@ -741,6 +741,41 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
 
 
 final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
+    func testDismissFocusRestoreDoesNotAttemptWhilePalettePresented() {
+        var state = CommandPaletteDismissFocusRestoreState<Int>()
+        state.request(42)
+
+        XCTAssertNil(state.beginAttempt(isPalettePresented: true))
+        XCTAssertTrue(state.hasPendingTarget)
+        XCTAssertFalse(state.isRestoreApplying)
+    }
+
+    func testDismissFocusRestoreConsumesTargetForOneAttempt() {
+        var state = CommandPaletteDismissFocusRestoreState<Int>()
+        state.request(42)
+
+        XCTAssertEqual(state.beginAttempt(isPalettePresented: false), 42)
+        XCTAssertFalse(state.hasPendingTarget)
+        XCTAssertTrue(state.isRestoreApplying)
+        XCTAssertNil(state.beginAttempt(isPalettePresented: false))
+
+        state.finishAttempt()
+
+        XCTAssertFalse(state.isRestoreApplying)
+        XCTAssertNil(state.beginAttempt(isPalettePresented: false))
+    }
+
+    func testDismissFocusRestoreAllowsNewExplicitRequestAfterAttempt() {
+        var state = CommandPaletteDismissFocusRestoreState<Int>()
+        state.request(42)
+
+        XCTAssertEqual(state.beginAttempt(isPalettePresented: false), 42)
+        state.finishAttempt()
+        state.request(7)
+
+        XCTAssertEqual(state.beginAttempt(isPalettePresented: false), 7)
+    }
+
     func testRestoresBrowserAddressBarWhenPaletteOpenedFromFocusedAddressBar() {
         let panelId = UUID()
         XCTAssertTrue(
