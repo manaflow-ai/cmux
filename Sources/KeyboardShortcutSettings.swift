@@ -705,6 +705,14 @@ enum KeyboardShortcutSettings {
         conflictingAction: Action,
         previousShortcut: StoredShortcut
     ) {
+        guard conflictingAction.conflicts(
+            with: proposedShortcut,
+            proposedAction: currentAction,
+            configuredShortcut: shortcut(for: conflictingAction)
+        ) else {
+            return
+        }
+
         guard
             let resolvedCurrentShortcut = storedShortcutForReplacement(
                 proposedShortcut,
@@ -2234,11 +2242,19 @@ struct ShortcutRecorderValidationPresentation: Equatable {
         shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
     ) {
         guard let attempt else { return nil }
+        guard Self.shouldPresent(
+            attempt: attempt,
+            action: action,
+            shortcutForAction: shortcutForAction
+        ) else {
+            return nil
+        }
 
         let canSwap = Self.canSwapConflict(
             attempt: attempt,
             action: action,
-            currentShortcut: currentShortcut
+            currentShortcut: currentShortcut,
+            shortcutForAction: shortcutForAction
         )
 
         self.message = Self.message(
@@ -2251,6 +2267,25 @@ struct ShortcutRecorderValidationPresentation: Equatable {
             : nil
         self.undoButtonTitle = String(localized: "shortcut.recorder.undo", defaultValue: "Undo")
         self.canSwap = canSwap
+    }
+
+    private static func shouldPresent(
+        attempt: ShortcutRecorderRejectedAttempt,
+        action: KeyboardShortcutSettings.Action,
+        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut
+    ) -> Bool {
+        guard case let .conflictsWithAction(conflictingAction) = attempt.reason else {
+            return true
+        }
+        guard let proposedShortcut = attempt.proposedShortcut else {
+            return false
+        }
+
+        return conflictingAction.conflicts(
+            with: proposedShortcut,
+            proposedAction: action,
+            configuredShortcut: shortcutForAction(conflictingAction)
+        )
     }
 
     private static func message(
@@ -2302,10 +2337,19 @@ struct ShortcutRecorderValidationPresentation: Equatable {
     private static func canSwapConflict(
         attempt: ShortcutRecorderRejectedAttempt,
         action: KeyboardShortcutSettings.Action,
-        currentShortcut: StoredShortcut
+        currentShortcut: StoredShortcut,
+        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut
     ) -> Bool {
         guard case let .conflictsWithAction(conflictingAction) = attempt.reason,
               let proposedShortcut = attempt.proposedShortcut else {
+            return false
+        }
+
+        guard conflictingAction.conflicts(
+            with: proposedShortcut,
+            proposedAction: action,
+            configuredShortcut: shortcutForAction(conflictingAction)
+        ) else {
             return false
         }
 
