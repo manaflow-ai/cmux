@@ -1085,10 +1085,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testAddWorkspaceInPreferredMainWindowPrunesOrphanedContextWithoutLiveWindow() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
 
         let orphanWindowId = UUID()
         let orphanManager = TabManager()

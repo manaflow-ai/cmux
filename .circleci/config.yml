@@ -41,7 +41,12 @@ commands:
           name: Install Bun
           command: |
             BUN_VERSION="1.3.3"
-            npm install --global "bun@$BUN_VERSION"
+            NPM_GLOBAL="$HOME/.npm-global"
+            mkdir -p "$NPM_GLOBAL"
+            npm install --global --prefix "$NPM_GLOBAL" "bun@$BUN_VERSION"
+            BASH_ENV="${BASH_ENV:-$HOME/.bash_env}"
+            echo "export PATH=\"$NPM_GLOBAL/bin:\$PATH\"" >> "$BASH_ENV"
+            export PATH="$NPM_GLOBAL/bin:$PATH"
             test "$(bun --version)" = "$BUN_VERSION"
 
   install-zig:
@@ -393,6 +398,7 @@ jobs:
 
             CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
             CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+            CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
       - save-swift-package-cache:
           prefix: unit
       - save-zig-cache
@@ -462,13 +468,78 @@ jobs:
           path: .spm-cache
       - save-zig-cache
 
+  macos-nightly-publish:
+    executor: macos-xcode
+    steps:
+      - checkout-source:
+          submodules: true
+      - print-xcode
+      - restore-swift-package-cache:
+          prefix: nightly
+      - restore-zig-cache
+      - install-zig
+      - resolve-swift-packages:
+          scheme: cmux
+          source-packages-dir: .spm-cache
+      - run:
+          name: Build, sign, notarize, and publish nightly
+          no_output_timeout: 45m
+          command: ./scripts/ci/circleci-nightly.sh
+      - save-swift-package-cache:
+          prefix: nightly
+          path: .spm-cache
+      - save-zig-cache
+
+  macos-release-publish:
+    executor: macos-xcode
+    steps:
+      - checkout-source:
+          submodules: true
+      - print-xcode
+      - restore-swift-package-cache:
+          prefix: release-publish
+      - restore-zig-cache
+      - install-zig
+      - resolve-swift-packages:
+          scheme: cmux
+          source-packages-dir: .spm-cache
+      - run:
+          name: Build, sign, notarize, and publish release
+          no_output_timeout: 45m
+          command: ./scripts/ci/circleci-release.sh
+      - save-swift-package-cache:
+          prefix: release-publish
+          path: .spm-cache
+      - save-zig-cache
+
 workflows:
   ci:
     jobs:
-      - workflow-guard-tests
-      - remote-daemon-tests
-      - web-typecheck
-      - web-db-migrations
-      - macos-unit-tests
-      - macos-debug-build
-      - macos-release-build
+      - macos-unit-tests:
+          filters:
+            tags:
+              ignore: /.*/
+      - macos-debug-build:
+          filters:
+            tags:
+              ignore: /.*/
+      - macos-release-build:
+          filters:
+            tags:
+              ignore: /.*/
+  nightly:
+    jobs:
+      - macos-nightly-publish:
+          filters:
+            branches:
+              only: main
+            tags:
+              ignore: /.*/
+  release:
+    jobs:
+      - macos-release-publish:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/

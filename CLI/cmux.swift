@@ -14413,29 +14413,11 @@ struct CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name",
-            "turn_id",
-            "turnId",
-            "last_assistant_message",
-            "lastAssistantMessage",
-            "event",
-            "event_name",
-            "hook_event_name",
-            "type",
-            "kind",
-            "notification_type",
-            "matcher",
-            "reason",
-            "message",
-            "body",
-            "text",
-            "prompt",
-            "error",
-            "codex_error_info",
-            "codexErrorInfo",
-            "additional_details",
-            "additionalDetails",
-            "description",
+            "tool_name", "turn_id", "turnId",
+            "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
+            "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason",
+            "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
+            "additional_details", "additionalDetails", "description",
         ] {
             if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
@@ -14494,19 +14476,8 @@ struct CMUXCLI {
             guard let nested = object[key] as? [String: Any] else { continue }
             var compactNested: [String: Any] = [:]
             for nestedKey in [
-                "type",
-                "kind",
-                "reason",
-                "message",
-                "body",
-                "text",
-                "prompt",
-                "error",
-                "codex_error_info",
-                "codexErrorInfo",
-                "additional_details",
-                "additionalDetails",
-                "description",
+                "type", "kind", "reason", "message", "body", "text", "prompt", "error",
+                "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description",
             ] {
                 if let value = compactClaudeHookValue(nested[nestedKey], key: nestedKey) {
                     compactNested[nestedKey] = value
@@ -14524,7 +14495,7 @@ struct CMUXCLI {
         switch key {
         case "tool_name", "turn_id", "turnId", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason":
             return 80
-        case "last_assistant_message", "lastAssistantMessage", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
+        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
             return 240
         default:
             return 160
@@ -14648,16 +14619,25 @@ struct CMUXCLI {
             let tail = URL(fileURLWithPath: path).lastPathComponent
             return tail.isEmpty ? path : tail
         }()
+        let completedSubtitle: String = {
+            guard let projectName, !projectName.isEmpty else {
+                return String(localized: "agent.claude.completion.subtitle.completed", defaultValue: "Completed")
+            }
+            return String.localizedStringWithFormat(
+                String(localized: "agent.claude.completion.subtitle.completedInProject", defaultValue: "Completed in %@"),
+                projectName
+            )
+        }()
+
+        if let assistantMessage = claudeAssistantMessageFromHookPayload(parsedInput.object) {
+            return (completedSubtitle, truncate(assistantMessage, maxLength: 200))
+        }
 
         // Try reading the transcript JSONL for a richer summary.
         let transcript = transcriptPath.flatMap { readTranscriptSummary(path: $0) }
 
         if let lastMsg = transcript?.lastAssistantMessage {
-            var subtitle = "Completed"
-            if let projectName, !projectName.isEmpty {
-                subtitle = "Completed in \(projectName)"
-            }
-            return (subtitle, truncate(lastMsg, maxLength: 200))
+            return (completedSubtitle, truncate(lastMsg, maxLength: 200))
         }
 
         // Fallback: use session record data.
@@ -14673,6 +14653,22 @@ struct CMUXCLI {
             body += ". Last: \(lastMessage)"
         }
         return ("Completed", body)
+    }
+
+    private func claudeAssistantMessageFromHookPayload(_ object: [String: Any]?) -> String? {
+        guard let object else { return nil }
+        let message = firstString(
+            in: object,
+            keys: [
+                "last_assistant_message",
+                "lastAssistantMessage",
+                "assistantPreamble",
+                "assistant_preamble",
+            ]
+        )
+        guard let message else { return nil }
+        let normalized = normalizedSingleLine(message)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private struct TranscriptSummary {
