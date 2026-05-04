@@ -188,6 +188,196 @@ describe("VM REST auth", () => {
     }));
   });
 
+  test("uses the native client's requested Stack team for billing", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      },
+      listTeams: async () => [
+        {
+          id: "team-1",
+          clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+        },
+        {
+          id: "team-2",
+          clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+        },
+      ],
+    });
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-team-2",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-team-id": "team-2",
+        },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      billingCustomerType: "team",
+      billingTeamId: "team-2",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+    }));
+  });
+
+  test("rejects a requested Stack team the caller does not belong to", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-team-id": "team-other",
+        },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("uses the single Stack team when personal team auto-create populated listTeams", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: null,
+      listTeams: async () => [{
+        id: "team-personal",
+        clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      }],
+    });
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-personal-team",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      billingCustomerType: "team",
+      billingTeamId: "team-personal",
+      billingPlanId: "free",
+    }));
+  });
+
+  test("rejects VM create when Stack Auth returns no teams", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: null,
+      listTeams: async () => [],
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: "vm_billing_team_required" });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("rejects VM create when Stack Auth returns multiple teams but no selected/requested team", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: null,
+      listTeams: async () => [
+        { id: "team-1", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
+        { id: "team-2", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } },
+      ],
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: "vm_billing_team_required" });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("filters VM list to the requested Stack team", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      },
+      listTeams: async () => [
+        { id: "team-1", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
+        { id: "team-2", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } },
+      ],
+    });
+    runVmWorkflow.mockResolvedValue([{
+      providerVmId: "provider-vm-team-2",
+      provider: "e2b",
+      image: "cmuxd-ws:test",
+      imageVersion: "test-version",
+      createdAt: 1_777_000_000_000,
+    }]);
+
+    const response = await GET(
+      new Request("https://cmux.test/api/vm", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-team-id": "team-2",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(listUserVms).toHaveBeenCalledWith("user-1", "team-2");
+    expect(await response.json()).toMatchObject({
+      vms: [{ id: "provider-vm-team-2", provider: "e2b" }],
+    });
+  });
+
   test("blocks authenticated cookie mutations from cross-site origins before workflow", async () => {
     getUser.mockResolvedValue(authedStackUser());
 
